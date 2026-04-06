@@ -1,0 +1,54 @@
+// Test websocket.hml parse_ws_url() function
+
+import { parse_ws_url, is_secure_url } from "@stdlib/websocket";
+
+// === is_secure_url ===
+assert(is_secure_url("wss://example.com") == true, "wss is secure");
+assert(is_secure_url("ws://example.com") == false, "ws is not secure");
+
+// === parse_ws_url - basic ===
+let r1 = parse_ws_url("ws://example.com");
+assert(r1.secure == false, "ws not secure");
+assert(r1.host == "example.com", "host parsed");
+assert(r1.port == 80, "default port 80");
+assert(r1.path == "/", "default path /");
+
+// === parse_ws_url - secure ===
+let r2 = parse_ws_url("wss://example.com");
+assert(r2.secure == true, "wss secure");
+assert(r2.host == "example.com", "wss host");
+assert(r2.port == 443, "default port 443");
+
+// === parse_ws_url - with port ===
+let r3 = parse_ws_url("ws://localhost:8080");
+assert(r3.host == "localhost", "host with port");
+assert(r3.port == 8080, "explicit port 8080");
+
+// === parse_ws_url - with path ===
+let r4 = parse_ws_url("ws://example.com/chat");
+assert(r4.host == "example.com", "host with path");
+assert(r4.path == "/chat", "path parsed");
+assert(r4.port == 80, "port with path");
+
+// === parse_ws_url - with port and path ===
+let r5 = parse_ws_url("ws://localhost:9090/api/ws");
+assert(r5.host == "localhost", "host with port and path");
+assert(r5.port == 9090, "port 9090");
+assert(r5.path == "/api/ws", "path /api/ws");
+
+// === parse_ws_url - secure with port ===
+let r6 = parse_ws_url("wss://example.com:8443/secure");
+assert(r6.secure == true, "wss with port secure");
+assert(r6.port == 8443, "wss port 8443");
+assert(r6.path == "/secure", "wss path");
+
+// === Invalid URL ===
+let caught = false;
+try {
+	parse_ws_url("http://example.com");
+} catch (e) {
+	caught = true;
+}
+assert(caught, "http URL should throw");
+
+print("All WebSocket URL parsing tests passed!");

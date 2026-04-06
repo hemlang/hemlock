@@ -4,7 +4,8 @@
 //
 // Usage:
 // import { range, enumerate, zip, chunk, take, drop } from "@stdlib/iter";
-// import { flatten, unique, group_by, partition } from "@stdlib/iter";
+// import { map, filter, reduce, scan, flat_map, compact } from "@stdlib/iter";
+// import { flatten, unique, group_by, partition, sort_by } from "@stdlib/iter";
 
 // ============================================================================
 // Sequence Generation
@@ -315,6 +316,226 @@ export fn drop_last(arr, n): array {
 		result.push(arr[i]);
 	}
 
+	return result;
+}
+
+// ============================================================================
+// Functional Transformations
+// ============================================================================
+
+// Apply a function to each element and return new array
+// Parameters:
+// arr: array - Source array
+// fn: function - Mapping function (element, index) -> value
+// Returns: array - Transformed array
+export fn map(arr, f): array {
+	if (typeof(arr) != "array") {
+		throw "map() requires array argument";
+	}
+	if (typeof(f) != "function") {
+		throw "map() requires function argument";
+	}
+
+	let result: array = [];
+	for (let i = 0; i < arr.length; i++) {
+		result.push(f(arr[i], i));
+	}
+	return result;
+}
+
+// Return elements that satisfy a predicate
+// Parameters:
+// arr: array - Source array
+// pred: function - Predicate function (element, index) -> bool
+// Returns: array - Filtered array
+export fn filter(arr, pred): array {
+	if (typeof(arr) != "array") {
+		throw "filter() requires array argument";
+	}
+	if (typeof(pred) != "function") {
+		throw "filter() requires function argument";
+	}
+
+	let result: array = [];
+	for (let i = 0; i < arr.length; i++) {
+		if (pred(arr[i], i)) {
+			result.push(arr[i]);
+		}
+	}
+	return result;
+}
+
+// Reduce array to a single value by applying a function
+// Parameters:
+// arr: array - Source array
+// func: function - Reducer function (accumulator, element, index) -> value
+// initial: any - Initial accumulator value
+// Returns: any - Final accumulated value
+export fn reduce(arr, f, initial) {
+	if (typeof(arr) != "array") {
+		throw "reduce() requires array argument";
+	}
+	if (typeof(f) != "function") {
+		throw "reduce() requires function argument";
+	}
+
+	let acc = initial;
+	for (let i = 0; i < arr.length; i++) {
+		acc = f(acc, arr[i], i);
+	}
+	return acc;
+}
+
+// Return cumulative reduction results (prefix sums, etc.)
+// Parameters:
+// arr: array - Source array
+// func: function - Reducer function (accumulator, element) -> value
+// initial: any - Initial accumulator value
+// Returns: array - Array of intermediate results
+export fn scan(arr, f, initial): array {
+	if (typeof(arr) != "array") {
+		throw "scan() requires array argument";
+	}
+	if (typeof(f) != "function") {
+		throw "scan() requires function argument";
+	}
+
+	let result: array = [];
+	let acc = initial;
+	for (item in arr) {
+		acc = f(acc, item);
+		result.push(acc);
+	}
+	return result;
+}
+
+// Apply function to each element (side effects only, no return)
+// Parameters:
+// arr: array - Source array
+// func: function - Function to call (element, index) -> void
+export fn each(arr, f) {
+	if (typeof(arr) != "array") {
+		throw "each() requires array argument";
+	}
+	if (typeof(f) != "function") {
+		throw "each() requires function argument";
+	}
+
+	for (let i = 0; i < arr.length; i++) {
+		f(arr[i], i);
+	}
+}
+
+// Map and flatten one level (flatMap)
+// Parameters:
+// arr: array - Source array
+// func: function - Function returning array per element
+// Returns: array - Flattened result
+export fn flat_map(arr, f): array {
+	if (typeof(arr) != "array") {
+		throw "flat_map() requires array argument";
+	}
+	if (typeof(f) != "function") {
+		throw "flat_map() requires function argument";
+	}
+
+	let result: array = [];
+	for (item in arr) {
+		let mapped = f(item);
+		if (typeof(mapped) == "array") {
+			for (sub in mapped) {
+				result.push(sub);
+			}
+		} else {
+			result.push(mapped);
+		}
+	}
+	return result;
+}
+
+// Remove null values from array
+// Parameters:
+// arr: array - Source array
+// Returns: array - Array without nulls
+export fn compact(arr): array {
+	if (typeof(arr) != "array") {
+		throw "compact() requires array argument";
+	}
+
+	let result: array = [];
+	for (item in arr) {
+		if (item != null) {
+			result.push(item);
+		}
+	}
+	return result;
+}
+
+// Sort array using a comparison function
+// Parameters:
+// arr: array - Source array
+// cmp: function - Comparison function (a, b) -> i32 (negative, zero, positive)
+// Returns: array - New sorted array
+export fn sort_by(arr, cmp): array {
+	if (typeof(arr) != "array") {
+		throw "sort_by() requires array argument";
+	}
+	if (typeof(cmp) != "function") {
+		throw "sort_by() requires function argument";
+	}
+
+	let result = arr.slice(0, arr.length);
+	result.sort(cmp);
+	return result;
+}
+
+// Zip two arrays using a combining function
+// Parameters:
+// a: array - First array
+// b: array - Second array
+// func: function - Combining function (a_elem, b_elem) -> value
+// Returns: array - Combined array
+export fn zip_with(a, b, f): array {
+	if (typeof(a) != "array" || typeof(b) != "array") {
+		throw "zip_with() requires array arguments";
+	}
+	if (typeof(f) != "function") {
+		throw "zip_with() requires function argument";
+	}
+
+	let result: array = [];
+	let len = a.length;
+	if (b.length < len) {
+		len = b.length;
+	}
+
+	for (let i = 0; i < len; i++) {
+		result.push(f(a[i], b[i]));
+	}
+	return result;
+}
+
+// Sliding window over array
+// Parameters:
+// arr: array - Source array
+// size: i32 - Window size
+// Returns: array<array> - Array of windows
+export fn window(arr, size): array {
+	if (typeof(arr) != "array") {
+		throw "window() requires array argument";
+	}
+	if (size < 1) {
+		throw "window() size must be >= 1";
+	}
+
+	let result: array = [];
+	for (let i = 0; i <= arr.length - size; i++) {
+		let w: array = [];
+		for (let j = 0; j < size; j++) {
+			w.push(arr[i + j]);
+		}
+		result.push(w);
+	}
 	return result;
 }
 

@@ -356,10 +356,7 @@ export fn SharedData(path): object {
 			// Get all keys
 			// Returns: array<string>
 			let data = self._read_data();
-			let result: array = [];
-			// Note: Object iteration would be needed
-			// This is a simplified implementation
-			return result;
+			return data.keys();
 		},
 		clear: fn() {
 
@@ -450,24 +447,8 @@ export fn PidFile(path): object {
 
 // Sort an array of strings
 fn sort_strings(arr): array {
-	// Simple bubble sort for small arrays
 	let result = arr.slice(0, arr.length);
-	let n = result.length;
-
-	let i = 0;
-	while (i < n - 1) {
-		let j = 0;
-		while (j < n - i - 1) {
-			if (result[j] > result[j + 1]) {
-				let temp = result[j];
-				result[j] = result[j + 1];
-				result[j + 1] = temp;
-			}
-			j = j + 1;
-		}
-		i = i + 1;
-	}
-
+	result.sort();
 	return result;
 }
 

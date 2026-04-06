@@ -213,11 +213,17 @@ export fn get_json(url) {
 }
 
 export fn download(url, output_path) {
-	let response = get(url, null);
+	let response = get_binary(url, null);
 
-	// Would need file write support
-	// For now, just return success based on status
-	return response.status_code >= 200 && response.status_code < 300;
+	if (response.status_code < 200 || response.status_code >= 300) {
+		throw "download() failed with status " + response.status_code;
+	}
+
+	let f = __open(output_path, "w");
+	f.write(response.body);
+	f.close();
+
+	return true;
 }
 
 // ========== STATUS CODE HELPERS ==========
@@ -241,16 +247,28 @@ export fn is_server_error(status_code) {
 // ========== URL HELPERS ==========
 
 export fn url_encode(str) {
-	let result = str;
-	result = result.replace_all(" ", "%20");
-	result = result.replace_all("!", "%21");
-	result = result.replace_all("#", "%23");
-	result = result.replace_all("$", "%24");
-	result = result.replace_all("&", "%26");
-	result = result.replace_all("'", "%27");
-	result = result.replace_all("(", "%28");
-	result = result.replace_all(")", "%29");
-	result = result.replace_all("+", "%2B");
+	let hex_chars = "0123456789ABCDEF";
+	let bytes = str.bytes();
+	let result = "";
+
+	let i = 0;
+	while (i < bytes.length) {
+		let b = bytes[i];
+		let code: i32 = b;
+
+		// Unreserved characters per RFC 3986: A-Z, a-z, 0-9, -, _, ., ~
+		if (code >= 65 && code <= 90 || code >= 97 && code <= 122 ||
+			code >= 48 && code <= 57 ||
+			code == 45 || code == 95 || code == 46 || code == 126) {
+			let ch: rune = b;
+			result = result + ch;
+		} else {
+			let hi = b >> 4 & 15;
+			let lo = b & 15;
+			result = result + "%" + hex_chars.substr(hi, 1) + hex_chars.substr(lo, 1);
+		}
+		i = i + 1;
+	}
 	return result;
 }
 

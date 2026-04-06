@@ -1,0 +1,31 @@
+// Test url.hml is_valid_scheme and normalize fixes
+
+import { parse, normalize } from "@stdlib/url";
+
+// === Scheme validation via parse ===
+// Valid schemes should parse successfully
+let u1 = parse("http://example.com");
+assert(u1.scheme == "http", "http scheme");
+
+let u2 = parse("https://example.com");
+assert(u2.scheme == "https", "https scheme");
+
+let u3 = parse("ftp://files.example.com");
+assert(u3.scheme == "ftp", "ftp scheme");
+
+// === normalize ===
+// Should remove default ports
+let n1 = normalize("http://example.com:80/path");
+assert(n1 == "http://example.com/path", "normalize removes :80 for http");
+
+let n2 = normalize("https://example.com:443/path");
+assert(n2 == "https://example.com/path", "normalize removes :443 for https");
+
+// Should keep non-default ports
+let n3 = normalize("http://example.com:8080/path");
+assert(n3 == "http://example.com:8080/path", "normalize keeps :8080");
+
+let n4 = normalize("https://example.com:8443/path");
+assert(n4 == "https://example.com:8443/path", "normalize keeps :8443");
+
+print("All URL scheme validation tests passed!");

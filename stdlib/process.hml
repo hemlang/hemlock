@@ -2,6 +2,13 @@
 
 // Process identification
 export let get_pid = __get_pid;
+export let get_ppid = __getppid;
+export let get_uid = __getuid;
+export let get_euid = __geteuid;
+export let get_gid = __getgid;
+export let get_egid = __getegid;
+
+// Legacy C-style aliases (deprecated, use snake_case versions above)
 export let getppid = __getppid;
 export let getuid = __getuid;
 export let geteuid = __geteuid;

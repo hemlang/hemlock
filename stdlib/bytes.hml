@@ -1,25 +1,45 @@
-// Hemlock Standard Library: Byte Order Utilities
-// Byte swapping, endianness conversion, and endian-aware buffer I/O
+// @stdlib/bytes - Byte Order Utilities
+//
+// Byte swapping, endianness conversion, and endian-aware buffer I/O.
+//
+// Usage:
+// import { htons, ntohl, read_u32_be, write_u16_le } from "@stdlib/bytes";
+// import { to_hex, from_hex, compare } from "@stdlib/bytes";
+//
+// let port = htons(8080);  // Convert port to network byte order
+// let val = read_u32_be(buf, 0);  // Read big-endian u32 from buffer
 
-// Byte swap functions
+// ========== BYTE SWAP FUNCTIONS ==========
+// bswap16(val: u16) -> u16  - Reverse bytes of 16-bit value
+// bswap32(val: u32) -> u32  - Reverse bytes of 32-bit value
+// bswap64(val: u64) -> u64  - Reverse bytes of 64-bit value
 export let bswap16 = __bswap16;
 export let bswap32 = __bswap32;
 export let bswap64 = __bswap64;
 
-// Host to network byte order (big-endian)
+// ========== HOST/NETWORK BYTE ORDER ==========
+// htons(val: u16) -> u16   - Host to network byte order (16-bit)
+// htonl(val: u32) -> u32   - Host to network byte order (32-bit)
+// htonll(val: u64) -> u64  - Host to network byte order (64-bit)
 export let htons = __htons;
 export let htonl = __htonl;
 export let htonll = __htonll;
 
-// Network to host byte order
+// ntohs(val: u16) -> u16   - Network to host byte order (16-bit)
+// ntohl(val: u32) -> u32   - Network to host byte order (32-bit)
+// ntohll(val: u64) -> u64  - Network to host byte order (64-bit)
 export let ntohs = __ntohs;
 export let ntohl = __ntohl;
 export let ntohll = __ntohll;
 
-// Endianness query
+// ========== ENDIANNESS QUERY ==========
+// is_little_endian() -> bool - True if host is little-endian
 export let is_little_endian = __is_little_endian;
 
-// Endian-aware buffer read
+// ========== ENDIAN-AWARE BUFFER READ ==========
+// read_u16_be(buf, offset) -> u16  - Read big-endian u16 from buffer
+// read_u16_le(buf, offset) -> u16  - Read little-endian u16 from buffer
+// (same pattern for u32 and u64)
 export let read_u16_be = __read_u16_be;
 export let read_u16_le = __read_u16_le;
 export let read_u32_be = __read_u32_be;
@@ -27,10 +47,93 @@ export let read_u32_le = __read_u32_le;
 export let read_u64_be = __read_u64_be;
 export let read_u64_le = __read_u64_le;
 
-// Endian-aware buffer write
+// ========== ENDIAN-AWARE BUFFER WRITE ==========
+// write_u16_be(buf, offset, val) - Write big-endian u16 to buffer
+// write_u16_le(buf, offset, val) - Write little-endian u16 to buffer
+// (same pattern for u32 and u64)
 export let write_u16_be = __write_u16_be;
 export let write_u16_le = __write_u16_le;
 export let write_u32_be = __write_u32_be;
 export let write_u32_le = __write_u32_le;
 export let write_u64_be = __write_u64_be;
 export let write_u64_le = __write_u64_le;
+
+// ========== UTILITY FUNCTIONS ==========
+
+// Convert a buffer to a hex string
+// Parameters:
+// buf: buffer - Source buffer
+// len: i32 - Number of bytes to convert
+// Returns: string - Hex representation (e.g., "48656c6c6f")
+export fn to_hex(buf, len: i32): string {
+	let hex_chars = "0123456789abcdef";
+	let result = "";
+	for (let i = 0; i < len; i++) {
+		let b: i32 = buf[i];
+		let hi = b >> 4 & 15;
+		let lo = b & 15;
+		result = result + hex_chars.substr(hi, 1) + hex_chars.substr(lo, 1);
+	}
+	return result;
+}
+
+// Convert a hex string to a buffer
+// Parameters:
+// hex: string - Hex string (must be even length)
+// Returns: buffer - Decoded bytes
+export fn from_hex(hex: string): buffer {
+	if (hex.length % 2 != 0) {
+		throw "from_hex() requires even-length hex string";
+	}
+
+	let len = __divi(hex.length, 2);
+	let buf = buffer(len);
+
+	for (let i = 0; i < len; i++) {
+		let hi = hex_val(hex.char_at(i * 2));
+		let lo = hex_val(hex.char_at(i * 2 + 1));
+		if (hi < 0 || lo < 0) {
+			throw "from_hex() invalid hex character";
+		}
+		let byte_val: u8 = hi << 4 | lo;
+		buf[i] = byte_val;
+	}
+	return buf;
+}
+
+fn hex_val(ch): i32 {
+	let code: i32 = ch;
+	if (code >= 48 && code <= 57) { return code - 48; }
+	if (code >= 65 && code <= 70) { return code - 55; }
+	if (code >= 97 && code <= 102) { return code - 87; }
+	return -1;
+}
+
+// Compare two buffers lexicographically
+// Parameters:
+// a: buffer, b: buffer, len: i32 - Number of bytes to compare
+// Returns: i32 - Negative if a < b, 0 if equal, positive if a > b
+export fn compare(a, b, len: i32): i32 {
+	for (let i = 0; i < len; i++) {
+		let ba: i32 = a[i];
+		let bb: i32 = b[i];
+		if (ba != bb) {
+			return ba - bb;
+		}
+	}
+	return 0;
+}
+
+// Fill a buffer with a byte value
+// Parameters:
+// buf: buffer, val: u8, len: i32
+export fn fill(buf, val: u8, len: i32) {
+	memset(buf, val, len);
+}
+
+// Copy bytes between buffers
+// Parameters:
+// dest: buffer, src: buffer, len: i32
+export fn copy(dest, src, len: i32) {
+	memcpy(dest, src, len);
+}

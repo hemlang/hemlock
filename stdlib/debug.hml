@@ -1,6 +1,120 @@
-// Hemlock Standard Library: Debug Utilities
-// Task inspection and stack management
+// @stdlib/debug - Debug Utilities
+//
+// Task inspection, stack management, and debugging helpers.
+//
+// Usage:
+// import { task_debug_info, inspect, hexdump } from "@stdlib/debug";
+// print(inspect(some_value));  // Pretty-print any value with type info
 
+// ========== TASK & STACK BUILTINS ==========
+// task_debug_info(task) -> object  - Get debug info for a task (state, stack usage)
+// set_stack_limit(bytes: i32)     - Set maximum stack size for tasks
+// get_stack_limit() -> i32        - Get current stack size limit
 export let task_debug_info = __task_debug_info;
 export let set_stack_limit = __set_stack_limit;
 export let get_stack_limit = __get_stack_limit;
+
+// ========== INSPECTION UTILITIES ==========
+
+// Inspect a value, returning a detailed string with type information
+// Parameters:
+// val: any - Value to inspect
+// Returns: string - Human-readable representation with type
+export fn inspect(val): string {
+	let t = typeof(val);
+
+	if (t == "null") { return "null"; }
+	if (t == "bool") { return val ? "true" : "false"; }
+
+	if (t == "string") {
+		return `"${val}" (string, len=${val.length})`;
+	}
+
+	if (t == "array") {
+		let items: array = [];
+		let max_show = 10;
+		let i = 0;
+		while (i < val.length && i < max_show) {
+			items.push(inspect(val[i]));
+			i = i + 1;
+		}
+		let suffix = "";
+		if (val.length > max_show) {
+			suffix = `, ... +${val.length - max_show} more`;
+		}
+		return `[${items.join(", ")}${suffix}] (array, len=${val.length})`;
+	}
+
+	if (t == "object") {
+		let keys = val.keys();
+		let items: array = [];
+		let max_show = 8;
+		let i = 0;
+		while (i < keys.length && i < max_show) {
+			items.push(keys[i] + ": " + inspect(val[keys[i]]));
+			i = i + 1;
+		}
+		let suffix = "";
+		if (keys.length > max_show) {
+			suffix = `, ... +${keys.length - max_show} more`;
+		}
+		return `{${items.join(", ")}${suffix}} (object, keys=${keys.length})`;
+	}
+
+	if (t == "buffer" || t == "ptr") {
+		return `<${t}>`;
+	}
+
+	// Numbers and other types
+	return `${val} (${t})`;
+}
+
+// Hexdump a buffer for debugging
+// Parameters:
+// buf: buffer - Buffer to dump
+// len: i32 - Number of bytes to dump
+// Returns: string - Hex dump with ASCII sidebar
+export fn hexdump(buf, len: i32): string {
+	let result = "";
+	let bytes_per_line = 16;
+
+	let offset = 0;
+	while (offset < len) {
+		// Offset column
+		let off_str = "" + offset;
+		while (off_str.length < 8) {
+			off_str = "0" + off_str;
+		}
+		result = result + off_str + "  ";
+
+		// Hex columns
+		let ascii = "";
+		for (let i = 0; i < bytes_per_line; i++) {
+			if (offset + i < len) {
+				let b = ptr_read_u8(buf + offset + i);
+				let hi = b >> 4 & 15;
+				let lo = b & 15;
+				let hex = "0123456789abcdef";
+				result = result + hex.substr(hi, 1) + hex.substr(lo, 1) + " ";
+				// ASCII printable range
+				if (b >= 32 && b <= 126) {
+					let ch: rune = b;
+					ascii = ascii + ch;
+				} else {
+					ascii = ascii + ".";
+				}
+			} else {
+				result = result + "   ";
+				ascii = ascii + " ";
+			}
+			if (i == 7) {
+				result = result + " ";
+			}
+		}
+
+		result = result + " |" + ascii + "|\n";
+		offset = offset + bytes_per_line;
+	}
+
+	return result;
+}

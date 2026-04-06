@@ -62,8 +62,25 @@ fn __deep_equal(a, b): bool {
 		return true;
 	}
 
-	// Objects - use reference equality
-	// Note: Deep object comparison deferred to 1.1 (needs cycle detection)
+	// Objects - deep comparison by keys and values
+	if (type_a == "object") {
+		let keys_a = a.keys();
+		let keys_b = b.keys();
+		if (keys_a.length != keys_b.length) {
+			return false;
+		}
+		let i = 0;
+		while (i < keys_a.length) {
+			let key = keys_a[i];
+			if (!__deep_equal(a[key], b[key])) {
+				return false;
+			}
+			i = i + 1;
+		}
+		return true;
+	}
+
+	// Fallback: reference equality for other types
 	return a == b;
 }
 

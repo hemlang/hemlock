@@ -75,28 +75,28 @@ export fn assert_strict_eq(actual, expected, message?: "Values not strictly equa
 
 // Assert that actual > expected
 export fn assert_gt(actual, expected, message?: "Expected greater than") {
-	if (!actual > expected) {
+	if (!(actual > expected)) {
 		throw message + ": " + format_value(actual) + " is not > " + format_value(expected);
 	}
 }
 
 // Assert that actual >= expected
 export fn assert_gte(actual, expected, message?: "Expected greater than or equal") {
-	if (!actual >= expected) {
+	if (!(actual >= expected)) {
 		throw message + ": " + format_value(actual) + " is not >= " + format_value(expected);
 	}
 }
 
 // Assert that actual < expected
 export fn assert_lt(actual, expected, message?: "Expected less than") {
-	if (!actual < expected) {
+	if (!(actual < expected)) {
 		throw message + ": " + format_value(actual) + " is not < " + format_value(expected);
 	}
 }
 
 // Assert that actual <= expected
 export fn assert_lte(actual, expected, message?: "Expected less than or equal") {
-	if (!actual <= expected) {
+	if (!(actual <= expected)) {
 		throw message + ": " + format_value(actual) + " is not <= " + format_value(expected);
 	}
 }

@@ -1,6 +1,50 @@
-// Hemlock Standard Library: FFI Utilities
-// Foreign Function Interface callback and type management
+// @stdlib/ffi - FFI Utilities
+//
+// Foreign Function Interface callback and type management.
+// For dynamic FFI (ffi_open, ffi_bind, ffi_close), use the builtins directly.
+//
+// Usage:
+// import { callback, callback_free, ffi_sizeof, FFI_TYPES } from "@stdlib/ffi";
+//
+// // Create a C-compatible callback from a Hemlock function
+// let cb = callback(my_func);
+// ffi_call_with_callback(cb);
+// callback_free(cb);  // Must free when done!
+//
+// // Check type sizes for struct layout
+// let int_size = ffi_sizeof("int");  // 4
 
+// ========== CALLBACK MANAGEMENT ==========
+// callback(fn) -> ptr       - Create a C-callable function pointer from a Hemlock function
+// callback_free(ptr)        - Free a callback (must be called to avoid leaks)
+// ffi_sizeof(type) -> i32   - Get the size of a C type in bytes
 export let callback = __callback;
 export let callback_free = __callback_free;
 export let ffi_sizeof = __ffi_sizeof;
+
+// ========== FFI TYPE CONSTANTS ==========
+// Common libffi type constants for use with ffi_bind()
+export let FFI_VOID = 0;
+export let FFI_INT = 1;
+export let FFI_FLOAT = 2;
+export let FFI_DOUBLE = 3;
+export let FFI_POINTER = 4;
+export let FFI_STRING = 5;
+export let FFI_INT8 = 6;
+export let FFI_INT16 = 7;
+export let FFI_INT32 = 8;
+export let FFI_INT64 = 9;
+export let FFI_UINT8 = 10;
+export let FFI_UINT16 = 11;
+export let FFI_UINT32 = 12;
+export let FFI_UINT64 = 13;
+
+// ========== DYNAMIC FFI ==========
+// For dynamic FFI, use ffi_open/ffi_bind/ffi_close builtins directly.
+// These are interpreter-only and not available in compiled code.
+//
+// Example:
+//   let lib = ffi_open("libc.so.6");
+//   let puts = ffi_bind(lib, "puts", [FFI_POINTER], FFI_INT);
+//   puts("Hello!");
+//   ffi_close(lib);

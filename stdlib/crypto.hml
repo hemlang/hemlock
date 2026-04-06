@@ -107,85 +107,49 @@ export fn generate_iv() {
 	return random_bytes(16);
 }
 
-// Helper: Convert buffer to raw pointer (allocates new memory, caller must free)
-fn buffer_to_ptr(buf) {
-	let len = buf.length;
-	let p = alloc(len);
+// Helper: Copy bytes to a raw pointer (allocates new memory, caller must free)
+// Works with both buffer and array-of-bytes sources.
+fn to_ptr(data, len: i32): ptr {
+	let alloc_len = len;
+	if (alloc_len == 0) {
+		alloc_len = 1;  // OpenSSL needs at least 1 byte buffer
+	}
+
+	let p = alloc(alloc_len);
 	let i = 0;
 	while (i < len) {
-		let byte_val = buf[i];
-		let dest = p + i;
-		memset(dest, byte_val, 1);
+		let byte_val: u8 = data[i];
+		memset(p + i, byte_val, 1);
 		i = i + 1;
 	}
-	return p;
-}
 
-// / Helper: Convert string to raw byte pointer (caller must free)
-fn string_to_bytes_ptr(s) {
-	let bytes = s.bytes();
-	let len = bytes.length;
-
-	// Handle empty string
 	if (len == 0) {
-		len = 1;  // OpenSSL needs at least 1 byte buffer
-	}
-
-	let p = alloc(len);
-	let i = 0;
-	while (i < bytes.length) {
-		let byte_val: u8 = bytes[i];
-		// Write byte to memory
-		let dest = p + i;
-		memset(dest, byte_val, 1);
-		i = i + 1;
-	}
-
-	// Pad with zero if we allocated extra
-	if (bytes.length == 0) {
 		memset(p, 0, 1);
 	}
 
 	return p;
 }
 
-// Helper: Convert string to byte buffer (for compatibility)
+// Helper: Convert buffer to raw pointer (allocates new memory, caller must free)
+fn buffer_to_ptr(buf) {
+	return to_ptr(buf, buf.length);
+}
+
+// Helper: Convert string to byte buffer
 fn string_to_bytes(s) {
 	let bytes = s.bytes();
 	let len = bytes.length;
-
-	// Handle empty string
-	if (len == 0) {
-		len = 1;  // OpenSSL needs at least 1 byte buffer
-	}
+	if (len == 0) { len = 1; }
 
 	let buf = buffer(len);
 	let i = 0;
 	while (i < bytes.length) {
-		let byte_val: u8 = bytes[i];
-		buf[i] = byte_val;
+		buf[i] = bytes[i];
 		i = i + 1;
 	}
-
-	// Pad with zero if we allocated extra
-	if (bytes.length == 0) {
-		buf[0] = 0;
-	}
+	if (bytes.length == 0) { buf[0] = 0; }
 
 	return buf;
-}
-
-// Helper: Convert buffer to string
-fn bytes_to_string(buf, len) {
-	let result = "";
-	let i = 0;
-	while (i < len) {
-		let b = buf[i];
-		let r: rune = b;
-		result = result + r;
-		i = i + 1;
-	}
-	return result;
 }
 
 // AES-256-CBC Encryption

@@ -378,11 +378,8 @@ fn bind_value(stmt, idx, value) {
 		let str_cstr = __string_to_cstr(value);
 		let bytes = value.bytes();
 		let len = bytes.length;
-		// Use SQLITE_STATIC (null) - the string will remain valid until we're done
-		// Note: We free it after sqlite3_step, so this is safe
+		// Use SQLITE_STATIC (null) - the string will remain valid until sqlite3_step completes
 		let result = sqlite3_bind_text(stmt, idx, str_cstr, len, null);
-		// Don't free here - it will be freed after the statement finishes
-		// This is safe because we execute immediately after binding
 		return result;
 	}
 
@@ -395,8 +392,7 @@ fn bind_value(stmt, idx, value) {
 			memset(blob_ptr + i, byte_val, 1);
 			i = i + 1;
 		}
-		// Use SQLITE_STATIC (null) - the blob will remain valid until we're done
-		// Note: We don't free here because we execute immediately after binding
+		// Use SQLITE_STATIC (null) - the blob will remain valid until sqlite3_step completes
 		let result = sqlite3_bind_blob(stmt, idx, blob_ptr, len, null);
 		return result;
 	}

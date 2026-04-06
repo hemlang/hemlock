@@ -334,7 +334,7 @@ export fn uuid4(): string {
 		variant_val = variant_code - 97 + 10;
 	}
 	// Set high bits to 10 (binary): (val & 0x3) | 0x8
-	let new_val = variant_val & 3 | 8;
+	let new_val = (variant_val & 3) | 8;
 	let new_chars = "0123456789abcdef";
 	let p4 = new_chars[new_val] + hex.slice(17, 20);
 
