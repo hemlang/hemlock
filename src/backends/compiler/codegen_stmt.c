@@ -507,6 +507,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             if (ctx->optimize && ctx->type_ctx && counter_type == CHECKED_I32 &&
                 type_check_is_loop_counter(ctx->type_ctx, counter_name)) {
                 // OPTIMIZED: Generate loop with native int32_t counter
+                int opt_for_locals_start = ctx->num_locals;
                 codegen_push_scope(ctx);
                 codegen_writeln(ctx, "{");
                 codegen_indent_inc(ctx);
@@ -630,6 +631,11 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_writeln(ctx, "}");
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
+                // Restore num_locals (counter is out of C scope)
+                for (int i = opt_for_locals_start; i < ctx->num_locals; i++) {
+                    if (ctx->local_vars[i]) { free(ctx->local_vars[i]); ctx->local_vars[i] = NULL; }
+                }
+                ctx->num_locals = opt_for_locals_start;
                 codegen_pop_scope(ctx);
                 codegen_pop_for_continue(ctx);
                 free(continue_label);
@@ -640,6 +646,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 if (ctx->type_ctx && counter_name) {
                     type_check_clear_unboxable(ctx->type_ctx, counter_name);
                 }
+                int for_locals_start = ctx->num_locals;
                 codegen_push_scope(ctx);
                 codegen_writeln(ctx, "{");
                 codegen_indent_inc(ctx);
@@ -677,8 +684,21 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
+                // Release for-loop locals (counter, etc.) before closing wrapper
+                for (int i = for_locals_start; i < ctx->num_locals; i++) {
+                    if (!ctx->local_needs_cleanup[i]) continue;
+                    if (!ctx->local_vars[i]) continue;
+                    char *safe = codegen_sanitize_ident(ctx->local_vars[i]);
+                    codegen_writeln(ctx, "hml_release(&%s);", safe);
+                    free(safe);
+                }
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
+                // Restore num_locals so outer scope doesn't see for-loop vars
+                for (int i = for_locals_start; i < ctx->num_locals; i++) {
+                    if (ctx->local_vars[i]) { free(ctx->local_vars[i]); ctx->local_vars[i] = NULL; }
+                }
+                ctx->num_locals = for_locals_start;
                 codegen_pop_scope(ctx);
                 codegen_pop_for_continue(ctx);
                 free(continue_label);
@@ -710,6 +730,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             }
 
             // Push a scope for the for-in loop so loop variables shadow outer vars
+            int forin_locals_start = ctx->num_locals;
             codegen_push_scope(ctx);
 
             codegen_writeln(ctx, "{");
@@ -771,12 +792,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             if (stmt->as.for_in.key_var) {
                 codegen_writeln(ctx, "HmlValue %s;", safe_key_var);
                 codegen_add_local(ctx, stmt->as.for_in.key_var);
+                codegen_mark_local_no_cleanup(ctx, stmt->as.for_in.key_var);
                 if (ctx->current_scope) {
                     scope_add_var(ctx->current_scope, stmt->as.for_in.key_var);
                 }
             }
             codegen_writeln(ctx, "HmlValue %s;", safe_value_var);
             codegen_add_local(ctx, stmt->as.for_in.value_var);
+            codegen_mark_local_no_cleanup(ctx, stmt->as.for_in.value_var);
             if (ctx->current_scope) {
                 scope_add_var(ctx->current_scope, stmt->as.for_in.value_var);
             }
@@ -840,6 +863,11 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
+            // Restore num_locals (for-in vars are out of C scope)
+            for (int i = forin_locals_start; i < ctx->num_locals; i++) {
+                if (ctx->local_vars[i]) { free(ctx->local_vars[i]); ctx->local_vars[i] = NULL; }
+            }
+            ctx->num_locals = forin_locals_start;
             codegen_pop_for_continue(ctx);
             codegen_pop_scope(ctx);
             free(continue_label);
@@ -884,14 +912,27 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
             }
 
-            // Note: block-scoped locals are NOT cleaned up here. They have
-            // local_needs_cleanup=0 (set in codegen_add_local when current_scope != NULL)
-            // and are only cleaned up at function exit for function-scope locals.
-            // Block-scoped heap values that go out of scope without cleanup are a
-            // known limitation — the fix requires proper scope-aware cleanup which
-            // is complex due to the many codegen paths that create C blocks.
-            (void)block_locals_start;
-            (void)block_terminated;
+            // Release block-scoped boxed locals before exiting the C block.
+            // Skip if terminated (return/break/continue already handled cleanup).
+            if (!block_terminated) {
+                for (int i = block_locals_start; i < ctx->num_locals; i++) {
+                    if (!ctx->local_needs_cleanup[i]) continue;
+                    if (!ctx->local_vars[i]) continue;
+                    char *safe = codegen_sanitize_ident(ctx->local_vars[i]);
+                    codegen_writeln(ctx, "hml_release(&%s);", safe);
+                    free(safe);
+                }
+            }
+
+            // Restore num_locals so outer scopes don't see block-scoped locals.
+            // Free the local_vars entries for this block to prevent stale pointers.
+            for (int i = block_locals_start; i < ctx->num_locals; i++) {
+                if (ctx->local_vars[i]) {
+                    free(ctx->local_vars[i]);
+                    ctx->local_vars[i] = NULL;
+                }
+            }
+            ctx->num_locals = block_locals_start;
 
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");

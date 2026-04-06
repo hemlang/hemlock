@@ -352,9 +352,9 @@ void codegen_add_local(CodegenContext *ctx, const char *name) {
         ctx->local_needs_cleanup = new_cleanup;
         ctx->local_capacity = new_cap;
     }
-    // Only function-scope locals (no block scope active) need cleanup at exit.
-    // Block-scoped locals are inside C { } and handled by STMT_BLOCK cleanup.
-    ctx->local_needs_cleanup[ctx->num_locals] = (ctx->current_scope == NULL) ? 1 : 0;
+    // 1 = boxed HmlValue (needs hml_release), 0 = unboxed primitive (int32_t etc.)
+    // Scope management is handled by restoring num_locals at block exit.
+    ctx->local_needs_cleanup[ctx->num_locals] = 1;
     ctx->local_vars[ctx->num_locals++] = strdup(name);
 }
 

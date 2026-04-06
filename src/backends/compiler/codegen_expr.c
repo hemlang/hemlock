@@ -1410,6 +1410,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
 
                 codegen_writeln(ctx, "// Match arm %d", i);
                 codegen_writeln(ctx, "%s:;", arm_labels[i]);
+                int arm_locals_start = ctx->num_locals;
                 codegen_push_scope(ctx);
                 codegen_writeln(ctx, "{");
                 codegen_indent_inc(ctx);
@@ -1441,6 +1442,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
 
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
+                // Restore num_locals (match arm bindings are out of C scope)
+                for (int j = arm_locals_start; j < ctx->num_locals; j++) {
+                    if (ctx->local_vars[j]) { free(ctx->local_vars[j]); ctx->local_vars[j] = NULL; }
+                }
+                ctx->num_locals = arm_locals_start;
                 codegen_pop_scope(ctx);
             }
 
