@@ -237,6 +237,67 @@ export fn parse_iso(date_str: string) {
 	}
 }
 
+// ========== UTILITY FUNCTIONS ==========
+
+// Check if a year is a leap year
+// Parameters:
+// year: i32 - Year to check
+// Returns: bool
+export fn is_leap_year(year: i32): bool {
+	if (year % 4 != 0) { return false; }
+	if (year % 100 != 0) { return true; }
+	if (year % 400 != 0) { return false; }
+	return true;
+}
+
+// Get the number of days in a given month
+// Parameters:
+// year: i32 - Year (needed for February in leap years)
+// month: i32 - Month (1-12)
+// Returns: i32 - Number of days
+export fn days_in_month(year: i32, month: i32): i32 {
+	if (month < 1 || month > 12) {
+		throw "days_in_month() month must be 1-12, got " + month;
+	}
+
+	let days = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+	if (month == 2 && is_leap_year(year)) {
+		return 29;
+	}
+	return days[month];
+}
+
+// Get the number of days in a given year
+// Parameters:
+// year: i32 - Year
+// Returns: i32 - 365 or 366
+export fn days_in_year(year: i32): i32 {
+	if (is_leap_year(year)) { return 366; }
+	return 365;
+}
+
+// Validate date components
+// Parameters:
+// year: i32, month: i32, day: i32
+// Returns: bool - True if valid
+export fn is_valid_date(year: i32, month: i32, day: i32): bool {
+	if (month < 1 || month > 12) { return false; }
+	if (day < 1) { return false; }
+	if (day > days_in_month(year, month)) { return false; }
+	return true;
+}
+
+// Validate time components
+// Parameters:
+// hour: i32, minute: i32, second: i32
+// Returns: bool - True if valid
+export fn is_valid_time(hour: i32, minute: i32, second: i32): bool {
+	if (hour < 0 || hour > 23) { return false; }
+	if (minute < 0 || minute > 59) { return false; }
+	if (second < 0 || second > 59) { return false; }
+	return true;
+}
+
 // ========== FORMAT STRING REFERENCE ==========
 // Supported strftime format codes:
 // %Y - 4-digit year (e.g., 2025)
