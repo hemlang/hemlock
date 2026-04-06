@@ -97,6 +97,12 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->for_continue_labels = NULL;
     ctx->for_continue_depth = 0;
     ctx->for_continue_capacity = 0;
+    ctx->loop_labels = NULL;
+    ctx->loop_break_labels = NULL;
+    ctx->loop_continue_labels = NULL;
+    ctx->loop_label_body_locals = NULL;
+    ctx->loop_label_depth = 0;
+    ctx->loop_label_capacity = 0;
     ctx->type_ctx = NULL;  // Set by caller (main.c) if type checking enabled
     ctx->optimize = 1;  // Enable optimization by default
     ctx->stack_check = 1;  // Enable stack checking by default (can be overridden by caller)
@@ -108,6 +114,7 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->warning_count = 0;
     ctx->sandbox_flags = 0;  // No sandbox restrictions by default
     ctx->sandbox_root = NULL;  // No sandbox root directory by default
+    ctx->target_wasm = 0;
     return ctx;
 }
 
