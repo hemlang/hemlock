@@ -121,7 +121,11 @@ fn _TcpStream_from_socket(sock) {
 			let result = buffer(total_size);
 			let offset = 0;
 			for (chunk in chunks) {
-				memcpy(result + offset, chunk, chunk.length);
+				let i = 0;
+				while (i < chunk.length) {
+					result[offset + i] = chunk[i];
+					i = i + 1;
+				}
 				offset = offset + chunk.length;
 			}
 			return result;

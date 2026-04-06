@@ -149,11 +149,9 @@ export fn format(template, args): string {
 			formatted = format_int(num, 10, false, plus_sign, space_sign);
 		} else if (spec == 'f') {
 			// Float
-			let num = 0;
+			let num: f64 = 0;
 			if (arg != null) {
-				let num_str: string = "" + arg;
-				// Simple conversion - multiply string by 1.0
-				num = arg * 1;
+				num = f64(arg);
 			}
 			if (precision < 0) {
 				precision = 6;
@@ -161,9 +159,9 @@ export fn format(template, args): string {
 			formatted = format_float(num, precision);
 		} else if (spec == 'e' || spec == 'E') {
 			// Scientific notation
-			let num = 0;
+			let num: f64 = 0;
 			if (arg != null) {
-				num = arg * 1;
+				num = f64(arg);
 			}
 			if (precision < 0) {
 				precision = 6;
