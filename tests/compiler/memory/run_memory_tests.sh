@@ -18,7 +18,7 @@ HEMLOCKC="$ROOT_DIR/hemlockc"
 
 # RSS threshold in KB — 10 MB should be generous for 50k iterations of small objects.
 # A leaking binary would use 50-200+ MB for these tests.
-RSS_LIMIT_KB=10240
+RSS_LIMIT_KB=4096
 
 PASS_COUNT=0
 FAIL_COUNT=0
