@@ -52,6 +52,62 @@ export let min = __min;
 export let max = __max;
 export let clamp = __clamp;
 
+// ========== SIGN & SPECIAL FUNCTIONS ==========
+
+// Return -1, 0, or 1 based on sign of value
+export fn sign(x): i32 {
+	if (x > 0) { return 1; }
+	if (x < 0) { return -1; }
+	return 0;
+}
+
+// Cube root
+export fn cbrt(x): f64 {
+	if (x == 0) { return 0.0; }
+	if (x < 0) { return -__pow(-x, 1.0 / 3.0); }
+	return __pow(x, 1.0 / 3.0);
+}
+
+// Hypotenuse: sqrt(x² + y²) without overflow
+export fn hypot(x, y): f64 {
+	return __sqrt(x * x + y * y);
+}
+
+// Greatest common divisor
+export fn gcd(a, b): i64 {
+	let x: i64 = __abs(a);
+	let y: i64 = __abs(b);
+	while (y != 0) {
+		let t = y;
+		y = x % y;
+		x = t;
+	}
+	return x;
+}
+
+// Least common multiple
+export fn lcm(a, b): i64 {
+	if (a == 0 || b == 0) { return 0; }
+	let x: i64 = __abs(a);
+	let y: i64 = __abs(b);
+	return __divi(x, gcd(x, y)) * y;
+}
+
+// ========== HYPERBOLIC FUNCTIONS ==========
+
+export fn sinh(x): f64 {
+	return (__exp(x) - __exp(-x)) / 2.0;
+}
+
+export fn cosh(x): f64 {
+	return (__exp(x) + __exp(-x)) / 2.0;
+}
+
+export fn tanh(x): f64 {
+	let ex = __exp(2.0 * x);
+	return (ex - 1.0) / (ex + 1.0);
+}
+
 // ========== RANDOM FUNCTIONS ==========
 
 export let rand = __rand;  // Random float [0.0, 1.0)
