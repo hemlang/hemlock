@@ -235,8 +235,11 @@ export fn parse_ws_url(url: string) {
 
 	if (port_pos >= 0) {
 		host = host_port.substr(0, port_pos);
+		let port_str = host_port.substr(port_pos + 1, host_port.length - port_pos - 1);
+		if (port_str.length > 0) {
+			port = i32(port_str);
+		}
 	} else {
-		// Would need string-to-int conversion
 		host = host_port;
 	}
 
