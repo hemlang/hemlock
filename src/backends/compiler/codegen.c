@@ -88,6 +88,9 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->has_return_vars = NULL;
     ctx->try_finally_capacity = 0;
     ctx->loop_depth = 0;
+    ctx->loop_body_locals = NULL;
+    ctx->loop_body_depth = 0;
+    ctx->loop_body_capacity = 0;
     ctx->switch_depth = 0;
     ctx->switch_end_labels = NULL;
     ctx->switch_end_capacity = 0;
@@ -234,6 +237,12 @@ void codegen_free(CodegenContext *ctx) {
             }
             free(ctx->for_continue_labels);
         }
+
+        // Free loop body locals stack
+        free(ctx->loop_body_locals);
+
+        // Free loop label body locals stack
+        free(ctx->loop_label_body_locals);
 
         // Note: type_ctx is NOT freed here - it's owned by the caller (main.c)
 
@@ -671,21 +680,25 @@ void codegen_push_loop_label(CodegenContext *ctx, const char *label, const char 
         char **new_labels = realloc(ctx->loop_labels, new_cap * sizeof(char*));
         char **new_break = realloc(ctx->loop_break_labels, new_cap * sizeof(char*));
         char **new_continue = realloc(ctx->loop_continue_labels, new_cap * sizeof(char*));
-        if (!new_labels || !new_break || !new_continue) {
+        int *new_body_locals = realloc(ctx->loop_label_body_locals, new_cap * sizeof(int));
+        if (!new_labels || !new_break || !new_continue || !new_body_locals) {
             if (new_labels) ctx->loop_labels = new_labels;
             if (new_break) ctx->loop_break_labels = new_break;
             if (new_continue) ctx->loop_continue_labels = new_continue;
+            if (new_body_locals) ctx->loop_label_body_locals = new_body_locals;
             fprintf(stderr, "error: Failed to expand loop label storage\n");
             exit(1);
         }
         ctx->loop_labels = new_labels;
         ctx->loop_break_labels = new_break;
         ctx->loop_continue_labels = new_continue;
+        ctx->loop_label_body_locals = new_body_locals;
         ctx->loop_label_capacity = new_cap;
     }
     ctx->loop_labels[ctx->loop_label_depth] = strdup(label);
     ctx->loop_break_labels[ctx->loop_label_depth] = strdup(break_label);
     ctx->loop_continue_labels[ctx->loop_label_depth] = strdup(continue_label);
+    ctx->loop_label_body_locals[ctx->loop_label_depth] = ctx->num_locals;
     ctx->loop_label_depth++;
 }
 
@@ -714,6 +727,55 @@ const char* codegen_get_labeled_continue(CodegenContext *ctx, const char *label)
         }
     }
     return NULL;
+}
+
+// ========== LOOP BODY LOCALS TRACKING ==========
+
+void codegen_push_loop_body(CodegenContext *ctx) {
+    if (ctx->loop_body_depth >= ctx->loop_body_capacity) {
+        int new_cap = (ctx->loop_body_capacity == 0) ? 4 : ctx->loop_body_capacity * 2;
+        int *new_stack = realloc(ctx->loop_body_locals, new_cap * sizeof(int));
+        if (!new_stack) {
+            fprintf(stderr, "error: Failed to expand loop body locals storage\n");
+            exit(1);
+        }
+        ctx->loop_body_locals = new_stack;
+        ctx->loop_body_capacity = new_cap;
+    }
+    ctx->loop_body_locals[ctx->loop_body_depth] = ctx->num_locals;
+    ctx->loop_body_depth++;
+}
+
+void codegen_pop_loop_body(CodegenContext *ctx) {
+    if (ctx->loop_body_depth > 0) {
+        ctx->loop_body_depth--;
+    }
+}
+
+// Emit hml_release for locals from current num_locals down to 'start'
+static void codegen_emit_cleanup_range(CodegenContext *ctx, int start) {
+    for (int i = start; i < ctx->num_locals; i++) {
+        if (!ctx->local_needs_cleanup[i]) continue;
+        if (!ctx->local_vars[i]) continue;
+        char *safe = codegen_sanitize_ident(ctx->local_vars[i]);
+        codegen_writeln(ctx, "hml_release(&%s);", safe);
+        free(safe);
+    }
+}
+
+void codegen_emit_break_cleanup(CodegenContext *ctx) {
+    if (ctx->loop_body_depth <= 0) return;
+    int start = ctx->loop_body_locals[ctx->loop_body_depth - 1];
+    codegen_emit_cleanup_range(ctx, start);
+}
+
+void codegen_emit_labeled_break_cleanup(CodegenContext *ctx, const char *label) {
+    for (int i = ctx->loop_label_depth - 1; i >= 0; i--) {
+        if (strcmp(ctx->loop_labels[i], label) == 0) {
+            codegen_emit_cleanup_range(ctx, ctx->loop_label_body_locals[i]);
+            return;
+        }
+    }
 }
 
 // Forward declaration
@@ -1301,6 +1363,8 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     state->tail_call_func_name = ctx->tail_call_func_name;
     state->tail_call_label = ctx->tail_call_label;
     state->tail_call_func_expr = ctx->tail_call_func_expr;
+    state->loop_body_depth = ctx->loop_body_depth;
+    state->loop_depth = ctx->loop_depth;
 
     // Initialize for new function
     ctx->defer_stack = NULL;
@@ -1311,6 +1375,8 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->tail_call_func_name = NULL;
     ctx->tail_call_label = NULL;
     ctx->tail_call_func_expr = NULL;
+    ctx->loop_body_depth = 0;
+    ctx->loop_depth = 0;
 }
 
 void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
@@ -1343,6 +1409,8 @@ void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->tail_call_func_name = state->tail_call_func_name;
     ctx->tail_call_label = state->tail_call_label;
     ctx->tail_call_func_expr = state->tail_call_func_expr;
+    ctx->loop_body_depth = state->loop_body_depth;
+    ctx->loop_depth = state->loop_depth;
     shared_env_clear(ctx);
 }
 
