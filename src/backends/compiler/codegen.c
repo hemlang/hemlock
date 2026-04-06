@@ -38,8 +38,10 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->in_function = 0;
     ctx->inline_depth = 0;
     ctx->local_vars = NULL;
+    ctx->local_needs_cleanup = NULL;
     ctx->num_locals = 0;
     ctx->local_capacity = 0;
+    ctx->locals_body_start = 0;
     ctx->consumed_temps = NULL;
     ctx->num_consumed_temps = 0;
     ctx->consumed_temps_capacity = 0;
@@ -114,6 +116,7 @@ void codegen_free(CodegenContext *ctx) {
             }
         }
         free(ctx->local_vars);
+        free(ctx->local_needs_cleanup);
 
         // Free closures
         ClosureInfo *c = ctx->closures;
@@ -340,13 +343,18 @@ void codegen_add_local(CodegenContext *ctx, const char *name) {
             exit(1);
         }
         char **new_vars = realloc(ctx->local_vars, (size_t)new_cap * sizeof(char*));
-        if (!new_vars) {
+        int *new_cleanup = realloc(ctx->local_needs_cleanup, (size_t)new_cap * sizeof(int));
+        if (!new_vars || !new_cleanup) {
             fprintf(stderr, "error: Failed to expand local variable storage\n");
             exit(1);
         }
         ctx->local_vars = new_vars;
+        ctx->local_needs_cleanup = new_cleanup;
         ctx->local_capacity = new_cap;
     }
+    // Default: needs cleanup if at function scope (no block scope active)
+    // Block-scoped variables are inside C { } and can't be released at function exit
+    ctx->local_needs_cleanup[ctx->num_locals] = (ctx->current_scope == NULL) ? 1 : 0;
     ctx->local_vars[ctx->num_locals++] = strdup(name);
 }
 
@@ -367,12 +375,36 @@ void codegen_remove_local(CodegenContext *ctx, const char *name) {
             // Shift remaining elements down
             for (int j = i; j < ctx->num_locals - 1; j++) {
                 ctx->local_vars[j] = ctx->local_vars[j + 1];
+                ctx->local_needs_cleanup[j] = ctx->local_needs_cleanup[j + 1];
             }
             // Clear the last slot to prevent double-free when num_locals is restored
             ctx->local_vars[ctx->num_locals - 1] = NULL;
+            ctx->local_needs_cleanup[ctx->num_locals - 1] = 0;
             ctx->num_locals--;
             return;
         }
+    }
+}
+
+// Mark a local variable as not needing cleanup (e.g., unboxed to C primitive)
+void codegen_mark_local_no_cleanup(CodegenContext *ctx, const char *name) {
+    for (int i = ctx->num_locals - 1; i >= 0; i--) {
+        if (ctx->local_vars[i] && strcmp(ctx->local_vars[i], name) == 0) {
+            ctx->local_needs_cleanup[i] = 0;
+            return;
+        }
+    }
+}
+
+// Emit hml_release() calls for body-local variables that need cleanup
+void codegen_emit_local_cleanup(CodegenContext *ctx, const char *skip_var) {
+    for (int i = ctx->locals_body_start; i < ctx->num_locals; i++) {
+        if (!ctx->local_needs_cleanup[i]) continue;
+        if (!ctx->local_vars[i]) continue;
+        if (skip_var && strcmp(ctx->local_vars[i], skip_var) == 0) continue;
+        char *safe = codegen_sanitize_ident(ctx->local_vars[i]);
+        codegen_writeln(ctx, "hml_release(&%s);", safe);
+        free(safe);
     }
 }
 
@@ -1250,6 +1282,7 @@ void codegen_defer_clear(CodegenContext *ctx) {
 
 void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     state->num_locals = ctx->num_locals;
+    state->locals_body_start = ctx->locals_body_start;
     state->defer_stack = ctx->defer_stack;
     state->in_function = ctx->in_function;
     state->has_defers = ctx->has_defers;
@@ -1284,6 +1317,7 @@ void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
         }
     }
     ctx->num_locals = state->num_locals;
+    ctx->locals_body_start = state->locals_body_start;
     ctx->in_function = state->in_function;
     ctx->has_defers = state->has_defers;
     ctx->current_module = state->module;

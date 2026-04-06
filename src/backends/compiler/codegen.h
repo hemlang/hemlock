@@ -105,8 +105,10 @@ typedef struct {
     int in_function;        // Whether we're inside a function
     int inline_depth;       // Current inlining depth (0 = not inlining, max depth prevents code bloat)
     char **local_vars;      // Stack of local variable names
+    int *local_needs_cleanup; // Parallel array: 1 = needs hml_release at function exit
     int num_locals;         // Number of local variables
     int local_capacity;     // Capacity of local vars array
+    int locals_body_start;  // Index where body-locals begin (after params + captures)
 
     // Consumed temporary tracking (to avoid double-release)
     char **consumed_temps;     // List of consumed temp/short-lived variable names

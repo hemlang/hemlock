@@ -66,6 +66,7 @@ typedef struct {
     char *tail_call_func_name;  // Saved tail call optimization state
     char *tail_call_label;
     Expr *tail_call_func_expr;
+    int locals_body_start;    // Saved ctx->locals_body_start
 } FuncGenState;
 
 // Save function generation state before entering a function body
@@ -90,6 +91,13 @@ void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *clos
 void funcgen_generate_body(CodegenContext *ctx, Expr *func);
 
 // ========== INTERNAL HELPER FUNCTIONS ==========
+
+// Mark a local variable as not needing cleanup (e.g., unboxed to C primitive)
+void codegen_mark_local_no_cleanup(CodegenContext *ctx, const char *name);
+
+// Emit hml_release() calls for all body-local variables that need cleanup
+// skip_var: variable name to skip (e.g., the return value), or NULL
+void codegen_emit_local_cleanup(CodegenContext *ctx, const char *skip_var);
 
 // Remove a local variable from scope (used for catch params that go out of scope)
 void codegen_remove_local(CodegenContext *ctx, const char *name);

@@ -135,6 +135,9 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
     funcgen_add_params(ctx, func);
     funcgen_apply_defaults(ctx, func);
 
+    // Body-locals start after params (for cleanup at function exit)
+    ctx->locals_body_start = ctx->num_locals;
+
     // Track call depth for stack overflow detection (can be disabled for performance)
     if (ctx->stack_check) {
         codegen_writeln(ctx, "HML_CALL_ENTER();");
@@ -167,6 +170,9 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
     if (ctx->has_defers) {
         codegen_writeln(ctx, "hml_defer_execute_all();");
     }
+
+    // Release body-local variables before returning
+    codegen_emit_local_cleanup(ctx, NULL);
 
     // Decrement call depth and return
     if (ctx->stack_check) {
@@ -286,6 +292,10 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
 
     // Apply defaults and track call depth
     funcgen_apply_defaults(ctx, func);
+
+    // Body-locals start after params + captures (for cleanup at function exit)
+    ctx->locals_body_start = ctx->num_locals;
+
     if (ctx->stack_check) {
         codegen_writeln(ctx, "HML_CALL_ENTER();");
     }
@@ -301,6 +311,9 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     if (ctx->has_defers) {
         codegen_writeln(ctx, "hml_defer_execute_all();");
     }
+
+    // Release body-local variables before returning
+    codegen_emit_local_cleanup(ctx, NULL);
 
     // Release captured variables before return
     for (int i = 0; i < closure->num_captured; i++) {
@@ -612,11 +625,13 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, MemBuffer
             // Add parameters, apply defaults, set up shared env, and generate body
             funcgen_add_params(ctx, func);
             funcgen_apply_defaults(ctx, func);
+            ctx->locals_body_start = ctx->num_locals;
             funcgen_setup_shared_env(ctx, func, NULL);
             funcgen_generate_body(ctx, func);
 
-            // Execute defers and return
+            // Execute defers, release locals, and return
             codegen_defer_execute_all(ctx);
+            codegen_emit_local_cleanup(ctx, NULL);
             codegen_writeln(ctx, "return hml_val_null();");
 
             // Restore state

@@ -46,6 +46,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                             codegen_writeln(ctx, "hml_release(&%s);", value);
                             free(value);
                             free(safe_name);
+                            codegen_mark_local_no_cleanup(ctx, stmt->as.let.name);
                             break;
                         }
                     }
@@ -68,6 +69,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                         codegen_writeln(ctx, "hml_release(&%s);", value);
                         free(value);
                         free(safe_name);
+                        codegen_mark_local_no_cleanup(ctx, stmt->as.let.name);
                         break;
                     }
                 }
@@ -913,6 +915,15 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 if (ctx->has_defers) {
                     codegen_writeln(ctx, "hml_defer_execute_all();");
                 }
+                // Release body-local variables (skip the return value's source if it's a local)
+                {
+                    const char *skip = NULL;
+                    if (stmt->as.return_stmt.value &&
+                        stmt->as.return_stmt.value->type == EXPR_IDENT) {
+                        skip = stmt->as.return_stmt.value->as.ident.name;
+                    }
+                    codegen_emit_local_cleanup(ctx, skip);
+                }
                 if (ctx->stack_check) {
                     codegen_writeln(ctx, "HML_CALL_EXIT();");
                 }
@@ -992,6 +1003,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     }
                     free(new_arg_vals);
 
+                    // Release body-local variables before looping back
+                    codegen_emit_local_cleanup(ctx, NULL);
+
                     // Check tail-call depth before jumping back
                     if (ctx->stack_check) {
                         codegen_writeln(ctx, "HML_TAIL_CALL_CHECK(_tail_depth);");
@@ -1005,6 +1019,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     if (ctx->has_defers) {
                         codegen_writeln(ctx, "hml_defer_execute_all();");
                     }
+                    // Release body-local variables (skip the return value's source if it's a local)
+                    {
+                        const char *skip = NULL;
+                        if (stmt->as.return_stmt.value->type == EXPR_IDENT) {
+                            skip = stmt->as.return_stmt.value->as.ident.name;
+                        }
+                        codegen_emit_local_cleanup(ctx, skip);
+                    }
                     if (ctx->stack_check) {
                         codegen_writeln(ctx, "HML_CALL_EXIT();");
                     }
@@ -1015,6 +1037,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     if (ctx->has_defers) {
                         codegen_writeln(ctx, "hml_defer_execute_all();");
                     }
+                    // Release body-local variables
+                    codegen_emit_local_cleanup(ctx, NULL);
                     if (ctx->stack_check) {
                         codegen_writeln(ctx, "HML_CALL_EXIT();");
                     }
@@ -1190,6 +1214,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     if (ctx->has_defers) {
                         codegen_writeln(ctx, "hml_defer_execute_all();");
                     }
+                    // Release body-local variables before returning
+                    codegen_emit_local_cleanup(ctx, NULL);
                     if (ctx->stack_check) {
                         codegen_writeln(ctx, "HML_CALL_EXIT();");
                     }
