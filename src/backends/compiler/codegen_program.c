@@ -287,6 +287,9 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
             }
         }
         codegen_add_local(ctx, var_name);
+        // Mark as no-cleanup — captures are released by the explicit loop
+        // in codegen_closure_impl (lines below), not by codegen_emit_local_cleanup
+        codegen_mark_local_no_cleanup(ctx, var_name);
         free(safe_var);
     }
 
@@ -317,7 +320,9 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
 
     // Release captured variables before return
     for (int i = 0; i < closure->num_captured; i++) {
-        codegen_writeln(ctx, "hml_release(&%s);", closure->captured_vars[i]);
+        char *safe_cap = codegen_sanitize_ident(closure->captured_vars[i]);
+        codegen_writeln(ctx, "hml_release(&%s);", safe_cap);
+        free(safe_cap);
     }
 
     // Decrement call depth and return

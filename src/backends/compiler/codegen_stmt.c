@@ -632,9 +632,6 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
                 // Restore num_locals (counter is out of C scope)
-                for (int i = opt_for_locals_start; i < ctx->num_locals; i++) {
-                    if (ctx->local_vars[i]) { free(ctx->local_vars[i]); ctx->local_vars[i] = NULL; }
-                }
                 ctx->num_locals = opt_for_locals_start;
                 codegen_pop_scope(ctx);
                 codegen_pop_for_continue(ctx);
@@ -695,9 +692,6 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
                 // Restore num_locals so outer scope doesn't see for-loop vars
-                for (int i = for_locals_start; i < ctx->num_locals; i++) {
-                    if (ctx->local_vars[i]) { free(ctx->local_vars[i]); ctx->local_vars[i] = NULL; }
-                }
                 ctx->num_locals = for_locals_start;
                 codegen_pop_scope(ctx);
                 codegen_pop_for_continue(ctx);
@@ -864,9 +858,6 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
             // Restore num_locals (for-in vars are out of C scope)
-            for (int i = forin_locals_start; i < ctx->num_locals; i++) {
-                if (ctx->local_vars[i]) { free(ctx->local_vars[i]); ctx->local_vars[i] = NULL; }
-            }
             ctx->num_locals = forin_locals_start;
             codegen_pop_for_continue(ctx);
             codegen_pop_scope(ctx);
@@ -925,13 +916,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             }
 
             // Restore num_locals so outer scopes don't see block-scoped locals.
-            // Free the local_vars entries for this block to prevent stale pointers.
-            for (int i = block_locals_start; i < ctx->num_locals; i++) {
-                if (ctx->local_vars[i]) {
-                    free(ctx->local_vars[i]);
-                    ctx->local_vars[i] = NULL;
-                }
-            }
+            // Don't free local_vars strings — they may be referenced by closure
+            // capture logic. They'll be freed by funcgen_restore_state at function exit.
             ctx->num_locals = block_locals_start;
 
             codegen_indent_dec(ctx);

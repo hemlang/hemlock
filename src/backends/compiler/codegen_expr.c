@@ -715,21 +715,21 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     if (shared_idx >= 0) {
                         // Determine which variable name to use:
                         // - Main file vars are stored as _main_<name> in C
-                        // - Module-local vars are stored as <name> in C
+                        // - Module-local vars are stored as <name> in C (sanitized)
                         // - Module-local vars should shadow outer (main) vars with same name
                         if (ctx->current_module && codegen_is_local(ctx, captured->vars[i])) {
-                            // Inside a module with a local variable - use bare name
-                            // This handles cases like Set() having local 'map' that shadows main's 'map'
+                            char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
                             codegen_writeln(ctx, "hml_closure_env_set(%s, %d, %s);",
-                                          ctx->shared_env_name, shared_idx, captured->vars[i]);
+                                          ctx->shared_env_name, shared_idx, safe_cap);
+                            free(safe_cap);
                         } else if (codegen_is_main_var(ctx, captured->vars[i])) {
-                            // Main file variable (not in a module, or not a local) - use prefix
                             codegen_writeln(ctx, "hml_closure_env_set(%s, %d, _main_%s);",
                                           ctx->shared_env_name, shared_idx, captured->vars[i]);
                         } else {
-                            // Neither - use as-is
+                            char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
                             codegen_writeln(ctx, "hml_closure_env_set(%s, %d, %s);",
-                                          ctx->shared_env_name, shared_idx, captured->vars[i]);
+                                          ctx->shared_env_name, shared_idx, safe_cap);
+                            free(safe_cap);
                         }
                     }
                 }
@@ -790,20 +790,20 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 for (int i = 0; i < captured->num_vars; i++) {
                     // Determine which variable name to use:
                     // - Main file vars are stored as _main_<name> in C
-                    // - Module-local vars are stored as <name> in C
-                    // - Module-local vars should shadow outer (main) vars with same name
+                    // - Module-local vars are stored as sanitized name in C
                     if (ctx->current_module && codegen_is_local(ctx, captured->vars[i])) {
-                        // Inside a module with a local variable - use bare name
+                        char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
                         codegen_writeln(ctx, "hml_closure_env_set(_env_%d, %d, %s);",
-                                      env_id, i, captured->vars[i]);
+                                      env_id, i, safe_cap);
+                        free(safe_cap);
                     } else if (codegen_is_main_var(ctx, captured->vars[i])) {
-                        // Main file variable (not in a module, or not a local) - use prefix
                         codegen_writeln(ctx, "hml_closure_env_set(_env_%d, %d, _main_%s);",
                                       env_id, i, captured->vars[i]);
                     } else {
-                        // Neither - use as-is
+                        char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
                         codegen_writeln(ctx, "hml_closure_env_set(_env_%d, %d, %s);",
-                                      env_id, i, captured->vars[i]);
+                                      env_id, i, safe_cap);
+                        free(safe_cap);
                     }
                 }
                 int num_required = count_required_params(expr->as.function.param_defaults, expr->as.function.num_params);
@@ -1443,9 +1443,6 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
                 // Restore num_locals (match arm bindings are out of C scope)
-                for (int j = arm_locals_start; j < ctx->num_locals; j++) {
-                    if (ctx->local_vars[j]) { free(ctx->local_vars[j]); ctx->local_vars[j] = NULL; }
-                }
                 ctx->num_locals = arm_locals_start;
                 codegen_pop_scope(ctx);
             }
