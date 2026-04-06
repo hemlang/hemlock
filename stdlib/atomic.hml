@@ -52,7 +52,7 @@ export let atomic_fence = __atomic_fence;
 // Returns: object with load, store, add, sub, cas, exchange methods
 export fn AtomicI32(initial?: 0) {
 	let _ptr = alloc(4);
-	ptr_write_i32(_ptr, 0, initial);
+	ptr_write_i32(_ptr, initial);
 
 	return {
 		_ptr,
@@ -92,7 +92,7 @@ export fn AtomicI32(initial?: 0) {
 // Returns: object with load, store, add, sub, cas, exchange methods
 export fn AtomicI64(initial?: 0) {
 	let _ptr = alloc(8);
-	ptr_write_i64(_ptr, 0, initial);
+	ptr_write_i64(_ptr, initial);
 
 	return {
 		_ptr,

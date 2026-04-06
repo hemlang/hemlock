@@ -69,7 +69,7 @@ export fn to_hex(buf, len: i32): string {
 	let hex_chars = "0123456789abcdef";
 	let result = "";
 	for (let i = 0; i < len; i++) {
-		let b = ptr_read_u8(buf, i);
+		let b: i32 = buf[i];
 		let hi = b >> 4 & 15;
 		let lo = b & 15;
 		result = result + hex_chars.substr(hi, 1) + hex_chars.substr(lo, 1);
@@ -95,7 +95,8 @@ export fn from_hex(hex: string): buffer {
 		if (hi < 0 || lo < 0) {
 			throw "from_hex() invalid hex character";
 		}
-		ptr_write_u8(buf, i, hi << 4 | lo);
+		let byte_val: u8 = hi << 4 | lo;
+		buf[i] = byte_val;
 	}
 	return buf;
 }
@@ -114,8 +115,8 @@ fn hex_val(ch): i32 {
 // Returns: i32 - Negative if a < b, 0 if equal, positive if a > b
 export fn compare(a, b, len: i32): i32 {
 	for (let i = 0; i < len; i++) {
-		let ba = ptr_read_u8(a, i);
-		let bb = ptr_read_u8(b, i);
+		let ba: i32 = a[i];
+		let bb: i32 = b[i];
 		if (ba != bb) {
 			return ba - bb;
 		}

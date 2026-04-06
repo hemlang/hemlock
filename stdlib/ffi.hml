@@ -39,24 +39,12 @@ export let FFI_UINT16 = 11;
 export let FFI_UINT32 = 12;
 export let FFI_UINT64 = 13;
 
-// ========== HELPER FUNCTIONS ==========
-
-// Convenience wrapper: open a library, bind a function, return a callable
-// Parameters:
-// lib_path: string - Path to shared library (e.g., "libc.so.6")
-// func_name: string - Function name to bind
-// arg_types: array - Array of FFI type constants
-// ret_type: i32 - Return type constant
-// Returns: object - { call: fn, lib: handle, close: fn }
-export fn bind(lib_path: string, func_name: string, arg_types: array, ret_type: i32) {
-	let lib = ffi_open(lib_path);
-	let func = ffi_bind(lib, func_name, arg_types, ret_type);
-
-	return {
-		_lib: lib,
-		call: func,
-		close: fn() {
-			ffi_close(self._lib);
-		},
-	};
-}
+// ========== DYNAMIC FFI ==========
+// For dynamic FFI, use ffi_open/ffi_bind/ffi_close builtins directly.
+// These are interpreter-only and not available in compiled code.
+//
+// Example:
+//   let lib = ffi_open("libc.so.6");
+//   let puts = ffi_bind(lib, "puts", [FFI_POINTER], FFI_INT);
+//   puts("Hello!");
+//   ffi_close(lib);
