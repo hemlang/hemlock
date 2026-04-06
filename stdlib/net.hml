@@ -137,7 +137,7 @@ fn _TcpStream_from_socket(sock) {
 					break;  // EOF
 				}
 
-				let b = ptr_read_u8(byte_buf, 0);
+				let b = ptr_read_u8(byte_buf);
 				if (b == 10) {
 					break;  // Found newline
 				}

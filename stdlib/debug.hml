@@ -91,7 +91,7 @@ export fn hexdump(buf, len: i32): string {
 		let ascii = "";
 		for (let i = 0; i < bytes_per_line; i++) {
 			if (offset + i < len) {
-				let b = ptr_read_u8(buf, offset + i);
+				let b = ptr_read_u8(buf + offset + i);
 				let hi = b >> 4 & 15;
 				let lo = b & 15;
 				let hex = "0123456789abcdef";
