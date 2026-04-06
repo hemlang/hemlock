@@ -130,14 +130,23 @@ void hml_object_set_field(HmlValue obj, const char *field, HmlValue val) {
         return;
     }
 
-    // Add new field - single realloc for unified storage (reduces fragmentation)
+    // Add new field - grow storage if needed
     if (o->num_fields >= o->capacity) {
         // SECURITY: Check for integer overflow before doubling capacity
         if (o->capacity > INT_MAX / 2) {
             hml_runtime_error("Object field capacity overflow");
         }
         int new_cap = (o->capacity == 0) ? 4 : o->capacity * 2;
-        HmlFieldEntry *new_fields = realloc(o->fields, new_cap * sizeof(HmlFieldEntry));
+        HmlFieldEntry *new_fields;
+        if (o->is_pooled && o->capacity > 0) {
+            // Pooled object growing beyond pool storage — can't realloc pool memory
+            new_fields = malloc(new_cap * sizeof(HmlFieldEntry));
+            if (new_fields) {
+                memcpy(new_fields, o->fields, o->num_fields * sizeof(HmlFieldEntry));
+            }
+        } else {
+            new_fields = realloc(o->fields, new_cap * sizeof(HmlFieldEntry));
+        }
         if (!new_fields) {
             hml_runtime_error("Out of memory expanding object fields");
         }

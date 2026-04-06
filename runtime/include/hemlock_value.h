@@ -143,6 +143,7 @@ struct HmlObject {
     int capacity;
     int ref_count;
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
+    int is_pooled;          // 1 if allocated from object pool
     // Hash table for O(1) field lookup (lazy initialization)
     int *hash_table;        // Maps hash slots to field indices (-1 = empty)
     int hash_capacity;      // Size of hash table (0 = not initialized)

@@ -12,6 +12,153 @@
 #include <stdatomic.h>
 #include <pthread.h>
 
+// ========== OBJECT POOL ==========
+// Pre-allocate Object structs + field storage to avoid malloc/free churn
+// in hot loops. Uses a free list for O(1) alloc/free.
+
+// Must match HML_OBJECT_POOL_SIZE and HML_OBJECT_POOL_FIELDS_CAPACITY
+// in include/hemlock_limits.h
+#ifndef HML_OBJECT_POOL_SIZE
+#define HML_OBJECT_POOL_SIZE 512
+#endif
+#ifndef HML_OBJECT_POOL_FIELDS_CAPACITY
+#define HML_OBJECT_POOL_FIELDS_CAPACITY 8
+#endif
+#define OBJ_POOL_SIZE HML_OBJECT_POOL_SIZE
+#define OBJ_POOL_FIELDS_CAP HML_OBJECT_POOL_FIELDS_CAPACITY
+
+typedef struct {
+    HmlObject objects[OBJ_POOL_SIZE];
+    HmlFieldEntry fields_storage[OBJ_POOL_SIZE][OBJ_POOL_FIELDS_CAP];
+    int free_list[OBJ_POOL_SIZE];
+    int free_count;
+    pthread_mutex_t mutex;
+} HmlObjectPool;
+
+static HmlObjectPool obj_pool = {0};
+static pthread_once_t obj_pool_once = PTHREAD_ONCE_INIT;
+
+static void obj_pool_init_internal(void) {
+    pthread_mutex_init(&obj_pool.mutex, NULL);
+    for (int i = 0; i < OBJ_POOL_SIZE; i++) {
+        obj_pool.free_list[i] = OBJ_POOL_SIZE - 1 - i;
+    }
+    obj_pool.free_count = OBJ_POOL_SIZE;
+}
+
+static void obj_pool_init(void) {
+    pthread_once(&obj_pool_once, obj_pool_init_internal);
+}
+
+static HmlObject* obj_pool_alloc(void) {
+    obj_pool_init();
+    pthread_mutex_lock(&obj_pool.mutex);
+    if (obj_pool.free_count > 0) {
+        int idx = obj_pool.free_list[--obj_pool.free_count];
+        pthread_mutex_unlock(&obj_pool.mutex);
+
+        HmlObject *obj = &obj_pool.objects[idx];
+        obj->type_name = NULL;
+        obj->fields = obj_pool.fields_storage[idx];
+        obj->num_fields = 0;
+        obj->capacity = OBJ_POOL_FIELDS_CAP;
+        obj->ref_count = 1;
+        atomic_store(&obj->freed, 0);
+        obj->is_pooled = 1;
+        obj->hash_table = NULL;
+        obj->hash_capacity = 0;
+        return obj;
+    }
+    pthread_mutex_unlock(&obj_pool.mutex);
+    return NULL;
+}
+
+static int obj_is_pooled(HmlObject *obj) {
+    return obj >= &obj_pool.objects[0] && obj < &obj_pool.objects[OBJ_POOL_SIZE];
+}
+
+static void obj_pool_free(HmlObject *obj) {
+    if (!obj_is_pooled(obj)) return;
+    int idx = (int)(obj - &obj_pool.objects[0]);
+
+    // If fields were grown beyond pooled storage, free the grown array
+    if (obj->fields != obj_pool.fields_storage[idx]) {
+        free(obj->fields);
+    }
+    free(obj->hash_table);
+    obj->fields = obj_pool.fields_storage[idx];
+    obj->hash_table = NULL;
+    obj->is_pooled = 0;
+
+    pthread_mutex_lock(&obj_pool.mutex);
+    obj_pool.free_list[obj_pool.free_count++] = idx;
+    pthread_mutex_unlock(&obj_pool.mutex);
+}
+
+// ========== FUNCTION POOL ==========
+// Pre-allocate Function structs for closures created in hot loops.
+
+// Must match HML_FUNCTION_POOL_SIZE in include/hemlock_limits.h
+#ifndef HML_FUNCTION_POOL_SIZE
+#define HML_FUNCTION_POOL_SIZE 512
+#endif
+#define FN_POOL_SIZE HML_FUNCTION_POOL_SIZE
+
+typedef struct {
+    HmlFunction functions[FN_POOL_SIZE];
+    int free_list[FN_POOL_SIZE];
+    int free_count;
+    pthread_mutex_t mutex;
+} HmlFunctionPool;
+
+static HmlFunctionPool fn_pool = {0};
+static pthread_once_t fn_pool_once = PTHREAD_ONCE_INIT;
+
+static void fn_pool_init_internal(void) {
+    pthread_mutex_init(&fn_pool.mutex, NULL);
+    for (int i = 0; i < FN_POOL_SIZE; i++) {
+        fn_pool.free_list[i] = FN_POOL_SIZE - 1 - i;
+    }
+    fn_pool.free_count = FN_POOL_SIZE;
+}
+
+static void fn_pool_init(void) {
+    pthread_once(&fn_pool_once, fn_pool_init_internal);
+}
+
+static HmlFunction* fn_pool_alloc(void) {
+    fn_pool_init();
+    pthread_mutex_lock(&fn_pool.mutex);
+    if (fn_pool.free_count > 0) {
+        int idx = fn_pool.free_list[--fn_pool.free_count];
+        pthread_mutex_unlock(&fn_pool.mutex);
+        return &fn_pool.functions[idx];
+    }
+    pthread_mutex_unlock(&fn_pool.mutex);
+    return NULL;
+}
+
+static int fn_is_pooled(HmlFunction *fn) {
+    return fn >= &fn_pool.functions[0] && fn < &fn_pool.functions[FN_POOL_SIZE];
+}
+
+static void fn_pool_return(HmlFunction *fn) {
+    if (!fn_is_pooled(fn)) return;
+    int idx = (int)(fn - &fn_pool.functions[0]);
+
+    pthread_mutex_lock(&fn_pool.mutex);
+    fn_pool.free_list[fn_pool.free_count++] = idx;
+    pthread_mutex_unlock(&fn_pool.mutex);
+}
+
+// Helper: allocate a function struct (pool first, fallback to malloc)
+static HmlFunction* fn_alloc(void) {
+    HmlFunction *f = fn_pool_alloc();
+    if (f) return f;
+    f = fn_alloc();
+    return f;
+}
+
 // ========== VALUE CONSTRUCTORS ==========
 
 HmlValue hml_val_i8(int8_t val) {
@@ -261,15 +408,21 @@ HmlValue hml_val_object(void) {
     HmlValue v;
     v.type = HML_VAL_OBJECT;
 
-    HmlObject *o = malloc(sizeof(HmlObject));
-    o->type_name = NULL;
-    o->fields = NULL;            // Unified field storage (reduces fragmentation)
-    o->num_fields = 0;
-    o->capacity = 0;
-    o->ref_count = 1;
-    atomic_store(&o->freed, 0);  // Not freed
-    o->hash_table = NULL;        // Lazy initialization
-    o->hash_capacity = 0;
+    // Try pool first for O(1) allocation with pre-allocated field storage
+    HmlObject *o = obj_pool_alloc();
+    if (!o) {
+        // Pool exhausted — fallback to malloc
+        o = malloc(sizeof(HmlObject));
+        o->type_name = NULL;
+        o->fields = NULL;
+        o->num_fields = 0;
+        o->capacity = 0;
+        o->ref_count = 1;
+        atomic_store(&o->freed, 0);
+        o->is_pooled = 0;
+        o->hash_table = NULL;
+        o->hash_capacity = 0;
+    }
 
     v.as.as_object = o;
     return v;
@@ -290,7 +443,7 @@ HmlValue hml_val_function_named(void *fn_ptr, int num_params, int num_required, 
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
-    HmlFunction *f = malloc(sizeof(HmlFunction));
+    HmlFunction *f = fn_alloc();
     f->fn_ptr = fn_ptr;
     f->closure_env = NULL;
     f->name = name ? strdup(name) : NULL;
@@ -312,7 +465,7 @@ HmlValue hml_val_function_rest_named(void *fn_ptr, int num_params, int num_requi
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
-    HmlFunction *f = malloc(sizeof(HmlFunction));
+    HmlFunction *f = fn_alloc();
     f->fn_ptr = fn_ptr;
     f->closure_env = NULL;
     f->name = name ? strdup(name) : NULL;
@@ -331,7 +484,7 @@ HmlValue hml_val_function_with_params(void *fn_ptr, int num_params, int num_requ
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
-    HmlFunction *f = malloc(sizeof(HmlFunction));
+    HmlFunction *f = fn_alloc();
     f->fn_ptr = fn_ptr;
     f->closure_env = NULL;
     f->name = name ? strdup(name) : NULL;
@@ -364,7 +517,7 @@ HmlValue hml_val_function_with_env_named(void *fn_ptr, void *env, int num_params
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
-    HmlFunction *f = malloc(sizeof(HmlFunction));
+    HmlFunction *f = fn_alloc();
     f->fn_ptr = fn_ptr;
     f->closure_env = env;
     f->name = name ? strdup(name) : NULL;
@@ -387,7 +540,7 @@ HmlValue hml_val_function_with_env_rest_named(void *fn_ptr, void *env, int num_p
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
-    HmlFunction *f = malloc(sizeof(HmlFunction));
+    HmlFunction *f = fn_alloc();
     f->fn_ptr = fn_ptr;
     f->closure_env = env;
     f->name = name ? strdup(name) : NULL;
@@ -513,15 +666,23 @@ static void array_free(HmlArray *arr) {
 
 static void object_free(HmlObject *obj) {
     if (obj) {
-        // Free field entries (unified storage)
+        // Release field values and free field names
         for (int i = 0; i < obj->num_fields; i++) {
             free(obj->fields[i].name);
             hml_release(&obj->fields[i].value);
         }
-        free(obj->fields);       // Single allocation for all fields
         free(obj->type_name);
-        free(obj->hash_table);   // Free hash table
-        free(obj);
+        obj->type_name = NULL;
+        obj->num_fields = 0;
+
+        // Return to pool if pooled, otherwise free everything
+        if (obj->is_pooled) {
+            obj_pool_free(obj);
+        } else {
+            free(obj->fields);
+            free(obj->hash_table);
+            free(obj);
+        }
     }
 }
 
@@ -529,18 +690,26 @@ static void function_free(HmlFunction *fn) {
     if (fn) {
         // Free the function name if set
         free(fn->name);
+        fn->name = NULL;
         // Free parameter names if present
         if (fn->param_names) {
             for (int i = 0; i < fn->num_params; i++) {
                 free(fn->param_names[i]);
             }
             free(fn->param_names);
+            fn->param_names = NULL;
         }
         // Release closure environment (reference counted - handles sharing)
         if (fn->closure_env) {
             hml_closure_env_release(fn->closure_env);
+            fn->closure_env = NULL;
         }
-        free(fn);
+        // Return to pool if pooled, otherwise free
+        if (fn_is_pooled(fn)) {
+            fn_pool_return(fn);
+        } else {
+            free(fn);
+        }
     }
 }
 
