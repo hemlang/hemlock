@@ -6,6 +6,7 @@
 // _DEFAULT_SOURCE is now defined globally in Makefile for usleep() and similar
 
 #include "internal.h"
+#include "websockets_internal.h"
 #include <stdatomic.h>
 
 // ========== WEBSOCKET HANDLE HELPERS ==========

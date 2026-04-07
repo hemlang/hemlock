@@ -39,8 +39,8 @@ typedef struct {
 // ========== CALL STACK (for error reporting) ==========
 
 typedef struct {
-    char *function_name;
-    char *source_file;  // Source file name (optional, can be NULL)
+    const char *function_name;
+    const char *source_file;  // Source file name (optional, can be NULL)
     int line;           // Line number of the call site
     int column;         // Column number of the call site (0 if unknown)
 } CallFrame;

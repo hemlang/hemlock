@@ -260,8 +260,8 @@ void call_stack_push_full_loc(CallStack *stack, const char *function_name, const
     }
 
     // Store pointers directly - no need to strdup since AST strings outlive the call
-    stack->frames[stack->count].function_name = (char*)function_name;
-    stack->frames[stack->count].source_file = (char*)source_file;
+    stack->frames[stack->count].function_name = function_name;
+    stack->frames[stack->count].source_file = source_file;
     stack->frames[stack->count].line = line;
     stack->frames[stack->count].column = column;
     stack->count++;

@@ -576,7 +576,7 @@ void env_define_borrowed(Environment *env, const char *name, Value value, int is
     }
 
     int index = env->count;
-    env->names[index] = (char*)name;  // Borrow without strdup
+    memcpy(&env->names[index], &name, sizeof(char *));  // Borrow without strdup
     // Mark as borrowed if index < 32
     if (index < 32) {
         env->borrowed_flags |= (1U << index);
@@ -607,7 +607,7 @@ void env_define_param(Environment *env, const char *name, uint32_t hash, Value v
     }
 
     int index = env->count;
-    env->names[index] = (char*)name;  // Borrow without strdup
+    memcpy(&env->names[index], &name, sizeof(char *));  // Borrow without strdup
     if (index < 32) {
         env->borrowed_flags |= (1U << index);
     }

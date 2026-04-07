@@ -27,7 +27,7 @@ typedef struct {
 
 // String table for deduplication
 typedef struct {
-    char **strings;          // Array of strings
+    const char **strings;    // Array of strings (borrowed pointers)
     uint32_t *lengths;       // Length of each string
     uint32_t count;          // Number of strings
     uint32_t capacity;       // Allocated capacity

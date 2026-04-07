@@ -28,7 +28,7 @@ static uint32_t compute_checksum(const uint8_t *data, size_t size) {
 // ========== STRING TABLE ==========
 
 static void string_table_init(StringTable *table) {
-    table->strings = malloc(INITIAL_STRING_TABLE_SIZE * sizeof(char*));
+    table->strings = malloc(INITIAL_STRING_TABLE_SIZE * sizeof(const char*));
     table->lengths = malloc(INITIAL_STRING_TABLE_SIZE * sizeof(uint32_t));
     if (!table->strings || !table->lengths) {
         fprintf(stderr, "Error: Failed to allocate string table\n");
@@ -66,7 +66,7 @@ static uint32_t string_table_add(StringTable *table, const char *str) {
     if (table->count >= table->capacity) {
         // Handle zero capacity case (defensive)
         size_t new_capacity = (table->capacity == 0) ? INITIAL_STRING_TABLE_SIZE : table->capacity * 2;
-        char **new_strings = realloc(table->strings, new_capacity * sizeof(char*));
+        const char **new_strings = realloc(table->strings, new_capacity * sizeof(const char*));
         uint32_t *new_lengths = realloc(table->lengths, new_capacity * sizeof(uint32_t));
         if (!new_strings || !new_lengths) {
             fprintf(stderr, "Error: Failed to grow string table\n");
@@ -77,7 +77,7 @@ static uint32_t string_table_add(StringTable *table, const char *str) {
         table->capacity = new_capacity;
     }
 
-    table->strings[table->count] = (char*)str;  // Borrow pointer
+    table->strings[table->count] = str;  // Borrow pointer
     table->lengths[table->count] = strlen(str);
     return table->count++;
 }
