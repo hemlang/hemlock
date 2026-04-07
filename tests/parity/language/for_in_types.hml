@@ -1,0 +1,77 @@
+// Test for-in iteration over different types
+
+// 1. For-in with array
+print("=== Array for-in ===");
+let arr = [10, 20, 30, 40, 50];
+for (val in arr) {
+    print(val);
+}
+
+// 2. For-in with string chars
+print("=== String chars ===");
+let s = "Hi!";
+let chars = s.chars();
+for (ch in chars) {
+    print(ch);
+}
+
+// 3. For-in with object keys
+print("=== Object keys ===");
+let obj = { a: 1, b: 2, c: 3 };
+let keys = obj.keys();
+for (k in keys) {
+    print(k + "=" + obj[k]);
+}
+
+// 4. For-in with empty array
+print("=== Empty array ===");
+for (val in []) {
+    print("should not print");
+}
+print("after empty");
+
+// 5. For-in with nested arrays
+print("=== Nested arrays ===");
+let matrix = [[1, 2], [3, 4], [5, 6]];
+for (row in matrix) {
+    let sum = 0;
+    for (val in row) {
+        sum = sum + val;
+    }
+    print(sum);
+}
+
+// 6. For-in modifying external state
+print("=== For-in accumulate ===");
+let total = 0;
+let nums = [1, 2, 3, 4, 5];
+for (n in nums) {
+    total = total + n;
+}
+print(total);
+
+// 7. For-in with break
+print("=== For-in break ===");
+let items = [1, 2, 3, 4, 5];
+for (item in items) {
+    if (item == 3) { break; }
+    print(item);
+}
+print("after break");
+
+// 8. For-in with continue
+print("=== For-in continue ===");
+for (item in [1, 2, 3, 4, 5]) {
+    if (item % 2 == 0) { continue; }
+    print(item);
+}
+
+// 9. For-in with index tracking
+print("=== Index tracking ===");
+let idx = 0;
+for (val in ["a", "b", "c"]) {
+    print(idx + ": " + val);
+    idx++;
+}
+
+print("done");

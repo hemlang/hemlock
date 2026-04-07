@@ -1,0 +1,29 @@
+=== Nested try/catch ===
+inner caught: inner error
+outer caught: rethrown: inner error
+=== Exception in catch ===
+caught: first
+nested caught: second
+=== Finally with throw ===
+caught: error
+finally after throw
+=== Finally without throw ===
+no error
+finally no error
+=== Try in finally ===
+outer try
+caught in finally: finally error
+=== Exception in loop ===
+ok 0
+ok 1
+caught: err 2
+ok 3
+caught: err 4
+=== Return in try ===
+positive: 5
+error: negative
+=== Throw non-string ===
+i32
+42
+null
+done

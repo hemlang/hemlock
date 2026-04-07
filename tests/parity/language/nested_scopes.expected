@@ -1,0 +1,35 @@
+=== Block scope ===
+20
+30
+20
+10
+=== Function scope ===
+inner
+outer
+=== Nested functions ===
+6
+3
+1
+=== Loop scope ===
+30
+=== If/else scope ===
+yes
+=== Match scope ===
+positive: 42
+zero
+negative: -5
+=== Closure scope ===
+0
+100
+200
+=== While nested ===
+0
+2
+4
+6
+=== For loop isolation ===
+before
+=== Try/catch scope ===
+try
+outer
+done

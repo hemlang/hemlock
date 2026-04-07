@@ -1,0 +1,47 @@
+=== Integer limits ===
+2147483647
+-2147483648
+9223372036854775807
+=== Modulo ===
+1
+0
+1
+-1
+1
+=== Float precision ===
+0.3
+0.333333
+0.142857
+=== Integer division ===
+3
+3
+14
+-4
+0
+=== Float truncation ===
+3
+-3
+0
+0
+=== Numeric literals ===
+255
+10
+63
+0
+0
+=== Numeric separators ===
+1000
+1000000
+=== Unary negation ===
+-42
+42
+0
+-3.14
+=== Mixed arithmetic ===
+13
+30
+=== Division ===
+3.33333
+3
+3.5
+done

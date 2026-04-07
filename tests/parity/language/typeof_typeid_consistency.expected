@@ -1,0 +1,42 @@
+=== Primitive types ===
+i32 true
+f64 true
+bool true
+string true
+null true
+=== Compound types ===
+array true
+object true
+function true
+=== Typed numerics ===
+i8 true
+i16 true
+i64 true
+u8 true
+u16 true
+u32 true
+u64 true
+f32 true
+=== Type after operations ===
+i32 true
+f64 true
+bool true
+string true
+=== typeid constants ===
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+15
+16
+18
+21
+done
