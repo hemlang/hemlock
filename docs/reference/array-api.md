@@ -1,6 +1,6 @@
 # Array API Reference
 
-Complete reference for Hemlock's array type and all 23 array methods.
+Complete reference for Hemlock's array type and all 24 array methods.
 
 ---
 
@@ -753,6 +753,11 @@ Methods that return new values without modifying the original:
 | `map`      | `(callback: fn)`           | `array`   | Transform each element         |
 | `filter`   | `(predicate: fn)`          | `array`   | Select matching elements       |
 | `reduce`   | `(callback: fn, initial: any)` | `any` | Reduce to single value         |
+| `every`    | `(predicate: fn)`          | `bool`    | Check if all elements match    |
+| `some`     | `(predicate: fn)`          | `bool`    | Check if any element matches   |
+| `indexOf`  | `(value: any)`             | `i32`     | Find index of value (-1 if not found) |
+| `sort`     | `(compare?: fn)`           | `null`    | Sort in place (optional comparator) |
+| `fill`     | `(value: any)`             | `null`    | Fill all elements with value   |
 
 ---
 

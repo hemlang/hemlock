@@ -63,7 +63,7 @@ Other:    bool, string, rune, array, ptr, buffer, null, object, file, task, chan
 Aliases:  integer (i32), number (f64), byte (u8)
 ```
 
-**Type promotion:** i8 → i16 → i32 → i64 → f32 → f64 (floats always win, but i64/u64 + f32 → f64 to preserve precision)
+**Type promotion:** i8 → u8 → i16 → u16 → i32 → u32 → i64 → u64 → f32 → f64 (floats always win, but i64/u64 + f32 → f64 to preserve precision)
 
 ### Literals
 ```hemlock
@@ -240,7 +240,7 @@ Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
 ---
 
-## Standard Library (47 modules)
+## Standard Library (48 modules)
 
 Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 
@@ -269,6 +269,7 @@ Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 | `http` | http_get, http_post, http_request |
 | `ipc` | Inter-process communication |
 | `iter` | Iterator utilities |
+| `jinja` | Jinja2-compatible template rendering |
 | `json` | parse, stringify, pretty, get, set |
 | `logging` | Logger with levels |
 | `math` | sin, cos, sqrt, pow, rand, PI, E |
@@ -332,7 +333,7 @@ hemlock/
 ├── stdlib/               # Standard library
 │   └── docs/             # Module documentation
 ├── docs/                 # Full documentation
-├── tests/                # 625+ tests
+├── tests/                # 897+ tests
 └── examples/             # Example programs
 ```
 

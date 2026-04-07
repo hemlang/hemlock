@@ -668,7 +668,6 @@ let parallel_time = get_time() - start2;
 
 ## Limitations
 
-- No `select()` for multiplexing multiple channels
 - No work-stealing scheduler (1 thread per task)
 - No async I/O integration (file/network operations block)
 - Channel capacity fixed at creation time

@@ -534,9 +534,7 @@ When mixing types in operations, Hemlock promotes to the "higher" type:
 
 **Promotion Hierarchy (lowest to highest):**
 ```
-i8 → i16 → i32 → u32 → i64 → u64 → f32 → f64
-      ↑     ↑     ↑
-     u8    u16
+i8 → u8 → i16 → u16 → i32 → u32 → i64 → u64 → f32 → f64
 ```
 
 **Float always wins:**
