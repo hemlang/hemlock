@@ -192,6 +192,8 @@ struct HmlTask {
     HmlValue *args;
     int num_args;
     char *name;             // Optional debug name (from spawn_with)
+    int has_exception;      // 1 if task threw an exception
+    HmlValue exception_value; // Exception value for propagation on join()
 };
 
 // Channel synchronization block - all pthread objects in one allocation

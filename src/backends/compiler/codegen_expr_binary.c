@@ -69,6 +69,8 @@ char* codegen_native_expr(CodegenContext *ctx, Expr *expr, CheckedTypeKind *out_
         case EXPR_BINARY: {
             // Division always returns f64 - skip for now (cast complexity)
             if (expr->as.binary.op == OP_DIV) return NULL;
+            // Modulo needs a zero check that can't be expressed in a single C expression
+            if (expr->as.binary.op == OP_MOD) return NULL;
             // Logical AND/OR have short-circuit semantics - can't inline
             if (expr->as.binary.op == OP_AND || expr->as.binary.op == OP_OR) return NULL;
 
@@ -517,13 +519,17 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
                             break;
                         case OP_MOD:
                             if (checked_kind_is_integer(left_native)) {
+                                codegen_writeln(ctx, "if (%s == 0) hml_runtime_error(\"Division by zero\");", right_var);
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s %% %s);", result, box_func, left_var, right_var);
                             } else {
                                 codegen_writeln(ctx, "HmlValue %s = hml_val_f64(fmod(%s, %s));", result, left_var, right_var);
                             }
                             break;
                         case OP_DIV:
-                            // Division always returns float
+                            // Division always returns float; check for zero with integer operands
+                            if (checked_kind_is_integer(left_native)) {
+                                codegen_writeln(ctx, "if (%s == 0) hml_runtime_error(\"Division by zero\");", right_var);
+                            }
                             codegen_writeln(ctx, "HmlValue %s = hml_val_f64((double)%s / (double)%s);", result, left_var, right_var);
                             break;
                         case OP_LESS:
@@ -716,14 +722,24 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
                         codegen_writeln(ctx, "HmlValue %s = hml_val_f64(%.17g);", result, (double)l / (double)r);
                         return result;  // Exit EXPR_BINARY case
                     }
-                    // Division by zero - fall through to runtime handling
+                    // Division by zero with constants - emit runtime error
+                    codegen_writeln(ctx, "hml_runtime_error(\"Division by zero\");");
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+                    return result;
+                }
+
+                // Modulo by zero with constants - emit runtime error
+                if (expr->as.binary.op == OP_MOD && r == 0) {
+                    codegen_writeln(ctx, "hml_runtime_error(\"Division by zero\");");
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+                    return result;
                 }
 
                 switch (expr->as.binary.op) {
                     case OP_ADD: const_result = l + r; break;
                     case OP_SUB: const_result = l - r; break;
                     case OP_MUL: const_result = l * r; break;
-                    case OP_DIV: can_fold = 0; break;  // Handled above or div-by-zero
+                    case OP_DIV: can_fold = 0; break;  // Handled above
                     case OP_MOD:
                         if (r != 0) { const_result = l % r; } else { can_fold = 0; }
                         break;
