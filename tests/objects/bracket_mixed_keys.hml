@@ -1,0 +1,33 @@
+// Test: bracket notation with mixed key types on same object
+
+let obj = {};
+
+// Set fields with different key types
+obj["name"] = "string-key";
+obj[42] = "int-key";
+obj[true] = "bool-key";
+obj['X'] = "rune-key";
+
+// Read all back
+print(obj["name"]);
+print(obj[42]);
+print(obj[true]);
+print(obj['X']);
+
+// keys() returns all as strings
+let k = obj.keys();
+print(k.length);
+
+// has() works with all types
+print(obj.has("name"));
+print(obj.has(42));
+print(obj.has(true));
+print(obj.has('X'));
+
+// delete() works with all types
+obj.delete(42);
+obj.delete('X');
+print(obj.has(42));
+print(obj.has('X'));
+print(obj.has("name"));
+print(obj.has(true));

@@ -1,0 +1,49 @@
+// Test: bracket notation with integer keys (auto-coerced to strings)
+
+let obj = {};
+
+// Set with integer keys
+obj[0] = "zero";
+obj[1] = "one";
+obj[42] = "forty-two";
+
+// Read back
+print(obj[0]);
+print(obj[1]);
+print(obj[42]);
+
+// Missing key returns null
+print(obj[99]);
+
+// Integer and string keys are equivalent
+obj["10"] = "ten-string";
+print(obj[10]);
+print(obj["10"]);
+
+obj[20] = "twenty-int";
+print(obj["20"]);
+print(obj[20]);
+
+// Overwrite
+obj[0] = "updated";
+print(obj[0]);
+
+// Negative keys
+obj[-1] = "neg";
+print(obj[-1]);
+print(obj["-1"]);
+
+// i64 keys
+let big = 5000000000;
+obj[big] = "big";
+print(obj[big]);
+print(obj["5000000000"]);
+
+// Use as a map
+let map = {};
+for (let i = 0; i < 3; i++) {
+    map[i] = i * 10;
+}
+print(map[0]);
+print(map[1]);
+print(map[2]);

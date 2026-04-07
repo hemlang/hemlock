@@ -1,0 +1,23 @@
+// Test: bracket notation with rune keys (auto-coerced to strings)
+
+let obj = {};
+
+// Set with rune keys
+obj['A'] = "alpha";
+obj['B'] = "bravo";
+obj['Z'] = "zulu";
+
+// Read back
+print(obj['A']);
+print(obj['B']);
+print(obj['Z']);
+
+// Equivalent to string keys
+print(obj["A"]);
+print(obj["B"]);
+
+// has() and delete() with rune keys
+print(obj.has('A'));
+obj.delete('A');
+print(obj.has('A'));
+print(obj.has('B'));

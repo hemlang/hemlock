@@ -1,0 +1,17 @@
+// Test: bracket notation with float keys (auto-coerced to strings)
+
+let obj = {};
+
+// Set with float keys
+obj[1.5] = "one-half";
+obj[2.0] = "two";
+
+// Read back
+print(obj[1.5]);
+print(obj[2.0]);
+
+// has() and delete() with float keys
+print(obj.has(1.5));
+obj.delete(1.5);
+print(obj.has(1.5));
+print(obj.has(2.0));

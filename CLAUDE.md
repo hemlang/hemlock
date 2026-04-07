@@ -177,6 +177,16 @@ let p: Person = { name: "Alice", age: 30 };
 let person = { name, age };             // shorthand syntax
 let config = { ...defaults, size: "large" }; // spread operator
 
+// Bracket notation with key coercion (non-string keys auto-coerce to string)
+let map = {};
+map[42] = "value";              // integer key → "42"
+map[true] = "yes";              // bool key → "true"
+map['A'] = "alpha";             // rune key → "A"
+print(map[42]);                 // "value"
+print(map.has(42));             // true
+map.delete(42);                 // removes field "42"
+let keys = map.keys();          // returns array of string keys
+
 enum Color { RED, GREEN, BLUE }
 
 // Compound types (intersection/duck typing)
