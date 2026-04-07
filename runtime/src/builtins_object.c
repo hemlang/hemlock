@@ -206,6 +206,20 @@ int hml_object_delete_field(HmlValue obj, const char *field) {
     return 1;  // Deleted
 }
 
+// Convert integer key to string and get field from object
+HmlValue hml_object_get_field_int(HmlValue obj, HmlValue key) {
+    char key_buf[32];
+    snprintf(key_buf, sizeof(key_buf), "%" PRId64, hml_to_i64(key));
+    return hml_object_get_field(obj, key_buf);
+}
+
+// Convert integer key to string and set field on object
+void hml_object_set_field_int(HmlValue obj, HmlValue key, HmlValue val) {
+    char key_buf[32];
+    snprintf(key_buf, sizeof(key_buf), "%" PRId64, hml_to_i64(key));
+    hml_object_set_field(obj, key_buf, val);
+}
+
 // Get number of fields in object
 int hml_object_num_fields(HmlValue obj) {
     if (obj.type != HML_VAL_OBJECT || !obj.as.as_object) {

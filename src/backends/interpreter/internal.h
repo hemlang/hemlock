@@ -6,6 +6,7 @@
 #include "frontend/ast.h"
 #include "hemlock_limits.h"
 #include <stdint.h>
+#include <inttypes.h>
 
 // Forward declaration for profiler
 typedef struct ProfilerState ProfilerState;

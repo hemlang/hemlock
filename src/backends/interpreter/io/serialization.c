@@ -830,11 +830,18 @@ Value call_object_method(Object *obj, const char *method, Value *args, int num_a
         if (num_args != 1) {
             return throw_runtime_error(ctx, "has() expects 1 argument (key)");
         }
-        if (args[0].type != VAL_STRING) {
-            return throw_runtime_error(ctx, "has() key must be a string");
+        if (args[0].type != VAL_STRING && !is_integer(args[0])) {
+            return throw_runtime_error(ctx, "has() key must be a string or integer");
         }
 
-        const char *key = args[0].as.as_string->data;
+        const char *key;
+        char key_buf[32];
+        if (args[0].type == VAL_STRING) {
+            key = args[0].as.as_string->data;
+        } else {
+            snprintf(key_buf, sizeof(key_buf), "%" PRId64, value_to_int64(args[0]));
+            key = key_buf;
+        }
         for (int i = 0; i < obj->num_fields; i++) {
             if (strcmp(obj->fields[i].name, key) == 0) {
                 return val_bool(1);
@@ -873,11 +880,18 @@ Value call_object_method(Object *obj, const char *method, Value *args, int num_a
         if (num_args != 1) {
             return throw_runtime_error(ctx, "delete() expects 1 argument (key)");
         }
-        if (args[0].type != VAL_STRING) {
-            return throw_runtime_error(ctx, "delete() key must be a string");
+        if (args[0].type != VAL_STRING && !is_integer(args[0])) {
+            return throw_runtime_error(ctx, "delete() key must be a string or integer");
         }
 
-        const char *key = args[0].as.as_string->data;
+        const char *key;
+        char key_buf[32];
+        if (args[0].type == VAL_STRING) {
+            key = args[0].as.as_string->data;
+        } else {
+            snprintf(key_buf, sizeof(key_buf), "%" PRId64, value_to_int64(args[0]));
+            key = key_buf;
+        }
 
         // Find the field index
         int found_index = -1;

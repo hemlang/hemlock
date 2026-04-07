@@ -435,6 +435,26 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 return val_null();
             }
 
+            // Object property access with integer key (auto-coerce to string)
+            if (object.type == VAL_OBJECT && is_integer(index_val)) {
+                Object *obj = object.as.as_object;
+                char key_buf[32];
+                snprintf(key_buf, sizeof(key_buf), "%" PRId64, value_to_int64(index_val));
+
+                int idx = object_lookup_field(obj, key_buf);
+                if (idx >= 0) {
+                    result = obj->fields[idx].value;
+                    VALUE_RETAIN(result);
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    return result;
+                }
+
+                VALUE_RELEASE(object);
+                VALUE_RELEASE(index_val);
+                return val_null();
+            }
+
             // For arrays, strings, and buffers, index must be an integer
             if (!is_integer(index_val)) {
                 runtime_error(ctx, "Index must be an integer");
@@ -555,6 +575,44 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
                 obj->num_fields = new_num_fields;
                 obj->fields[obj->num_fields - 1].name = strdup(key);
+                obj->fields[obj->num_fields - 1].value = value;
+                VALUE_RETAIN(value);
+                VALUE_RELEASE(object);
+                VALUE_RELEASE(index_val);
+                return value;
+            }
+
+            // Object property assignment with integer key (auto-coerce to string)
+            if (object.type == VAL_OBJECT && is_integer(index_val)) {
+                Object *obj = object.as.as_object;
+                char key_buf[32];
+                snprintf(key_buf, sizeof(key_buf), "%" PRId64, value_to_int64(index_val));
+
+                int idx = object_lookup_field(obj, key_buf);
+                if (idx >= 0) {
+                    VALUE_RELEASE(obj->fields[idx].value);
+                    obj->fields[idx].value = value;
+                    VALUE_RETAIN(value);
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    return value;
+                }
+
+                if (obj->hash_table) {
+                    free(obj->hash_table);
+                    obj->hash_table = NULL;
+                    obj->hash_capacity = 0;
+                }
+                int new_num_fields = obj->num_fields + 1;
+                FieldEntry *new_fields = object_grow_fields(obj, new_num_fields);
+                if (!new_fields) {
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    runtime_error(ctx, "Failed to expand object fields");
+                    return val_null();
+                }
+                obj->num_fields = new_num_fields;
+                obj->fields[obj->num_fields - 1].name = strdup(key_buf);
                 obj->fields[obj->num_fields - 1].value = value;
                 VALUE_RETAIN(value);
                 VALUE_RELEASE(object);

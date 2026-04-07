@@ -617,16 +617,24 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
             return hml_object_keys(obj);
         }
         if (strcmp(method, "has") == 0 && num_args == 1) {
-            if (args[0].type != HML_VAL_STRING) {
-                hml_runtime_error("Object.has() requires string argument");
+            if (args[0].type == HML_VAL_STRING) {
+                return hml_val_bool(hml_object_has_field(obj, args[0].as.as_string->data));
+            } else if (hml_is_integer(args[0])) {
+                char key_buf[32];
+                snprintf(key_buf, sizeof(key_buf), "%" PRId64, hml_to_i64(args[0]));
+                return hml_val_bool(hml_object_has_field(obj, key_buf));
             }
-            return hml_val_bool(hml_object_has_field(obj, args[0].as.as_string->data));
+            hml_runtime_error("Object.has() requires string or integer argument");
         }
         if (strcmp(method, "delete") == 0 && num_args == 1) {
-            if (args[0].type != HML_VAL_STRING) {
-                hml_runtime_error("Object.delete() requires string argument");
+            if (args[0].type == HML_VAL_STRING) {
+                return hml_val_bool(hml_object_delete_field(obj, args[0].as.as_string->data));
+            } else if (hml_is_integer(args[0])) {
+                char key_buf[32];
+                snprintf(key_buf, sizeof(key_buf), "%" PRId64, hml_to_i64(args[0]));
+                return hml_val_bool(hml_object_delete_field(obj, key_buf));
             }
-            return hml_val_bool(hml_object_delete_field(obj, args[0].as.as_string->data));
+            hml_runtime_error("Object.delete() requires string or integer argument");
         }
         hml_runtime_error("Object has no method '%s'", method);
     }

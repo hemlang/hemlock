@@ -362,6 +362,8 @@ void hml_array_fill(HmlValue arr, HmlValue value, HmlValue start, HmlValue end);
 HmlValue hml_object_get_field(HmlValue obj, const char *field);
 HmlValue hml_object_get_field_required(HmlValue obj, const char *field);  // Throws if field not found
 void hml_object_set_field(HmlValue obj, const char *field, HmlValue val);
+HmlValue hml_object_get_field_int(HmlValue obj, HmlValue key);  // Integer key auto-coerced to string
+void hml_object_set_field_int(HmlValue obj, HmlValue key, HmlValue val);  // Integer key auto-coerced to string
 int hml_object_has_field(HmlValue obj, const char *field);
 int hml_object_delete_field(HmlValue obj, const char *field);  // Returns 1 if deleted, 0 if not found
 int hml_object_num_fields(HmlValue obj);
