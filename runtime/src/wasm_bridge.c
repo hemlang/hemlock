@@ -454,6 +454,122 @@ static void sha512_compute(const uint8_t *data, size_t len, uint8_t hash[64]) {
 }
 
 /* ========================================================================
+ * SECTION 3.5: Pure C SHA-1 Implementation
+ * WARNING: SHA-1 is cryptographically weak, included for legacy compatibility
+ * ======================================================================== */
+
+#define SHA1_ROTL(x, n) (((x) << (n)) | ((x) >> (32 - (n))))
+
+static void sha1_compute(const uint8_t *data, size_t len, uint8_t hash[20]) {
+    uint32_t h0 = 0x67452301, h1 = 0xefcdab89, h2 = 0x98badcfe,
+             h3 = 0x10325476, h4 = 0xc3d2e1f0;
+
+    // Pre-processing: total length in bits
+    uint64_t bit_len = (uint64_t)len * 8;
+
+    // Process full 64-byte blocks
+    size_t i;
+    for (i = 0; i + 64 <= len; i += 64) {
+        uint32_t w[80];
+        for (int j = 0; j < 16; j++) {
+            w[j] = ((uint32_t)data[i + j*4] << 24) |
+                   ((uint32_t)data[i + j*4+1] << 16) |
+                   ((uint32_t)data[i + j*4+2] << 8) |
+                    (uint32_t)data[i + j*4+3];
+        }
+        for (int j = 16; j < 80; j++) {
+            w[j] = SHA1_ROTL(w[j-3] ^ w[j-8] ^ w[j-14] ^ w[j-16], 1);
+        }
+        uint32_t a = h0, b = h1, c = h2, d = h3, e = h4;
+        for (int j = 0; j < 80; j++) {
+            uint32_t f, k;
+            if (j < 20)      { f = (b & c) | (~b & d); k = 0x5a827999; }
+            else if (j < 40) { f = b ^ c ^ d;           k = 0x6ed9eba1; }
+            else if (j < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8f1bbcdc; }
+            else             { f = b ^ c ^ d;           k = 0xca62c1d6; }
+            uint32_t temp = SHA1_ROTL(a, 5) + f + e + k + w[j];
+            e = d; d = c; c = SHA1_ROTL(b, 30); b = a; a = temp;
+        }
+        h0 += a; h1 += b; h2 += c; h3 += d; h4 += e;
+    }
+
+    // Final block with padding
+    size_t remaining = len - i;
+    uint8_t block[128];
+    memcpy(block, data + i, remaining);
+    block[remaining] = 0x80;
+    memset(block + remaining + 1, 0, 64 - remaining - 1);
+
+    if (remaining >= 55) {
+        // Need two blocks
+        memset(block + 64, 0, 64);
+        block[120] = (uint8_t)(bit_len >> 56); block[121] = (uint8_t)(bit_len >> 48);
+        block[122] = (uint8_t)(bit_len >> 40); block[123] = (uint8_t)(bit_len >> 32);
+        block[124] = (uint8_t)(bit_len >> 24); block[125] = (uint8_t)(bit_len >> 16);
+        block[126] = (uint8_t)(bit_len >> 8);  block[127] = (uint8_t)(bit_len);
+        // Process both blocks
+        for (int blk = 0; blk < 2; blk++) {
+            uint32_t w[80];
+            const uint8_t *bp = block + blk * 64;
+            for (int j = 0; j < 16; j++) {
+                w[j] = ((uint32_t)bp[j*4] << 24) | ((uint32_t)bp[j*4+1] << 16) |
+                       ((uint32_t)bp[j*4+2] << 8) | (uint32_t)bp[j*4+3];
+            }
+            for (int j = 16; j < 80; j++) {
+                w[j] = SHA1_ROTL(w[j-3] ^ w[j-8] ^ w[j-14] ^ w[j-16], 1);
+            }
+            uint32_t a = h0, b = h1, c = h2, d = h3, e = h4;
+            for (int j = 0; j < 80; j++) {
+                uint32_t f, k;
+                if (j < 20)      { f = (b & c) | (~b & d); k = 0x5a827999; }
+                else if (j < 40) { f = b ^ c ^ d;           k = 0x6ed9eba1; }
+                else if (j < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8f1bbcdc; }
+                else             { f = b ^ c ^ d;           k = 0xca62c1d6; }
+                uint32_t temp = SHA1_ROTL(a, 5) + f + e + k + w[j];
+                e = d; d = c; c = SHA1_ROTL(b, 30); b = a; a = temp;
+            }
+            h0 += a; h1 += b; h2 += c; h3 += d; h4 += e;
+        }
+    } else {
+        block[56] = (uint8_t)(bit_len >> 56); block[57] = (uint8_t)(bit_len >> 48);
+        block[58] = (uint8_t)(bit_len >> 40); block[59] = (uint8_t)(bit_len >> 32);
+        block[60] = (uint8_t)(bit_len >> 24); block[61] = (uint8_t)(bit_len >> 16);
+        block[62] = (uint8_t)(bit_len >> 8);  block[63] = (uint8_t)(bit_len);
+        uint32_t w[80];
+        for (int j = 0; j < 16; j++) {
+            w[j] = ((uint32_t)block[j*4] << 24) | ((uint32_t)block[j*4+1] << 16) |
+                   ((uint32_t)block[j*4+2] << 8) | (uint32_t)block[j*4+3];
+        }
+        for (int j = 16; j < 80; j++) {
+            w[j] = SHA1_ROTL(w[j-3] ^ w[j-8] ^ w[j-14] ^ w[j-16], 1);
+        }
+        uint32_t a = h0, b = h1, c = h2, d = h3, e = h4;
+        for (int j = 0; j < 80; j++) {
+            uint32_t f, k;
+            if (j < 20)      { f = (b & c) | (~b & d); k = 0x5a827999; }
+            else if (j < 40) { f = b ^ c ^ d;           k = 0x6ed9eba1; }
+            else if (j < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8f1bbcdc; }
+            else             { f = b ^ c ^ d;           k = 0xca62c1d6; }
+            uint32_t temp = SHA1_ROTL(a, 5) + f + e + k + w[j];
+            e = d; d = c; c = SHA1_ROTL(b, 30); b = a; a = temp;
+        }
+        h0 += a; h1 += b; h2 += c; h3 += d; h4 += e;
+    }
+
+    // Output big-endian
+    hash[0]  = (uint8_t)(h0 >> 24); hash[1]  = (uint8_t)(h0 >> 16);
+    hash[2]  = (uint8_t)(h0 >> 8);  hash[3]  = (uint8_t)(h0);
+    hash[4]  = (uint8_t)(h1 >> 24); hash[5]  = (uint8_t)(h1 >> 16);
+    hash[6]  = (uint8_t)(h1 >> 8);  hash[7]  = (uint8_t)(h1);
+    hash[8]  = (uint8_t)(h2 >> 24); hash[9]  = (uint8_t)(h2 >> 16);
+    hash[10] = (uint8_t)(h2 >> 8);  hash[11] = (uint8_t)(h2);
+    hash[12] = (uint8_t)(h3 >> 24); hash[13] = (uint8_t)(h3 >> 16);
+    hash[14] = (uint8_t)(h3 >> 8);  hash[15] = (uint8_t)(h3);
+    hash[16] = (uint8_t)(h4 >> 24); hash[17] = (uint8_t)(h4 >> 16);
+    hash[18] = (uint8_t)(h4 >> 8);  hash[19] = (uint8_t)(h4);
+}
+
+/* ========================================================================
  * SECTION 4: Pure C MD5 Implementation
  * ======================================================================== */
 
@@ -540,6 +656,15 @@ static HmlValue bytes_to_hex(const uint8_t *bytes, size_t len) {
     return result;
 }
 
+HmlValue hml_hash_sha1(HmlValue input) {
+    if (input.type != HML_VAL_STRING) {
+        hml_runtime_error("sha1() requires string argument");
+    }
+    uint8_t hash[20];
+    sha1_compute((const uint8_t *)input.as.as_string->data, input.as.as_string->length, hash);
+    return bytes_to_hex(hash, 20);
+}
+
 HmlValue hml_hash_sha256(HmlValue input) {
     if (input.type != HML_VAL_STRING) {
         hml_runtime_error("sha256() requires string argument");
@@ -567,6 +692,7 @@ HmlValue hml_hash_md5(HmlValue input) {
     return bytes_to_hex(hash, 16);
 }
 
+HmlValue hml_builtin_hash_sha1(HmlClosureEnv *env, HmlValue input) { (void)env; return hml_hash_sha1(input); }
 HmlValue hml_builtin_hash_sha256(HmlClosureEnv *env, HmlValue input) { (void)env; return hml_hash_sha256(input); }
 HmlValue hml_builtin_hash_sha512(HmlClosureEnv *env, HmlValue input) { (void)env; return hml_hash_sha512(input); }
 HmlValue hml_builtin_hash_md5(HmlClosureEnv *env, HmlValue input) { (void)env; return hml_hash_md5(input); }

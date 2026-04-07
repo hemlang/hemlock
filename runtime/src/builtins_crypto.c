@@ -404,6 +404,25 @@ static HmlValue bytes_to_hex_string(const unsigned char *bytes, size_t len) {
     return result;
 }
 
+// SHA-1 hash - returns hex string
+// WARNING: SHA-1 is cryptographically weak, use only for legacy compatibility
+HmlValue hml_hash_sha1(HmlValue input) {
+    if (input.type != HML_VAL_STRING) {
+        hml_runtime_error("sha1() requires string argument");
+    }
+
+    const char *data = input.as.as_string->data;
+    size_t len = input.as.as_string->length;
+
+    unsigned char hash[SHA_DIGEST_LENGTH];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    SHA1((const unsigned char *)data, len, hash);
+#pragma GCC diagnostic pop
+
+    return bytes_to_hex_string(hash, SHA_DIGEST_LENGTH);
+}
+
 // SHA-256 hash - returns hex string
 HmlValue hml_hash_sha256(HmlValue input) {
     if (input.type != HML_VAL_STRING) {
@@ -453,6 +472,11 @@ HmlValue hml_hash_md5(HmlValue input) {
 }
 
 // Builtin wrappers for function-as-value usage
+HmlValue hml_builtin_hash_sha1(HmlClosureEnv *env, HmlValue input) {
+    (void)env;
+    return hml_hash_sha1(input);
+}
+
 HmlValue hml_builtin_hash_sha256(HmlClosureEnv *env, HmlValue input) {
     (void)env;
     return hml_hash_sha256(input);

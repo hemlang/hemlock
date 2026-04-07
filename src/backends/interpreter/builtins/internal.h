@@ -236,6 +236,7 @@ Value builtin_crc32(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_adler32(Value *args, int num_args, ExecutionContext *ctx);
 
 // Cryptographic hash builtins (crypto.c)
+Value builtin_sha1(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_sha256(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_sha512(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_md5(Value *args, int num_args, ExecutionContext *ctx);
