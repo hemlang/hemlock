@@ -1890,12 +1890,22 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
 
         // ========== HTTP/WEBSOCKET BUILTINS ==========
 
-        // __lws_http_get(url)
+        // __lws_http_get(url) or __lws_http_get(url, headers)
         if (strcmp(fn_name, "__lws_http_get") == 0 && expr->as.call.num_args == 1) {
             char *url = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "HmlValue %s = hml_lws_http_get(%s);", result, url);
             codegen_writeln(ctx, "hml_release(&%s);", url);
             free(url);
+            return result;
+        }
+        if (strcmp(fn_name, "__lws_http_get") == 0 && expr->as.call.num_args == 2) {
+            char *url = codegen_expr(ctx, expr->as.call.args[0]);
+            char *headers = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_lws_http_get_with_headers(%s, %s);", result, url, headers);
+            codegen_writeln(ctx, "hml_release(&%s);", url);
+            codegen_writeln(ctx, "hml_release(&%s);", headers);
+            free(url);
+            free(headers);
             return result;
         }
 

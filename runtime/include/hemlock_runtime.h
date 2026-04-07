@@ -894,6 +894,7 @@ HmlValue hml_builtin_free_fn(HmlClosureEnv *env, HmlValue val);
 
 // HTTP GET request
 HmlValue hml_lws_http_get(HmlValue url);
+HmlValue hml_lws_http_get_with_headers(HmlValue url, HmlValue headers);
 
 // HTTP POST request
 HmlValue hml_lws_http_post(HmlValue url, HmlValue body, HmlValue content_type);

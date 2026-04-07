@@ -24,6 +24,8 @@ typedef struct {
     int failed;
     char *redirect_url;  // Location header for 3xx responses
     char *headers;       // Response headers as string
+    char **custom_headers;   // Custom request headers (e.g., "Authorization: Bearer xxx")
+    int num_custom_headers;
 } http_response_t;
 
 static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
@@ -37,20 +39,38 @@ static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
                 unsigned char **p = (unsigned char **)in;
                 unsigned char *end = (*p) + len;
 
-                // Add User-Agent header (required by GitHub API)
-                const char *ua = "User-Agent: hemlock/1.0\r\n";
-                size_t ua_len = strlen(ua);
-                if (end - *p >= (int)ua_len) {
-                    memcpy(*p, ua, ua_len);
-                    *p += ua_len;
-                }
+                if (resp && resp->custom_headers && resp->num_custom_headers > 0) {
+                    // Write caller-supplied headers
+                    for (int i = 0; i < resp->num_custom_headers; i++) {
+                        const char *hdr = resp->custom_headers[i];
+                        size_t hdr_len = strlen(hdr);
+                        // Append \r\n if the header doesn't already end with it
+                        int needs_crlf = (hdr_len < 2 || hdr[hdr_len-2] != '\r' || hdr[hdr_len-1] != '\n');
+                        size_t total = hdr_len + (needs_crlf ? 2 : 0);
+                        if (end - *p >= (int)total) {
+                            memcpy(*p, hdr, hdr_len);
+                            *p += hdr_len;
+                            if (needs_crlf) {
+                                memcpy(*p, "\r\n", 2);
+                                *p += 2;
+                            }
+                        }
+                    }
+                } else {
+                    // Default headers when none supplied
+                    const char *ua = "User-Agent: hemlock/1.0\r\n";
+                    size_t ua_len = strlen(ua);
+                    if (end - *p >= (int)ua_len) {
+                        memcpy(*p, ua, ua_len);
+                        *p += ua_len;
+                    }
 
-                // Add Accept header for JSON APIs
-                const char *accept = "Accept: application/json\r\n";
-                size_t accept_len = strlen(accept);
-                if (end - *p >= (int)accept_len) {
-                    memcpy(*p, accept, accept_len);
-                    *p += accept_len;
+                    const char *accept = "Accept: application/json\r\n";
+                    size_t accept_len = strlen(accept);
+                    if (end - *p >= (int)accept_len) {
+                        memcpy(*p, accept, accept_len);
+                        *p += accept_len;
+                    }
                 }
             }
             break;
@@ -286,7 +306,39 @@ static struct lws_context* get_http_context(int needs_ssl) {
     return lws_create_context(&info);
 }
 
-// __lws_http_get(url: string): ptr
+// Helper: parse a Hemlock array of strings into C header strings stored in resp
+static void parse_headers_into_resp(http_response_t *resp, Value headers_val) {
+    if (headers_val.type != VAL_ARRAY || !headers_val.as.as_array) return;
+    Array *arr = headers_val.as.as_array;
+    if (arr->length == 0) return;
+
+    resp->custom_headers = calloc(arr->length, sizeof(char *));
+    if (!resp->custom_headers) return;
+
+    int count = 0;
+    for (int i = 0; i < arr->length; i++) {
+        Value item = arr->elements[i];
+        if (item.type == VAL_STRING && item.as.as_string && item.as.as_string->data) {
+            resp->custom_headers[count] = strdup(item.as.as_string->data);
+            if (resp->custom_headers[count]) count++;
+        }
+    }
+    resp->num_custom_headers = count;
+}
+
+// Helper: free custom headers stored in resp
+static void free_custom_headers(http_response_t *resp) {
+    if (resp->custom_headers) {
+        for (int i = 0; i < resp->num_custom_headers; i++) {
+            free(resp->custom_headers[i]);
+        }
+        free(resp->custom_headers);
+        resp->custom_headers = NULL;
+        resp->num_custom_headers = 0;
+    }
+}
+
+// __lws_http_get(url: string, headers?: array): ptr
 Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     // SANDBOX: Check if network is allowed
     if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_NETWORK)) {
@@ -296,9 +348,9 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
 
     lws_init_logging();
 
-    if (num_args != 1) {
+    if (num_args < 1 || num_args > 2) {
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_get() expects 1 argument");
+        ctx->exception_state.exception_value = val_string("__lws_http_get() expects 1-2 arguments (url, headers?)");
         return val_null();
     }
 
@@ -325,9 +377,15 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
+    // Parse optional custom headers
+    if (num_args == 2) {
+        parse_headers_into_resp(resp, args[1]);
+    }
+
     resp->body_capacity = 4096;
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
@@ -339,6 +397,7 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     struct lws_context *context = get_http_context(ssl);
     if (!context) {
         free(resp->body);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
@@ -373,6 +432,7 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     if (!lws_client_connect_via_info(&connect_info)) {
         if (!ssl) lws_context_destroy(context);
         free(resp->body);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to connect");
@@ -391,6 +451,7 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
@@ -400,7 +461,7 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     return val_ptr(resp);
 }
 
-// __lws_http_post(url: string, body: string, content_type: string): ptr
+// __lws_http_post(url: string, body: string, content_type: string, headers?: array): ptr
 Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     // SANDBOX: Check if network is allowed
     if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_NETWORK)) {
@@ -410,9 +471,9 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
 
     lws_init_logging();
 
-    if (num_args != 3) {
+    if (num_args < 3 || num_args > 4) {
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_post() expects 3 arguments");
+        ctx->exception_state.exception_value = val_string("__lws_http_post() expects 3-4 arguments (url, body, content_type, headers?)");
         return val_null();
     }
 
@@ -442,9 +503,15 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
+    // Parse optional custom headers
+    if (num_args == 4) {
+        parse_headers_into_resp(resp, args[3]);
+    }
+
     resp->body_capacity = 4096;
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
@@ -456,6 +523,7 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     struct lws_context *context = get_http_context(ssl);
     if (!context) {
         free(resp->body);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
@@ -522,7 +590,7 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     return val_ptr(resp);
 }
 
-// __lws_http_request(method: string, url: string, body: string, content_type: string): ptr
+// __lws_http_request(method: string, url: string, body: string, content_type: string, headers?: array): ptr
 // Generic HTTP request function supporting any method (PUT, DELETE, PATCH, etc.)
 Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx) {
     // SANDBOX: Check if network is allowed
@@ -533,9 +601,9 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
 
     lws_init_logging();
 
-    if (num_args != 4) {
+    if (num_args < 4 || num_args > 5) {
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_request() expects 4 arguments (method, url, body, content_type)");
+        ctx->exception_state.exception_value = val_string("__lws_http_request() expects 4-5 arguments (method, url, body, content_type, headers?)");
         return val_null();
     }
 
@@ -565,6 +633,11 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to allocate response");
         return val_null();
+    }
+
+    // Parse optional custom headers
+    if (num_args == 5) {
+        parse_headers_into_resp(resp, args[4]);
     }
 
     resp->body_capacity = 4096;
@@ -1229,6 +1302,7 @@ Value builtin_lws_response_free(Value *args, int num_args, ExecutionContext *ctx
         if (resp->body) free(resp->body);
         if (resp->redirect_url) free(resp->redirect_url);
         if (resp->headers) free(resp->headers);
+        free_custom_headers(resp);
         free(resp);
     }
 

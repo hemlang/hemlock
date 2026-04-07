@@ -35,7 +35,11 @@ fn http_request_with_redirects(method, url, body, headers, redirect_count) {
 	}
 
 	if (method == "GET") {
-		resp_ptr = __lws_http_get(url);
+		if (headers != null && headers.length > 0) {
+			resp_ptr = __lws_http_get(url, headers);
+		} else {
+			resp_ptr = __lws_http_get(url);
+		}
 	} else if (method == "POST") {
 		resp_ptr = __lws_http_post(url, body, content_type);
 	} else if (method == "PUT" || method == "DELETE" || method == "PATCH" || method == "HEAD" ||

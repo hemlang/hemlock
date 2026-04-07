@@ -9,6 +9,7 @@ Value builtin_print(Value *args, int num_args, ExecutionContext *ctx) {
 
     print_value(args[0]);
     printf("\n");
+    fflush(stdout);
     return val_null();
 }
 

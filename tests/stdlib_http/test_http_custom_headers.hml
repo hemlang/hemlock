@@ -1,0 +1,105 @@
+// Test HTTP custom headers support
+// Verifies that headers passed to get() are sent to the server
+
+import { get, is_success, HttpServer } from "@stdlib/http";
+import { sleep } from "@stdlib/time";
+
+print("Testing HTTP custom headers...");
+print("");
+
+let tests_passed = 0;
+let tests_failed = 0;
+
+// Create HTTP server
+let server_port = 18766;
+let server = HttpServer("127.0.0.1", server_port);
+
+server.route("GET", "/hello", fn(req) {
+    return {
+        status: 200,
+        body: "Hello World",
+        content_type: "text/plain"
+    };
+});
+
+// Start server in background
+async fn run_server(srv, count: i32) {
+    srv.serve(count);
+    return null;
+}
+
+let server_task = spawn(run_server, server, 3);
+
+// Give server time to start
+sleep(1.0);
+
+let base_url = "http://127.0.0.1:" + server_port;
+
+// Test 1: GET with no custom headers (should use defaults)
+print("Test 1: GET with default headers");
+try {
+    let response = get(base_url + "/hello", []);
+    if (is_success(response.status_code)) {
+        print("  PASS: Default headers request succeeded (status: " + response.status_code + ")");
+        tests_passed = tests_passed + 1;
+    } else {
+        print("  FAIL: status " + response.status_code);
+        tests_failed = tests_failed + 1;
+    }
+} catch (e) {
+    print("  FAIL: " + e);
+    tests_failed = tests_failed + 1;
+}
+print("");
+
+// Test 2: GET with custom headers (Authorization, User-Agent, etc.)
+print("Test 2: GET with custom headers");
+try {
+    let response = get(base_url + "/hello", [
+        "Authorization: Bearer test-token-12345",
+        "User-Agent: hpm/1.1.0",
+        "Accept: application/vnd.github.v3+json"
+    ]);
+    if (is_success(response.status_code)) {
+        print("  PASS: Custom headers request succeeded (status: " + response.status_code + ")");
+        tests_passed = tests_passed + 1;
+    } else {
+        print("  FAIL: status " + response.status_code);
+        tests_failed = tests_failed + 1;
+    }
+} catch (e) {
+    print("  FAIL: " + e);
+    tests_failed = tests_failed + 1;
+}
+print("");
+
+// Test 3: GET with single custom header
+print("Test 3: GET with single custom header");
+try {
+    let response = get(base_url + "/hello", [
+        "X-Request-ID: abc123"
+    ]);
+    if (is_success(response.status_code)) {
+        print("  PASS: Single custom header request succeeded (status: " + response.status_code + ")");
+        tests_passed = tests_passed + 1;
+    } else {
+        print("  FAIL: status " + response.status_code);
+        tests_failed = tests_failed + 1;
+    }
+} catch (e) {
+    print("  FAIL: " + e);
+    tests_failed = tests_failed + 1;
+}
+
+server.close();
+detach(server_task);
+
+print("");
+print("========================================");
+print("Custom Headers Test Summary:");
+print("  Passed: " + tests_passed);
+print("  Failed: " + tests_failed);
+print("========================================");
+print("");
+
+assert(tests_failed == 0, "All custom header tests should pass");
