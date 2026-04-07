@@ -350,7 +350,19 @@ fn expect(value) {
 
 // Public API: describe(name, fn)
 fn describe(suite_name: string, suite_fn) {
-	let suite = { name: suite_name, tests: [], before_each: null, after_each: null };
+	// Store test names and functions in separate arrays to avoid method call
+	// dispatch when invoking callbacks. Using obj.func() triggers the interpreter's
+	// method call path which injects 'self' into the callback's environment,
+	// corrupting closure arity tracking for imported module functions.
+	// By storing functions in arrays and calling via array[idx](), we use
+	// direct function invocation with no 'self' injection.
+	let suite = {
+		name: suite_name,
+		test_names: [],
+		test_fns: [],
+		before_each_fn: null,
+		after_each_fn: null,
+	};
 
 	__test_suites.push(suite);
 
@@ -373,9 +385,8 @@ fn test(test_name: string, test_fn) {
 		throw "test() must be called inside describe()";
 	}
 
-	let test_case = { name: test_name, func: test_fn };
-
-	__current_suite.tests.push(test_case);
+	__current_suite.test_names.push(test_name);
+	__current_suite.test_fns.push(test_fn);
 	return null;
 }
 
@@ -385,7 +396,7 @@ fn before_each(callback) {
 		throw "before_each() must be called inside describe()";
 	}
 
-	__current_suite.before_each = callback;
+	__current_suite.before_each_fn = callback;
 	return null;
 }
 
@@ -395,7 +406,7 @@ fn after_each(callback) {
 		throw "after_each() must be called inside describe()";
 	}
 
-	__current_suite.after_each = callback;
+	__current_suite.after_each_fn = callback;
 	return null;
 }
 
@@ -506,10 +517,17 @@ fn run(options?: null) {
 			print(suite.name);
 		}
 
+		// Get test arrays from suite via local variables to avoid
+		// method call dispatch on every iteration
+		let test_names = suite.test_names;
+		let test_fns = suite.test_fns;
+		let before_fn = suite.before_each_fn;
+		let after_fn = suite.after_each_fn;
+
 		// Run each test in suite
 		let test_idx = 0;
-		while (test_idx < suite.tests.length) {
-			let test_case = suite.tests[test_idx];
+		while (test_idx < test_names.length) {
+			let test_name_str = test_names[test_idx];
 			__test_stats.total = __test_stats.total + 1;
 
 			let test_passed = true;
@@ -519,17 +537,19 @@ fn run(options?: null) {
 			let start_time = __time_ms();
 
 			try {
-				// Run before_each hook
-				if (suite.before_each != null) {
-					suite.before_each();
+				// Run before_each hook (direct call, no method dispatch)
+				if (before_fn != null) {
+					before_fn();
 				}
 
-				// Run test
-				test_case.func();
+				// Run test (direct call from array, no method dispatch)
+				// This avoids the obj.func() pattern which injects 'self'
+				let current_test_fn = test_fns[test_idx];
+				current_test_fn();
 
-				// Run after_each hook
-				if (suite.after_each != null) {
-					suite.after_each();
+				// Run after_each hook (direct call, no method dispatch)
+				if (after_fn != null) {
+					after_fn();
 				}
 
 				__test_stats.passed = __test_stats.passed + 1;
@@ -549,7 +569,7 @@ fn run(options?: null) {
 			if (!test_passed) {
 				__test_stats.errors.push({
 					suite: suite.name,
-					test: test_case.name,
+					test: test_name_str,
 					error: error_msg,
 					duration_ms,
 				});
@@ -558,15 +578,15 @@ fn run(options?: null) {
 			// Print test result with timing
 			if (test_passed) {
 				if (!no_color) {
-					print("  " + COLOR_GREEN + "✓" + COLOR_RESET + " " + test_case.name + " " + COLOR_DIM + "(" + time_str + ")" + COLOR_RESET);
+					print("  " + COLOR_GREEN + "✓" + COLOR_RESET + " " + test_name_str + " " + COLOR_DIM + "(" + time_str + ")" + COLOR_RESET);
 				} else {
-					print("  ✓ " + test_case.name + " (" + time_str + ")");
+					print("  ✓ " + test_name_str + " (" + time_str + ")");
 				}
 			} else {
 				if (!no_color) {
-					print("  " + COLOR_RED + "✗" + COLOR_RESET + " " + test_case.name + " " + COLOR_DIM + "(" + time_str + ")" + COLOR_RESET);
+					print("  " + COLOR_RED + "✗" + COLOR_RESET + " " + test_name_str + " " + COLOR_DIM + "(" + time_str + ")" + COLOR_RESET);
 				} else {
-					print("  ✗ " + test_case.name + " (" + time_str + ")");
+					print("  ✗ " + test_name_str + " (" + time_str + ")");
 				}
 
 				if (verbose) {

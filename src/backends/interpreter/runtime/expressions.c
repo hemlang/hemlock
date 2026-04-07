@@ -370,11 +370,15 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             bound_fn->is_bound = 1;  // Mark as bound - don't free param arrays
                             bound_fn->borrows_ast_params = orig_fn->borrows_ast_params;
 
-                            // Note: object is retained by env_define above
-                            // Note: result (orig_fn) was retained at line 1186
-                            // We don't release it here since bound_fn shares pointers with it
+                            // Release the original function value - bound_fn shares param arrays
+                            // with it via AST borrowing, so the data remains valid even after
+                            // orig_fn is released (AST outlives all closures).
+                            VALUE_RELEASE(result);
 
-                            // Return the bound function (no need to release object, env_define holds it)
+                            // Release our eval_expr reference to object - env_define in
+                            // bound_env already retained it for 'self' binding.
+                            VALUE_RELEASE(object);
+
                             return val_function(bound_fn);
                         }
 
