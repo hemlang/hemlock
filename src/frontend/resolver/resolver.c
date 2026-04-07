@@ -510,8 +510,17 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
                 resolve_expr_internal(ctx, stmt->as.for_loop.increment);
             }
 
-            // Enter inner scope for body (matches iter_env at runtime)
+            // Enter inner scope for body (matches iter_env at runtime).
+            // The runtime creates a fresh iter_env each iteration with copies
+            // of loop variables for per-iteration closure capture.  We must
+            // mirror that by defining the loop variable in this inner scope so
+            // resolved depths match the runtime environment chain.
             resolver_enter_scope(ctx);
+            if (stmt->as.for_loop.initializer &&
+                stmt->as.for_loop.initializer->type == STMT_LET) {
+                resolver_define(ctx,
+                    stmt->as.for_loop.initializer->as.let.name, NULL, 0);
+            }
             resolve_stmt_internal(ctx, stmt->as.for_loop.body);
             resolver_exit_scope(ctx);
 
