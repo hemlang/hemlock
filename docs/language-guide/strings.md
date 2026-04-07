@@ -198,7 +198,7 @@ let s = "Hello" + '!';          // "Hello!"
 
 ## String Methods
 
-Hemlock provides 19 string methods for comprehensive text manipulation.
+Hemlock provides 20 string methods for comprehensive text manipulation.
 
 ### Substring & Slicing
 
@@ -416,6 +416,8 @@ let processed = "foo,bar,baz"
 | `chars()` | - | array | Convert to array of runes |
 | `bytes()` | - | array | Convert to array of u8 bytes |
 | `to_bytes()` | - | buffer | Convert to buffer (must free) |
+| `byte_ptr()` | - | ptr | Get raw byte pointer |
+| `deserialize()` | - | any | Deserialize string to value |
 
 ## Examples
 
