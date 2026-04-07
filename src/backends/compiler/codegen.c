@@ -1563,6 +1563,7 @@ const char* type_kind_to_ffi_type(TypeKind kind) {
         case TYPE_F32:    return "HML_FFI_F32";
         case TYPE_F64:    return "HML_FFI_F64";
         case TYPE_PTR:    return "HML_FFI_PTR";
+        case TYPE_RUNE:   return "HML_FFI_U32";  // rune is a 32-bit Unicode codepoint
         case TYPE_STRING: return "HML_FFI_STRING";
         case TYPE_VOID:   return "HML_FFI_VOID";
         case TYPE_CUSTOM_OBJECT: return "HML_FFI_STRUCT";

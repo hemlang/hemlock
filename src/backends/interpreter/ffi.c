@@ -299,6 +299,7 @@ static ffi_type* type_kind_to_ffi_type(TypeKind kind) {
         case TYPE_PTR:    return &ffi_type_pointer;
         case TYPE_BUFFER: return &ffi_type_pointer;  // buffer is a pointer to data
         case TYPE_STRING: return &ffi_type_pointer;
+        case TYPE_RUNE:   return &ffi_type_uint32;  // rune is a 32-bit Unicode codepoint
         case TYPE_BOOL:   return &ffi_type_sint;
         case TYPE_VOID:   return &ffi_type_void;
         default:          return NULL;  // Unsupported for struct fields
@@ -321,6 +322,7 @@ static size_t type_kind_size(TypeKind kind) {
         case TYPE_PTR:    return sizeof(void*);
         case TYPE_BUFFER: return sizeof(void*);  // buffer is a pointer
         case TYPE_STRING: return sizeof(char*);
+        case TYPE_RUNE:   return sizeof(uint32_t);
         case TYPE_BOOL:   return sizeof(int);
         default:          return 0;
     }
