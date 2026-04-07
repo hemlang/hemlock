@@ -216,7 +216,7 @@ typedef struct {
     int has_defers;               // Whether any defer statements exist in current function
 
     // Tail call optimization tracking
-    char *tail_call_func_name;    // Current function name if tail-recursive, NULL otherwise
+    const char *tail_call_func_name;    // Current function name if tail-recursive, NULL otherwise
     char *tail_call_label;        // Label for tail call goto, NULL if not tail-recursive
     Expr *tail_call_func_expr;    // Function expression for param access
 

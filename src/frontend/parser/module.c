@@ -91,7 +91,7 @@ Module* get_cached_module(ModuleCache *cache, const char *absolute_path) {
 }
 
 // Parse a module file and return statements
-Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ctx) {
+static Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ctx) {
     (void)ctx;  // Suppress unused parameter warning
     // Read file
     FILE *file = fopen(path, "r");

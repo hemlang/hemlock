@@ -149,7 +149,7 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
     // This is only safe when there are no defers and no rest params
     if (ctx->optimize && !func->as.function.rest_param &&
         is_tail_recursive_function(func->as.function.body, name)) {
-        ctx->tail_call_func_name = (char*)name;  // Borrowed reference
+        ctx->tail_call_func_name = name;  // Borrowed reference
         ctx->tail_call_label = codegen_label(ctx);
         ctx->tail_call_func_expr = func;
         // Emit local iteration counter for tail-call depth checking

@@ -896,7 +896,7 @@ static int validate_method_signature(Function *func, Type *expected_type,
 // Check if an object matches a type definition with type arguments (for generics)
 // type_args: array of Type* to substitute for type parameters (NULL for non-generic types)
 // num_type_args: number of type arguments
-Value check_object_type_generic(Value value, ObjectType *object_type,
+static Value check_object_type_generic(Value value, ObjectType *object_type,
                                  Type **type_args, int num_type_args,
                                  Environment *env, ExecutionContext *ctx) {
     if (value.type != VAL_OBJECT) {

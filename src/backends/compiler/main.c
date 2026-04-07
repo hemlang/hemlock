@@ -767,11 +767,13 @@ int main(int argc, char **argv) {
     char *c_file;
     int c_file_allocated = 0;
     if (opts.c_output) {
-        c_file = (char*)opts.c_output;
+        c_file = strdup(opts.c_output);
+        c_file_allocated = 1;
     } else if (opts.emit_c_only) {
         // When -c is used with -o, use the output file as C output
         if (strcmp(opts.output_file, "a.out") != 0) {
-            c_file = (char*)opts.output_file;
+            c_file = strdup(opts.output_file);
+            c_file_allocated = 1;
         } else {
             c_file = make_c_filename(opts.input_file);
             c_file_allocated = 1;

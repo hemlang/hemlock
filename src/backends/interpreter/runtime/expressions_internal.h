@@ -24,6 +24,9 @@ Value eval_index_assign_expr(Expr *expr, Environment *env, ExecutionContext *ctx
 Value eval_get_property_expr(Expr *expr, Environment *env, ExecutionContext *ctx);
 Value eval_set_property_expr(Expr *expr, Environment *env, ExecutionContext *ctx);
 
+// ========== Binary expressions (defined in binary_ops.c) ==========
+Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx);
+
 // ========== Operator expressions (defined in eval_operators.c) ==========
 Value eval_unary_expr(Expr *expr, Environment *env, ExecutionContext *ctx);
 Value eval_ternary_expr(Expr *expr, Environment *env, ExecutionContext *ctx);

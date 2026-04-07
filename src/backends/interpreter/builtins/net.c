@@ -115,7 +115,7 @@ Value builtin_socket_create(Value *args, int num_args, ExecutionContext *ctx) {
 // ========== SERVER OPERATIONS ==========
 
 // socket.bind(address: string, port: i32) -> null
-Value socket_method_bind(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
+static Value socket_method_bind(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
         return throw_runtime_error(ctx, "bind() expects 2 arguments (address, port)");
     }
@@ -181,7 +181,7 @@ Value socket_method_bind(SocketHandle *sock, Value *args, int num_args, Executio
 }
 
 // socket.listen(backlog: i32) -> null
-Value socket_method_listen(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
+static Value socket_method_listen(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
         return throw_runtime_error(ctx, "listen() expects 1 argument (backlog)");
     }
@@ -205,7 +205,7 @@ Value socket_method_listen(SocketHandle *sock, Value *args, int num_args, Execut
 }
 
 // socket.accept() -> Socket
-Value socket_method_accept(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
+static Value socket_method_accept(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;  // Unused parameter
     if (num_args != 0) {
         return throw_runtime_error(ctx, "accept() expects no arguments");
@@ -277,7 +277,7 @@ Value socket_method_accept(SocketHandle *sock, Value *args, int num_args, Execut
 // ========== CLIENT OPERATIONS ==========
 
 // socket.connect(address: string, port: i32) -> null
-Value socket_method_connect(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
+static Value socket_method_connect(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
         return throw_runtime_error(ctx, "connect() expects 2 arguments (address, port)");
     }
@@ -326,7 +326,7 @@ Value socket_method_connect(SocketHandle *sock, Value *args, int num_args, Execu
 // ========== I/O OPERATIONS ==========
 
 // socket.send(data: string | buffer) -> i32 (bytes sent)
-Value socket_method_send(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
+static Value socket_method_send(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
         return throw_runtime_error(ctx, "send() expects 1 argument (data)");
     }
@@ -363,7 +363,7 @@ Value socket_method_send(SocketHandle *sock, Value *args, int num_args, Executio
 }
 
 // socket.recv(size: i32) -> buffer | null (null if non-blocking and no data)
-Value socket_method_recv(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
+static Value socket_method_recv(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
         return throw_runtime_error(ctx, "recv() expects 1 argument (size)");
     }
@@ -448,7 +448,7 @@ Value socket_method_recv(SocketHandle *sock, Value *args, int num_args, Executio
 // ========== UDP OPERATIONS ==========
 
 // socket.sendto(address: string, port: i32, data: string | buffer) -> i32
-Value socket_method_sendto(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
+static Value socket_method_sendto(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 3) {
         return throw_runtime_error(ctx, "sendto() expects 3 arguments (address, port, data)");
     }
@@ -517,7 +517,7 @@ Value socket_method_sendto(SocketHandle *sock, Value *args, int num_args, Execut
 }
 
 // socket.recvfrom(size: i32) -> { data: buffer, address: string, port: i32 }
-Value socket_method_recvfrom(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
+static Value socket_method_recvfrom(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
         return throw_runtime_error(ctx, "recvfrom() expects 1 argument (size)");
     }
@@ -647,7 +647,7 @@ Value builtin_dns_resolve(Value *args, int num_args, ExecutionContext *ctx) {
 // ========== SOCKET OPTIONS ==========
 
 // socket.setsockopt(level: i32, option: i32, value: i32) -> null
-Value socket_method_setsockopt(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
+static Value socket_method_setsockopt(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 3) {
         return throw_runtime_error(ctx, "setsockopt() expects 3 arguments (level, option, value)");
     }
@@ -672,7 +672,7 @@ Value socket_method_setsockopt(SocketHandle *sock, Value *args, int num_args, Ex
 }
 
 // socket.set_timeout(seconds: f64) -> null
-Value socket_method_set_timeout(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
+static Value socket_method_set_timeout(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
         return throw_runtime_error(ctx, "set_timeout() expects 1 argument (seconds)");
     }
@@ -704,7 +704,7 @@ Value socket_method_set_timeout(SocketHandle *sock, Value *args, int num_args, E
 }
 
 // socket.set_nonblocking(enable: bool) -> null
-Value socket_method_set_nonblocking(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
+static Value socket_method_set_nonblocking(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
         return throw_runtime_error(ctx, "set_nonblocking() expects 1 argument (bool)");
     }
@@ -741,7 +741,7 @@ Value socket_method_set_nonblocking(SocketHandle *sock, Value *args, int num_arg
 // ========== RESOURCE MANAGEMENT ==========
 
 // socket.close() -> null (idempotent)
-Value socket_method_close(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
+static Value socket_method_close(SocketHandle *sock, Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;  // Unused parameter
     if (num_args != 0) {
         return throw_runtime_error(ctx, "close() expects no arguments");

@@ -173,7 +173,7 @@ static const char* validate_ffi_library_path(const char *path) {
 
 // ========== LIBRARY LOADING ==========
 
-FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
+static FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
     // SANDBOX: Check if FFI is allowed
     if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_FFI)) {
         sandbox_error(ctx, "FFI (loading native libraries)");
@@ -273,7 +273,7 @@ FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
     return lib;
 }
 
-void ffi_close_library(FFILibrary *lib) {
+static void ffi_close_library(FFILibrary *lib) {
     if (lib->handle != NULL) {
         dlclose(lib->handle);
     }
@@ -453,7 +453,7 @@ FFIStructType* ffi_register_struct(const char *name, char **field_names,
 
 // Marshal a Hemlock object to C struct memory
 // Returns pointer to allocated struct memory (caller must free)
-void* ffi_object_to_struct(Value obj, FFIStructType *struct_type, ExecutionContext *ctx) {
+static void* ffi_object_to_struct(Value obj, FFIStructType *struct_type, ExecutionContext *ctx) {
     if (obj.type != VAL_OBJECT || !obj.as.as_object) {
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("FFI struct conversion requires an object");
@@ -555,7 +555,7 @@ void* ffi_object_to_struct(Value obj, FFIStructType *struct_type, ExecutionConte
 }
 
 // Marshal C struct memory to a Hemlock object
-Value ffi_struct_to_object(void *struct_ptr, FFIStructType *struct_type) {
+static Value ffi_struct_to_object(void *struct_ptr, FFIStructType *struct_type) {
     Object *obj = object_new(strdup(struct_type->name), struct_type->num_fields);
 
     for (int i = 0; i < struct_type->num_fields; i++) {
@@ -658,7 +658,7 @@ void ffi_struct_cleanup(void) {
 
 // ========== TYPE MAPPING ==========
 
-ffi_type* hemlock_type_to_ffi_type(Type *type) {
+static ffi_type* hemlock_type_to_ffi_type(Type *type) {
     if (type == NULL) {
         // NULL type means void
         return &ffi_type_void;
@@ -759,7 +759,7 @@ static int hemlock_to_c_value_fast(Value val, Type *type, void *storage) {
 
 // Thread-safe: context is now passed directly instead of using a global
 // NOTE: This allocates memory that must be freed by caller
-void* hemlock_to_c_value(Value val, Type *type, ExecutionContext *ctx) {
+static void* hemlock_to_c_value(Value val, Type *type, ExecutionContext *ctx) {
     size_t size = 0;
     ffi_type *ffi_t = hemlock_type_to_ffi_type(type);
 
@@ -793,7 +793,7 @@ void* hemlock_to_c_value(Value val, Type *type, ExecutionContext *ctx) {
     return storage;
 }
 
-Value c_to_hemlock_value(void *c_value, Type *type) {
+static Value c_to_hemlock_value(void *c_value, Type *type) {
     if (type == NULL || type->kind == TYPE_VOID) {
         return val_null();
     }
@@ -848,7 +848,7 @@ Value c_to_hemlock_value(void *c_value, Type *type) {
 
 // ========== FUNCTION DECLARATION ==========
 
-FFIFunction* ffi_declare_function(
+static FFIFunction* ffi_declare_function(
     FFILibrary *lib,
     const char *name,
     Type **param_types,
@@ -1473,14 +1473,14 @@ Type* type_from_string(const char *name) {
 
 // ========== PUBLIC API ==========
 
-void ffi_init() {
+void ffi_init(void) {
     g_ffi_state.libraries = NULL;
     g_ffi_state.num_libraries = 0;
     g_ffi_state.libraries_capacity = 0;
     g_ffi_state.current_lib = NULL;
 }
 
-void ffi_cleanup() {
+void ffi_cleanup(void) {
     // Clean up all callbacks
     for (int i = 0; i < g_callback_state.num_callbacks; i++) {
         FFICallback *cb = g_callback_state.callbacks[i];

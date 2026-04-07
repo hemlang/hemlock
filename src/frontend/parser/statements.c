@@ -156,7 +156,7 @@ Stmt* statement(Parser *p);
 Stmt* extern_fn_statement(Parser *p);
 Stmt* define_statement(Parser *p);
 
-Stmt* let_statement(Parser *p) {
+static Stmt* let_statement(Parser *p) {
     char *name = consume_identifier_or_type_keyword(p, "Expect variable name");
 
     Type *type_annotation = NULL;
@@ -177,7 +177,7 @@ Stmt* let_statement(Parser *p) {
     return stmt;
 }
 
-Stmt* const_statement(Parser *p) {
+static Stmt* const_statement(Parser *p) {
     char *name = consume_identifier_or_type_keyword(p, "Expect variable name");
 
     Type *type_annotation = NULL;
@@ -227,7 +227,7 @@ Stmt* block_statement(Parser *p) {
     return stmt_block(statements, count);
 }
 
-Stmt* if_statement(Parser *p) {
+static Stmt* if_statement(Parser *p) {
     consume(p, TOK_LPAREN, "Expect '(' after 'if'");
     Expr *condition = expression(p);
     consume(p, TOK_RPAREN, "Expect ')' after condition");
@@ -258,7 +258,7 @@ Stmt* if_statement(Parser *p) {
     return stmt_if(condition, then_branch, else_branch);
 }
 
-Stmt* while_statement_with_label(Parser *p, const char *label) {
+static Stmt* while_statement_with_label(Parser *p, const char *label) {
     consume(p, TOK_LPAREN, "Expect '(' after 'while'");
     Expr *condition = expression(p);
     consume(p, TOK_RPAREN, "Expect ')' after condition");
@@ -274,22 +274,22 @@ Stmt* while_statement_with_label(Parser *p, const char *label) {
     return stmt_while_labeled(label, condition, body);
 }
 
-Stmt* while_statement(Parser *p) {
+static Stmt* while_statement(Parser *p) {
     return while_statement_with_label(p, NULL);
 }
 
-Stmt* loop_statement_with_label(Parser *p, const char *label) {
+static Stmt* loop_statement_with_label(Parser *p, const char *label) {
     consume(p, TOK_LBRACE, "Expect '{' after 'loop'");
     Stmt *body = block_statement(p);
 
     return stmt_loop_labeled(label, body);
 }
 
-Stmt* loop_statement(Parser *p) {
+static Stmt* loop_statement(Parser *p) {
     return loop_statement_with_label(p, NULL);
 }
 
-Stmt* switch_statement(Parser *p) {
+static Stmt* switch_statement(Parser *p) {
     consume(p, TOK_LPAREN, "Expect '(' after 'switch'");
     Expr *expr = expression(p);
     consume(p, TOK_RPAREN, "Expect ')' after switch expression");
@@ -395,7 +395,7 @@ Stmt* switch_statement(Parser *p) {
     return stmt_switch(expr, case_values, case_bodies, num_cases);
 }
 
-Stmt* for_statement_with_label(Parser *p, const char *label) {
+static Stmt* for_statement_with_label(Parser *p, const char *label) {
     consume(p, TOK_LPAREN, "Expect '(' after 'for'");
 
     // Check if this is a for-in loop by looking ahead
@@ -570,17 +570,17 @@ Stmt* for_statement_with_label(Parser *p, const char *label) {
     return stmt_for_labeled(label, initializer, condition, increment, body);
 }
 
-Stmt* for_statement(Parser *p) {
+static Stmt* for_statement(Parser *p) {
     return for_statement_with_label(p, NULL);
 }
 
-Stmt* expression_statement(Parser *p) {
+static Stmt* expression_statement(Parser *p) {
     Expr *expr = expression(p);
     consume(p, TOK_SEMICOLON, "Expect ';' after expression");
     return stmt_expr(expr);
 }
 
-Stmt* return_statement(Parser *p) {
+static Stmt* return_statement(Parser *p) {
     Expr *value = NULL;
 
     // Check if there's a return value
@@ -592,7 +592,7 @@ Stmt* return_statement(Parser *p) {
     return stmt_return(value);
 }
 
-Stmt* import_statement(Parser *p) {
+static Stmt* import_statement(Parser *p) {
     // Check for FFI import: import "library.so"
     if (check(p, TOK_STRING)) {
         advance(p);
@@ -695,7 +695,7 @@ Stmt* import_statement(Parser *p) {
     return stmt;
 }
 
-Stmt* export_statement(Parser *p) {
+static Stmt* export_statement(Parser *p) {
     // Check for re-export: export { name1, name2 } from "module"
     if (match(p, TOK_LBRACE)) {
         int export_capacity = 32;

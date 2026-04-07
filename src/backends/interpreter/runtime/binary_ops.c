@@ -8,6 +8,7 @@
  */
 
 #include "internal.h"
+#include "expressions_internal.h"
 
 // Forward declaration for recursive expression evaluation
 Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx);

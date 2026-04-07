@@ -382,8 +382,8 @@ uint64_t profiler_untrack_ptr(ProfilerState *state, void *ptr) {
 // ========== COMPARISON FUNCTIONS FOR SORTING ==========
 
 static int compare_by_self_time(const void *a, const void *b) {
-    const FunctionStats *fa = *(const FunctionStats **)a;
-    const FunctionStats *fb = *(const FunctionStats **)b;
+    const FunctionStats *fa = *(const FunctionStats *const *)a;
+    const FunctionStats *fb = *(const FunctionStats *const *)b;
     if (fb->self_time_ns > fa->self_time_ns) return 1;
     if (fb->self_time_ns < fa->self_time_ns) return -1;
     return 0;
@@ -392,24 +392,24 @@ static int compare_by_self_time(const void *a, const void *b) {
 // Kept for future use (alternative sorting option)
 __attribute__((unused))
 static int compare_by_total_time(const void *a, const void *b) {
-    const FunctionStats *fa = *(const FunctionStats **)a;
-    const FunctionStats *fb = *(const FunctionStats **)b;
+    const FunctionStats *fa = *(const FunctionStats *const *)a;
+    const FunctionStats *fb = *(const FunctionStats *const *)b;
     if (fb->total_time_ns > fa->total_time_ns) return 1;
     if (fb->total_time_ns < fa->total_time_ns) return -1;
     return 0;
 }
 
 static int compare_by_alloc_bytes(const void *a, const void *b) {
-    const AllocSite *sa = *(const AllocSite **)a;
-    const AllocSite *sb = *(const AllocSite **)b;
+    const AllocSite *sa = *(const AllocSite *const *)a;
+    const AllocSite *sb = *(const AllocSite *const *)b;
     if (sb->total_bytes > sa->total_bytes) return 1;
     if (sb->total_bytes < sa->total_bytes) return -1;
     return 0;
 }
 
 static int compare_by_current_bytes(const void *a, const void *b) {
-    const AllocSite *sa = *(const AllocSite **)a;
-    const AllocSite *sb = *(const AllocSite **)b;
+    const AllocSite *sa = *(const AllocSite *const *)a;
+    const AllocSite *sb = *(const AllocSite *const *)b;
     if (sb->current_bytes > sa->current_bytes) return 1;
     if (sb->current_bytes < sa->current_bytes) return -1;
     return 0;
