@@ -105,8 +105,10 @@ struct Expr {
     union {
         struct {           // ← Number can be int or float
             int64_t int_value;  // Changed to int64_t to support 64-bit literals
+            uint64_t uint_value; // For unsigned 64-bit literals (hex/bin/oct > INT64_MAX)
             double float_value;
             int is_float;  // flag: which one to use
+            int is_u64;    // flag: unsigned 64-bit literal
         } number;
         int boolean;
         char *string;
@@ -552,6 +554,7 @@ struct Stmt {
 // Expression constructors
 Expr* expr_number(int value);
 Expr* expr_number_int(int64_t value);  // Changed to int64_t to support 64-bit literals
+Expr* expr_number_u64(uint64_t value); // For unsigned 64-bit literals (> INT64_MAX)
 Expr* expr_number_float(double value);
 Expr* expr_bool(int value);
 Expr* expr_string(const char *str);

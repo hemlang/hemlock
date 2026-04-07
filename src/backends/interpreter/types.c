@@ -1721,7 +1721,15 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
 
         case TYPE_U64:
             if (is_source_float) {
-                int_val = (int64_t)float_val;
+                if (float_val < 0.0 || float_val > (double)HML_U64_MAX) {
+                    fprintf(stderr, "Runtime error: Value %g out of range for u64 [0, 18446744073709551615]\n", float_val);
+                    exit(1);
+                }
+                return val_u64((uint64_t)float_val);
+            }
+            // If source is already u64, pass through directly
+            if (value.type == VAL_U64) {
+                return value;
             }
             if (int_val < 0) {
                 fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u64 [0, 18446744073709551615]\n", int_val);
@@ -2003,7 +2011,13 @@ Value parse_string_to_type(Value value, Type *target_type, Environment *env, Exe
                 return val_u32((uint32_t)int_val);
 
             case TYPE_U64:
-                if (is_float) int_val = (int64_t)float_val;
+                if (is_float) {
+                    if (float_val < 0.0 || float_val > (double)HML_U64_MAX) {
+                        fprintf(stderr, "Runtime error: Value %g out of range for u64\n", float_val);
+                        exit(1);
+                    }
+                    return val_u64((uint64_t)float_val);
+                }
                 if (int_val < 0) {
                     fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u64\n", int_val);
                     exit(1);

@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <inttypes.h>
 #include "frontend.h"
 #include "frontend/ast.h"
 

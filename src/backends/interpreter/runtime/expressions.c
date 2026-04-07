@@ -78,6 +78,8 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         case EXPR_NUMBER:
             if (expr->as.number.is_float) {
                 return val_float(expr->as.number.float_value);
+            } else if (expr->as.number.is_u64) {
+                return val_u64(expr->as.number.uint_value);
             } else {
                 int64_t value = expr->as.number.int_value;
                 // Use i32 for values that fit in 32-bit range, otherwise i64

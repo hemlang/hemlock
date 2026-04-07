@@ -80,7 +80,9 @@ static void parse_annotation_arg_value(Parser *p, Annotation *a, const char *arg
         annotation_add_arg_string(a, arg_name, p->previous.string_value);
     } else if (match(p, TOK_NUMBER)) {
         // Number argument
-        double value = p->previous.is_float ? p->previous.float_value : (double)p->previous.int_value;
+        double value = p->previous.is_float ? p->previous.float_value
+                     : p->previous.is_u64   ? (double)p->previous.uint_value
+                     : (double)p->previous.int_value;
         annotation_add_arg_number(a, arg_name, value);
     } else if (match(p, TOK_IDENT) || match(p, TOK_TRUE) || match(p, TOK_FALSE)) {
         // Identifier argument (including true/false as identifiers)

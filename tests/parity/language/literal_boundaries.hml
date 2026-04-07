@@ -1,0 +1,67 @@
+// Test literal parsing at type boundaries for hex, binary, and octal
+
+// === Hex literals at i32 boundary ===
+let hex_i32_max = 0x7FFFFFFF;        // 2147483647 (i32 max)
+print(hex_i32_max);
+print(typeof(hex_i32_max));
+
+let hex_i32_over = 0x80000000;       // 2147483648 (i32 max + 1 → i64)
+print(hex_i32_over);
+print(typeof(hex_i32_over));
+
+// === Hex literals at u32 boundary ===
+let hex_u32_max = 0xFFFFFFFF;        // 4294967295 (u32 max → i64)
+print(hex_u32_max);
+print(typeof(hex_u32_max));
+
+let hex_u32_over = 0x100000000;      // 4294967296 (u32 max + 1 → i64)
+print(hex_u32_over);
+print(typeof(hex_u32_over));
+
+// === Hex literals at i64 boundary ===
+let hex_i64_max = 0x7FFFFFFFFFFFFFFF;  // 9223372036854775807 (i64 max)
+print(hex_i64_max);
+print(typeof(hex_i64_max));
+
+// === Hex literals beyond i64 (u64 range) ===
+let hex_i64_over = 0x8000000000000000;  // 9223372036854775808 (i64 max + 1 → u64)
+print(hex_i64_over);
+print(typeof(hex_i64_over));
+
+let hex_u64_max = 0xFFFFFFFFFFFFFFFF;  // 18446744073709551615 (u64 max)
+print(hex_u64_max);
+print(typeof(hex_u64_max));
+
+// === Binary literals at boundaries ===
+let bin_i32_max = 0b01111111111111111111111111111111;  // i32 max
+print(bin_i32_max);
+print(typeof(bin_i32_max));
+
+let bin_i32_over = 0b10000000000000000000000000000000;  // i32 max + 1
+print(bin_i32_over);
+print(typeof(bin_i32_over));
+
+// === Octal literals at boundaries ===
+let oct_small = 0o777;               // 511
+print(oct_small);
+print(typeof(oct_small));
+
+let oct_large = 0o17777777777;       // 2147483647 (i32 max in octal)
+print(oct_large);
+print(typeof(oct_large));
+
+let oct_over = 0o20000000000;        // 2147483648 (i32 max + 1 in octal)
+print(oct_over);
+print(typeof(oct_over));
+
+// === Hex with underscores at boundary ===
+let hex_sep = 0xFF_FF_FF_FF_FF_FF_FF_FF;  // u64 max with separators
+print(hex_sep);
+print(typeof(hex_sep));
+
+// === Hex u64 in expressions ===
+let mask = 0xFFFFFFFFFFFFFFFF;
+let zero = mask & 0x0;
+print(zero);
+
+print("done");
