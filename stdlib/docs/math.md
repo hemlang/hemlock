@@ -9,6 +9,8 @@ The math module provides comprehensive mathematical operations including:
 - **Trigonometric functions** - sin, cos, tan, asin, acos, atan, atan2
 - **Exponential & logarithmic functions** - sqrt, pow, exp, log, log10, log2
 - **Rounding functions** - floor, ceil, round, trunc
+- **Sign & special functions** - sign, cbrt, hypot, gcd, lcm
+- **Hyperbolic functions** - sinh, cosh, tanh
 - **Utility functions** - abs, min, max, clamp
 - **Random number generation** - rand, rand_range, seed
 - **Mathematical constants** - PI, E, TAU, INF, NAN
@@ -452,6 +454,138 @@ import { trunci } from "@stdlib/math";
 
 let result = trunci(3.7);   // 3
 let result2 = trunci(-2.9); // -2
+```
+
+---
+
+## Sign & Special Functions
+
+### sign(x)
+Returns -1, 0, or 1 based on the sign of x.
+
+**Parameters:**
+- `x: number` - Any number
+
+**Returns:** `i32` - -1 if negative, 0 if zero, 1 if positive
+
+```hemlock
+import { sign } from "@stdlib/math";
+
+let result = sign(-5.0);  // -1
+let result2 = sign(0.0);  // 0
+let result3 = sign(3.2);  // 1
+```
+
+### cbrt(x)
+Returns the cube root of x.
+
+**Parameters:**
+- `x: number` - Any number
+
+**Returns:** `f64` - Cube root of x
+
+```hemlock
+import { cbrt } from "@stdlib/math";
+
+let result = cbrt(27.0);   // 3.0
+let result2 = cbrt(-8.0);  // -2.0
+let result3 = cbrt(0.0);   // 0.0
+```
+
+### hypot(x, y)
+Returns the hypotenuse: sqrt(x^2 + y^2).
+
+**Parameters:**
+- `x: number` - First value
+- `y: number` - Second value
+
+**Returns:** `f64` - sqrt(x^2 + y^2)
+
+```hemlock
+import { hypot } from "@stdlib/math";
+
+let result = hypot(3.0, 4.0);  // 5.0
+```
+
+### gcd(a, b)
+Returns the greatest common divisor of a and b.
+
+**Parameters:**
+- `a: number` - First value
+- `b: number` - Second value
+
+**Returns:** `i64` - Greatest common divisor
+
+```hemlock
+import { gcd } from "@stdlib/math";
+
+let result = gcd(12, 8);   // 4
+let result2 = gcd(54, 24); // 6
+```
+
+### lcm(a, b)
+Returns the least common multiple of a and b.
+
+**Parameters:**
+- `a: number` - First value
+- `b: number` - Second value
+
+**Returns:** `i64` - Least common multiple
+
+```hemlock
+import { lcm } from "@stdlib/math";
+
+let result = lcm(4, 6);   // 12
+let result2 = lcm(3, 7);  // 21
+```
+
+---
+
+## Hyperbolic Functions
+
+### sinh(x)
+Returns the hyperbolic sine of x.
+
+**Parameters:**
+- `x: number` - Any number
+
+**Returns:** `f64` - Hyperbolic sine of x
+
+```hemlock
+import { sinh } from "@stdlib/math";
+
+let result = sinh(0.0);  // 0.0
+let result2 = sinh(1.0); // 1.175201...
+```
+
+### cosh(x)
+Returns the hyperbolic cosine of x.
+
+**Parameters:**
+- `x: number` - Any number
+
+**Returns:** `f64` - Hyperbolic cosine of x
+
+```hemlock
+import { cosh } from "@stdlib/math";
+
+let result = cosh(0.0);  // 1.0
+let result2 = cosh(1.0); // 1.543080...
+```
+
+### tanh(x)
+Returns the hyperbolic tangent of x.
+
+**Parameters:**
+- `x: number` - Any number
+
+**Returns:** `f64` - Hyperbolic tangent of x in range (-1, 1)
+
+```hemlock
+import { tanh } from "@stdlib/math";
+
+let result = tanh(0.0);  // 0.0
+let result2 = tanh(1.0); // 0.761594...
 ```
 
 ---

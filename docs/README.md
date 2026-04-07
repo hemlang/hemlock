@@ -32,9 +32,11 @@ Welcome to the Hemlock programming language documentation!
 ### Advanced Topics
 - [WebAssembly (WASM)](getting-started/installation.md#webassembly-wasm-build) - Run Hemlock in the browser via Emscripten
 - [Async & Concurrency](advanced/async-concurrency.md) - True multi-threading with async/await
+- [Atomic Operations](advanced/atomics.md) - Lock-free concurrent programming
 - [Bundling & Packaging](advanced/bundling-packaging.md) - Create bundles and standalone executables
 - [Foreign Function Interface](advanced/ffi.md) - Call C functions from shared libraries
 - [File I/O](advanced/file-io.md) - File operations and resource management
+- [Memory Ownership](advanced/memory-ownership.md) - Memory ownership semantics and lifetime management
 - [Signal Handling](advanced/signals.md) - POSIX signal handling
 - [Command-Line Arguments](advanced/command-line-args.md) - Access program arguments
 - [Command Execution](advanced/command-execution.md) - Execute shell commands
@@ -54,6 +56,10 @@ Welcome to the Hemlock programming language documentation!
 ### Design & Philosophy
 - [Design Philosophy](design/philosophy.md) - Core principles and goals
 - [Implementation Details](design/implementation.md) - How Hemlock works internally
+- [Signature Syntax](design/signature-syntax.md) - Type system extensions and design
+
+### Project
+- [Versioning](versioning.md) - Version strategy and compatibility guarantees
 
 ### Contributing
 - [Contributing Guidelines](contributing/guidelines.md) - How to contribute
