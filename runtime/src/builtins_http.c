@@ -32,7 +32,20 @@ typedef struct {
     int failed;
     char *redirect_url;
     char *headers;
+    char **custom_headers;   // Custom request headers
+    int num_custom_headers;
 } hml_http_response_t;
+
+static void hml_free_custom_headers(hml_http_response_t *resp) {
+    if (resp->custom_headers) {
+        for (int i = 0; i < resp->num_custom_headers; i++) {
+            free(resp->custom_headers[i]);
+        }
+        free(resp->custom_headers);
+        resp->custom_headers = NULL;
+        resp->num_custom_headers = 0;
+    }
+}
 
 static void hml_lws_response_destroy(hml_http_response_t *resp) {
     if (!resp) {
@@ -47,6 +60,7 @@ static void hml_lws_response_destroy(hml_http_response_t *resp) {
     if (resp->headers) {
         free(resp->headers);
     }
+    hml_free_custom_headers(resp);
     free(resp);
 }
 
@@ -62,20 +76,37 @@ static int hml_http_callback(struct lws *wsi, enum lws_callback_reasons reason,
                 unsigned char **p = (unsigned char **)in;
                 unsigned char *end = (*p) + len;
 
-                // Add User-Agent header (required by GitHub API)
-                const char *ua = "User-Agent: hemlock/1.0\r\n";
-                size_t ua_len = strlen(ua);
-                if (end - *p >= (int)ua_len) {
-                    memcpy(*p, ua, ua_len);
-                    *p += ua_len;
-                }
+                if (resp && resp->custom_headers && resp->num_custom_headers > 0) {
+                    // Write caller-supplied headers
+                    for (int i = 0; i < resp->num_custom_headers; i++) {
+                        const char *hdr = resp->custom_headers[i];
+                        size_t hdr_len = strlen(hdr);
+                        int needs_crlf = (hdr_len < 2 || hdr[hdr_len-2] != '\r' || hdr[hdr_len-1] != '\n');
+                        size_t total = hdr_len + (needs_crlf ? 2 : 0);
+                        if (end - *p >= (int)total) {
+                            memcpy(*p, hdr, hdr_len);
+                            *p += hdr_len;
+                            if (needs_crlf) {
+                                memcpy(*p, "\r\n", 2);
+                                *p += 2;
+                            }
+                        }
+                    }
+                } else {
+                    // Default headers when none supplied
+                    const char *ua = "User-Agent: hemlock/1.0\r\n";
+                    size_t ua_len = strlen(ua);
+                    if (end - *p >= (int)ua_len) {
+                        memcpy(*p, ua, ua_len);
+                        *p += ua_len;
+                    }
 
-                // Add Accept header for JSON APIs
-                const char *accept = "Accept: application/json\r\n";
-                size_t accept_len = strlen(accept);
-                if (end - *p >= (int)accept_len) {
-                    memcpy(*p, accept, accept_len);
-                    *p += accept_len;
+                    const char *accept = "Accept: application/json\r\n";
+                    size_t accept_len = strlen(accept);
+                    if (end - *p >= (int)accept_len) {
+                        memcpy(*p, accept, accept_len);
+                        *p += accept_len;
+                    }
                 }
             }
             break;
@@ -263,6 +294,26 @@ static int hml_parse_url(const char *url, char *host, int *port, char *path, int
     return 0;
 }
 
+// Helper: parse a Hemlock array of strings into C header strings stored in resp
+static void hml_parse_headers_into_resp(hml_http_response_t *resp, HmlValue headers_val) {
+    if (headers_val.type != HML_VAL_ARRAY || !headers_val.as.as_array) return;
+    HmlArray *arr = headers_val.as.as_array;
+    if (arr->length == 0) return;
+
+    resp->custom_headers = calloc(arr->length, sizeof(char *));
+    if (!resp->custom_headers) return;
+
+    int count = 0;
+    for (int i = 0; i < arr->length; i++) {
+        HmlValue item = arr->elements[i];
+        if (item.type == HML_VAL_STRING && item.as.as_string && item.as.as_string->data) {
+            resp->custom_headers[count] = strdup(item.as.as_string->data);
+            if (resp->custom_headers[count]) count++;
+        }
+    }
+    resp->num_custom_headers = count;
+}
+
 // HTTP GET
 HmlValue hml_lws_http_get(HmlValue url_val) {
     if (url_val.type != HML_VAL_STRING || !url_val.as.as_string) {
@@ -330,6 +381,96 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
         // SECURITY: Enable SSL with proper certificate validation
         // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
         // to prevent MITM attacks
+        connect_info.ssl_connection |= LCCSCF_USE_SSL;
+    }
+
+    if (!lws_client_connect_via_info(&connect_info)) {
+        lws_context_destroy(context);
+        hml_lws_response_destroy(resp);
+        hml_runtime_error("Failed to connect");
+    }
+
+    int timeout = 3000;
+    while (!resp->complete && !resp->failed && timeout-- > 0) {
+        lws_service(context, 10);
+    }
+
+    lws_context_destroy(context);
+
+    if (resp->failed || timeout <= 0) {
+        hml_lws_response_destroy(resp);
+        hml_runtime_error("HTTP request failed or timed out");
+    }
+
+    return hml_val_ptr(resp);
+}
+
+// HTTP GET with custom headers
+HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
+    if (url_val.type != HML_VAL_STRING || !url_val.as.as_string) {
+        hml_runtime_error("__lws_http_get() expects string URL");
+    }
+
+    const char *url = url_val.as.as_string->data;
+    char host[256], path[512];
+    int port, ssl;
+
+    if (hml_parse_url(url, host, &port, path, &ssl) < 0) {
+        hml_runtime_error("Invalid URL format");
+    }
+
+    hml_http_response_t *resp = calloc(1, sizeof(hml_http_response_t));
+    if (!resp) {
+        hml_runtime_error("Failed to allocate response");
+    }
+
+    // Parse custom headers
+    hml_parse_headers_into_resp(resp, headers_val);
+
+    resp->body_capacity = 4096;
+    resp->body = malloc(resp->body_capacity);
+    if (!resp->body) {
+        hml_lws_response_destroy(resp);
+        hml_runtime_error("Failed to allocate body buffer");
+    }
+    resp->body[0] = '\0';
+
+    struct lws_context_creation_info info;
+    memset(&info, 0, sizeof(info));
+    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    info.port = CONTEXT_PORT_NO_LISTEN;
+    info.max_http_header_data = 16384;
+
+    static const struct lws_protocols protocols[] = {
+        { "http", hml_http_callback, 0, 16384, 0, NULL, 0 },
+        { NULL, NULL, 0, 0, 0, NULL, 0 }
+    };
+    info.protocols = protocols;
+
+    struct lws_context *context = lws_create_context(&info);
+    if (!context) {
+        hml_lws_response_destroy(resp);
+        hml_runtime_error("Failed to create libwebsockets context");
+    }
+
+    struct lws_client_connect_info connect_info;
+    memset(&connect_info, 0, sizeof(connect_info));
+    connect_info.context = context;
+    connect_info.address = host;
+    connect_info.port = port;
+    connect_info.path = path;
+    connect_info.host = host;
+    connect_info.origin = host;
+    connect_info.method = "GET";
+    connect_info.protocol = protocols[0].name;
+    connect_info.userdata = resp;
+
+    struct lws *wsi;
+    connect_info.pwsi = &wsi;
+
+    connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
+
+    if (ssl) {
         connect_info.ssl_connection |= LCCSCF_USE_SSL;
     }
 
@@ -2102,6 +2243,11 @@ HmlValue hml_builtin_lws_ws_server_close(HmlClosureEnv *env, HmlValue server) {
 // Stub implementations
 HmlValue hml_lws_http_get(HmlValue url_val) {
     (void)url_val;
+    hml_runtime_error("HTTP support not available (libwebsockets not installed)");
+}
+
+HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
+    (void)url_val; (void)headers_val;
     hml_runtime_error("HTTP support not available (libwebsockets not installed)");
 }
 
