@@ -1,0 +1,154 @@
+// Complex game module with many methods and deep call chains
+
+fn MockServer() {
+    let _connected = true;
+    let _latency = 50;
+
+    fn is_connected() {
+        return _connected;
+    }
+
+    fn get_latency() {
+        return _latency;
+    }
+
+    fn disconnect() {
+        _connected = false;
+    }
+
+    return {
+        is_connected,
+        get_latency,
+        disconnect,
+    };
+}
+
+fn Game(server) {
+    let _server = server;
+    let _host = "player1";
+    let _players = ["player1", "player2", "player3", "player4"];
+    let _scores = { player1: 0, player2: 0, player3: 0, player4: 0 };
+    let _round = 1;
+    let _started = false;
+    let _max_rounds = 10;
+
+    fn is_cpu(name) {
+        return name.starts_with("cpu_");
+    }
+
+    fn get_player(name) {
+        let found = false;
+        let idx = 0;
+        while (idx < _players.length) {
+            if (_players[idx] == name) {
+                found = true;
+            }
+            idx++;
+        }
+        return {
+            name: name,
+            is_host: name == _host,
+            score: _scores[name] ?? 0,
+            is_cpu: is_cpu(name),
+            exists: found,
+        };
+    }
+
+    fn validate_player(name) {
+        let player = get_player(name);
+        if (!player.exists) {
+            throw "Player not found: " + name;
+        }
+        return player;
+    }
+
+    fn switch_host(new_host) {
+        let player = validate_player(new_host);
+        _host = player.name;
+        return player;
+    }
+
+    fn swap_players(a, b) {
+        let p1 = validate_player(a);
+        let p2 = validate_player(b);
+        switch_host(b);
+        return { p1: p1, p2: p2, new_host: _host };
+    }
+
+    fn add_score(player_name, points) {
+        validate_player(player_name);
+        let current = _scores[player_name] ?? 0;
+        _scores[player_name] = current + points;
+        return _scores[player_name];
+    }
+
+    fn get_host() {
+        return get_player(_host);
+    }
+
+    fn get_round() {
+        return _round;
+    }
+
+    fn next_round() {
+        _round = _round + 1;
+        return _round;
+    }
+
+    fn reset_player(name) {
+        validate_player(name);
+        _scores[name] = 0;
+    }
+
+    fn all_players_ready() {
+        let ready = true;
+        let idx = 0;
+        while (idx < _players.length) {
+            let p = get_player(_players[idx]);
+            if (p.is_cpu) {
+                ready = ready;
+            }
+            idx++;
+        }
+        return ready;
+    }
+
+    fn start_game() {
+        if (!_server.is_connected()) {
+            throw "Server not connected";
+        }
+        _started = true;
+        return true;
+    }
+
+    fn reset() {
+        _host = "player1";
+        _round = 1;
+        _started = false;
+        let idx = 0;
+        while (idx < _players.length) {
+            _scores[_players[idx]] = 0;
+            idx++;
+        }
+    }
+
+    return {
+        get_player,
+        validate_player,
+        switch_host,
+        swap_players,
+        add_score,
+        get_host,
+        get_round,
+        next_round,
+        reset_player,
+        all_players_ready,
+        start_game,
+        reset,
+        is_cpu,
+    };
+}
+
+fn __exports() {
+    return { Game, MockServer };
+}

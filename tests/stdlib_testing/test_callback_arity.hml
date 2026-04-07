@@ -1,0 +1,182 @@
+// Test: @stdlib/testing callback invocation does NOT corrupt function arity
+//
+// Regression test for: test() callbacks must invoke user functions via direct
+// function calls (not method dispatch) to avoid injecting 'self' into the
+// callback's closure environment, which can corrupt arity tracking for
+// imported module functions with deep method chains.
+
+import { Game, MockServer } from "./game_complex.hml";
+import { describe, test, expect, run, before_each } from "@stdlib/testing";
+
+// ============================================================
+// Part 1: Verify imported constructors work in plain code
+// ============================================================
+let loop_ok = true;
+let i = 0;
+while (i < 5) {
+    let game = Game(MockServer());
+    game.swap_players("player1", "player2");
+    game.switch_host("player3");
+    game.add_score("player1", 10);
+    let host = game.get_host();
+    if (host.name != "player3") {
+        loop_ok = false;
+    }
+    i++;
+}
+if (!loop_ok) {
+    print("FAIL: While loop test failed");
+}
+
+// ============================================================
+// Part 2: Same patterns inside test() callbacks
+// ============================================================
+
+// Test group 1: Simple method calls (1-param functions)
+describe("Callback arity - simple methods", fn() {
+    test("get_player with 1 arg", fn() {
+        let game = Game(MockServer());
+        let player = game.get_player("Alice");
+        expect(player.name).to_be("Alice");
+    });
+
+    test("switch_host with 1 arg", fn() {
+        let game = Game(MockServer());
+        game.switch_host("player2");
+        expect(game.get_host().name).to_be("player2");
+    });
+
+    test("is_cpu with 1 arg", fn() {
+        let game = Game(MockServer());
+        expect(game.is_cpu("player1")).to_be_false();
+        expect(game.is_cpu("cpu_bot")).to_be_true();
+    });
+
+    test("validate_player with 1 arg", fn() {
+        let game = Game(MockServer());
+        let p = game.validate_player("player1");
+        expect(p.name).to_be("player1");
+    });
+});
+
+// Test group 2: Multi-param functions
+describe("Callback arity - multi-param methods", fn() {
+    test("swap_players with 2 args", fn() {
+        let game = Game(MockServer());
+        let result = game.swap_players("player1", "player2");
+        expect(result.new_host).to_be("player2");
+    });
+
+    test("add_score with 2 args", fn() {
+        let game = Game(MockServer());
+        let score = game.add_score("player1", 10);
+        expect(score).to_be(10);
+    });
+});
+
+// Test group 3: Deep method chains (the original failure pattern)
+describe("Callback arity - deep chains", fn() {
+    test("swap -> validate -> get_player chain", fn() {
+        let game = Game(MockServer());
+        game.swap_players("player1", "player2");
+        expect(game.get_host().name).to_be("player2");
+    });
+
+    test("swap -> switch -> get chain", fn() {
+        let game = Game(MockServer());
+        game.swap_players("player1", "player2");
+        game.switch_host("player3");
+        let host = game.get_host();
+        expect(host.name).to_be("player3");
+        expect(host.is_host).to_be_true();
+    });
+
+    test("start_game -> server.is_connected chain", fn() {
+        let game = Game(MockServer());
+        let started = game.start_game();
+        expect(started).to_be_true();
+    });
+
+    test("all_players_ready iterates with get_player", fn() {
+        let game = Game(MockServer());
+        expect(game.all_players_ready()).to_be_true();
+    });
+
+    test("full sequence: start, swap, score, round, switch", fn() {
+        let game = Game(MockServer());
+        game.start_game();
+        game.swap_players("player1", "player2");
+        game.add_score("player1", 10);
+        game.add_score("player2", 20);
+        game.next_round();
+        game.switch_host("player3");
+        game.reset_player("player1");
+
+        expect(game.get_round()).to_be(2);
+        expect(game.get_host().name).to_be("player3");
+        expect(game.get_player("player1").score).to_be(0);
+        expect(game.get_player("player2").score).to_be(20);
+    });
+});
+
+// Test group 4: Multiple Game instances in same test
+describe("Callback arity - multiple instances", fn() {
+    test("two game instances in one test", fn() {
+        let game1 = Game(MockServer());
+        let game2 = Game(MockServer());
+
+        game1.switch_host("player2");
+        game2.switch_host("player3");
+
+        expect(game1.get_host().name).to_be("player2");
+        expect(game2.get_host().name).to_be("player3");
+    });
+
+    test("five game instances with deep chains", fn() {
+        let j = 0;
+        while (j < 5) {
+            let game = Game(MockServer());
+            game.swap_players("player1", "player2");
+            game.switch_host("player3");
+            game.add_score("player1", j * 10);
+            expect(game.get_host().name).to_be("player3");
+            j++;
+        }
+    });
+});
+
+// Test group 5: before_each/after_each hooks with constructors
+describe("Callback arity - with hooks", fn() {
+    let game_instance = null;
+
+    before_each(fn() {
+        game_instance = Game(MockServer());
+    });
+
+    test("hook-created game: get_player", fn() {
+        let p = game_instance.get_player("player1");
+        expect(p.name).to_be("player1");
+    });
+
+    test("hook-created game: swap_players", fn() {
+        game_instance.swap_players("player1", "player2");
+        expect(game_instance.get_host().name).to_be("player2");
+    });
+
+    test("hook-created game: deep chain", fn() {
+        game_instance.start_game();
+        game_instance.swap_players("player1", "player2");
+        game_instance.switch_host("player3");
+        game_instance.add_score("player2", 50);
+        expect(game_instance.get_host().name).to_be("player3");
+        expect(game_instance.get_player("player2").score).to_be(50);
+    });
+});
+
+let stats = run();
+
+if (stats.failed > 0) {
+    print("REGRESSION: " + stats.failed + " tests failed - callback arity bug may still be present");
+} else {
+    print("OK: All " + stats.total + " callback arity tests passed");
+}
