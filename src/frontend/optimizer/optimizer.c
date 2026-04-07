@@ -253,12 +253,14 @@ static Expr *try_fold_binary_numeric(BinaryOp op, Expr *left, Expr *right, int l
 
         case OP_BIT_LSHIFT:
             if (result_is_float) return NULL;
-            result = make_int_expr(left_i << right_i, line);
+            if (right_i < 0) return NULL;  // Negative shift - let runtime error
+            result = make_int_expr(right_i >= 64 ? 0 : (int64_t)((uint64_t)left_i << right_i), line);
             break;
 
         case OP_BIT_RSHIFT:
             if (result_is_float) return NULL;
-            result = make_int_expr(left_i >> right_i, line);
+            if (right_i < 0) return NULL;  // Negative shift - let runtime error
+            result = make_int_expr(right_i >= 64 ? (left_i < 0 ? -1 : 0) : left_i >> right_i, line);
             break;
 
         /* Logical operators handled separately */
