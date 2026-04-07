@@ -30,6 +30,28 @@ static Value bytes_to_hex_string(const unsigned char *bytes, size_t len) {
     return result;
 }
 
+// __sha1(input: string) -> string
+// Compute SHA-1 hash, returns hex string
+// WARNING: SHA-1 is cryptographically weak, use only for legacy compatibility
+Value builtin_sha1(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "__sha1() expects 1 argument");
+        return val_null();
+    }
+
+    if (args[0].type != VAL_STRING) {
+        runtime_error(ctx, "__sha1() argument must be string");
+        return val_null();
+    }
+
+    String *str = args[0].as.as_string;
+    unsigned char hash[SHA_DIGEST_LENGTH];
+
+    SHA1((const unsigned char *)str->data, str->length, hash);
+
+    return bytes_to_hex_string(hash, SHA_DIGEST_LENGTH);
+}
+
 // __sha256(input: string) -> string
 // Compute SHA-256 hash, returns hex string
 Value builtin_sha256(Value *args, int num_args, ExecutionContext *ctx) {

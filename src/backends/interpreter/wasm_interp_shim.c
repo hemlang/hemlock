@@ -141,6 +141,13 @@ Type* type_from_string(const char *name) {
  * The @stdlib/hash module provides pure-Hemlock hash alternatives.
  * ======================================================================== */
 
+Value builtin_sha1(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
+    (void)num_args;
+    runtime_error(ctx, "__sha1() is not available in WebAssembly (no OpenSSL)");
+    return val_null();
+}
+
 Value builtin_sha256(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     (void)num_args;

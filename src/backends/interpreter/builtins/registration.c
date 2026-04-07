@@ -181,6 +181,7 @@ static BuiltinInfo builtins[] = {
     {"__crc32", builtin_crc32},
     {"__adler32", builtin_adler32},
     // Cryptographic hash builtins (use stdlib/hash.hml module for public API)
+    {"__sha1", builtin_sha1},
     {"__sha256", builtin_sha256},
     {"__sha512", builtin_sha512},
     {"__md5", builtin_md5},

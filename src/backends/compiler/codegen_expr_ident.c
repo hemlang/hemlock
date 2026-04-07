@@ -430,6 +430,8 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     } else if (strcmp(expr->as.ident.name, "__lws_http_stream_close") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_close, 1, 1, 0);", result);
     // Cryptographic hash builtins
+    } else if (strcmp(expr->as.ident.name, "__sha1") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hash_sha1, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__sha256") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hash_sha256, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__sha512") == 0) {

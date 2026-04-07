@@ -6,8 +6,9 @@ Comprehensive hashing and checksum utilities for both non-cryptographic (fast ha
 
 The `@stdlib/hash` module provides:
 - **Non-cryptographic hashes**: djb2, fnv1a, murmur3 (for hash tables, fast checksums)
-- **Cryptographic hashes**: SHA-256, SHA-512, MD5 (via OpenSSL FFI)
-- **HMAC**: Hash-based message authentication (hmac_sha256, hmac_sha512, hmac_md5)
+- **Checksums**: crc32, adler32 (error detection, compression formats)
+- **Cryptographic hashes**: SHA-1, SHA-256, SHA-512, MD5 (via OpenSSL FFI)
+- **HMAC**: Hash-based message authentication (hmac_sha1, hmac_sha256, hmac_sha512, hmac_md5)
 - **File checksums**: Convenient functions for hashing file contents
 
 ### System Requirements
@@ -22,9 +23,10 @@ The `@stdlib/hash` module provides:
 ## Usage
 
 ```hemlock
-import { djb2, fnv1a, murmur3, sha256, sha512, md5 } from "@stdlib/hash";
-import { hmac_sha256, hmac_sha512, hmac_md5 } from "@stdlib/hash";
-import { file_checksum, file_sha256, file_md5 } from "@stdlib/hash";
+import { djb2, fnv1a, murmur3, crc32, adler32 } from "@stdlib/hash";
+import { sha1, sha256, sha512, md5 } from "@stdlib/hash";
+import { hmac_sha1, hmac_sha256, hmac_sha512, hmac_md5 } from "@stdlib/hash";
+import { file_checksum, file_crc32, file_sha1, file_sha256, file_md5 } from "@stdlib/hash";
 ```
 
 Or import all:
@@ -33,6 +35,53 @@ Or import all:
 import * as hash from "@stdlib/hash";
 let checksum = hash.sha256("data");
 ```
+
+---
+
+## Checksum Functions
+
+Fast error-detection checksums for binary data and files. Accept `string` or `buffer`. Return `u32`.
+
+### crc32(input: string | buffer): u32
+
+CRC-32 checksum using the standard zlib/ISO 3309 polynomial.
+
+```hemlock
+import { crc32 } from "@stdlib/hash";
+
+print(crc32("hello"));         // 907060870
+print(crc32(""));              // 0
+print(crc32(some_buffer));     // works with buffer too
+```
+
+**Properties:**
+- 32-bit output (u32)
+- Used in ZIP, gzip, PNG, Ethernet frames
+- Detects single-bit errors and burst errors up to 32 bits
+- NOT cryptographic — trivial to forge
+
+**Use cases:** File transfer integrity, network packet validation, zip/gzip compatibility.
+
+---
+
+### adler32(input: string | buffer): u32
+
+Adler-32 checksum — simpler and faster than CRC-32, used in zlib/PNG streams.
+
+```hemlock
+import { adler32 } from "@stdlib/hash";
+
+print(adler32("hello"));       // 103547413
+print(adler32(""));            // 1
+```
+
+**Properties:**
+- 32-bit output (u32)
+- Slightly weaker error detection than CRC-32 for small inputs
+- Used internally by zlib (deflate streams, PNG)
+- NOT cryptographic
+
+**Use cases:** zlib stream checksums, quick data validation.
 
 ---
 
@@ -127,6 +176,42 @@ assert(murmur3("test", 0) != murmur3("test", 1));
 These functions provide **secure cryptographic hashing** via OpenSSL's libcrypto. They return **hexadecimal strings**.
 
 ⚠️ **Note:** These are true cryptographic hashes suitable for security applications.
+
+### sha1(input: string): string
+
+SHA-1 hash (160-bit / 20-byte output).
+
+⚠️ **WARNING:** SHA-1 is cryptographically weak. Use only for legacy compatibility or protocols that require it (e.g. Git object IDs, older TLS), NOT for new security applications.
+
+```hemlock
+let hash = sha1("hello");
+print(hash);
+// "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"
+
+assert(hash.length == 40, "SHA-1 produces 40 hex characters");
+
+// Empty string
+let empty_hash = sha1("");
+print(empty_hash);
+// "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+```
+
+**Properties:**
+- 160-bit (20-byte) output
+- Returns 40-character hexadecimal string (lowercase)
+- ⚠️ **WEAK** - collision attacks are practical (SHAttered, 2017)
+- Still widely encountered in legacy systems and protocols
+
+**Use cases:**
+- ✓ Git object IDs and refs
+- ✓ Legacy system compatibility
+- ✓ Protocols that mandate SHA-1 (older TLS, SSH key fingerprints)
+- ✗ **NOT for passwords**
+- ✗ **NOT for new security applications**
+
+**Alternatives:** Use SHA-256 or SHA-512 for all new security applications.
+
+---
 
 ### sha256(input: string): string
 
@@ -235,6 +320,25 @@ assert(test_hash == "9e107d9d372bb6826bd81d3542a419d6");
 
 HMAC provides message authentication using a secret key combined with a hash function. Use HMAC when you need to verify both the integrity AND authenticity of a message.
 
+### hmac_sha1(key: string, message: string): string
+
+HMAC using SHA-1 hash function. **For legacy compatibility only.**
+
+```hemlock
+import { hmac_sha1 } from "@stdlib/hash";
+
+let mac = hmac_sha1("key", "message");
+print(mac);  // 40-character hex string
+```
+
+**Properties:**
+- 160-bit (20-byte) output as 40-character hex string
+- Key can be any length (hashed if > 64 bytes)
+
+⚠️ **WARNING:** SHA-1 is cryptographically weak. Use `hmac_sha256` for new applications.
+
+---
+
 ### hmac_sha256(key: string, message: string): string
 
 HMAC using SHA-256 hash function.
@@ -334,6 +438,7 @@ Pre-configured file checksum functions for common use cases:
 
 ```hemlock
 import {
+    file_sha1,
     file_sha256,
     file_sha512,
     file_md5,
@@ -343,6 +448,7 @@ import {
 } from "@stdlib/hash";
 
 // Cryptographic checksums
+let sha1_sum = file_sha1("legacy.tar");  // Legacy only!
 let sha256_sum = file_sha256("data.txt");
 let sha512_sum = file_sha512("important.pdf");
 let md5_sum = file_md5("legacy.zip");  // Legacy only!
@@ -353,6 +459,9 @@ let better_sum = file_murmur3("database.db");
 ```
 
 **Functions:**
+- `file_crc32(path: string): string` - CRC-32 of file
+- `file_adler32(path: string): string` - Adler-32 of file
+- `file_sha1(path: string): string` - SHA-1 of file (legacy only)
 - `file_sha256(path: string): string` - SHA-256 of file
 - `file_sha512(path: string): string` - SHA-512 of file
 - `file_md5(path: string): string` - MD5 of file (legacy only)
@@ -432,6 +541,7 @@ hash_insert(table, "age", 30);
 
 | Function | Speed | Security | Output Size |
 |----------|-------|----------|-------------|
+| SHA-1 | ⚡⚡ Fast | ✗ Weak | 160-bit (40 hex) |
 | SHA-256 | ⚡ Medium | ✓ Secure | 256-bit (64 hex) |
 | SHA-512 | ⚡ Medium | ✓ Very Secure | 512-bit (128 hex) |
 | MD5 | ⚡⚡ Fast | ✗ Broken | 128-bit (32 hex) |
@@ -510,6 +620,7 @@ The hash module includes comprehensive tests:
 - ✓ SHA-256/512 for digital signatures
 
 ### DO NOT use for security:
+- ✗ SHA-1 (cryptographically weak — practical collision attacks exist)
 - ✗ MD5 (cryptographically broken)
 - ✗ djb2, fnv1a, murmur3 (not designed for security)
 
@@ -523,6 +634,12 @@ The hash module includes comprehensive tests:
 ---
 
 ## Changelog
+
+### v0.3
+- Added checksums: `crc32()`, `adler32()`, `file_crc32()`, `file_adler32()`
+
+### v0.2
+- Added SHA-1: `sha1()`, `file_sha1()`, `hmac_sha1()`
 
 ### v0.1 (Initial Release)
 - Non-cryptographic hashes: djb2, fnv1a, murmur3

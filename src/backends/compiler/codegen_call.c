@@ -2101,6 +2101,15 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
 
         // ========== CRYPTOGRAPHIC HASH BUILTINS ==========
 
+        // __sha1(input)
+        if (strcmp(fn_name, "__sha1") == 0 && expr->as.call.num_args == 1) {
+            char *input = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_hash_sha1(%s);", result, input);
+            codegen_writeln(ctx, "hml_release(&%s);", input);
+            free(input);
+            return result;
+        }
+
         // __sha256(input)
         if (strcmp(fn_name, "__sha256") == 0 && expr->as.call.num_args == 1) {
             char *input = codegen_expr(ctx, expr->as.call.args[0]);

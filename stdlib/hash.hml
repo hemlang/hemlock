@@ -117,8 +117,48 @@ export fn murmur3(input: string, seed?: 0): u32 {
 }
 
 // ============================================================================
+// CHECKSUM FUNCTIONS (built-in, using zlib)
+// ============================================================================
+
+// CRC32 checksum (32-bit)
+// Accepts string or buffer. Returns u32.
+// Fast, widely used for error detection (zip, gzip, ethernet). NOT cryptographic.
+export fn crc32(input): u32 {
+	if (typeof(input) == "string") {
+		return __crc32(input.to_bytes());
+	} else if (typeof(input) == "buffer") {
+		return __crc32(input);
+	} else {
+		throw "crc32() requires string or buffer argument";
+	}
+}
+
+// Adler-32 checksum (32-bit)
+// Accepts string or buffer. Returns u32.
+// Faster than CRC32 with slightly weaker error detection. Used in zlib/PNG.
+export fn adler32(input): u32 {
+	if (typeof(input) == "string") {
+		return __adler32(input.to_bytes());
+	} else if (typeof(input) == "buffer") {
+		return __adler32(input);
+	} else {
+		throw "adler32() requires string or buffer argument";
+	}
+}
+
+// ============================================================================
 // CRYPTOGRAPHIC HASH FUNCTIONS (built-in, using OpenSSL)
 // ============================================================================
+
+// SHA-1 hash (160-bit / 20-byte output)
+// WARNING: SHA-1 is cryptographically weak, use only for legacy compatibility
+// Returns hexadecimal string representation
+export fn sha1(input: string): string {
+	if (typeof(input) != "string") {
+		throw "sha1() requires string argument";
+	}
+	return __sha1(input);
+}
 
 // SHA-256 hash (256-bit / 32-byte output)
 // Returns hexadecimal string representation
@@ -176,6 +216,18 @@ export fn file_checksum(path: string, hash_fn): string {
 }
 
 // Convenience functions for specific file checksums
+
+export fn file_crc32(path: string): string {
+	return file_checksum(path, crc32);
+}
+
+export fn file_adler32(path: string): string {
+	return file_checksum(path, adler32);
+}
+
+export fn file_sha1(path: string): string {
+	return file_checksum(path, sha1);
+}
 
 export fn file_sha256(path: string): string {
 	return file_checksum(path, sha256);
@@ -250,6 +302,55 @@ fn concat_bytes(a: array, b: array): array {
 		result.push(item);
 	}
 	return result;
+}
+
+// HMAC-SHA1: Keyed-hash message authentication code using SHA-1
+// WARNING: SHA-1 is cryptographically weak, use only for legacy compatibility
+// Parameters:
+// key: string - Secret key
+// message: string - Message to authenticate
+// Returns: string - HMAC as hexadecimal string (40 characters)
+export fn hmac_sha1(key: string, message: string): string {
+	if (typeof(key) != "string") {
+		throw "hmac_sha1() key must be string";
+	}
+	if (typeof(message) != "string") {
+		throw "hmac_sha1() message must be string";
+	}
+
+	// SHA-1 block size is 64 bytes
+	let block_size = 64;
+	let key_bytes = key.bytes();
+
+	// If key is longer than block size, hash it
+	if (key_bytes.length > block_size) {
+		let hashed_key = sha1(key);
+		key_bytes = hex_to_bytes(hashed_key);
+	}
+
+	// Pad key to block size with zeros
+	while (key_bytes.length < block_size) {
+		key_bytes.push(0);
+	}
+
+	// Create inner and outer padded keys
+	let ipad = 54;  // Inner padding byte
+	let opad = 92;  // Outer padding byte
+
+	let i_key_pad = xor_with_byte(key_bytes, ipad);
+	let o_key_pad = xor_with_byte(key_bytes, opad);
+
+	// Inner hash: H(i_key_pad || message)
+	let inner_data = concat_bytes(i_key_pad, message.bytes());
+	let inner_str = __string_from_bytes(inner_data);
+	let inner_hash = sha1(inner_str);
+
+	// Outer hash: H(o_key_pad || inner_hash)
+	let inner_hash_bytes = hex_to_bytes(inner_hash);
+	let outer_data = concat_bytes(o_key_pad, inner_hash_bytes);
+	let outer_str = __string_from_bytes(outer_data);
+
+	return sha1(outer_str);
 }
 
 // HMAC-SHA256: Keyed-hash message authentication code using SHA-256
