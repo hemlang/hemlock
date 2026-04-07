@@ -41,8 +41,10 @@ jobs:
           -DUSEARCH_BUILD_TEST_CPP=OFF \
           -DUSEARCH_BUILD_BENCH_CPP=OFF
         cmake --build /tmp/usearch/build --config Release
-        sudo cmake --install /tmp/usearch/build
+        sudo cp $(find /tmp/usearch/build -name 'libusearch_c.so' | head -1) /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
         sudo ldconfig
+        ls -la /usr/local/lib/libusearch*
 
     - name: Build runtime library
       run: make runtime

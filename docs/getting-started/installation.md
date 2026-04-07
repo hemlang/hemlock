@@ -50,6 +50,48 @@ Hemlock requires the following dependencies to build:
 - **libwebsockets**: WebSocket and HTTP client/server support
 - **zlib**: Compression library
 
+### Optional Dependencies
+
+#### USearch (vector similarity search)
+
+Required only if you want to use [`@stdlib/vector`](../../stdlib/docs/vector.md). Without it, the vector module is unavailable and those tests are skipped — everything else works fine.
+
+> **Note:** `cmake --install` does **not** install the shared library for usearch v2.x. You must copy the files manually (see below).
+
+**Linux:**
+```bash
+sudo apt-get install -y cmake  # build dependency
+
+git clone --depth 1 --branch v2.24.0 --recurse-submodules \
+  https://github.com/unum-cloud/usearch.git /tmp/usearch
+cmake -B /tmp/usearch/build -S /tmp/usearch -DUSEARCH_BUILD_LIB_C=ON
+cmake --build /tmp/usearch/build
+
+sudo cp $(find /tmp/usearch/build -name 'libusearch_c.so' | head -1) /usr/local/lib/
+sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
+sudo ldconfig
+```
+
+**macOS:**
+```bash
+brew install cmake  # build dependency
+
+git clone --depth 1 --branch v2.24.0 --recurse-submodules \
+  https://github.com/unum-cloud/usearch.git /tmp/usearch
+cmake -B /tmp/usearch/build -S /tmp/usearch -DUSEARCH_BUILD_LIB_C=ON
+cmake --build /tmp/usearch/build
+
+sudo mkdir -p /usr/local/lib /usr/local/include
+sudo cp $(find /tmp/usearch/build -name 'libusearch_c.dylib' | head -1) /usr/local/lib/
+sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
+```
+
+#### libwebsockets (HTTP and WebSocket client/server)
+
+Required only for `@stdlib/http` and `@stdlib/websocket`. Without it those modules are unavailable and their tests are skipped.
+
+---
+
 ### Installing Dependencies
 
 **macOS:**
@@ -107,7 +149,17 @@ This will compile the Hemlock interpreter and place the executable in the curren
 
 You should see the Hemlock version information.
 
-### 4. Test the Build
+### 4. Build the Standard Library C Modules (Optional)
+
+Some stdlib modules (`@stdlib/http`, `@stdlib/websocket`, `@stdlib/vector`) require native shared libraries. Build their wrappers with:
+
+```bash
+make stdlib
+```
+
+This compiles `lws_wrapper.so` (HTTP/WebSocket) if libwebsockets is installed. USearch (`libusearch_c.so`) must be installed separately — see [Optional Dependencies](#optional-dependencies) above.
+
+### 5. Test the Build
 
 Run the test suite to ensure everything works correctly:
 
@@ -115,7 +167,7 @@ Run the test suite to ensure everything works correctly:
 make test
 ```
 
-All tests should pass. If you see any failures, please report them as an issue.
+All tests should pass. Modules whose native dependencies aren't installed are skipped with a `⊘` notice rather than failing. If you see actual failures, please report them as an issue.
 
 ## Installing System-Wide (Optional)
 
@@ -406,6 +458,25 @@ If you encounter compilation errors:
    ```bash
    make clean && make
    ```
+
+### Vector tests skipped (`@stdlib/vector` not available)
+
+If you see `⊘ Skipping stdlib_vector tests (libusearch_c not installed)`, the USearch library isn't on the system library path. Install it following the [USearch optional dependency steps](#usearch-vector-similarity-search) above.
+
+Verify it's discoverable after installation:
+```bash
+# Linux
+ldconfig -p | grep usearch
+
+# macOS
+ls /usr/local/lib/libusearch_c.dylib
+```
+
+If the file is in a non-standard location, add it to your library path:
+```bash
+export LD_LIBRARY_PATH=/path/to/lib:$LD_LIBRARY_PATH  # Linux
+export DYLD_LIBRARY_PATH=/path/to/lib:$DYLD_LIBRARY_PATH  # macOS
+```
 
 ### Test Failures
 
