@@ -9,10 +9,14 @@
 // - Multiple scalar types (f32, f64, f16, i8, b1)
 //
 // System Requirements:
-// - USearch C library (libusearch_c.so)
+// - USearch C library (libusearch_c.so on Linux, libusearch_c.dylib on macOS)
 // - Install: https://github.com/unum-cloud/usearch
 // - On Debian/Ubuntu: sudo apt install libusearch-dev
-// - From source: cmake -B build && cmake --build build && sudo cmake --install build
+// - From source (Linux): cmake -B build -S . -DUSEARCH_BUILD_LIB_C=ON &&
+//     cmake --build build &&
+//     sudo cp $(find build -name 'libusearch_c.so' | head -1) /usr/local/lib/ &&
+//     sudo cp c/usearch.h /usr/local/include/ && sudo ldconfig
+// - Note: `cmake --install` does NOT install the .so for usearch v2.x; copy manually
 //
 // Usage:
 // import { create_index, search, add, save, free_index } from "@stdlib/vector";
