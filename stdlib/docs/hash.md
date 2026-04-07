@@ -6,6 +6,7 @@ Comprehensive hashing and checksum utilities for both non-cryptographic (fast ha
 
 The `@stdlib/hash` module provides:
 - **Non-cryptographic hashes**: djb2, fnv1a, murmur3 (for hash tables, fast checksums)
+- **Checksums**: crc32, adler32 (error detection, compression formats)
 - **Cryptographic hashes**: SHA-1, SHA-256, SHA-512, MD5 (via OpenSSL FFI)
 - **HMAC**: Hash-based message authentication (hmac_sha1, hmac_sha256, hmac_sha512, hmac_md5)
 - **File checksums**: Convenient functions for hashing file contents
@@ -22,9 +23,10 @@ The `@stdlib/hash` module provides:
 ## Usage
 
 ```hemlock
-import { djb2, fnv1a, murmur3, sha1, sha256, sha512, md5 } from "@stdlib/hash";
+import { djb2, fnv1a, murmur3, crc32, adler32 } from "@stdlib/hash";
+import { sha1, sha256, sha512, md5 } from "@stdlib/hash";
 import { hmac_sha1, hmac_sha256, hmac_sha512, hmac_md5 } from "@stdlib/hash";
-import { file_checksum, file_sha1, file_sha256, file_md5 } from "@stdlib/hash";
+import { file_checksum, file_crc32, file_sha1, file_sha256, file_md5 } from "@stdlib/hash";
 ```
 
 Or import all:
@@ -33,6 +35,53 @@ Or import all:
 import * as hash from "@stdlib/hash";
 let checksum = hash.sha256("data");
 ```
+
+---
+
+## Checksum Functions
+
+Fast error-detection checksums for binary data and files. Accept `string` or `buffer`. Return `u32`.
+
+### crc32(input: string | buffer): u32
+
+CRC-32 checksum using the standard zlib/ISO 3309 polynomial.
+
+```hemlock
+import { crc32 } from "@stdlib/hash";
+
+print(crc32("hello"));         // 907060870
+print(crc32(""));              // 0
+print(crc32(some_buffer));     // works with buffer too
+```
+
+**Properties:**
+- 32-bit output (u32)
+- Used in ZIP, gzip, PNG, Ethernet frames
+- Detects single-bit errors and burst errors up to 32 bits
+- NOT cryptographic — trivial to forge
+
+**Use cases:** File transfer integrity, network packet validation, zip/gzip compatibility.
+
+---
+
+### adler32(input: string | buffer): u32
+
+Adler-32 checksum — simpler and faster than CRC-32, used in zlib/PNG streams.
+
+```hemlock
+import { adler32 } from "@stdlib/hash";
+
+print(adler32("hello"));       // 103547413
+print(adler32(""));            // 1
+```
+
+**Properties:**
+- 32-bit output (u32)
+- Slightly weaker error detection than CRC-32 for small inputs
+- Used internally by zlib (deflate streams, PNG)
+- NOT cryptographic
+
+**Use cases:** zlib stream checksums, quick data validation.
 
 ---
 
@@ -410,6 +459,8 @@ let better_sum = file_murmur3("database.db");
 ```
 
 **Functions:**
+- `file_crc32(path: string): string` - CRC-32 of file
+- `file_adler32(path: string): string` - Adler-32 of file
 - `file_sha1(path: string): string` - SHA-1 of file (legacy only)
 - `file_sha256(path: string): string` - SHA-256 of file
 - `file_sha512(path: string): string` - SHA-512 of file
@@ -583,6 +634,9 @@ The hash module includes comprehensive tests:
 ---
 
 ## Changelog
+
+### v0.3
+- Added checksums: `crc32()`, `adler32()`, `file_crc32()`, `file_adler32()`
 
 ### v0.2
 - Added SHA-1: `sha1()`, `file_sha1()`, `hmac_sha1()`

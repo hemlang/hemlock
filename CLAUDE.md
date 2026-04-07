@@ -265,7 +265,7 @@ Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 | `fmt` | String formatting utilities |
 | `fs` | open, read_file, write_file, list_dir, exists |
 | `glob` | File pattern matching |
-| `hash` | sha1, sha256, sha512, md5, djb2 |
+| `hash` | sha1, sha256, sha512, md5, djb2, crc32, adler32 |
 | `http` | http_get, http_post, http_request |
 | `ipc` | Inter-process communication |
 | `iter` | Iterator utilities |

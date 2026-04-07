@@ -117,6 +117,36 @@ export fn murmur3(input: string, seed?: 0): u32 {
 }
 
 // ============================================================================
+// CHECKSUM FUNCTIONS (built-in, using zlib)
+// ============================================================================
+
+// CRC32 checksum (32-bit)
+// Accepts string or buffer. Returns u32.
+// Fast, widely used for error detection (zip, gzip, ethernet). NOT cryptographic.
+export fn crc32(input): u32 {
+	if (typeof(input) == "string") {
+		return __crc32(input.to_bytes());
+	} else if (typeof(input) == "buffer") {
+		return __crc32(input);
+	} else {
+		throw "crc32() requires string or buffer argument";
+	}
+}
+
+// Adler-32 checksum (32-bit)
+// Accepts string or buffer. Returns u32.
+// Faster than CRC32 with slightly weaker error detection. Used in zlib/PNG.
+export fn adler32(input): u32 {
+	if (typeof(input) == "string") {
+		return __adler32(input.to_bytes());
+	} else if (typeof(input) == "buffer") {
+		return __adler32(input);
+	} else {
+		throw "adler32() requires string or buffer argument";
+	}
+}
+
+// ============================================================================
 // CRYPTOGRAPHIC HASH FUNCTIONS (built-in, using OpenSSL)
 // ============================================================================
 
@@ -186,6 +216,14 @@ export fn file_checksum(path: string, hash_fn): string {
 }
 
 // Convenience functions for specific file checksums
+
+export fn file_crc32(path: string): string {
+	return file_checksum(path, crc32);
+}
+
+export fn file_adler32(path: string): string {
+	return file_checksum(path, adler32);
+}
 
 export fn file_sha1(path: string): string {
 	return file_checksum(path, sha1);
