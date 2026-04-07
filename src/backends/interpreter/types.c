@@ -1110,6 +1110,30 @@ int is_numeric(Value val) {
     return is_integer(val) || is_float(val);
 }
 
+// Helper: Convert a value to a string key for object property access.
+// Returns true if the value can be coerced (integers, floats, bools, runes).
+bool value_coerce_to_key(Value val, char *buf, size_t buf_size) {
+    // Check rune and bool before integer (runtime hml_is_integer includes runes)
+    if (val.type == VAL_RUNE) {
+        int len = utf8_encode(val.as.as_rune, buf);
+        buf[len] = '\0';
+        return true;
+    }
+    if (val.type == VAL_BOOL) {
+        snprintf(buf, buf_size, "%s", val.as.as_bool ? "true" : "false");
+        return true;
+    }
+    if (is_integer(val)) {
+        snprintf(buf, buf_size, "%" PRId64, value_to_int64(val));
+        return true;
+    }
+    if (is_float(val)) {
+        snprintf(buf, buf_size, "%.17g", value_to_float(val));
+        return true;
+    }
+    return false;
+}
+
 // Helper: Convert any integer to i32 (for operations)
 int32_t value_to_int(Value val) {
     switch (val.type) {

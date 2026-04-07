@@ -830,11 +830,16 @@ Value call_object_method(Object *obj, const char *method, Value *args, int num_a
         if (num_args != 1) {
             return throw_runtime_error(ctx, "has() expects 1 argument (key)");
         }
-        if (args[0].type != VAL_STRING) {
-            return throw_runtime_error(ctx, "has() key must be a string");
-        }
 
-        const char *key = args[0].as.as_string->data;
+        const char *key;
+        char key_buf[64];
+        if (args[0].type == VAL_STRING) {
+            key = args[0].as.as_string->data;
+        } else if (value_coerce_to_key(args[0], key_buf, sizeof(key_buf))) {
+            key = key_buf;
+        } else {
+            return throw_runtime_error(ctx, "has() key must be a string, number, bool, or rune");
+        }
         for (int i = 0; i < obj->num_fields; i++) {
             if (strcmp(obj->fields[i].name, key) == 0) {
                 return val_bool(1);
@@ -873,11 +878,16 @@ Value call_object_method(Object *obj, const char *method, Value *args, int num_a
         if (num_args != 1) {
             return throw_runtime_error(ctx, "delete() expects 1 argument (key)");
         }
-        if (args[0].type != VAL_STRING) {
-            return throw_runtime_error(ctx, "delete() key must be a string");
-        }
 
-        const char *key = args[0].as.as_string->data;
+        const char *key;
+        char key_buf[64];
+        if (args[0].type == VAL_STRING) {
+            key = args[0].as.as_string->data;
+        } else if (value_coerce_to_key(args[0], key_buf, sizeof(key_buf))) {
+            key = key_buf;
+        } else {
+            return throw_runtime_error(ctx, "delete() key must be a string, number, bool, or rune");
+        }
 
         // Find the field index
         int found_index = -1;

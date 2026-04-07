@@ -207,18 +207,101 @@ person.phone = "555-1234";
 print(person.email);  // "alice@example.com"
 ```
 
-### Field Deletion
+### Bracket Notation
 
-**Note:** Field deletion is not currently supported. Set to `null` instead:
+Access fields dynamically using bracket notation with a string key:
+
+```hemlock
+let person = { name: "Alice", age: 30 };
+
+// Read with bracket notation
+let field = "name";
+print(person[field]);         // "Alice"
+print(person["age"]);         // 30
+
+// Write with bracket notation
+person["city"] = "NYC";
+print(person.city);           // "NYC"
+```
+
+### Key Coercion
+
+Non-string keys are automatically coerced to strings when used with bracket notation. This lets you use objects as maps with numeric, boolean, or rune keys:
+
+```hemlock
+let map = {};
+
+// Integer keys (coerced to string: 42 → "42")
+map[0] = "zero";
+map[42] = "forty-two";
+print(map[0]);                // "zero"
+print(map["0"]);              // "zero" (equivalent)
+
+// Boolean keys (coerced: true → "true")
+map[true] = "yes";
+print(map[true]);             // "yes"
+print(map["true"]);           // "yes"
+
+// Rune keys (coerced: 'A' → "A")
+map['A'] = "alpha";
+print(map['A']);               // "alpha"
+print(map["A"]);               // "alpha"
+
+// Float keys (coerced with full precision: 3.14 → "3.1400000000000001")
+map[3.14] = "pi";
+print(map[3.14]);              // "pi"
+```
+
+**Supported coercion types:**
+- **Integers** (i8–i64, u8–u64): decimal string representation
+- **Floats** (f32, f64): `%.17g` format (full precision)
+- **Booleans**: `"true"` or `"false"`
+- **Runes**: UTF-8 encoded character
+
+**Note:** Float keys use full IEEE 754 precision, so `3.14` becomes `"3.1400000000000001"`. If you need exact float string keys, convert explicitly with `"" + n`.
+
+### Built-in Object Methods
+
+#### `obj.keys()`
+
+Returns an array of all field names as strings:
+
+```hemlock
+let obj = { x: 10, y: 20, name: "test" };
+let k = obj.keys();
+print(k);  // [x, y, name]
+```
+
+#### `obj.has(key)`
+
+Check if an object has a specific field. Accepts string, integer, float, bool, or rune keys (non-string keys are coerced):
+
+```hemlock
+let obj = { x: 10, name: "test" };
+print(obj.has("x"));       // true
+print(obj.has("z"));       // false
+
+let map = {};
+map[42] = "value";
+print(map.has(42));        // true
+print(map.has("42"));      // true
+```
+
+#### `obj.delete(key)`
+
+Remove a field from an object. Returns `true` if the field was found and deleted, `false` otherwise. Accepts coerced keys like `has()`:
 
 ```hemlock
 let obj = { x: 10, y: 20 };
+obj.delete("x");
+print(obj.has("x"));      // false
+print(obj.has("y"));      // true
 
-// Cannot delete fields (not supported)
-// obj.x = undefined;  // No 'undefined' in Hemlock
-
-// Workaround: Set to null
-obj.x = null;
+// With integer keys
+let map = {};
+map[5] = "five";
+map.delete(5);
+print(map.has(5));         // false
 ```
 
 ## Methods and `self`
@@ -963,9 +1046,8 @@ Current limitations:
 
 - **No deep copy** - Must manually copy nested objects (spread is shallow)
 - **No pass-by-value** - Objects always passed by reference
-- **No computed properties** - No `{[key]: value}` syntax
+- **No computed properties** - No `{[key]: value}` syntax in literals (use bracket assignment instead)
 - **`self` is read-only** - Cannot reassign `self` in methods
-- **No property deletion** - Cannot remove fields once added
 
 **Note:** Objects are refcounted and automatically freed when scope exits. See [Memory Management](memory.md#internal-reference-counting) for details.
 

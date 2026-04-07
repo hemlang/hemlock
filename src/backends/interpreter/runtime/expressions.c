@@ -4,6 +4,7 @@
 // Forward declaration for binary operations (in binary_ops.c)
 Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx);
 
+
 // ========== HELPER FUNCTIONS ==========
 
 // Get the type name of a value for error messages
@@ -435,6 +436,26 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 return val_null();
             }
 
+            // Object property access with non-string key (auto-coerce to string)
+            if (object.type == VAL_OBJECT) {
+                char key_buf[64];
+                if (value_coerce_to_key(index_val, key_buf, sizeof(key_buf))) {
+                    Object *obj = object.as.as_object;
+                    int idx = object_lookup_field(obj, key_buf);
+                    if (idx >= 0) {
+                        result = obj->fields[idx].value;
+                        VALUE_RETAIN(result);
+                        VALUE_RELEASE(object);
+                        VALUE_RELEASE(index_val);
+                        return result;
+                    }
+
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    return val_null();
+                }
+            }
+
             // For arrays, strings, and buffers, index must be an integer
             if (!is_integer(index_val)) {
                 runtime_error(ctx, "Index must be an integer");
@@ -560,6 +581,44 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 VALUE_RELEASE(object);
                 VALUE_RELEASE(index_val);
                 return value;
+            }
+
+            // Object property assignment with non-string key (auto-coerce to string)
+            if (object.type == VAL_OBJECT) {
+                char key_buf[64];
+                if (value_coerce_to_key(index_val, key_buf, sizeof(key_buf))) {
+                    Object *obj = object.as.as_object;
+                    int idx = object_lookup_field(obj, key_buf);
+                    if (idx >= 0) {
+                        VALUE_RELEASE(obj->fields[idx].value);
+                        obj->fields[idx].value = value;
+                        VALUE_RETAIN(value);
+                        VALUE_RELEASE(object);
+                        VALUE_RELEASE(index_val);
+                        return value;
+                    }
+
+                    if (obj->hash_table) {
+                        free(obj->hash_table);
+                        obj->hash_table = NULL;
+                        obj->hash_capacity = 0;
+                    }
+                    int new_num_fields = obj->num_fields + 1;
+                    FieldEntry *new_fields = object_grow_fields(obj, new_num_fields);
+                    if (!new_fields) {
+                        VALUE_RELEASE(object);
+                        VALUE_RELEASE(index_val);
+                        runtime_error(ctx, "Failed to expand object fields");
+                        return val_null();
+                    }
+                    obj->num_fields = new_num_fields;
+                    obj->fields[obj->num_fields - 1].name = strdup(key_buf);
+                    obj->fields[obj->num_fields - 1].value = value;
+                    VALUE_RETAIN(value);
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    return value;
+                }
             }
 
             // For arrays, strings, and buffers, index must be an integer
