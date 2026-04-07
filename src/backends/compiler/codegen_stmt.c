@@ -811,8 +811,11 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_indent_inc(ctx);
             if (stmt->as.for_in.key_var) {
                 codegen_writeln(ctx, "%s = hml_object_key_at(%s, %s);", safe_key_var, iter_val, idx_var);
+                codegen_writeln(ctx, "%s = hml_object_value_at(%s, %s);", safe_value_var, iter_val, idx_var);
+            } else {
+                // Single variable: yield key (like JS for-in)
+                codegen_writeln(ctx, "%s = hml_object_key_at(%s, %s);", safe_value_var, iter_val, idx_var);
             }
-            codegen_writeln(ctx, "%s = hml_object_value_at(%s, %s);", safe_value_var, iter_val, idx_var);
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", iter_val);
             codegen_indent_inc(ctx);

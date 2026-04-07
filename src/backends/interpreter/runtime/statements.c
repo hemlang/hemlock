@@ -363,8 +363,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                         if (ctx->exception_state.is_throwing) {
                             break;
                         }
+                        env_define(iter_env, stmt->as.for_in.value_var, obj->fields[i].value, 0, ctx);
+                    } else {
+                        // Single variable: yield key (like JS for-in)
+                        env_define(iter_env, stmt->as.for_in.value_var, val_string(obj->fields[i].name), 0, ctx);
                     }
-                    env_define(iter_env, stmt->as.for_in.value_var, obj->fields[i].value, 0, ctx);
                     if (ctx->exception_state.is_throwing) {
                         break;
                     }

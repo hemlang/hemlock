@@ -1,0 +1,26 @@
+// Test: for-in on objects yields keys with single variable
+// Single variable yields keys (like JS for-in)
+let obj = { name: "Alice", age: 30, active: true };
+
+// Single variable: yields keys
+for (let k in obj) {
+    print(k);
+}
+
+// Two variables: key and value
+print("---");
+for (let k, v in obj) {
+    print(k + "=" + v);
+}
+
+// Without let
+print("---");
+let obj2 = { x: 1, y: 2 };
+for (k in obj2) {
+    print(k);
+}
+
+print("---");
+for (k, v in obj2) {
+    print(k + ":" + v);
+}

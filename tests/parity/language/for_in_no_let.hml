@@ -6,7 +6,7 @@ for (x in arr) {
     print(x);
 }
 
-// Object iteration without let (value only, like with let)
+// Object iteration without let (single var yields keys, like JS for-in)
 let obj = { a: 1, b: 2 };
 for (v in obj) {
     print(v);

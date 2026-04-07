@@ -1,0 +1,13 @@
+name
+age
+active
+---
+name=Alice
+age=30
+active=true
+---
+x
+y
+---
+x:1
+y:2
