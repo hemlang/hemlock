@@ -82,6 +82,96 @@ sudo dnf install gcc make libffi-devel openssl-devel libwebsockets-devel zlib-de
 sudo pacman -S base-devel libffi openssl libwebsockets zlib
 ```
 
+## Optional Dependencies
+
+### USearch (for `@stdlib/vector`)
+
+The `@stdlib/vector` module requires the USearch C shared library (`libusearch_c.so` / `libusearch_c.dylib`) at **runtime**. It is loaded via FFI when you first import `@stdlib/vector` — it is not linked at build time, so Hemlock itself builds fine without it.
+
+Install USearch if you plan to use vector similarity search.
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get install cmake git
+git clone https://github.com/unum-cloud/usearch.git --recursive
+cd usearch
+cmake -B build \
+    -DUSEARCH_BUILD_LIB_C=ON \
+    -DUSEARCH_BUILD_TEST_CPP=OFF \
+    -DUSEARCH_BUILD_BENCH_CPP=OFF \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release -j$(nproc)
+sudo cmake --install build
+sudo ldconfig
+```
+
+**Fedora/RHEL:**
+```bash
+sudo dnf install cmake git
+git clone https://github.com/unum-cloud/usearch.git --recursive
+cd usearch
+cmake -B build \
+    -DUSEARCH_BUILD_LIB_C=ON \
+    -DUSEARCH_BUILD_TEST_CPP=OFF \
+    -DUSEARCH_BUILD_BENCH_CPP=OFF \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release -j$(nproc)
+sudo cmake --install build
+sudo ldconfig
+```
+
+**Arch Linux:**
+```bash
+sudo pacman -S cmake git
+git clone https://github.com/unum-cloud/usearch.git --recursive
+cd usearch
+cmake -B build \
+    -DUSEARCH_BUILD_LIB_C=ON \
+    -DUSEARCH_BUILD_TEST_CPP=OFF \
+    -DUSEARCH_BUILD_BENCH_CPP=OFF \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release -j$(nproc)
+sudo cmake --install build
+sudo ldconfig
+```
+
+**macOS:**
+```bash
+# Install CMake via Homebrew if needed
+brew install cmake
+
+git clone https://github.com/unum-cloud/usearch.git --recursive
+cd usearch
+cmake -B build \
+    -DUSEARCH_BUILD_LIB_C=ON \
+    -DUSEARCH_BUILD_TEST_CPP=OFF \
+    -DUSEARCH_BUILD_BENCH_CPP=OFF \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release -j$(sysctl -n hw.logicalcpu)
+sudo cmake --install build
+```
+
+After installing, verify the library is discoverable:
+
+```bash
+# Linux
+ldconfig -p | grep usearch
+
+# macOS
+ls /usr/local/lib/libusearch_c*
+```
+
+If the library is installed to a non-standard prefix, set `DYLD_LIBRARY_PATH` (macOS) or `LD_LIBRARY_PATH` (Linux) at runtime:
+
+```bash
+export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH  # Linux
+export DYLD_LIBRARY_PATH=/usr/local/lib:$DYLD_LIBRARY_PATH  # macOS
+```
+
+For full documentation on the vector module see [`stdlib/docs/vector.md`](../../stdlib/docs/vector.md).
+
+---
+
 ## Building from Source
 
 ### 1. Clone the Repository

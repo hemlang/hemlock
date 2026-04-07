@@ -821,20 +821,100 @@ try {
 
 ## System Requirements
 
-- USearch C shared library (`libusearch_c.so`)
-- Install from source:
-  ```bash
-  git clone https://github.com/unum-cloud/usearch
-  cd usearch
-  cmake -B build -DUSEARCH_BUILD_LIB_C=ON
-  cmake --build build
-  sudo cmake --install build
-  sudo ldconfig
-  ```
-- Or via package manager if available:
-  ```bash
-  sudo apt install libusearch-dev  # Debian/Ubuntu (if packaged)
-  ```
+The vector module loads `libusearch_c.so` (Linux) or `libusearch_c.dylib` (macOS) via Hemlock's FFI at runtime. Hemlock itself does not need USearch to build — you only need it if you use `@stdlib/vector`.
+
+### Installing USearch
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get install cmake git
+git clone https://github.com/unum-cloud/usearch.git --recursive
+cd usearch
+cmake -B build \
+    -DUSEARCH_BUILD_LIB_C=ON \
+    -DUSEARCH_BUILD_TEST_CPP=OFF \
+    -DUSEARCH_BUILD_BENCH_CPP=OFF \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release -j$(nproc)
+sudo cmake --install build
+sudo ldconfig
+```
+
+**Fedora/RHEL:**
+```bash
+sudo dnf install cmake git
+git clone https://github.com/unum-cloud/usearch.git --recursive
+cd usearch
+cmake -B build \
+    -DUSEARCH_BUILD_LIB_C=ON \
+    -DUSEARCH_BUILD_TEST_CPP=OFF \
+    -DUSEARCH_BUILD_BENCH_CPP=OFF \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release -j$(nproc)
+sudo cmake --install build
+sudo ldconfig
+```
+
+**Arch Linux:**
+```bash
+sudo pacman -S cmake git
+git clone https://github.com/unum-cloud/usearch.git --recursive
+cd usearch
+cmake -B build \
+    -DUSEARCH_BUILD_LIB_C=ON \
+    -DUSEARCH_BUILD_TEST_CPP=OFF \
+    -DUSEARCH_BUILD_BENCH_CPP=OFF \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release -j$(nproc)
+sudo cmake --install build
+sudo ldconfig
+```
+
+**macOS:**
+```bash
+brew install cmake
+git clone https://github.com/unum-cloud/usearch.git --recursive
+cd usearch
+cmake -B build \
+    -DUSEARCH_BUILD_LIB_C=ON \
+    -DUSEARCH_BUILD_TEST_CPP=OFF \
+    -DUSEARCH_BUILD_BENCH_CPP=OFF \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release -j$(sysctl -n hw.logicalcpu)
+sudo cmake --install build
+```
+
+### Verifying Installation
+
+```bash
+# Linux
+ldconfig -p | grep usearch
+
+# macOS
+ls /usr/local/lib/libusearch_c*
+```
+
+### Non-Standard Install Prefix
+
+If USearch is installed outside `/usr/local`, tell the dynamic linker where to find it:
+
+```bash
+# Linux
+export LD_LIBRARY_PATH=/path/to/usearch/lib:$LD_LIBRARY_PATH
+
+# macOS
+export DYLD_LIBRARY_PATH=/path/to/usearch/lib:$DYLD_LIBRARY_PATH
+```
+
+### CMake Build Flags Reference
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `USEARCH_BUILD_LIB_C` | OFF | **Required** — builds the C shared library |
+| `USEARCH_BUILD_TEST_CPP` | ON | C++ tests (set OFF to speed up build) |
+| `USEARCH_BUILD_BENCH_CPP` | ON | C++ benchmarks (set OFF to speed up build) |
+| `CMAKE_BUILD_TYPE` | Debug | Use `Release` for optimized production builds |
+| `CMAKE_INSTALL_PREFIX` | `/usr/local` | Override install location |
 
 ---
 
