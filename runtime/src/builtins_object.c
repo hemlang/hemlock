@@ -206,18 +206,45 @@ int hml_object_delete_field(HmlValue obj, const char *field) {
     return 1;  // Deleted
 }
 
-// Convert integer key to string and get field from object
-HmlValue hml_object_get_field_int(HmlValue obj, HmlValue key) {
-    char key_buf[32];
-    snprintf(key_buf, sizeof(key_buf), "%" PRId64, hml_to_i64(key));
-    return hml_object_get_field(obj, key_buf);
+// Convert a value to a string key for object property access.
+// Returns true if the value can be coerced (integers, floats, bools, runes).
+int hml_value_coerce_to_key(HmlValue val, char *buf, size_t buf_size) {
+    // Check rune before integer since hml_is_integer() includes runes
+    if (val.type == HML_VAL_RUNE) {
+        int len = utf8_encode_rune(val.as.as_rune, buf);
+        buf[len] = '\0';
+        return 1;
+    }
+    if (val.type == HML_VAL_BOOL) {
+        snprintf(buf, buf_size, "%s", val.as.as_bool ? "true" : "false");
+        return 1;
+    }
+    if (hml_is_integer(val)) {
+        snprintf(buf, buf_size, "%" PRId64, hml_to_i64(val));
+        return 1;
+    }
+    if (hml_is_float_type(val)) {
+        snprintf(buf, buf_size, "%.17g", hml_to_f64(val));
+        return 1;
+    }
+    return 0;
 }
 
-// Convert integer key to string and set field on object
-void hml_object_set_field_int(HmlValue obj, HmlValue key, HmlValue val) {
-    char key_buf[32];
-    snprintf(key_buf, sizeof(key_buf), "%" PRId64, hml_to_i64(key));
-    hml_object_set_field(obj, key_buf, val);
+// Convert non-string key to string and get field from object
+HmlValue hml_object_get_field_coerce(HmlValue obj, HmlValue key) {
+    char key_buf[64];
+    if (hml_value_coerce_to_key(key, key_buf, sizeof(key_buf))) {
+        return hml_object_get_field(obj, key_buf);
+    }
+    return hml_val_null();
+}
+
+// Convert non-string key to string and set field on object
+void hml_object_set_field_coerce(HmlValue obj, HmlValue key, HmlValue val) {
+    char key_buf[64];
+    if (hml_value_coerce_to_key(key, key_buf, sizeof(key_buf))) {
+        hml_object_set_field(obj, key_buf, val);
+    }
 }
 
 // Get number of fields in object

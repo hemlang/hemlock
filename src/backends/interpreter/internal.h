@@ -7,6 +7,7 @@
 #include "hemlock_limits.h"
 #include <stdint.h>
 #include <inttypes.h>
+#include <stdbool.h>
 
 // Forward declaration for profiler
 typedef struct ProfilerState ProfilerState;
@@ -228,6 +229,11 @@ int32_t value_to_int(Value val);
 int64_t value_to_int64(Value val);
 double value_to_float(Value val);
 int value_is_truthy(Value val);
+
+// Convert a value to a string key for object property access.
+// Returns true if the value can be coerced to a string key (integers, floats, bools, runes).
+// buf must be at least 64 bytes.
+bool value_coerce_to_key(Value val, char *buf, size_t buf_size);
 
 // Get the type name of a value (for error messages)
 const char* value_type_name(ValueType type);

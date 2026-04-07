@@ -1,6 +1,6 @@
-// Test: Integer keys on objects are auto-coerced to strings
+// Test: Non-string keys on objects are auto-coerced to strings
 
-// Basic integer key set and get
+// === Integer keys ===
 let obj = {};
 obj[0] = "zero";
 obj[1] = "one";
@@ -64,3 +64,38 @@ m[2] = "b";
 let keys = m.keys();
 print(keys[0]);
 print(keys[1]);
+
+// === Boolean keys ===
+let b = {};
+b[true] = "yes";
+b[false] = "no";
+print(b[true]);
+print(b[false]);
+print(b["true"]);
+print(b["false"]);
+print(b.has(true));
+print(b.has(false));
+b.delete(true);
+print(b.has(true));
+
+// === Rune keys ===
+let r = {};
+r['A'] = "alpha";
+r['Z'] = "zeta";
+print(r['A']);
+print(r['Z']);
+print(r["A"]);
+print(r["Z"]);
+print(r.has('A'));
+r.delete('A');
+print(r.has('A'));
+
+// === Float keys ===
+let f = {};
+f[3.14] = "pi";
+f[2.0] = "two";
+print(f[3.14]);
+print(f[2.0]);
+print(f.has(3.14));
+f.delete(3.14);
+print(f.has(3.14));

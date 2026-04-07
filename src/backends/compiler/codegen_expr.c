@@ -473,10 +473,10 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 // Dynamic object property access with string key
                 codegen_writeln(ctx, "%s = hml_object_get_field(%s, %s.as.as_string->data);", result, obj, idx);
                 codegen_indent_dec(ctx);
-                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT && hml_is_integer(%s)) {", obj, idx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT) {", obj);
                 codegen_indent_inc(ctx);
-                // Dynamic object property access with integer key (auto-coerce to string)
-                codegen_writeln(ctx, "%s = hml_object_get_field_int(%s, %s);", result, obj, idx);
+                // Dynamic object property access with non-string key (auto-coerce to string)
+                codegen_writeln(ctx, "%s = hml_object_get_field_coerce(%s, %s);", result, obj, idx);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
@@ -552,10 +552,10 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 // Dynamic object property assignment with string key
                 codegen_writeln(ctx, "hml_object_set_field(%s, %s.as.as_string->data, %s);", obj, idx, value);
                 codegen_indent_dec(ctx);
-                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT && hml_is_integer(%s)) {", obj, idx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT) {", obj);
                 codegen_indent_inc(ctx);
-                // Dynamic object property assignment with integer key (auto-coerce to string)
-                codegen_writeln(ctx, "hml_object_set_field_int(%s, %s, %s);", obj, idx, value);
+                // Dynamic object property assignment with non-string key (auto-coerce to string)
+                codegen_writeln(ctx, "hml_object_set_field_coerce(%s, %s, %s);", obj, idx, value);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             }
