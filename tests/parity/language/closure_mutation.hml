@@ -1,0 +1,95 @@
+// Test closures that modify captured variables
+
+// 1. Counter via closure
+print("=== Counter closure ===");
+fn make_counter() {
+    let count = 0;
+    return {
+        inc: fn() { count = count + 1; return count; },
+        dec: fn() { count = count - 1; return count; },
+        get: fn() { return count; }
+    };
+}
+let c = make_counter();
+print(c.inc());
+print(c.inc());
+print(c.inc());
+print(c.dec());
+print(c.get());
+
+// 2. Accumulator closure
+print("=== Accumulator ===");
+fn make_accumulator(initial) {
+    let total = initial;
+    return fn(n) {
+        total = total + n;
+        return total;
+    };
+}
+let acc = make_accumulator(0);
+print(acc(5));
+print(acc(10));
+print(acc(-3));
+
+// 3. Two closures sharing state
+print("=== Shared state ===");
+fn make_pair() {
+    let shared = 0;
+    let setter = fn(v) { shared = v; };
+    let getter = fn() { return shared; };
+    return { set: setter, get: getter };
+}
+let pair = make_pair();
+print(pair.get());
+pair.set(42);
+print(pair.get());
+pair.set(100);
+print(pair.get());
+
+// 4. Closure capturing loop variable with local copy
+print("=== Loop capture ===");
+let fns = [];
+for (let i = 0; i < 5; i++) {
+    let captured = i;
+    fns.push(fn() { return captured; });
+}
+for (f in fns) {
+    print(f());
+}
+
+// 5. Closure returning closure (single call chain)
+print("=== Nested closure ===");
+fn make_nested() {
+    let x = 0;
+    return fn() {
+        x = x + 1;
+        return fn() {
+            return x;
+        };
+    };
+}
+let outer_fn = make_nested();
+let inner_fn1 = outer_fn();
+print(inner_fn1());
+let inner_fn2 = outer_fn();
+print(inner_fn2());
+
+// 6. Closure with string mutation
+print("=== String closure ===");
+fn make_logger() {
+    let log = "";
+    return {
+        add: fn(msg) {
+            if (log.length > 0) { log = log + ", "; }
+            log = log + msg;
+        },
+        get: fn() { return log; }
+    };
+}
+let logger = make_logger();
+logger.add("hello");
+logger.add("world");
+logger.add("!");
+print(logger.get());
+
+print("done");

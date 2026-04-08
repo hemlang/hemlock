@@ -1,0 +1,26 @@
+=== Fall-through ===
+two
+three
+=== Switch return ===
+zero
+one
+two
+other
+=== Nested switch ===
+1,1
+1,2
+1,?
+2,1
+2,?
+?,?
+=== String switch ===
+weekday
+weekend
+weekend
+weekday
+unknown
+=== Default position ===
+default
+=== Switch expressions ===
+ten
+done

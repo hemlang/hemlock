@@ -1,0 +1,53 @@
+// Test string mutability - character assignment
+
+// 1. Basic character replacement
+let s = "hello";
+s[0] = 'H';
+print(s);
+
+// 2. Replace multiple characters
+let s2 = "abcdef";
+s2[1] = 'B';
+s2[3] = 'D';
+print(s2);
+
+// 3. Length preserved after mutation
+let s3 = "test";
+print(s3.length);
+s3[0] = 'T';
+print(s3.length);
+print(s3);
+
+// 4. String methods on mutated string
+let s4 = "hello world";
+s4[0] = 'H';
+s4[6] = 'W';
+print(s4);
+print(s4.to_upper());
+print(s4.contains("World"));
+
+// 5. Mutated string in concatenation
+let s5 = "abc";
+s5[2] = 'C';
+let result = s5 + "def";
+print(result);
+
+// 6. Mutated string comparison
+let s6 = "aaa";
+s6[1] = 'b';
+print(s6 == "aba");
+
+// 7. Assign to last character
+let s7 = "end";
+s7[2] = 'D';
+print(s7);
+
+// 8. String from function, then mutate
+fn make_str() {
+    return "mutable";
+}
+let s8 = make_str();
+s8[0] = 'M';
+print(s8);
+
+print("done");

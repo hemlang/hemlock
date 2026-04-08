@@ -1,0 +1,41 @@
+// Extended truthiness tests - objects, floats, functions, negative numbers
+
+print("=== Boolean truthiness ===");
+if (true) { print("true: truthy"); } else { print("true: falsy"); }
+if (false) { print("false: truthy"); } else { print("false: falsy"); }
+
+print("=== Object truthiness ===");
+if ({}) { print("empty obj: truthy"); } else { print("empty obj: falsy"); }
+if ({ x: 1 }) { print("non-empty obj: truthy"); } else { print("non-empty obj: falsy"); }
+
+print("=== Function truthiness ===");
+let f = fn() { return 1; };
+if (f) { print("function: truthy"); } else { print("function: falsy"); }
+
+print("=== Negative number truthiness ===");
+if (-1) { print("-1: truthy"); } else { print("-1: falsy"); }
+if (-0.5) { print("-0.5: truthy"); } else { print("-0.5: falsy"); }
+
+print("=== Float truthiness ===");
+if (0.0) { print("0.0: truthy"); } else { print("0.0: falsy"); }
+if (0.1) { print("0.1: truthy"); } else { print("0.1: falsy"); }
+if (1.0) { print("1.0: truthy"); } else { print("1.0: falsy"); }
+
+print("=== Logical operators with truthiness ===");
+print(true && "yes");
+print(false || "fallback");
+print(null ?? "default");
+print(0 || "zero fallback");
+print("" || "empty fallback");
+print([] || "empty array fallback");
+
+print("=== Negation ===");
+print(!true);
+print(!false);
+print(!null);
+print(!0);
+print(!"");
+print(!1);
+print(!"hello");
+
+print("done");

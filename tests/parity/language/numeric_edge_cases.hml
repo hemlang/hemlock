@@ -1,0 +1,75 @@
+// Test numeric edge cases for interpreter/compiler parity
+
+import { divi } from "@stdlib/math";
+
+// 1. Integer limits
+print("=== Integer limits ===");
+print(2147483647);          // i32 max
+print(-2147483648);         // i32 min
+
+let big: i64 = 9223372036854775807;
+print(big);
+
+// 2. Modulo behavior
+print("=== Modulo ===");
+print(7 % 3);
+print(10 % 5);
+print(13 % 4);
+print(-7 % 3);
+print(7 % -3);
+
+// 3. Float precision
+print("=== Float precision ===");
+print(0.1 + 0.2);
+print(1.0 / 3.0);
+print(1.0 / 7.0);
+
+// 4. Integer division
+print("=== Integer division ===");
+print(divi(7, 2));
+print(divi(10, 3));
+print(divi(100, 7));
+print(divi(-7, 2));
+print(divi(0, 5));
+
+// 5. Float to int truncation
+print("=== Float truncation ===");
+print(i32(3.99));
+print(i32(-3.99));
+print(i32(0.5));
+print(i32(-0.5));
+
+// 6. Hex, binary, octal literals
+print("=== Numeric literals ===");
+print(0xFF);
+print(0b1010);
+print(0o77);
+print(0x0);
+print(0b0);
+
+// 7. Numeric separators
+print("=== Numeric separators ===");
+print(1_000);
+print(1_000_000);
+
+// 8. Unary negation
+print("=== Unary negation ===");
+print(-42);
+print(-(-42));
+print(-0);
+print(-3.14);
+
+// 9. Mixed type arithmetic
+print("=== Mixed arithmetic ===");
+let a: i32 = 10;
+let b: f64 = 3.0;
+print(a + b);
+print(a * b);
+
+// 10. Division always returns float
+print("=== Division ===");
+print(10 / 3);
+print(6 / 2);
+print(7 / 2);
+
+print("done");
