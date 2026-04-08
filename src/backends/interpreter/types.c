@@ -6,6 +6,7 @@
 #include <inttypes.h>
 #include <errno.h>
 #include <limits.h>
+#include <math.h>
 
 /* ========== TYPE CONVERSION HELPERS ==========
  *
@@ -1317,6 +1318,16 @@ Value promote_value(Value val, ValueType target_type) {
 // ========== TYPE CONVERSION ==========
 
 // Helper to check if a TypeKind is a numeric type
+static int is_integer_target(TypeKind kind) {
+    switch (kind) {
+        case TYPE_I8: case TYPE_I16: case TYPE_I32: case TYPE_I64:
+        case TYPE_U8: case TYPE_U16: case TYPE_U32: case TYPE_U64:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 static int is_numeric_type(TypeKind kind) {
     switch (kind) {
         case TYPE_I8:
@@ -1650,6 +1661,23 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         return val_null();
     }
 
+    // Check for NaN/Inf/out-of-range before float-to-int cast (which is UB in C)
+    if (is_source_float && is_integer_target(target_kind)) {
+        if (isnan(float_val)) {
+            runtime_error(ctx, "Cannot convert NaN to %s", type_kind_to_string(target_kind));
+            return val_null();
+        }
+        if (isinf(float_val)) {
+            runtime_error(ctx, "Cannot convert %sInfinity to %s",
+                    float_val < 0 ? "-" : "", type_kind_to_string(target_kind));
+            return val_null();
+        }
+        if (float_val > 9.223372036854775e+18 || float_val < -9.223372036854776e+18) {
+            runtime_error(ctx, "Float value out of range for integer conversion to %s", type_kind_to_string(target_kind));
+            return val_null();
+        }
+    }
+
     switch (target_kind) {
         case TYPE_I8:
             if (is_source_float) {
@@ -1954,6 +1982,23 @@ Value parse_string_to_type(Value value, Type *target_type, Environment *env, Exe
         } else {
             runtime_error(ctx, "Cannot convert empty string to number");
             return val_null();
+        }
+
+        // Check for NaN/Inf/out-of-range before float-to-int cast (which is UB in C)
+        if (is_float && is_integer_target(target_kind)) {
+            if (isnan(float_val)) {
+                runtime_error(ctx, "Cannot convert NaN to %s", type_kind_to_string(target_kind));
+                return val_null();
+            }
+            if (isinf(float_val)) {
+                runtime_error(ctx, "Cannot convert %sInfinity to %s",
+                        float_val < 0 ? "-" : "", type_kind_to_string(target_kind));
+                return val_null();
+            }
+            if (float_val > 9.223372036854775e+18 || float_val < -9.223372036854776e+18) {
+                runtime_error(ctx, "Float value out of range for integer conversion to %s", type_kind_to_string(target_kind));
+                return val_null();
+            }
         }
 
         // Now convert to target type with range checking

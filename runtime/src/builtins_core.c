@@ -436,8 +436,16 @@ int64_t hml_val_to_int64(HmlValue val) {
         case HML_VAL_U16: return val.as.as_u16;
         case HML_VAL_U32: return val.as.as_u32;
         case HML_VAL_U64: return (int64_t)val.as.as_u64;
-        case HML_VAL_F32: return (int64_t)val.as.as_f32;
-        case HML_VAL_F64: return (int64_t)val.as.as_f64;
+        case HML_VAL_F32: {
+            float fv = val.as.as_f32;
+            if (isnan(fv) || isinf(fv)) return 0;
+            return (int64_t)fv;
+        }
+        case HML_VAL_F64: {
+            double dv = val.as.as_f64;
+            if (isnan(dv) || isinf(dv)) return 0;
+            return (int64_t)dv;
+        }
         case HML_VAL_BOOL: return val.as.as_bool ? 1 : 0;
         case HML_VAL_RUNE: return val.as.as_rune;
         default: return 0;
@@ -458,6 +466,17 @@ double hml_val_to_double(HmlValue val) {
         case HML_VAL_F32: return (double)val.as.as_f32;
         case HML_VAL_F64: return val.as.as_f64;
         default: return 0.0;
+    }
+}
+
+// Helper to check if a target type is an integer type
+static int hml_is_integer_target_type(HmlValueType type) {
+    switch (type) {
+        case HML_VAL_I8: case HML_VAL_I16: case HML_VAL_I32: case HML_VAL_I64:
+        case HML_VAL_U8: case HML_VAL_U16: case HML_VAL_U32: case HML_VAL_U64:
+            return 1;
+        default:
+            return 0;
     }
 }
 
@@ -507,6 +526,20 @@ HmlValue hml_convert_to_type(HmlValue val, HmlValueType target_type) {
         hml_runtime_error("Cannot convert %s to %s",
                 hml_type_name(val.type), hml_type_name(target_type));
         return hml_val_null();  // Never reached, but silences compiler warning
+    }
+
+    // Check for NaN/Inf/out-of-range before float-to-int cast (which is UB in C)
+    if (is_source_float && hml_is_integer_target_type(target_type)) {
+        if (isnan(float_val)) {
+            hml_runtime_error("Cannot convert NaN to %s", hml_type_name(target_type));
+        }
+        if (isinf(float_val)) {
+            hml_runtime_error("Cannot convert %sInfinity to %s",
+                    float_val < 0 ? "-" : "", hml_type_name(target_type));
+        }
+        if (float_val > 9.223372036854775e+18 || float_val < -9.223372036854776e+18) {
+            hml_runtime_error("Float value out of range for integer conversion to %s", hml_type_name(target_type));
+        }
     }
 
     switch (target_type) {
@@ -689,6 +722,20 @@ HmlValue hml_parse_string_to_type(HmlValue val, HmlValueType target_type) {
             free(cstr);
         } else {
             hml_runtime_error("Cannot convert empty string to number");
+        }
+
+        // Check for NaN/Inf/out-of-range before float-to-int cast (which is UB in C)
+        if (is_float && hml_is_integer_target_type(target_type)) {
+            if (isnan(float_val)) {
+                hml_runtime_error("Cannot convert NaN to %s", hml_type_name(target_type));
+            }
+            if (isinf(float_val)) {
+                hml_runtime_error("Cannot convert %sInfinity to %s",
+                        float_val < 0 ? "-" : "", hml_type_name(target_type));
+            }
+            if (float_val > 9.223372036854775e+18 || float_val < -9.223372036854776e+18) {
+                hml_runtime_error("Float value out of range for integer conversion to %s", hml_type_name(target_type));
+            }
         }
 
         // Now convert to target type with range checking
