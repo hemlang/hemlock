@@ -256,6 +256,13 @@ HmlValue hml_wait(void);
 HmlValue hml_waitpid(HmlValue pid, HmlValue options);
 __attribute__((noreturn)) void hml_abort(void);
 
+// Pipe operations
+HmlValue hml_pipe(void);
+HmlValue hml_close_fd(HmlValue fd);
+HmlValue hml_read_fd(HmlValue fd, HmlValue size);
+HmlValue hml_write_fd(HmlValue fd, HmlValue data);
+HmlValue hml_dup2(HmlValue oldfd, HmlValue newfd);
+
 // Process builtin wrappers
 HmlValue hml_builtin_getppid(HmlClosureEnv *env);
 HmlValue hml_builtin_getuid(HmlClosureEnv *env);
@@ -267,6 +274,13 @@ HmlValue hml_builtin_fork(HmlClosureEnv *env);
 HmlValue hml_builtin_wait(HmlClosureEnv *env);
 HmlValue hml_builtin_waitpid(HmlClosureEnv *env, HmlValue pid, HmlValue options);
 HmlValue hml_builtin_abort(HmlClosureEnv *env);
+
+// Pipe builtin wrappers
+HmlValue hml_builtin_pipe(HmlClosureEnv *env);
+HmlValue hml_builtin_close_fd(HmlClosureEnv *env, HmlValue fd);
+HmlValue hml_builtin_read_fd(HmlClosureEnv *env, HmlValue fd, HmlValue size);
+HmlValue hml_builtin_write_fd(HmlClosureEnv *env, HmlValue fd, HmlValue data);
+HmlValue hml_builtin_dup2(HmlClosureEnv *env, HmlValue oldfd, HmlValue newfd);
 
 // ========== I/O OPERATIONS ==========
 

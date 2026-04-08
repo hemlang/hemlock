@@ -130,6 +130,13 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(POLLNVAL);", result);
     } else if (strcmp(expr->as.ident.name, "__POLLPRI") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(POLLPRI);", result);
+    // Handle standard file descriptor constants
+    } else if (strcmp(expr->as.ident.name, "__STDIN_FILENO") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(0);", result);
+    } else if (strcmp(expr->as.ident.name, "__STDOUT_FILENO") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(1);", result);
+    } else if (strcmp(expr->as.ident.name, "__STDERR_FILENO") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(2);", result);
     // Handle TYPEID constants for typeid() builtin
     } else if (strcmp(expr->as.ident.name, "TYPEID_I8") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(0);", result);
@@ -301,6 +308,17 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_waitpid, 2, 2, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__abort") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_abort, 0, 0, 0);", result);
+    // Handle pipe functions (builtins)
+    } else if (strcmp(expr->as.ident.name, "__pipe") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_pipe, 0, 0, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__close_fd") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_close_fd, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__read_fd") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_fd, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__write_fd") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_write_fd, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__dup2") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_dup2, 2, 2, 0);", result);
     // Handle filesystem functions (builtins)
     } else if (strcmp(expr->as.ident.name, "__exists") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exists, 1, 1, 0);", result);
