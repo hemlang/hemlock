@@ -1,0 +1,7 @@
+i32 inc overflow: caught
+i32 dec underflow: caught
+i32 prefix inc overflow: caught
+i32 prefix dec underflow: caught
+normal inc: 101
+normal dec: 100
+PASS

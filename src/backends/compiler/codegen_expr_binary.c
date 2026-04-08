@@ -76,6 +76,9 @@ char* codegen_native_expr(CodegenContext *ctx, Expr *expr, CheckedTypeKind *out_
             if (expr->as.binary.op == OP_AND || expr->as.binary.op == OP_OR) return NULL;
             // Shifts need validation (negative/oversized) - use safe runtime path
             if (expr->as.binary.op == OP_BIT_LSHIFT || expr->as.binary.op == OP_BIT_RSHIFT) return NULL;
+            // Arithmetic ops need overflow/zero checks - use safe runtime path
+            if (expr->as.binary.op == OP_ADD || expr->as.binary.op == OP_SUB ||
+                expr->as.binary.op == OP_MUL || expr->as.binary.op == OP_MOD) return NULL;
 
             CheckedTypeKind left_type, right_type;
             char *left = codegen_native_expr(ctx, expr->as.binary.left, &left_type);
@@ -515,24 +518,12 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
 
                     switch (expr->as.binary.op) {
                         case OP_ADD:
-                            codegen_writeln(ctx, "HmlValue %s = %s(%s + %s);", result, box_func, left_var, right_var);
-                            break;
                         case OP_SUB:
-                            codegen_writeln(ctx, "HmlValue %s = %s(%s - %s);", result, box_func, left_var, right_var);
-                            break;
                         case OP_MUL:
-                            codegen_writeln(ctx, "HmlValue %s = %s(%s * %s);", result, box_func, left_var, right_var);
-                            break;
                         case OP_MOD:
-                            if (checked_kind_is_integer(left_native)) {
-                                codegen_writeln(ctx, "HmlValue %s = %s(%s %% %s);", result, box_func, left_var, right_var);
-                            } else {
-                                codegen_writeln(ctx, "HmlValue %s = hml_val_f64(fmod(%s, %s));", result, left_var, right_var);
-                            }
-                            break;
                         case OP_DIV:
-                            // Division always returns float
-                            codegen_writeln(ctx, "HmlValue %s = hml_val_f64((double)%s / (double)%s);", result, left_var, right_var);
+                            // Arithmetic ops need overflow/zero checks - fall through to safe runtime path
+                            handled = 0;
                             break;
                         case OP_LESS:
                             codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s < %s);", result, left_var, right_var);

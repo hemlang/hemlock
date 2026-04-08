@@ -1,0 +1,47 @@
+// Test: increment/decrement overflow detection
+// Ensures ++/-- at integer boundaries are caught
+
+// === i32 increment overflow ===
+try {
+    let x: i32 = 2147483647;
+    x++;
+    print("FAIL: i32 inc overflow not caught");
+} catch (e) {
+    print("i32 inc overflow: caught");
+}
+
+// === i32 decrement underflow ===
+try {
+    let x: i32 = -2147483648;
+    x--;
+    print("FAIL: i32 dec underflow not caught");
+} catch (e) {
+    print("i32 dec underflow: caught");
+}
+
+// === prefix increment overflow ===
+try {
+    let x: i32 = 2147483647;
+    ++x;
+    print("FAIL: i32 prefix inc overflow not caught");
+} catch (e) {
+    print("i32 prefix inc overflow: caught");
+}
+
+// === prefix decrement underflow ===
+try {
+    let x: i32 = -2147483648;
+    --x;
+    print("FAIL: i32 prefix dec underflow not caught");
+} catch (e) {
+    print("i32 prefix dec underflow: caught");
+}
+
+// Normal increment/decrement (should work)
+let a: i32 = 100;
+a++;
+print("normal inc: " + a);
+a--;
+print("normal dec: " + a);
+
+print("PASS");

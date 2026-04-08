@@ -1,0 +1,47 @@
+// Test: negation of minimum integer values (INT_MIN)
+// -INT_MIN is undefined behavior in C
+
+// === i32 negation overflow ===
+try {
+    let x: i32 = -2147483648;
+    let y = -x;
+    print("FAIL: i32 negation overflow not caught");
+} catch (e) {
+    print("i32 negation overflow: caught");
+}
+
+// === i64 negation overflow ===
+try {
+    let a: i64 = -9223372036854775807;
+    let x: i64 = a - 1;  // x = INT64_MIN
+    let y = -x;
+    print("FAIL: i64 negation overflow not caught");
+} catch (e) {
+    print("i64 negation overflow: caught");
+}
+
+// === i8 negation overflow ===
+try {
+    let x: i8 = -128;
+    let y = -x;
+    print("FAIL: i8 negation overflow not caught");
+} catch (e) {
+    print("i8 negation overflow: caught");
+}
+
+// === i16 negation overflow ===
+try {
+    let x: i16 = -32768;
+    let y = -x;
+    print("FAIL: i16 negation overflow not caught");
+} catch (e) {
+    print("i16 negation overflow: caught");
+}
+
+// Normal negation (should work)
+let a: i32 = 42;
+print("negate 42: " + (-a));
+let b: i32 = -100;
+print("negate -100: " + (-b));
+
+print("PASS");

@@ -625,11 +625,27 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             runtime_error_at(ctx, expr->line, "Division by zero");
                             goto binary_cleanup;
                         }
-                        int8_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
-                                       (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                       (expr->as.binary.op == OP_MUL) ? (l * r) :
-                                       (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
-                        binary_result = val_i8(result);
+                        if (expr->as.binary.op == OP_DIV) {
+                            if (l == INT8_MIN && r == -1) {
+                                runtime_error_at(ctx, expr->line, "Integer overflow: i8 arithmetic");
+                                goto binary_cleanup;
+                            }
+                            binary_result = val_i8(l / r);
+                            goto binary_cleanup;
+                        }
+                        if (expr->as.binary.op == OP_MOD) {
+                            binary_result = val_i8(l % r);
+                            goto binary_cleanup;
+                        }
+                        // Overflow-checked add/sub/mul for i8
+                        int32_t wide = (expr->as.binary.op == OP_ADD) ? ((int32_t)l + r) :
+                                       (expr->as.binary.op == OP_SUB) ? ((int32_t)l - r) :
+                                       ((int32_t)l * r);
+                        if (wide < INT8_MIN || wide > INT8_MAX) {
+                            runtime_error_at(ctx, expr->line, "Integer overflow: i8 arithmetic");
+                            goto binary_cleanup;
+                        }
+                        binary_result = val_i8((int8_t)wide);
                         goto binary_cleanup;
                     }
                     case VAL_I16: {
@@ -639,11 +655,27 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             runtime_error_at(ctx, expr->line, "Division by zero");
                             goto binary_cleanup;
                         }
-                        int16_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
-                                        (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                        (expr->as.binary.op == OP_MUL) ? (l * r) :
-                                        (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
-                        binary_result = val_i16(result);
+                        if (expr->as.binary.op == OP_DIV) {
+                            if (l == INT16_MIN && r == -1) {
+                                runtime_error_at(ctx, expr->line, "Integer overflow: i16 arithmetic");
+                                goto binary_cleanup;
+                            }
+                            binary_result = val_i16(l / r);
+                            goto binary_cleanup;
+                        }
+                        if (expr->as.binary.op == OP_MOD) {
+                            binary_result = val_i16(l % r);
+                            goto binary_cleanup;
+                        }
+                        // Overflow-checked add/sub/mul for i16
+                        int32_t wide = (expr->as.binary.op == OP_ADD) ? ((int32_t)l + r) :
+                                       (expr->as.binary.op == OP_SUB) ? ((int32_t)l - r) :
+                                       ((int32_t)l * r);
+                        if (wide < INT16_MIN || wide > INT16_MAX) {
+                            runtime_error_at(ctx, expr->line, "Integer overflow: i16 arithmetic");
+                            goto binary_cleanup;
+                        }
+                        binary_result = val_i16((int16_t)wide);
                         goto binary_cleanup;
                     }
                     case VAL_I32: {

@@ -1,0 +1,11 @@
+i8 add overflow: caught
+i8 sub overflow: caught
+i8 mul overflow: caught
+i8 add ok: 127
+i16 add overflow: caught
+i16 sub overflow: caught
+i16 mul overflow: caught
+i16 add ok: 32767
+i64 add overflow: caught
+i64 sub overflow: caught
+PASS

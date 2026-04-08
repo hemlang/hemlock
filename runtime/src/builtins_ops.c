@@ -86,6 +86,30 @@ static inline HmlValueType promote_types(HmlValueType a, HmlValueType b) {
     return hml_tk_to_val(result);
 }
 
+// Create an integer result value with overflow checking for signed narrowing
+HmlValue make_int_result_checked(HmlValueType result_type, int64_t value) {
+    switch (result_type) {
+        case HML_VAL_I8:
+            if (value < INT8_MIN || value > INT8_MAX)
+                hml_runtime_error("Integer overflow: i8 arithmetic");
+            return hml_val_i8((int8_t)value);
+        case HML_VAL_I16:
+            if (value < INT16_MIN || value > INT16_MAX)
+                hml_runtime_error("Integer overflow: i16 arithmetic");
+            return hml_val_i16((int16_t)value);
+        case HML_VAL_I32:
+            if (value < INT32_MIN || value > INT32_MAX)
+                hml_runtime_error("Integer overflow: i32 arithmetic");
+            return hml_val_i32((int32_t)value);
+        case HML_VAL_I64: return hml_val_i64(value);
+        case HML_VAL_U8:  return hml_val_u8((uint8_t)value);
+        case HML_VAL_U16: return hml_val_u16((uint16_t)value);
+        case HML_VAL_U32: return hml_val_u32((uint32_t)value);
+        case HML_VAL_U64: return hml_val_u64((uint64_t)value);
+        default:          return hml_val_i64(value);
+    }
+}
+
 // Create an integer result value with the correct type
 HmlValue make_int_result(HmlValueType result_type, int64_t value) {
     switch (result_type) {
@@ -119,9 +143,21 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
         int32_t l = left.as.as_i32;
         int32_t r = right.as.as_i32;
         switch (op) {
-            case HML_OP_ADD: return hml_val_i32(l + r);
-            case HML_OP_SUB: return hml_val_i32(l - r);
-            case HML_OP_MUL: return hml_val_i32(l * r);
+            case HML_OP_ADD: {
+                int32_t result;
+                if (__builtin_add_overflow(l, r, &result)) hml_runtime_error("Integer overflow: i32 addition");
+                return hml_val_i32(result);
+            }
+            case HML_OP_SUB: {
+                int32_t result;
+                if (__builtin_sub_overflow(l, r, &result)) hml_runtime_error("Integer overflow: i32 subtraction");
+                return hml_val_i32(result);
+            }
+            case HML_OP_MUL: {
+                int32_t result;
+                if (__builtin_mul_overflow(l, r, &result)) hml_runtime_error("Integer overflow: i32 multiplication");
+                return hml_val_i32(result);
+            }
             case HML_OP_MOD:
                 if (r == 0) hml_runtime_error("Division by zero");
                 return hml_val_i32(l % r);
@@ -149,9 +185,21 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
         int64_t l = left.as.as_i64;
         int64_t r = right.as.as_i64;
         switch (op) {
-            case HML_OP_ADD: return hml_val_i64(l + r);
-            case HML_OP_SUB: return hml_val_i64(l - r);
-            case HML_OP_MUL: return hml_val_i64(l * r);
+            case HML_OP_ADD: {
+                int64_t result;
+                if (__builtin_add_overflow(l, r, &result)) hml_runtime_error("Integer overflow: i64 addition");
+                return hml_val_i64(result);
+            }
+            case HML_OP_SUB: {
+                int64_t result;
+                if (__builtin_sub_overflow(l, r, &result)) hml_runtime_error("Integer overflow: i64 subtraction");
+                return hml_val_i64(result);
+            }
+            case HML_OP_MUL: {
+                int64_t result;
+                if (__builtin_mul_overflow(l, r, &result)) hml_runtime_error("Integer overflow: i64 multiplication");
+                return hml_val_i64(result);
+            }
             case HML_OP_DIV:
                 if (r == 0) hml_runtime_error("Division by zero");
                 return hml_val_i64(l / r);
@@ -338,12 +386,24 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
     int64_t r = hml_to_i64(right);
 
     switch (op) {
-        case HML_OP_ADD:
-            return make_int_result(result_type, l + r);
-        case HML_OP_SUB:
-            return make_int_result(result_type, l - r);
-        case HML_OP_MUL:
-            return make_int_result(result_type, l * r);
+        case HML_OP_ADD: {
+            int64_t result;
+            if (__builtin_add_overflow(l, r, &result))
+                hml_runtime_error("Integer overflow: i64 addition");
+            return make_int_result_checked(result_type, result);
+        }
+        case HML_OP_SUB: {
+            int64_t result;
+            if (__builtin_sub_overflow(l, r, &result))
+                hml_runtime_error("Integer overflow: i64 subtraction");
+            return make_int_result_checked(result_type, result);
+        }
+        case HML_OP_MUL: {
+            int64_t result;
+            if (__builtin_mul_overflow(l, r, &result))
+                hml_runtime_error("Integer overflow: i64 multiplication");
+            return make_int_result_checked(result_type, result);
+        }
         case HML_OP_DIV:
             if (r == 0) {
                 hml_runtime_error("Division by zero");
@@ -403,9 +463,22 @@ HmlValue hml_unary_op(HmlUnaryOp op, HmlValue operand) {
             } else if (operand.type == HML_VAL_F32) {
                 return hml_val_f32(-operand.as.as_f32);
             } else if (operand.type == HML_VAL_I64) {
+                if (operand.as.as_i64 == INT64_MIN)
+                    hml_runtime_error("Integer overflow: i64 negation");
                 return hml_val_i64(-operand.as.as_i64);
+            } else if (operand.type == HML_VAL_I8) {
+                if (operand.as.as_i8 == INT8_MIN)
+                    hml_runtime_error("Integer overflow: i8 negation");
+                return hml_val_i8(-operand.as.as_i8);
+            } else if (operand.type == HML_VAL_I16) {
+                if (operand.as.as_i16 == INT16_MIN)
+                    hml_runtime_error("Integer overflow: i16 negation");
+                return hml_val_i16(-operand.as.as_i16);
             } else {
-                return hml_val_i32(-hml_to_i32(operand));
+                int32_t v = hml_to_i32(operand);
+                if (v == INT32_MIN)
+                    hml_runtime_error("Integer overflow: i32 negation");
+                return hml_val_i32(-v);
             }
 
         case HML_UNARY_BIT_NOT:

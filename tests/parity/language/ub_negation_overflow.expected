@@ -1,0 +1,7 @@
+i32 negation overflow: caught
+i64 negation overflow: caught
+i8 negation overflow: caught
+i16 negation overflow: caught
+negate 42: -42
+negate -100: 100
+PASS
