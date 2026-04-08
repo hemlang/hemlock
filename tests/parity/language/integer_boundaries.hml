@@ -1,0 +1,121 @@
+// Test integer boundary behavior: overflow, underflow, conversion at limits
+// Both interpreter and compiler must produce identical output
+
+// === Overflow detection (arithmetic) ===
+
+// i32 overflow
+try {
+    let x: i32 = 2147483647;
+    let y = x + 1;
+    print("FAIL: i32 overflow not caught");
+} catch (e) {
+    print("i32 add overflow: caught");
+}
+
+// i32 underflow
+try {
+    let x: i32 = -2147483648;
+    let y = x - 1;
+    print("FAIL: i32 underflow not caught");
+} catch (e) {
+    print("i32 sub underflow: caught");
+}
+
+// i32 multiply overflow
+try {
+    let x: i32 = 2147483647;
+    let y = x * 2;
+    print("FAIL: i32 mul overflow not caught");
+} catch (e) {
+    print("i32 mul overflow: caught");
+}
+
+// === Range check on type-annotated assignment ===
+
+// i8 boundary values
+let a: i8 = 127;
+print("i8 max: " + a);
+let b: i8 = -128;
+print("i8 min: " + b);
+
+// i8 overflow on assignment
+try {
+    let c: i8 = 128;
+    print("FAIL: i8 overflow not caught");
+} catch (e) {
+    print("i8 assign overflow: caught");
+}
+
+// i8 underflow on assignment
+try {
+    let d: i8 = -129;
+    print("FAIL: i8 underflow not caught");
+} catch (e) {
+    print("i8 assign underflow: caught");
+}
+
+// u8 boundary values
+let e: u8 = 255;
+print("u8 max: " + e);
+let f: u8 = 0;
+print("u8 min: " + f);
+
+// u8 overflow on assignment
+try {
+    let g: u8 = 256;
+    print("FAIL: u8 overflow not caught");
+} catch (e) {
+    print("u8 assign overflow: caught");
+}
+
+// u8 negative
+try {
+    let h: u8 = -1;
+    print("FAIL: u8 negative not caught");
+} catch (e) {
+    print("u8 assign negative: caught");
+}
+
+// === Type conversion at limits ===
+
+// Widening: i8 max to i16
+let w1: i16 = i16(127);
+print("i8 max as i16: " + w1);
+
+// Widening: i8 min to i32
+let w2: i32 = i32(-128);
+print("i8 min as i32: " + w2);
+
+// Widening: i32 max to i64
+let w3: i64 = i64(2147483647);
+print("i32 max as i64: " + w3);
+
+// Narrowing: in range
+let n1: i8 = i8(127);
+print("127 as i8: " + n1);
+
+// Narrowing: out of range
+try {
+    let n2: i8 = i8(128);
+    print("FAIL: narrowing overflow not caught");
+} catch (e) {
+    print("narrowing i8(128): caught");
+}
+
+// Float to int truncation
+let t1: i32 = i32(3.99);
+print("f64 3.99 as i32: " + t1);
+
+// Float to int with negative
+let t2: i32 = i32(-7.5);
+print("f64 -7.5 as i32: " + t2);
+
+// Float to i8 overflow
+try {
+    let t3: i8 = i8(200.0);
+    print("FAIL: float-to-i8 overflow not caught");
+} catch (e) {
+    print("float-to-i8 overflow: caught");
+}
+
+print("PASS");
