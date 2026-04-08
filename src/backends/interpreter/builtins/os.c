@@ -19,10 +19,8 @@
 // Get platform name (linux, macos, windows)
 Value builtin_platform(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: platform() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "platform() expects no arguments"); return val_null();
     }
 
 #ifdef __linux__
@@ -39,10 +37,8 @@ Value builtin_platform(Value *args, int num_args, ExecutionContext *ctx) {
 // Get CPU architecture (x86_64, aarch64, etc.)
 Value builtin_arch(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: arch() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "arch() expects no arguments"); return val_null();
     }
 
     struct utsname info;
@@ -61,8 +57,7 @@ Value builtin_arch(Value *args, int num_args, ExecutionContext *ctx) {
 Value builtin_hostname(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: hostname() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "hostname() expects no arguments"); return val_null();
     }
 
     char hostname[256];
@@ -81,8 +76,7 @@ Value builtin_hostname(Value *args, int num_args, ExecutionContext *ctx) {
 Value builtin_username(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: username() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "username() expects no arguments"); return val_null();
     }
 
     // Try getlogin_r first
@@ -114,8 +108,7 @@ Value builtin_username(Value *args, int num_args, ExecutionContext *ctx) {
 Value builtin_homedir(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: homedir() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "homedir() expects no arguments"); return val_null();
     }
 
     // Try HOME environment variable first
@@ -140,10 +133,8 @@ Value builtin_homedir(Value *args, int num_args, ExecutionContext *ctx) {
 // Get number of CPU cores
 Value builtin_cpu_count(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: cpu_count() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "cpu_count() expects no arguments"); return val_null();
     }
 
     long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
@@ -158,8 +149,7 @@ Value builtin_cpu_count(Value *args, int num_args, ExecutionContext *ctx) {
 Value builtin_total_memory(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: total_memory() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "total_memory() expects no arguments"); return val_null();
     }
 
 #ifdef __linux__
@@ -203,8 +193,7 @@ Value builtin_total_memory(Value *args, int num_args, ExecutionContext *ctx) {
 Value builtin_free_memory(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: free_memory() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "free_memory() expects no arguments"); return val_null();
     }
 
 #ifdef __linux__
@@ -268,8 +257,7 @@ Value builtin_free_memory(Value *args, int num_args, ExecutionContext *ctx) {
 Value builtin_os_version(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: os_version() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "os_version() expects no arguments"); return val_null();
     }
 
     struct utsname info;
@@ -288,8 +276,7 @@ Value builtin_os_version(Value *args, int num_args, ExecutionContext *ctx) {
 Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: os_name() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "os_name() expects no arguments"); return val_null();
     }
 
     struct utsname info;
@@ -307,10 +294,8 @@ Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx) {
 // Get temporary directory path
 Value builtin_tmpdir(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: tmpdir() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "tmpdir() expects no arguments"); return val_null();
     }
 
     // Check TMPDIR environment variable first
@@ -339,8 +324,7 @@ Value builtin_tmpdir(Value *args, int num_args, ExecutionContext *ctx) {
 Value builtin_uptime(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: uptime() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "uptime() expects no arguments"); return val_null();
     }
 
 #ifdef __linux__

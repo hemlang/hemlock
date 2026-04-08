@@ -28,26 +28,23 @@ int get_type_size(TypeKind kind) {
             return sizeof(String*); // pointer to String struct
         default:
             fprintf(stderr, "Runtime error: Cannot get size of this type\n");
-            exit(1);
+            return 0;
     }
 }
 
 Value builtin_alloc(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: alloc() expects 1 argument (size in bytes)\n");
-        exit(1);
+        runtime_error(ctx, "alloc() expects 1 argument (size in bytes)"); return val_null();
     }
 
     if (!is_integer(args[0])) {
-        fprintf(stderr, "Runtime error: alloc() size must be an integer\n");
-        exit(1);
+        runtime_error(ctx, "alloc() size must be an integer"); return val_null();
     }
 
     int32_t size = value_to_int(args[0]);
 
     if (size <= 0) {
-        fprintf(stderr, "Runtime error: alloc() size must be positive\n");
-        exit(1);
+        runtime_error(ctx, "alloc() size must be positive"); return val_null();
     }
 
     void *ptr = malloc(size);
@@ -64,8 +61,7 @@ Value builtin_alloc(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: free() expects 1 argument (pointer, buffer, object, or array)\n");
-        exit(1);
+        runtime_error(ctx, "free() expects 1 argument (pointer, buffer, object, or array)"); return val_null();
     }
 
     if (args[0].type == VAL_PTR) {
@@ -79,33 +75,23 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
 
         // Cannot explicitly free a buffer slice view
         if (buf->parent) {
-            fprintf(stderr, "Runtime error: cannot free() a buffer slice view\n");
-            fprintf(stderr, "  Buffer views share data with the parent buffer.\n");
-            fprintf(stderr, "  Let the view go out of scope, or set it to null.\n");
-            exit(1);
+            runtime_error(ctx, "cannot free() a buffer slice view");
+            return val_null();
         }
 
         // Atomically check and set the freed flag to detect double-free
         int expected = 0;
         if (!atomic_compare_exchange_strong(&buf->freed, &expected, 1)) {
-            fprintf(stderr, "Runtime error: double free detected on buffer\n");
-            exit(1);
+            runtime_error(ctx, "double free detected on buffer"); return val_null();
         }
 
         // Safety check: don't allow free on buffers shared outside the environment
         // Note: we check BEFORE calling value_release since that would skip due to freed flag
         if (buf->ref_count > 3) {  // 3 = creation + env + env_get
             int active_refs = buf->ref_count - 3;
-            fprintf(stderr, "Runtime error: Cannot free buffer with %d active reference%s\n\n",
+            runtime_error(ctx, "Cannot free buffer with %d active reference%s",
                     active_refs, active_refs == 1 ? "" : "s");
-            fprintf(stderr, "  Hemlock prevents freeing buffers that have active references\n");
-            fprintf(stderr, "  to avoid use-after-free memory corruption.\n\n");
-            fprintf(stderr, "  Options to resolve this:\n");
-            fprintf(stderr, "    1. Let the buffer go out of scope (automatic cleanup)\n");
-            fprintf(stderr, "    2. Copy data from buffer before freeing: let copy = buf.to_array();\n");
-            fprintf(stderr, "    3. Set references to null before freeing: ref = null; free(buf);\n");
-            fprintf(stderr, "    4. Remove the explicit free() call - Hemlock manages buffer lifecycle\n\n");
-            exit(1);
+            return val_null();
         }
 
         // Untrack pointer to update original allocation site's current_bytes (for leak detection)
@@ -127,8 +113,7 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
         // Atomically check and set the freed flag to detect double-free
         int expected = 0;
         if (!atomic_compare_exchange_strong(&obj->freed, &expected, 1)) {
-            fprintf(stderr, "Runtime error: double free detected on object\n");
-            exit(1);
+            runtime_error(ctx, "double free detected on object"); return val_null();
         }
 
         // Release all field values (decrements their ref_counts)
@@ -158,8 +143,7 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
         // Atomically check and set the freed flag to detect double-free
         int expected = 0;
         if (!atomic_compare_exchange_strong(&arr->freed, &expected, 1)) {
-            fprintf(stderr, "Runtime error: double free detected on array\n");
-            exit(1);
+            runtime_error(ctx, "double free detected on array"); return val_null();
         }
 
         // Release all elements (decrements their ref_counts)
@@ -180,26 +164,21 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
         // free(null) is a safe no-op (like C's free(NULL))
         return val_null();
     } else {
-        fprintf(stderr, "Runtime error: free() requires a pointer, buffer, object, or array\n");
-        exit(1);
+        runtime_error(ctx, "free() requires a pointer, buffer, object, or array"); return val_null();
     }
 }
 
 Value builtin_memset(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     if (num_args != 3) {
-        fprintf(stderr, "Runtime error: memset() expects 3 arguments (ptr, byte, size)\n");
-        exit(1);
+        runtime_error(ctx, "memset() expects 3 arguments (ptr, byte, size)"); return val_null();
     }
 
     if (args[0].type != VAL_PTR) {
-        fprintf(stderr, "Runtime error: memset() requires pointer as first argument\n");
-        exit(1);
+        runtime_error(ctx, "memset() requires pointer as first argument"); return val_null();
     }
 
     if (!is_integer(args[1]) || !is_integer(args[2])) {
-        fprintf(stderr, "Runtime error: memset() byte and size must be integers\n");
-        exit(1);
+        runtime_error(ctx, "memset() byte and size must be integers"); return val_null();
     }
 
     void *ptr = args[0].as.as_ptr;
@@ -208,8 +187,7 @@ Value builtin_memset(Value *args, int num_args, ExecutionContext *ctx) {
 
     // SECURITY: Validate size is non-negative to prevent undefined behavior
     if (size < 0) {
-        fprintf(stderr, "Runtime error: memset() size cannot be negative\n");
-        exit(1);
+        runtime_error(ctx, "memset() size cannot be negative"); return val_null();
     }
 
     memset(ptr, byte, size);
@@ -217,20 +195,16 @@ Value builtin_memset(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_memcpy(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     if (num_args != 3) {
-        fprintf(stderr, "Runtime error: memcpy() expects 3 arguments (dest, src, size)\n");
-        exit(1);
+        runtime_error(ctx, "memcpy() expects 3 arguments (dest, src, size)"); return val_null();
     }
 
     if (args[0].type != VAL_PTR || args[1].type != VAL_PTR) {
-        fprintf(stderr, "Runtime error: memcpy() requires pointers for dest and src\n");
-        exit(1);
+        runtime_error(ctx, "memcpy() requires pointers for dest and src"); return val_null();
     }
 
     if (!is_integer(args[2])) {
-        fprintf(stderr, "Runtime error: memcpy() size must be an integer\n");
-        exit(1);
+        runtime_error(ctx, "memcpy() size must be an integer"); return val_null();
     }
 
     void *dest = args[0].as.as_ptr;
@@ -239,8 +213,7 @@ Value builtin_memcpy(Value *args, int num_args, ExecutionContext *ctx) {
 
     // SECURITY: Validate size is non-negative to prevent undefined behavior
     if (size < 0) {
-        fprintf(stderr, "Runtime error: memcpy() size cannot be negative\n");
-        exit(1);
+        runtime_error(ctx, "memcpy() size cannot be negative"); return val_null();
     }
 
     memcpy(dest, src, size);
@@ -248,10 +221,8 @@ Value builtin_memcpy(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_sizeof(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: sizeof() expects 1 argument (type)\n");
-        exit(1);
+        runtime_error(ctx, "sizeof() expects 1 argument (type)"); return val_null();
     }
 
     if (args[0].type == VAL_TYPE) {
@@ -266,20 +237,17 @@ Value builtin_sizeof(Value *args, int num_args, ExecutionContext *ctx) {
         int size = hml_tk_sizeof(tk);
         return val_i32(size);
     } else {
-        fprintf(stderr, "Runtime error: sizeof() requires a type argument\n");
-        exit(1);
+        runtime_error(ctx, "sizeof() requires a type argument"); return val_null();
     }
 }
 
 Value builtin_buffer(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: buffer() expects 1 argument (size in bytes)\n");
-        exit(1);
+        runtime_error(ctx, "buffer() expects 1 argument (size in bytes)"); return val_null();
     }
 
     if (!is_integer(args[0])) {
-        fprintf(stderr, "Runtime error: buffer() size must be an integer\n");
-        exit(1);
+        runtime_error(ctx, "buffer() size must be an integer"); return val_null();
     }
 
     int32_t size = value_to_int(args[0]);
@@ -299,34 +267,29 @@ Value builtin_buffer(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_talloc(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
-        fprintf(stderr, "Runtime error: talloc() expects 2 arguments (type, count)\n");
-        exit(1);
+        runtime_error(ctx, "talloc() expects 2 arguments (type, count)"); return val_null();
     }
 
     if (args[0].type != VAL_TYPE) {
-        fprintf(stderr, "Runtime error: talloc() first argument must be a type\n");
-        exit(1);
+        runtime_error(ctx, "talloc() first argument must be a type"); return val_null();
     }
 
     if (!is_integer(args[1])) {
-        fprintf(stderr, "Runtime error: talloc() count must be an integer\n");
-        exit(1);
+        runtime_error(ctx, "talloc() count must be an integer"); return val_null();
     }
 
     TypeKind type = args[0].as.as_type;
     int32_t count = value_to_int(args[1]);
 
     if (count <= 0) {
-        fprintf(stderr, "Runtime error: talloc() count must be positive\n");
-        exit(1);
+        runtime_error(ctx, "talloc() count must be positive"); return val_null();
     }
 
     int elem_size = get_type_size(type);
 
     // SECURITY: Check for multiplication overflow before allocating
     if ((size_t)count > SIZE_MAX / (size_t)elem_size) {
-        fprintf(stderr, "Runtime error: talloc() size overflow - allocation too large\n");
-        exit(1);
+        runtime_error(ctx, "talloc() size overflow - allocation too large"); return val_null();
     }
 
     size_t total_size = (size_t)elem_size * (size_t)count;
@@ -345,26 +308,22 @@ Value builtin_talloc(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_realloc(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
-        fprintf(stderr, "Runtime error: realloc() expects 2 arguments (ptr, new_size)\n");
-        exit(1);
+        runtime_error(ctx, "realloc() expects 2 arguments (ptr, new_size)"); return val_null();
     }
 
     if (args[0].type != VAL_PTR) {
-        fprintf(stderr, "Runtime error: realloc() first argument must be a pointer\n");
-        exit(1);
+        runtime_error(ctx, "realloc() first argument must be a pointer"); return val_null();
     }
 
     if (!is_integer(args[1])) {
-        fprintf(stderr, "Runtime error: realloc() new_size must be an integer\n");
-        exit(1);
+        runtime_error(ctx, "realloc() new_size must be an integer"); return val_null();
     }
 
     void *old_ptr = args[0].as.as_ptr;
     int32_t new_size = value_to_int(args[1]);
 
     if (new_size <= 0) {
-        fprintf(stderr, "Runtime error: realloc() new_size must be positive\n");
-        exit(1);
+        runtime_error(ctx, "realloc() new_size must be positive"); return val_null();
     }
 
     // Untrack old pointer to get its size (for accurate free tracking)
