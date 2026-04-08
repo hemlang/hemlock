@@ -442,6 +442,34 @@ Prepares a SQL statement.
 
 **Returns:** `Statement` - Prepared statement object
 
+### stmt_bind(stmt, params)
+
+Binds parameters to a prepared statement. Resets the statement and clears previous bindings before applying new ones.
+
+**Parameters:**
+- `stmt: Statement` - Prepared statement object
+- `params: array` - Parameter values to bind
+
+**Returns:** `null`
+
+**Throws:** Exception if statement is finalized or binding fails
+
+```hemlock
+import { open_db, prepare, stmt_bind, stmt_exec, stmt_finalize, close_db } from "@stdlib/sqlite";
+
+let db = open_db(":memory:");
+exec(db, "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)");
+
+let stmt = prepare(db, "INSERT INTO items (name) VALUES (?)");
+
+// Bind and execute separately
+stmt_bind(stmt, ["Widget"]);
+stmt_exec(stmt);
+
+stmt_finalize(stmt);
+close_db(db);
+```
+
 ### stmt_exec(stmt, params?)
 
 Executes a prepared statement (for INSERT/UPDATE/DELETE).

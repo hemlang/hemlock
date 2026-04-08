@@ -124,6 +124,46 @@ print(utc_dt.to_string());
 
 ---
 
+### Utility Functions
+
+#### `days_in_year(year: i32): i32`
+
+Returns the number of days in a given year (365 or 366 for leap years).
+
+```hemlock
+import { days_in_year } from "@stdlib/datetime";
+
+print(days_in_year(2024));  // 366 (leap year)
+print(days_in_year(2025));  // 365
+```
+
+#### `is_valid_date(year: i32, month: i32, day: i32): bool`
+
+Validates whether the given date components form a valid date.
+
+```hemlock
+import { is_valid_date } from "@stdlib/datetime";
+
+print(is_valid_date(2025, 2, 28));  // true
+print(is_valid_date(2025, 2, 29));  // false (not a leap year)
+print(is_valid_date(2024, 2, 29));  // true (leap year)
+print(is_valid_date(2025, 13, 1));  // false (invalid month)
+```
+
+#### `is_valid_time(hour: i32, minute: i32, second: i32): bool`
+
+Validates whether the given time components form a valid time.
+
+```hemlock
+import { is_valid_time } from "@stdlib/datetime";
+
+print(is_valid_time(14, 30, 0));   // true
+print(is_valid_time(24, 0, 0));    // false (hour must be 0-23)
+print(is_valid_time(12, 60, 0));   // false (minute must be 0-59)
+```
+
+---
+
 ### Formatting Methods
 
 #### `.format(fmt: string): string`
