@@ -733,7 +733,8 @@ HmlValue hml_validate_enum_value(HmlValue val, const char *enum_name);
 typedef struct HmlClosureEnv {
     HmlValue *captured;     // Array of captured values
     int num_captured;       // Number of captured values
-    int ref_count;          // Reference count
+    _Atomic int ref_count;  // Reference count (atomic for thread safety)
+    pthread_mutex_t mutex;  // Protects concurrent access from spawned tasks
 } HmlClosureEnv;
 
 // Create a new closure environment with given capacity
