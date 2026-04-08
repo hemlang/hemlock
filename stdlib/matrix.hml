@@ -1,0 +1,638 @@
+// @stdlib/matrix - Matrix and tensor math operations
+//
+// Provides numerical computing primitives for AI/ML workloads:
+// - Matrix creation (zeros, ones, identity, random, from arrays)
+// - Matrix arithmetic (add, sub, mul, element-wise ops)
+// - Matrix operations (matmul, transpose, dot, outer)
+// - Vector operations (dot product, normalize, magnitude, cosine similarity)
+// - ML activation functions (sigmoid, relu, softmax, tanh, gelu, leaky_relu)
+// - Statistical functions (mean, variance, std, argmax, argmin)
+// - Loss functions (mse, cross_entropy)
+//
+// All matrices are represented as flat arrays with shape metadata:
+//   { data: [...], rows: N, cols: M }
+//
+// Usage:
+// import { zeros, matmul, softmax, dot, cosine_similarity } from "@stdlib/matrix";
+
+import { sqrt, exp, log, abs, pow, rand } from "@stdlib/math";
+
+// ============================================================================
+// Matrix Creation
+// ============================================================================
+
+// Create a matrix of zeros
+export fn zeros(rows: i32, cols: i32) {
+	let data = [];
+	let size = rows * cols;
+	for (let i = 0; i < size; i++) {
+		data.push(0.0);
+	}
+	return { data, rows, cols };
+}
+
+// Create a matrix of ones
+export fn ones(rows: i32, cols: i32) {
+	let data = [];
+	let size = rows * cols;
+	for (let i = 0; i < size; i++) {
+		data.push(1.0);
+	}
+	return { data, rows, cols };
+}
+
+// Create an identity matrix
+export fn eye(n: i32) {
+	let data = [];
+	let size = n * n;
+	for (let i = 0; i < size; i++) {
+		data.push(0.0);
+	}
+	for (let i = 0; i < n; i++) {
+		data[i * n + i] = 1.0;
+	}
+	return { data, rows: n, cols: n };
+}
+
+// Create a matrix filled with a value
+export fn full(rows: i32, cols: i32, value: f64) {
+	let data = [];
+	let size = rows * cols;
+	for (let i = 0; i < size; i++) {
+		data.push(value);
+	}
+	return { data, rows, cols };
+}
+
+// Create a matrix with random values in [0, 1)
+export fn randn(rows: i32, cols: i32) {
+	let data = [];
+	let size = rows * cols;
+	for (let i = 0; i < size; i++) {
+		data.push(rand());
+	}
+	return { data, rows, cols };
+}
+
+// Create a matrix from a 2D array
+export fn from_array(arr) {
+	let rows = arr.length;
+	if (rows == 0) { return { data: [], rows: 0, cols: 0 }; }
+	let cols = arr[0].length;
+	let data = [];
+	for (let r = 0; r < rows; r++) {
+		for (let c = 0; c < cols; c++) {
+			data.push(arr[r][c]);
+		}
+	}
+	return { data, rows, cols };
+}
+
+// Create a 1D vector (column matrix)
+export fn vec(arr) {
+	let data = [];
+	for (let i = 0; i < arr.length; i++) {
+		let v: f64 = arr[i];
+		data.push(v);
+	}
+	return { data, rows: arr.length, cols: 1 };
+}
+
+// Create a row vector
+export fn row_vec(arr) {
+	let data = [];
+	for (let i = 0; i < arr.length; i++) {
+		let v: f64 = arr[i];
+		data.push(v);
+	}
+	return { data, rows: 1, cols: arr.length };
+}
+
+// ============================================================================
+// Element Access
+// ============================================================================
+
+// Get element at (row, col)
+export fn get(m, row: i32, col: i32): f64 {
+	return m.data[row * m.cols + col];
+}
+
+// Set element at (row, col)
+export fn set(m, row: i32, col: i32, value: f64) {
+	m.data[row * m.cols + col] = value;
+}
+
+// Get a row as a flat array
+export fn get_row(m, row: i32) {
+	let result = [];
+	let start = row * m.cols;
+	for (let c = 0; c < m.cols; c++) {
+		result.push(m.data[start + c]);
+	}
+	return result;
+}
+
+// Get a column as a flat array
+export fn get_col(m, col: i32) {
+	let result = [];
+	for (let r = 0; r < m.rows; r++) {
+		result.push(m.data[r * m.cols + col]);
+	}
+	return result;
+}
+
+// ============================================================================
+// Matrix Arithmetic (element-wise)
+// ============================================================================
+
+// Element-wise addition
+export fn add(a, b) {
+	let data = [];
+	for (let i = 0; i < a.data.length; i++) {
+		data.push(a.data[i] + b.data[i]);
+	}
+	return { data, rows: a.rows, cols: a.cols };
+}
+
+// Element-wise subtraction
+export fn sub(a, b) {
+	let data = [];
+	for (let i = 0; i < a.data.length; i++) {
+		data.push(a.data[i] - b.data[i]);
+	}
+	return { data, rows: a.rows, cols: a.cols };
+}
+
+// Element-wise multiplication (Hadamard product)
+export fn mul(a, b) {
+	let data = [];
+	for (let i = 0; i < a.data.length; i++) {
+		data.push(a.data[i] * b.data[i]);
+	}
+	return { data, rows: a.rows, cols: a.cols };
+}
+
+// Scalar multiplication
+export fn scale(m, s: f64) {
+	let data = [];
+	for (let i = 0; i < m.data.length; i++) {
+		data.push(m.data[i] * s);
+	}
+	return { data, rows: m.rows, cols: m.cols };
+}
+
+// Scalar addition
+export fn add_scalar(m, s: f64) {
+	let data = [];
+	for (let i = 0; i < m.data.length; i++) {
+		data.push(m.data[i] + s);
+	}
+	return { data, rows: m.rows, cols: m.cols };
+}
+
+// Element-wise apply function
+export fn map(m, f) {
+	let data = [];
+	for (let i = 0; i < m.data.length; i++) {
+		data.push(f(m.data[i]));
+	}
+	return { data, rows: m.rows, cols: m.cols };
+}
+
+// ============================================================================
+// Matrix Operations
+// ============================================================================
+
+// Matrix multiplication: (M x K) @ (K x N) -> (M x N)
+export fn matmul(a, b) {
+	if (a.cols != b.rows) {
+		throw "matmul: incompatible shapes (" + a.rows + "x" + a.cols + ") @ (" + b.rows + "x" + b.cols + ")";
+	}
+	let data = [];
+	let size = a.rows * b.cols;
+	for (let i = 0; i < size; i++) {
+		data.push(0.0);
+	}
+	for (let i = 0; i < a.rows; i++) {
+		for (let k = 0; k < a.cols; k++) {
+			let a_ik = a.data[i * a.cols + k];
+			for (let j = 0; j < b.cols; j++) {
+				data[i * b.cols + j] = data[i * b.cols + j] + a_ik * b.data[k * b.cols + j];
+			}
+		}
+	}
+	return { data, rows: a.rows, cols: b.cols };
+}
+
+// Transpose
+export fn transpose(m) {
+	let data = [];
+	let size = m.rows * m.cols;
+	for (let i = 0; i < size; i++) {
+		data.push(0.0);
+	}
+	for (let r = 0; r < m.rows; r++) {
+		for (let c = 0; c < m.cols; c++) {
+			data[c * m.rows + r] = m.data[r * m.cols + c];
+		}
+	}
+	return { data, rows: m.cols, cols: m.rows };
+}
+
+// Outer product of two 1D vectors
+export fn outer(a, b) {
+	let data = [];
+	for (let i = 0; i < a.data.length; i++) {
+		for (let j = 0; j < b.data.length; j++) {
+			data.push(a.data[i] * b.data[j]);
+		}
+	}
+	return { data, rows: a.data.length, cols: b.data.length };
+}
+
+// ============================================================================
+// Vector Operations (work on flat arrays or matrix.data)
+// ============================================================================
+
+// Dot product of two flat arrays
+export fn dot(a, b) {
+	let sum: f64 = 0.0;
+	let len = a.length;
+	for (let i = 0; i < len; i++) {
+		sum = sum + a[i] * b[i];
+	}
+	return sum;
+}
+
+// Vector magnitude (L2 norm)
+export fn magnitude(v): f64 {
+	let sum: f64 = 0.0;
+	for (let i = 0; i < v.length; i++) {
+		sum = sum + v[i] * v[i];
+	}
+	return sqrt(sum);
+}
+
+// Normalize a vector to unit length
+export fn normalize(v) {
+	let mag = magnitude(v);
+	if (mag == 0.0) { return v; }
+	let result = [];
+	for (let i = 0; i < v.length; i++) {
+		result.push(v[i] / mag);
+	}
+	return result;
+}
+
+// Cosine similarity between two vectors
+export fn cosine_similarity(a, b): f64 {
+	let d = dot(a, b);
+	let ma = magnitude(a);
+	let mb = magnitude(b);
+	if (ma == 0.0 || mb == 0.0) { return 0.0; }
+	return d / (ma * mb);
+}
+
+// Euclidean distance between two vectors
+export fn euclidean_distance(a, b): f64 {
+	let sum: f64 = 0.0;
+	for (let i = 0; i < a.length; i++) {
+		let d = a[i] - b[i];
+		sum = sum + d * d;
+	}
+	return sqrt(sum);
+}
+
+// ============================================================================
+// ML Activation Functions
+// ============================================================================
+
+// Sigmoid: 1 / (1 + e^(-x))
+export fn sigmoid(m) {
+	let data = [];
+	for (let i = 0; i < m.data.length; i++) {
+		data.push(1.0 / (1.0 + exp(-m.data[i])));
+	}
+	return { data, rows: m.rows, cols: m.cols };
+}
+
+// ReLU: max(0, x)
+export fn relu(m) {
+	let data = [];
+	for (let i = 0; i < m.data.length; i++) {
+		if (m.data[i] > 0.0) {
+			data.push(m.data[i]);
+		} else {
+			data.push(0.0);
+		}
+	}
+	return { data, rows: m.rows, cols: m.cols };
+}
+
+// Leaky ReLU: x if x > 0, alpha*x otherwise
+export fn leaky_relu(m, alpha?: 0.01) {
+	let data = [];
+	for (let i = 0; i < m.data.length; i++) {
+		if (m.data[i] > 0.0) {
+			data.push(m.data[i]);
+		} else {
+			data.push(alpha * m.data[i]);
+		}
+	}
+	return { data, rows: m.rows, cols: m.cols };
+}
+
+// GELU approximation: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+export fn gelu(m) {
+	let c = sqrt(2.0 / 3.14159265358979);
+	let data = [];
+	for (let i = 0; i < m.data.length; i++) {
+		let x = m.data[i];
+		let inner = c * (x + 0.044715 * x * x * x);
+		let t = (exp(2.0 * inner) - 1.0) / (exp(2.0 * inner) + 1.0); // tanh
+		data.push(0.5 * x * (1.0 + t));
+	}
+	return { data, rows: m.rows, cols: m.cols };
+}
+
+// Softmax (row-wise for matrices, single vector for 1D)
+export fn softmax(m) {
+	let data = [];
+	let size = m.data.length;
+	for (let i = 0; i < size; i++) {
+		data.push(0.0);
+	}
+
+	for (let r = 0; r < m.rows; r++) {
+		let start = r * m.cols;
+
+		// Find max for numerical stability
+		let row_max = m.data[start];
+		for (let c = 1; c < m.cols; c++) {
+			if (m.data[start + c] > row_max) {
+				row_max = m.data[start + c];
+			}
+		}
+
+		// Compute exp(x - max) and sum
+		let sum: f64 = 0.0;
+		for (let c = 0; c < m.cols; c++) {
+			let v = exp(m.data[start + c] - row_max);
+			data[start + c] = v;
+			sum = sum + v;
+		}
+
+		// Normalize
+		for (let c = 0; c < m.cols; c++) {
+			data[start + c] = data[start + c] / sum;
+		}
+	}
+
+	return { data, rows: m.rows, cols: m.cols };
+}
+
+// Tanh activation (element-wise)
+export fn tanh_activation(m) {
+	let data = [];
+	for (let i = 0; i < m.data.length; i++) {
+		let x = m.data[i];
+		let ex = exp(2.0 * x);
+		data.push((ex - 1.0) / (ex + 1.0));
+	}
+	return { data, rows: m.rows, cols: m.cols };
+}
+
+// ============================================================================
+// Statistical Functions
+// ============================================================================
+
+// Mean of all elements
+export fn mean(m): f64 {
+	let sum: f64 = 0.0;
+	for (let i = 0; i < m.data.length; i++) {
+		sum = sum + m.data[i];
+	}
+	return sum / m.data.length;
+}
+
+// Variance of all elements
+export fn variance(m): f64 {
+	let mu = mean(m);
+	let sum: f64 = 0.0;
+	for (let i = 0; i < m.data.length; i++) {
+		let d = m.data[i] - mu;
+		sum = sum + d * d;
+	}
+	return sum / m.data.length;
+}
+
+// Standard deviation
+export fn std(m): f64 {
+	return sqrt(variance(m));
+}
+
+// Sum of all elements
+export fn sum(m): f64 {
+	let s: f64 = 0.0;
+	for (let i = 0; i < m.data.length; i++) {
+		s = s + m.data[i];
+	}
+	return s;
+}
+
+// Index of maximum element
+export fn argmax(m): i32 {
+	let best = 0;
+	for (let i = 1; i < m.data.length; i++) {
+		if (m.data[i] > m.data[best]) {
+			best = i;
+		}
+	}
+	return best;
+}
+
+// Index of minimum element
+export fn argmin(m): i32 {
+	let best = 0;
+	for (let i = 1; i < m.data.length; i++) {
+		if (m.data[i] < m.data[best]) {
+			best = i;
+		}
+	}
+	return best;
+}
+
+// Max element
+export fn max_val(m): f64 {
+	let v = m.data[0];
+	for (let i = 1; i < m.data.length; i++) {
+		if (m.data[i] > v) { v = m.data[i]; }
+	}
+	return v;
+}
+
+// Min element
+export fn min_val(m): f64 {
+	let v = m.data[0];
+	for (let i = 1; i < m.data.length; i++) {
+		if (m.data[i] < v) { v = m.data[i]; }
+	}
+	return v;
+}
+
+// ============================================================================
+// Loss Functions
+// ============================================================================
+
+// Mean Squared Error
+export fn mse(predicted, actual): f64 {
+	let sum: f64 = 0.0;
+	for (let i = 0; i < predicted.data.length; i++) {
+		let d = predicted.data[i] - actual.data[i];
+		sum = sum + d * d;
+	}
+	return sum / predicted.data.length;
+}
+
+// Cross-entropy loss (predicted should be probabilities)
+export fn cross_entropy(predicted, actual): f64 {
+	let sum: f64 = 0.0;
+	let eps = 1e-15;
+	for (let i = 0; i < predicted.data.length; i++) {
+		let p = predicted.data[i];
+		if (p < eps) { p = eps; }
+		if (p > 1.0 - eps) { p = 1.0 - eps; }
+		sum = sum + actual.data[i] * log(p);
+	}
+	return -sum / predicted.rows;
+}
+
+// ============================================================================
+// Shape Operations
+// ============================================================================
+
+// Reshape matrix (total elements must match)
+export fn reshape(m, rows: i32, cols: i32) {
+	if (rows * cols != m.data.length) {
+		throw "reshape: cannot reshape (" + m.rows + "x" + m.cols + ") to (" + rows + "x" + cols + ")";
+	}
+	let data = [];
+	for (let i = 0; i < m.data.length; i++) {
+		data.push(m.data[i]);
+	}
+	return { data, rows, cols };
+}
+
+// Flatten to 1D (single row)
+export fn flatten(m) {
+	let data = [];
+	for (let i = 0; i < m.data.length; i++) {
+		data.push(m.data[i]);
+	}
+	return { data, rows: 1, cols: m.data.length };
+}
+
+// Return shape as [rows, cols]
+export fn shape(m) {
+	return [m.rows, m.cols];
+}
+
+// ============================================================================
+// Normalization
+// ============================================================================
+
+// Layer normalization (per-row)
+export fn layer_norm(m, eps?: 1e-5) {
+	let data = [];
+	let size = m.data.length;
+	for (let i = 0; i < size; i++) {
+		data.push(0.0);
+	}
+
+	for (let r = 0; r < m.rows; r++) {
+		let start = r * m.cols;
+
+		// Compute mean
+		let mu: f64 = 0.0;
+		for (let c = 0; c < m.cols; c++) {
+			mu = mu + m.data[start + c];
+		}
+		mu = mu / m.cols;
+
+		// Compute variance
+		let v: f64 = 0.0;
+		for (let c = 0; c < m.cols; c++) {
+			let d = m.data[start + c] - mu;
+			v = v + d * d;
+		}
+		v = v / m.cols;
+
+		// Normalize
+		let inv_std = 1.0 / sqrt(v + eps);
+		for (let c = 0; c < m.cols; c++) {
+			data[start + c] = (m.data[start + c] - mu) * inv_std;
+		}
+	}
+
+	return { data, rows: m.rows, cols: m.cols };
+}
+
+// Min-max normalization (scales to [0, 1])
+export fn min_max_norm(m) {
+	let lo = min_val(m);
+	let hi = max_val(m);
+	let range = hi - lo;
+	if (range == 0.0) { return zeros(m.rows, m.cols); }
+	let data = [];
+	for (let i = 0; i < m.data.length; i++) {
+		data.push((m.data[i] - lo) / range);
+	}
+	return { data, rows: m.rows, cols: m.cols };
+}
+
+// ============================================================================
+// Utilities
+// ============================================================================
+
+// Clone a matrix
+export fn clone(m) {
+	let data = [];
+	for (let i = 0; i < m.data.length; i++) {
+		data.push(m.data[i]);
+	}
+	return { data, rows: m.rows, cols: m.cols };
+}
+
+// Check if two matrices have the same shape
+export fn same_shape(a, b): bool {
+	return a.rows == b.rows && a.cols == b.cols;
+}
+
+// Convert matrix to 2D array
+export fn to_array(m) {
+	let result = [];
+	for (let r = 0; r < m.rows; r++) {
+		let row = [];
+		let start = r * m.cols;
+		for (let c = 0; c < m.cols; c++) {
+			row.push(m.data[start + c]);
+		}
+		result.push(row);
+	}
+	return result;
+}
+
+// Pretty-print matrix
+export fn print_matrix(m) {
+	print("Matrix (" + m.rows + "x" + m.cols + "):");
+	for (let r = 0; r < m.rows; r++) {
+		let row = "  [";
+		let start = r * m.cols;
+		for (let c = 0; c < m.cols; c++) {
+			if (c > 0) { row = row + ", "; }
+			row = row + m.data[start + c];
+		}
+		row = row + "]";
+		print(row);
+	}
+}

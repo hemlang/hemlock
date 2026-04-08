@@ -1,0 +1,535 @@
+// @stdlib/ai - AI/LLM API client
+//
+// Unified interface for AI model APIs (OpenAI, Anthropic, Ollama):
+// - Chat completions (text generation)
+// - Embeddings generation
+// - Streaming responses
+// - Multi-provider support with consistent API
+//
+// No external dependencies beyond @stdlib/http and @stdlib/json.
+//
+// Usage:
+// import { chat, embed, stream_chat, openai, anthropic, ollama } from "@stdlib/ai";
+//
+// Quick start:
+//   let response = chat("What is Hemlock?", model: "gpt-4o");
+//   print(response);
+//
+// With provider config:
+//   let client = openai(getenv("OPENAI_API_KEY"));
+//   let response = client.chat("Hello!", model: "gpt-4o");
+
+import { post_json_timeout, stream, post } from "@stdlib/http";
+import { getenv } from "@stdlib/env";
+
+// ============================================================================
+// Provider Constants
+// ============================================================================
+
+export let PROVIDER_OPENAI = "openai";
+export let PROVIDER_ANTHROPIC = "anthropic";
+export let PROVIDER_OLLAMA = "ollama";
+
+// ============================================================================
+// Quick API - One-liner completions
+// ============================================================================
+
+// Simple chat completion - auto-detects provider from model name
+// Returns the response text as a string
+//
+// Usage:
+//   let answer = chat("What is 2+2?");
+//   let answer = chat("Explain Hemlock", model: "claude-sonnet-4-20250514");
+//   let answer = chat("Hello", model: "llama3", provider: "ollama");
+export fn chat(prompt: string, model?, provider?, api_key?, system?, temperature?, max_tokens?, timeout_ms?) {
+	model = model ?? "gpt-4o";
+	provider = provider ?? detect_provider(model);
+	timeout_ms = timeout_ms ?? 120000;
+
+	let client = make_client(provider, api_key);
+	let messages = [];
+	if (system != null) {
+		messages.push({ role: "system", content: system });
+	}
+	messages.push({ role: "user", content: prompt });
+
+	let opts = { model, messages, temperature, max_tokens, timeout_ms };
+	return client._complete(opts);
+}
+
+// Multi-turn chat with message history
+// messages: [{ role: "user"|"assistant"|"system", content: "..." }, ...]
+//
+// Usage:
+//   let msgs = [
+//       { role: "system", content: "You are helpful." },
+//       { role: "user", content: "What is Hemlock?" },
+//   ];
+//   let response = complete(msgs, model: "gpt-4o");
+export fn complete(messages, model?, provider?, api_key?, temperature?, max_tokens?, timeout_ms?) {
+	model = model ?? "gpt-4o";
+	provider = provider ?? detect_provider(model);
+	timeout_ms = timeout_ms ?? 120000;
+
+	let client = make_client(provider, api_key);
+	let opts = { model, messages, temperature, max_tokens, timeout_ms };
+	return client._complete(opts);
+}
+
+// Generate embeddings for text
+// Returns an array of floats (the embedding vector)
+//
+// Usage:
+//   let vec = embed("Hello world");
+//   let vec = embed("Hello world", model: "text-embedding-3-small");
+export fn embed(text: string, model?, provider?, api_key?, timeout_ms?) {
+	model = model ?? "text-embedding-3-small";
+	provider = provider ?? detect_provider(model);
+	timeout_ms = timeout_ms ?? 60000;
+
+	let client = make_client(provider, api_key);
+	return client._embed(text, model, timeout_ms);
+}
+
+// Batch embed multiple texts
+// Returns array of embedding vectors
+export fn embed_batch(texts, model?, provider?, api_key?, timeout_ms?) {
+	model = model ?? "text-embedding-3-small";
+	provider = provider ?? detect_provider(model);
+	timeout_ms = timeout_ms ?? 120000;
+
+	let client = make_client(provider, api_key);
+	let results = [];
+	for (text in texts) {
+		results.push(client._embed(text, model, timeout_ms));
+	}
+	return results;
+}
+
+// Stream a chat completion - returns chunks as they arrive
+// Calls on_chunk(text) for each piece of the response
+// Returns the full accumulated response text
+//
+// Usage:
+//   let full = stream_chat("Tell me a story", fn(chunk) {
+//       write(chunk);  // print without newline
+//   });
+export fn stream_chat(prompt: string, on_chunk, model?, provider?, api_key?, system?, temperature?, max_tokens?, timeout_ms?) {
+	model = model ?? "gpt-4o";
+	provider = provider ?? detect_provider(model);
+	timeout_ms = timeout_ms ?? 120000;
+
+	let client = make_client(provider, api_key);
+	let messages = [];
+	if (system != null) {
+		messages.push({ role: "system", content: system });
+	}
+	messages.push({ role: "user", content: prompt });
+
+	return client._stream(messages, model, on_chunk, temperature, max_tokens, timeout_ms);
+}
+
+// ============================================================================
+// Provider Clients
+// ============================================================================
+
+// Create an OpenAI client
+//
+// Usage:
+//   let client = openai("sk-...");
+//   let response = client.chat("Hello!");
+//   let vec = client.embed("Hello!");
+export fn openai(api_key?, base_url?) {
+	api_key = api_key ?? getenv("OPENAI_API_KEY");
+	base_url = base_url ?? "https://api.openai.com/v1";
+
+	return {
+		provider: PROVIDER_OPENAI,
+		api_key,
+		base_url,
+		chat: fn(prompt: string, model?, system?, temperature?, max_tokens?, timeout_ms?) {
+			model = model ?? "gpt-4o";
+			timeout_ms = timeout_ms ?? 120000;
+			let messages = [];
+			if (system != null) {
+				messages.push({ role: "system", content: system });
+			}
+			messages.push({ role: "user", content: prompt });
+			return self._complete({ model, messages, temperature, max_tokens, timeout_ms });
+		},
+		complete: fn(messages, model?, temperature?, max_tokens?, timeout_ms?) {
+			model = model ?? "gpt-4o";
+			timeout_ms = timeout_ms ?? 120000;
+			return self._complete({ model, messages, temperature, max_tokens, timeout_ms });
+		},
+		embed: fn(text: string, model?, timeout_ms?) {
+			model = model ?? "text-embedding-3-small";
+			timeout_ms = timeout_ms ?? 60000;
+			return self._embed(text, model, timeout_ms);
+		},
+		stream: fn(prompt: string, on_chunk, model?, system?, temperature?, max_tokens?, timeout_ms?) {
+			model = model ?? "gpt-4o";
+			timeout_ms = timeout_ms ?? 120000;
+			let messages = [];
+			if (system != null) {
+				messages.push({ role: "system", content: system });
+			}
+			messages.push({ role: "user", content: prompt });
+			return self._stream(messages, model, on_chunk, temperature, max_tokens, timeout_ms);
+		},
+		_complete: fn(opts) {
+			let body = {
+				model: opts.model,
+				messages: opts.messages,
+			};
+			if (opts.temperature != null) { body.temperature = opts.temperature; }
+			if (opts.max_tokens != null) { body.max_tokens = opts.max_tokens; }
+
+			let resp = post_json_timeout(
+				self.base_url + "/chat/completions",
+				body,
+				opts.timeout_ms,
+			);
+
+			if (resp.status_code != 200) {
+				throw "OpenAI API error (" + resp.status_code + "): " + resp.body;
+			}
+
+			let result = resp.body.deserialize();
+			return result.choices[0].message.content;
+		},
+		_embed: fn(text, model, timeout_ms) {
+			let body = { input: text, model };
+			let json = body.serialize();
+			let headers = [
+				"Content-Type: application/json",
+				"Authorization: Bearer " + self.api_key,
+			];
+			let resp = post(self.base_url + "/embeddings", json, headers);
+
+			if (resp.status_code != 200) {
+				throw "OpenAI embeddings error (" + resp.status_code + "): " + resp.body;
+			}
+
+			let result = resp.body.deserialize();
+			return result.data[0].embedding;
+		},
+		_stream: fn(messages, model, on_chunk, temperature, max_tokens, timeout_ms) {
+			let body = { model, messages, stream: true };
+			if (temperature != null) { body.temperature = temperature; }
+			if (max_tokens != null) { body.max_tokens = max_tokens; }
+
+			let json = body.serialize();
+			let headers = [
+				"Content-Type: application/json",
+				"Authorization: Bearer " + self.api_key,
+			];
+
+			let s = stream("POST", self.base_url + "/chat/completions", json, headers, timeout_ms);
+			let buf = "";
+			let full = "";
+
+			while (!s.done) {
+				let chunk = s.read(30000);
+				if (chunk == null) { break; }
+				buf = buf + chunk;
+
+				// Parse SSE lines
+				while (true) {
+					let nl = buf.find("\n");
+					if (nl < 0) { break; }
+					let line = buf.substr(0, nl);
+					buf = buf.substr(nl + 1, buf.length - nl - 1);
+
+					if (line.starts_with("data: ")) {
+						let data = line.substr(6, line.length - 6).trim();
+						if (data == "[DONE]") { break; }
+						try {
+							let parsed = data.deserialize();
+							let delta = parsed.choices[0].delta;
+							if (delta.content != null) {
+								on_chunk(delta.content);
+								full = full + delta.content;
+							}
+						} catch (e) {
+							// Skip malformed chunks
+						}
+					}
+				}
+			}
+			s.close();
+			return full;
+		},
+	};
+}
+
+// Create an Anthropic client
+//
+// Usage:
+//   let client = anthropic("sk-ant-...");
+//   let response = client.chat("Hello!", model: "claude-sonnet-4-20250514");
+export fn anthropic(api_key?, base_url?) {
+	api_key = api_key ?? getenv("ANTHROPIC_API_KEY");
+	base_url = base_url ?? "https://api.anthropic.com/v1";
+
+	return {
+		provider: PROVIDER_ANTHROPIC,
+		api_key,
+		base_url,
+		chat: fn(prompt: string, model?, system?, temperature?, max_tokens?, timeout_ms?) {
+			model = model ?? "claude-sonnet-4-20250514";
+			timeout_ms = timeout_ms ?? 120000;
+			let messages = [{ role: "user", content: prompt }];
+			return self._complete({ model, messages, system, temperature, max_tokens, timeout_ms });
+		},
+		complete: fn(messages, model?, system?, temperature?, max_tokens?, timeout_ms?) {
+			model = model ?? "claude-sonnet-4-20250514";
+			timeout_ms = timeout_ms ?? 120000;
+			return self._complete({ model, messages, system, temperature, max_tokens, timeout_ms });
+		},
+		stream: fn(prompt: string, on_chunk, model?, system?, temperature?, max_tokens?, timeout_ms?) {
+			model = model ?? "claude-sonnet-4-20250514";
+			timeout_ms = timeout_ms ?? 120000;
+			let messages = [{ role: "user", content: prompt }];
+			return self._stream(messages, model, on_chunk, system, temperature, max_tokens, timeout_ms);
+		},
+		_complete: fn(opts) {
+			let body = {
+				model: opts.model,
+				messages: opts.messages,
+				max_tokens: opts.max_tokens ?? 4096,
+			};
+			if (opts.system != null) { body.system = opts.system; }
+			if (opts.temperature != null) { body.temperature = opts.temperature; }
+
+			let json = body.serialize();
+			let headers = [
+				"Content-Type: application/json",
+				"x-api-key: " + self.api_key,
+				"anthropic-version: 2023-06-01",
+			];
+			let resp = post(self.base_url + "/messages", json, headers);
+
+			if (resp.status_code != 200) {
+				throw "Anthropic API error (" + resp.status_code + "): " + resp.body;
+			}
+
+			let result = resp.body.deserialize();
+			return result.content[0].text;
+		},
+		_stream: fn(messages, model, on_chunk, system, temperature, max_tokens, timeout_ms) {
+			let body = {
+				model,
+				messages,
+				max_tokens: max_tokens ?? 4096,
+				stream: true,
+			};
+			if (system != null) { body.system = system; }
+			if (temperature != null) { body.temperature = temperature; }
+
+			let json = body.serialize();
+			let headers = [
+				"Content-Type: application/json",
+				"x-api-key: " + self.api_key,
+				"anthropic-version: 2023-06-01",
+			];
+
+			let s = stream("POST", self.base_url + "/messages", json, headers, timeout_ms);
+			let buf = "";
+			let full = "";
+
+			while (!s.done) {
+				let chunk = s.read(30000);
+				if (chunk == null) { break; }
+				buf = buf + chunk;
+
+				while (true) {
+					let nl = buf.find("\n");
+					if (nl < 0) { break; }
+					let line = buf.substr(0, nl);
+					buf = buf.substr(nl + 1, buf.length - nl - 1);
+
+					if (line.starts_with("data: ")) {
+						let data = line.substr(6, line.length - 6).trim();
+						try {
+							let parsed = data.deserialize();
+							if (parsed.type == "content_block_delta") {
+								let text = parsed.delta.text;
+								if (text != null) {
+									on_chunk(text);
+									full = full + text;
+								}
+							}
+						} catch (e) {
+							// Skip malformed chunks
+						}
+					}
+				}
+			}
+			s.close();
+			return full;
+		},
+	};
+}
+
+// Create an Ollama client (local models)
+//
+// Usage:
+//   let client = ollama();  // defaults to localhost:11434
+//   let response = client.chat("Hello!", model: "llama3");
+//   let vec = client.embed("Hello!", model: "nomic-embed-text");
+export fn ollama(base_url?) {
+	base_url = base_url ?? "http://localhost:11434";
+
+	return {
+		provider: PROVIDER_OLLAMA,
+		base_url,
+		chat: fn(prompt: string, model?, system?, temperature?, timeout_ms?) {
+			model = model ?? "llama3";
+			timeout_ms = timeout_ms ?? 300000;
+			let messages = [];
+			if (system != null) {
+				messages.push({ role: "system", content: system });
+			}
+			messages.push({ role: "user", content: prompt });
+			return self._complete({ model, messages, temperature, timeout_ms });
+		},
+		complete: fn(messages, model?, temperature?, timeout_ms?) {
+			model = model ?? "llama3";
+			timeout_ms = timeout_ms ?? 300000;
+			return self._complete({ model, messages, temperature, timeout_ms });
+		},
+		embed: fn(text: string, model?, timeout_ms?) {
+			model = model ?? "nomic-embed-text";
+			timeout_ms = timeout_ms ?? 60000;
+			return self._embed(text, model, timeout_ms);
+		},
+		stream: fn(prompt: string, on_chunk, model?, system?, temperature?, timeout_ms?) {
+			model = model ?? "llama3";
+			timeout_ms = timeout_ms ?? 300000;
+			let messages = [];
+			if (system != null) {
+				messages.push({ role: "system", content: system });
+			}
+			messages.push({ role: "user", content: prompt });
+			return self._stream(messages, model, on_chunk, temperature, timeout_ms);
+		},
+		_complete: fn(opts) {
+			let body = {
+				model: opts.model,
+				messages: opts.messages,
+				stream: false,
+			};
+			if (opts.temperature != null) {
+				body.options = { temperature: opts.temperature };
+			}
+
+			let resp = post_json_timeout(
+				self.base_url + "/api/chat",
+				body,
+				opts.timeout_ms,
+			);
+
+			if (resp.status_code != 200) {
+				throw "Ollama API error (" + resp.status_code + "): " + resp.body;
+			}
+
+			let result = resp.body.deserialize();
+			return result.message.content;
+		},
+		_embed: fn(text, model, timeout_ms) {
+			let body = { model, input: text };
+			let resp = post_json_timeout(
+				self.base_url + "/api/embed",
+				body,
+				timeout_ms,
+			);
+
+			if (resp.status_code != 200) {
+				throw "Ollama embed error (" + resp.status_code + "): " + resp.body;
+			}
+
+			let result = resp.body.deserialize();
+			return result.embeddings[0];
+		},
+		_stream: fn(messages, model, on_chunk, temperature, timeout_ms) {
+			let body = { model, messages, stream: true };
+			if (temperature != null) {
+				body.options = { temperature };
+			}
+
+			let json = body.serialize();
+			let headers = ["Content-Type: application/json"];
+
+			let s = stream("POST", self.base_url + "/api/chat", json, headers, timeout_ms);
+			let buf = "";
+			let full = "";
+
+			while (!s.done) {
+				let chunk = s.read(30000);
+				if (chunk == null) { break; }
+				buf = buf + chunk;
+
+				// Ollama streams JSON objects separated by newlines
+				while (true) {
+					let nl = buf.find("\n");
+					if (nl < 0) { break; }
+					let line = buf.substr(0, nl).trim();
+					buf = buf.substr(nl + 1, buf.length - nl - 1);
+
+					if (line.length > 0) {
+						try {
+							let parsed = line.deserialize();
+							if (parsed.message != null && parsed.message.content != null) {
+								on_chunk(parsed.message.content);
+								full = full + parsed.message.content;
+							}
+						} catch (e) {
+							// Skip malformed
+						}
+					}
+				}
+			}
+			s.close();
+			return full;
+		},
+	};
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+// Auto-detect provider from model name
+fn detect_provider(model: string): string {
+	if (model.starts_with("claude") || model.starts_with("anthropic")) {
+		return PROVIDER_ANTHROPIC;
+	}
+	if (model.starts_with("gpt") || model.starts_with("o1") || model.starts_with("o3") ||
+		model.starts_with("o4") || model.starts_with("text-embedding") ||
+		model.starts_with("davinci") || model.starts_with("chatgpt")) {
+		return PROVIDER_OPENAI;
+	}
+	if (model.starts_with("llama") || model.starts_with("mistral") || model.starts_with("gemma") ||
+		model.starts_with("phi") || model.starts_with("qwen") || model.starts_with("nomic") ||
+		model.starts_with("codellama") || model.starts_with("deepseek") ||
+		model.starts_with("starcoder")) {
+		return PROVIDER_OLLAMA;
+	}
+	// Default to OpenAI
+	return PROVIDER_OPENAI;
+}
+
+// Create a client for a provider
+fn make_client(provider: string, api_key?) {
+	if (provider == PROVIDER_OPENAI) {
+		return openai(api_key);
+	}
+	if (provider == PROVIDER_ANTHROPIC) {
+		return anthropic(api_key);
+	}
+	if (provider == PROVIDER_OLLAMA) {
+		return ollama();
+	}
+	throw "Unknown AI provider: " + provider;
+}
