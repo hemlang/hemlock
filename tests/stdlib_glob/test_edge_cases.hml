@@ -1,0 +1,137 @@
+// Test @stdlib/glob edge cases
+
+import { glob_match, match_path, escape, has_magic, filter, translate } from "@stdlib/glob";
+
+// === glob_match edge cases ===
+print("=== glob_match edge cases ===");
+
+// Empty pattern matches empty string
+assert(glob_match("", "") == true, "empty matches empty");
+
+// * does not match across /
+assert(glob_match("*.txt", "dir/file.txt") == false, "* does not match /");
+
+// Multiple wildcards
+assert(glob_match("*.*", "file.txt") == true, "*.* matches file.txt");
+assert(glob_match("*.*", "readme") == false, "*.* requires dot");
+
+// ? must match exactly one character
+assert(glob_match("?", "a") == true, "? matches single char");
+assert(glob_match("?", "") == false, "? does not match empty");
+assert(glob_match("?", "ab") == false, "? does not match two chars");
+
+// Consecutive wildcards
+assert(glob_match("**", "anything") == true, "** matches anything");
+
+// Pattern with no wildcards is literal
+assert(glob_match("exact", "exact") == true, "literal exact match");
+assert(glob_match("exact", "other") == false, "literal no match");
+
+// Character class edge cases
+assert(glob_match("[0-9]", "5") == true, "digit range");
+assert(glob_match("[0-9]", "a") == false, "digit range no match");
+assert(glob_match("[!0-9]", "a") == true, "negated digit matches letter");
+assert(glob_match("[!0-9]", "5") == false, "negated digit rejects digit");
+
+print("glob_match edge cases passed!");
+
+// === match_path edge cases ===
+print("=== match_path edge cases ===");
+
+// Simple path matching
+assert(match_path("*.txt", "file.txt") == true, "root level match");
+assert(match_path("src/*.js", "src/app.js") == true, "one level match");
+assert(match_path("src/*.js", "src/sub/app.js") == false, "* does not cross /");
+
+// ** at different positions
+assert(match_path("**/file.txt", "file.txt") == true, "** matches zero dirs");
+assert(match_path("**/file.txt", "a/file.txt") == true, "** matches one dir");
+assert(match_path("**/file.txt", "a/b/c/file.txt") == true, "** matches many dirs");
+
+// ** in middle
+assert(match_path("src/**/test.js", "src/test.js") == true, "** zero dirs middle");
+assert(match_path("src/**/test.js", "src/a/test.js") == true, "** one dir middle");
+assert(match_path("src/**/test.js", "src/a/b/test.js") == true, "** multi dirs middle");
+
+// Multiple ** segments
+assert(match_path("**/*.txt", "dir/file.txt") == true, "leading **");
+assert(match_path("src/**", "src/a/b/c") == true, "trailing **");
+
+print("match_path edge cases passed!");
+
+// === escape edge cases ===
+print("=== escape edge cases ===");
+
+// Escape all special characters
+let esc1 = escape("file[1].txt");
+assert(glob_match(esc1, "file[1].txt") == true, "escaped brackets");
+
+let esc2 = escape("*.txt");
+assert(glob_match(esc2, "*.txt") == true, "escaped star literal");
+assert(glob_match(esc2, "foo.txt") == false, "escaped star not wildcard");
+
+let esc3 = escape("file?.txt");
+assert(glob_match(esc3, "file?.txt") == true, "escaped question literal");
+assert(glob_match(esc3, "fileX.txt") == false, "escaped question not wildcard");
+
+// No special chars - should pass through unchanged
+let esc4 = escape("normal.txt");
+assert(glob_match(esc4, "normal.txt") == true, "no special chars");
+
+print("escape edge cases passed!");
+
+// === has_magic edge cases ===
+print("=== has_magic edge cases ===");
+
+assert(has_magic("*") == true, "single star");
+assert(has_magic("?") == true, "single question");
+assert(has_magic("[a]") == true, "bracket");
+assert(has_magic("plain.txt") == false, "no magic in plain");
+assert(has_magic("path/to/file") == false, "no magic in path");
+assert(has_magic("path/*.txt") == true, "magic in path");
+assert(has_magic("**/*.js") == true, "globstar magic");
+
+print("has_magic edge cases passed!");
+
+// === filter edge cases ===
+print("=== filter edge cases ===");
+
+// Empty paths list
+let empty_result = filter([], "*.txt");
+assert(empty_result.length == 0, "filter empty list");
+
+// No matches
+let no_match = filter(["a.js", "b.py", "c.rs"], "*.txt");
+assert(no_match.length == 0, "filter no matches");
+
+// All match
+let all_match = filter(["a.txt", "b.txt", "c.txt"], "*.txt");
+assert(all_match.length == 3, "filter all match");
+
+// Mixed results
+let mixed = filter(["src/main.hml", "src/util.js", "tests/test.hml", "README.md"], "**/*.hml");
+assert(mixed.length == 2, "filter mixed count");
+
+// Single element
+let single = filter(["file.txt"], "*.txt");
+assert(single.length == 1, "filter single match");
+assert(single[0] == "file.txt", "filter single value");
+
+print("filter edge cases passed!");
+
+// === translate edge cases ===
+print("=== translate edge cases ===");
+
+// translate produces a regex string
+let regex1 = translate("*.txt");
+assert(typeof(regex1) == "string", "translate returns string");
+
+let regex2 = translate("file?.txt");
+assert(typeof(regex2) == "string", "translate ? returns string");
+
+let regex3 = translate("**/*.js");
+assert(typeof(regex3) == "string", "translate ** returns string");
+
+print("translate edge cases passed!");
+
+print("\nAll glob edge case tests passed!");
