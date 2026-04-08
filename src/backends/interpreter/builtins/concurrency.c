@@ -365,6 +365,7 @@ Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
     if (task->ctx->exception_state.is_throwing) {
         // Re-throw the exception in the current context
         ctx->exception_state = task->ctx->exception_state;
+        VALUE_RETAIN(ctx->exception_state.exception_value);
         pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
         return val_null();
     }

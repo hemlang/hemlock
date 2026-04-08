@@ -1,0 +1,32 @@
+// Test: labeled break/continue inside try-finally preserves target label
+
+// Labeled break through finally
+let result1 = "not set";
+outer: for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+        try {
+            if (j == 1) {
+                break outer;
+            }
+        } finally {
+            result1 = "finally ran";
+        }
+    }
+}
+print(result1);
+
+// Labeled continue through finally
+let count = 0;
+outer2: for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+        try {
+            if (j == 0) {
+                continue outer2;
+            }
+            count++;
+        } finally {
+            // finally should execute on continue too
+        }
+    }
+}
+print(count);

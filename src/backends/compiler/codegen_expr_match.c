@@ -38,6 +38,45 @@ static const char* type_kind_to_hml_type_enum(TypeKind kind) {
     }
 }
 
+// Helper: collect all binding names from a pattern (for pre-declaration in OR patterns)
+static void collect_pattern_bindings(Pattern *p, char ***names, int *count, int *cap) {
+    if (!p) return;
+    switch (p->type) {
+        case PATTERN_BINDING:
+            if (*count >= *cap) {
+                *cap = *cap ? *cap * 2 : 4;
+                *names = realloc(*names, (size_t)*cap * sizeof(char*));
+            }
+            (*names)[(*count)++] = p->as.binding.name;
+            break;
+        case PATTERN_TYPED:
+            if (p->as.typed.name) {
+                if (*count >= *cap) {
+                    *cap = *cap ? *cap * 2 : 4;
+                    *names = realloc(*names, (size_t)*cap * sizeof(char*));
+                }
+                (*names)[(*count)++] = p->as.typed.name;
+            }
+            break;
+        case PATTERN_OR:
+            // Only collect from first alternative (all should bind the same names)
+            if (p->as.or_pattern.num_alternatives > 0)
+                collect_pattern_bindings(p->as.or_pattern.alternatives[0], names, count, cap);
+            break;
+        case PATTERN_OBJECT:
+            for (int i = 0; i < p->as.object.num_fields; i++)
+                if (p->as.object.fields[i].pattern)
+                    collect_pattern_bindings(p->as.object.fields[i].pattern, names, count, cap);
+            break;
+        case PATTERN_ARRAY:
+            for (int i = 0; i < p->as.array.num_elements; i++)
+                collect_pattern_bindings(p->as.array.elements[i].pattern, names, count, cap);
+            break;
+        default:
+            break;
+    }
+}
+
 // Generate code to match a pattern against a value
 void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *scrutinee, const char *fail_label) {
     if (!pattern) {
@@ -67,11 +106,17 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
         case PATTERN_BINDING: {
             // Bind the value to a local variable
             // Use the actual variable name so identifier lookup works
-            codegen_add_local(ctx, pattern->as.binding.name);
-            if (ctx->current_scope) {
-                scope_add_var(ctx->current_scope, pattern->as.binding.name);
+            if (codegen_is_local(ctx, pattern->as.binding.name)) {
+                // Already pre-declared (e.g., from OR pattern), use assignment
+                codegen_writeln(ctx, "hml_release(&%s);", pattern->as.binding.name);
+                codegen_writeln(ctx, "%s = %s;", pattern->as.binding.name, scrutinee);
+            } else {
+                codegen_add_local(ctx, pattern->as.binding.name);
+                if (ctx->current_scope) {
+                    scope_add_var(ctx->current_scope, pattern->as.binding.name);
+                }
+                codegen_writeln(ctx, "HmlValue %s = %s;", pattern->as.binding.name, scrutinee);
             }
-            codegen_writeln(ctx, "HmlValue %s = %s;", pattern->as.binding.name, scrutinee);
             codegen_writeln(ctx, "hml_retain(&%s);", pattern->as.binding.name);
             break;
         }
@@ -90,11 +135,17 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
             }
             // Bind if name is provided
             if (pattern->as.typed.name) {
-                codegen_add_local(ctx, pattern->as.typed.name);
-                if (ctx->current_scope) {
-                    scope_add_var(ctx->current_scope, pattern->as.typed.name);
+                if (codegen_is_local(ctx, pattern->as.typed.name)) {
+                    // Already pre-declared (e.g., from OR pattern)
+                    codegen_writeln(ctx, "hml_release(&%s);", pattern->as.typed.name);
+                    codegen_writeln(ctx, "%s = %s;", pattern->as.typed.name, scrutinee);
+                } else {
+                    codegen_add_local(ctx, pattern->as.typed.name);
+                    if (ctx->current_scope) {
+                        scope_add_var(ctx->current_scope, pattern->as.typed.name);
+                    }
+                    codegen_writeln(ctx, "HmlValue %s = %s;", pattern->as.typed.name, scrutinee);
                 }
-                codegen_writeln(ctx, "HmlValue %s = %s;", pattern->as.typed.name, scrutinee);
                 codegen_writeln(ctx, "hml_retain(&%s);", pattern->as.typed.name);
             }
             break;
@@ -103,6 +154,19 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
         case PATTERN_OR: {
             // Try each alternative - if any matches, continue; if all fail, go to fail_label
             char *success_label = codegen_label(ctx);
+
+            // Pre-declare binding variables so they survive the inner {} blocks
+            char **binding_names = NULL;
+            int binding_count = 0, binding_cap = 0;
+            collect_pattern_bindings(pattern, &binding_names, &binding_count, &binding_cap);
+            for (int b = 0; b < binding_count; b++) {
+                codegen_add_local(ctx, binding_names[b]);
+                if (ctx->current_scope) {
+                    scope_add_var(ctx->current_scope, binding_names[b]);
+                }
+                codegen_writeln(ctx, "HmlValue %s = hml_val_null();", binding_names[b]);
+            }
+            free(binding_names);
 
             for (int i = 0; i < pattern->as.or_pattern.num_alternatives; i++) {
                 char *next_alt_label = (i + 1 < pattern->as.or_pattern.num_alternatives) ?

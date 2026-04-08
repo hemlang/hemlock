@@ -492,6 +492,8 @@ void hml_defer_push_call(HmlValue fn);
 void hml_defer_push_call_with_args(HmlValue fn, HmlValue *args, int num_args);
 void hml_defer_pop_and_execute(void);
 void hml_defer_execute_all(void);
+int hml_defer_save_depth(void);
+void hml_defer_execute_to_depth(int saved_depth);
 
 // ========== ASYNC/CONCURRENCY ==========
 

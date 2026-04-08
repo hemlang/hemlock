@@ -1,0 +1,7 @@
+outer before inner
+inner body
+inner defer 2
+inner defer 1
+outer after inner
+outer defer 2
+outer defer 1

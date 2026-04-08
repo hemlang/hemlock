@@ -130,6 +130,7 @@ typedef struct {
     Type **param_types;
     Expr **param_defaults;  // Default value expressions (NULL for required params)
     int *param_is_ref;      // 1 if parameter is pass-by-reference (ref keyword)
+    int *param_is_const;    // 1 if parameter is const (immutable)
     uint32_t *param_hashes; // Pre-computed hashes of param names (optimization)
     int num_params;
     char *rest_param;       // Name of rest parameter (...args), NULL if none

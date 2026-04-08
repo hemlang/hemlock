@@ -967,7 +967,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_defer_execute_all(ctx);
                 // Execute any runtime defers (from loops) - only if this function has defers
                 if (ctx->has_defers) {
-                    codegen_writeln(ctx, "hml_defer_execute_all();");
+                    codegen_writeln(ctx, "hml_defer_execute_to_depth(_defer_depth);");
                 }
                 // Release body-local variables
                 codegen_emit_local_cleanup(ctx, NULL);
@@ -1066,7 +1066,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
                     // Execute any runtime defers (from loops) - only if this function has defers
                     if (ctx->has_defers) {
-                        codegen_writeln(ctx, "hml_defer_execute_all();");
+                        codegen_writeln(ctx, "hml_defer_execute_to_depth(_defer_depth);");
                     }
                     // Release body-local variables
                     codegen_emit_local_cleanup(ctx, NULL);
@@ -1078,7 +1078,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 } else {
                     // Execute any runtime defers (from loops) - only if this function has defers
                     if (ctx->has_defers) {
-                        codegen_writeln(ctx, "hml_defer_execute_all();");
+                        codegen_writeln(ctx, "hml_defer_execute_to_depth(_defer_depth);");
                     }
                     // Release body-local variables
                     codegen_emit_local_cleanup(ctx, NULL);
@@ -1265,7 +1265,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_indent_inc(ctx);
                     // Execute any runtime defers (from loops) - only if this function has defers
                     if (ctx->has_defers) {
-                        codegen_writeln(ctx, "hml_defer_execute_all();");
+                        codegen_writeln(ctx, "hml_defer_execute_to_depth(_defer_depth);");
                     }
                     // Release body-local variables before returning
                     codegen_emit_local_cleanup(ctx, NULL);
