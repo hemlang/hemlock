@@ -250,12 +250,13 @@ Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
 ---
 
-## Standard Library (48 modules)
+## Standard Library (50 modules)
 
 Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 
 | Module | Description |
 |--------|-------------|
+| `ai` | AI/LLM API client (OpenAI, Anthropic, Ollama) |
 | `arena` | Arena memory allocator (bump allocation) |
 | `args` | Command-line argument parsing |
 | `assert` | Assertion utilities |
@@ -283,6 +284,7 @@ Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 | `json` | parse, stringify, pretty, get, set |
 | `logging` | Logger with levels |
 | `math` | sin, cos, sqrt, pow, rand, PI, E |
+| `matrix` | Matrix math, ML activations, vector ops |
 | `net` | TcpListener, TcpStream, UdpSocket |
 | `os` | platform, arch, cpu_count, hostname |
 | `path` | File path manipulation |
