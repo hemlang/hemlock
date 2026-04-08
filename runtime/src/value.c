@@ -155,7 +155,11 @@ static void fn_pool_return(HmlFunction *fn) {
 static HmlFunction* fn_alloc(void) {
     HmlFunction *f = fn_pool_alloc();
     if (f) return f;
-    f = fn_alloc();
+    f = malloc(sizeof(HmlFunction));
+    if (!f) {
+        fprintf(stderr, "Fatal: out of memory allocating function\n");
+        abort();
+    }
     return f;
 }
 

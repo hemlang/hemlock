@@ -1,0 +1,4 @@
+memcpy null dest caught: true
+memcpy null src caught: true
+memcpy normal: ok
+done

@@ -1,0 +1,3 @@
+memset null caught: true
+memset normal: ok
+done

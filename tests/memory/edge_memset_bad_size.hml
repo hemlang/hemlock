@@ -1,0 +1,16 @@
+// Test: memset with negative size throws error instead of undefined behavior
+
+let caught = false;
+try {
+    let p = alloc(16);
+    memset(p, 0, -1);
+    free(p);
+} catch (e) {
+    caught = true;
+}
+
+if (caught) {
+    print("PASS: memset negative size caught");
+} else {
+    print("FAIL: memset negative size not caught");
+}
