@@ -1,0 +1,63 @@
+// Test @stdlib/decimal StringBuilder functions
+import { sb_new, sb_append, sb_prepend, sb_to_string, sb_join, sb_count, sb_clear } from "@stdlib/decimal";
+
+print("Testing StringBuilder...");
+
+// Basic usage
+let sb = sb_new();
+print(sb_count(sb) == 0);
+print(sb_to_string(sb) == "");
+
+// Append
+sb_append(sb, "Hello");
+print(sb_count(sb) == 1);
+print(sb_to_string(sb) == "Hello");
+
+sb_append(sb, " ");
+sb_append(sb, "World");
+print(sb_count(sb) == 3);
+print(sb_to_string(sb) == "Hello World");
+
+// Prepend
+let sb2 = sb_new();
+sb_append(sb2, "World");
+sb_prepend(sb2, "Hello ");
+print(sb_to_string(sb2) == "Hello World");
+
+// Join with separator
+let sb3 = sb_new();
+sb_append(sb3, "a");
+sb_append(sb3, "b");
+sb_append(sb3, "c");
+print(sb_join(sb3, ",") == "a,b,c");
+print(sb_join(sb3, " | ") == "a | b | c");
+print(sb_join(sb3, "") == "abc");
+
+// Clear
+sb_clear(sb3);
+print(sb_count(sb3) == 0);
+print(sb_to_string(sb3) == "");
+
+// Auto-convert to string
+let sb4 = sb_new();
+sb_append(sb4, 42);
+sb_append(sb4, true);
+sb_append(sb4, 3.14);
+print(sb_to_string(sb4) == "42true3.14");
+
+// Chaining (returns same builder)
+let sb5 = sb_new();
+let ret = sb_append(sb5, "test");
+print(ret == sb5);
+let ret2 = sb_clear(sb5);
+print(ret2 == sb5);
+
+// Building in a loop
+let sb6 = sb_new();
+for (let i = 0; i < 5; i++) {
+    sb_append(sb6, i);
+}
+print(sb_to_string(sb6) == "01234");
+print(sb_join(sb6, "-") == "0-1-2-3-4");
+
+print("All StringBuilder tests passed!");
