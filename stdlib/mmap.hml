@@ -1,0 +1,153 @@
+// @stdlib/mmap - Memory-Mapped File I/O
+//
+// Map files directly into memory for high-performance I/O.
+// Mapped regions are accessed via raw pointers using ptr_read_*/ptr_write_* builtins.
+//
+// Usage:
+// import { mmap_open, mmap_close, mmap_size } from "@stdlib/mmap";
+// let p = mmap_open("data.bin", "r");
+// let byte = ptr_read_u8(p);
+// mmap_close(p);
+
+// ========== CORE FUNCTIONS ==========
+
+// mmap_open(path: string, mode?: "r"): ptr
+// Map a file into memory. Mode "r" for read-only, "rw" for read-write.
+// Returns a pointer to the mapped region.
+export let mmap_open = __mmap_open;
+
+// mmap_open_anon(size: i32|i64): ptr
+// Create an anonymous memory mapping (not backed by a file).
+// Useful for shared memory between tasks or large temporary allocations.
+export let mmap_open_anon = __mmap_open_anon;
+
+// mmap_sync(ptr: ptr): bool
+// Flush changes in a read-write mapped region to disk.
+// Returns true on success.
+export let mmap_sync = __mmap_sync;
+
+// mmap_close(ptr: ptr): bool
+// Unmap a memory-mapped region. Returns true on success.
+// Always call this when done to release resources.
+export let mmap_close = __mmap_close;
+
+// mmap_size(ptr: ptr): i64
+// Get the size (in bytes) of a mapped region.
+export let mmap_size = __mmap_size;
+
+// ========== ADVANCED FUNCTIONS ==========
+
+// mmap_advise(ptr: ptr, advice: i32): bool
+// Provide usage hints to the kernel for optimization.
+// Use MADV_* constants for the advice parameter.
+export let mmap_advise = __mmap_advise;
+
+// mmap_protect(ptr: ptr, prot: i32): bool
+// Change protection flags on a mapped region.
+// Use PROT_* constants for the prot parameter.
+export let mmap_protect = __mmap_protect;
+
+// ========== PROTECTION CONSTANTS ==========
+export let PROT_NONE = __PROT_NONE;
+export let PROT_READ = __PROT_READ;
+export let PROT_WRITE = __PROT_WRITE;
+export let PROT_EXEC = __PROT_EXEC;
+
+// ========== MADVISE CONSTANTS ==========
+export let MADV_NORMAL = __MADV_NORMAL;
+export let MADV_SEQUENTIAL = __MADV_SEQUENTIAL;
+export let MADV_RANDOM = __MADV_RANDOM;
+export let MADV_WILLNEED = __MADV_WILLNEED;
+export let MADV_DONTNEED = __MADV_DONTNEED;
+
+// ========== HIGH-LEVEL WRAPPER ==========
+
+// MappedFile(path: string, mode?: "r") - High-level memory-mapped file object
+//
+// Provides a convenient object-oriented interface for memory-mapped files.
+// Parameters:
+//   path: string - File path to map
+//   mode: string - "r" (read-only, default) or "rw" (read-write)
+// Returns: object with read/write methods and automatic cleanup
+export fn MappedFile(path: string, mode?: "r") {
+	let _ptr = mmap_open(path, mode);
+	if (_ptr == null) {
+		throw "MappedFile: failed to map '" + path + "'";
+	}
+	let _size = mmap_size(_ptr);
+	let _mode = mode;
+
+	return {
+		ptr: _ptr,
+		size: _size,
+
+		// Read a single byte at offset
+		read_u8: fn(offset: i64): u8 {
+			if (offset < 0 || offset >= _size) {
+				throw "MappedFile.read_u8: offset out of bounds";
+			}
+			return ptr_read_u8(ptr_offset(self.ptr, offset, 1));
+		},
+
+		// Read an i32 at offset (must be 4-byte aligned)
+		read_i32: fn(offset: i64): i32 {
+			if (offset < 0 || offset + 4 > _size) {
+				throw "MappedFile.read_i32: offset out of bounds";
+			}
+			return ptr_read_i32(ptr_offset(self.ptr, offset, 1));
+		},
+
+		// Read an i64 at offset (must be 8-byte aligned)
+		read_i64: fn(offset: i64): i64 {
+			if (offset < 0 || offset + 8 > _size) {
+				throw "MappedFile.read_i64: offset out of bounds";
+			}
+			return ptr_read_i64(ptr_offset(self.ptr, offset, 1));
+		},
+
+		// Read an f64 at offset (must be 8-byte aligned)
+		read_f64: fn(offset: i64): f64 {
+			if (offset < 0 || offset + 8 > _size) {
+				throw "MappedFile.read_f64: offset out of bounds";
+			}
+			return ptr_read_f64(ptr_offset(self.ptr, offset, 1));
+		},
+
+		// Write a byte at offset (requires "rw" mode)
+		write_u8: fn(offset: i64, val: u8) {
+			if (_mode != "rw") {
+				throw "MappedFile.write_u8: file not opened in rw mode";
+			}
+			if (offset < 0 || offset >= _size) {
+				throw "MappedFile.write_u8: offset out of bounds";
+			}
+			ptr_write_u8(ptr_offset(self.ptr, offset, 1), val);
+		},
+
+		// Write an i32 at offset (requires "rw" mode, must be 4-byte aligned)
+		write_i32: fn(offset: i64, val: i32) {
+			if (_mode != "rw") {
+				throw "MappedFile.write_i32: file not opened in rw mode";
+			}
+			if (offset < 0 || offset + 4 > _size) {
+				throw "MappedFile.write_i32: offset out of bounds";
+			}
+			ptr_write_i32(ptr_offset(self.ptr, offset, 1), val);
+		},
+
+		// Flush changes to disk (rw mode only)
+		sync: fn(): bool {
+			return mmap_sync(self.ptr);
+		},
+
+		// Provide access hint to the kernel
+		advise: fn(advice: i32): bool {
+			return mmap_advise(self.ptr, advice);
+		},
+
+		// Close the mapping and release resources
+		close: fn(): bool {
+			return mmap_close(self.ptr);
+		},
+	};
+}
