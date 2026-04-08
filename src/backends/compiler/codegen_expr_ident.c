@@ -99,6 +99,8 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(AF_INET);", result);
     } else if (strcmp(expr->as.ident.name, "__AF_INET6") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(AF_INET6);", result);
+    } else if (strcmp(expr->as.ident.name, "__AF_UNIX") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(AF_UNIX);", result);
     } else if (strcmp(expr->as.ident.name, "__SOCK_STREAM") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SOCK_STREAM);", result);
     } else if (strcmp(expr->as.ident.name, "__SOCK_DGRAM") == 0) {

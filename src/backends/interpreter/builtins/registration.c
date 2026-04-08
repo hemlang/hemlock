@@ -391,6 +391,7 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
     // Internal socket constants for stdlib use (__ prefixed)
     env_set(env, "__AF_INET", val_i32(AF_INET), ctx);
     env_set(env, "__AF_INET6", val_i32(AF_INET6), ctx);
+    env_set(env, "__AF_UNIX", val_i32(AF_UNIX), ctx);
     env_set(env, "__SOCK_STREAM", val_i32(SOCK_STREAM), ctx);
     env_set(env, "__SOCK_DGRAM", val_i32(SOCK_DGRAM), ctx);
     env_set(env, "__IPPROTO_TCP", val_i32(IPPROTO_TCP), ctx);
