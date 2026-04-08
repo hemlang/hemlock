@@ -1,0 +1,13 @@
+NaN to i32: caught
+Inf to i32: caught
+-Inf to i32: caught
+NaN to i64: caught
+Inf to i64: caught
+NaN to u8: caught
+Inf to u32: caught
+NaN to i8: caught
+i32(3.14) = 3
+i32(-2.7) = -2
+i64(1e15) = 1000000000000000
+u8(200.9) = 200
+done

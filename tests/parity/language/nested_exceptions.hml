@@ -1,0 +1,99 @@
+// Test nested exception handling for interpreter/compiler parity
+
+// 1. Nested try/catch with re-throw
+print("=== Nested try/catch ===");
+try {
+    try {
+        throw "inner error";
+    } catch (e) {
+        print("inner caught: " + e);
+        throw "rethrown: " + e;
+    }
+} catch (e) {
+    print("outer caught: " + e);
+}
+
+// 2. Exception in catch block
+print("=== Exception in catch ===");
+try {
+    throw "first";
+} catch (e) {
+    print("caught: " + e);
+    try {
+        throw "second";
+    } catch (e2) {
+        print("nested caught: " + e2);
+    }
+}
+
+// 3. Finally always runs (even with throw)
+print("=== Finally with throw ===");
+try {
+    throw "error";
+} catch (e) {
+    print("caught: " + e);
+} finally {
+    print("finally after throw");
+}
+
+// 4. Finally runs without throw
+print("=== Finally without throw ===");
+try {
+    print("no error");
+} finally {
+    print("finally no error");
+}
+
+// 5. Nested try in finally
+print("=== Try in finally ===");
+try {
+    print("outer try");
+} finally {
+    try {
+        throw "finally error";
+    } catch (e) {
+        print("caught in finally: " + e);
+    }
+}
+
+// 6. Exception in loop with try/catch
+print("=== Exception in loop ===");
+for (let i = 0; i < 5; i++) {
+    try {
+        if (i == 2) { throw "err " + i; }
+        if (i == 4) { throw "err " + i; }
+        print("ok " + i);
+    } catch (e) {
+        print("caught: " + e);
+    }
+}
+
+// 7. Return from inside try/catch
+print("=== Return in try ===");
+fn try_return(x) {
+    try {
+        if (x < 0) { throw "negative"; }
+        return "positive: " + x;
+    } catch (e) {
+        return "error: " + e;
+    }
+}
+print(try_return(5));
+print(try_return(-3));
+
+// 8. Throw non-string values
+print("=== Throw non-string ===");
+try {
+    throw 42;
+} catch (e) {
+    print(typeof(e));
+    print(e);
+}
+
+try {
+    throw null;
+} catch (e) {
+    print(e);
+}
+
+print("done");

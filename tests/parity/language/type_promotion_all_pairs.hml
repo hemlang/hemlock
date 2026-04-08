@@ -1,0 +1,168 @@
+// Comprehensive parity test: type promotion for every numeric type pair
+// Tests addition with typeof() for all 55 unique pairs (10 same + 45 cross)
+// Also tests subtraction, multiplication, modulo, division, and bitwise ops
+
+// ========== Declare variables of each type ==========
+let vi8: i8 = 2;
+let vu8: u8 = 3;
+let vi16: i16 = 4;
+let vu16: u16 = 5;
+let vi32: i32 = 6;
+let vu32: u32 = 7;
+let vi64: i64 = 8;
+let vu64: u64 = 9;
+let vf32: f32 = 1.5;
+let vf64: f64 = 2.5;
+
+// ========== Section 1: Same-type pairs ==========
+print("=== Same-type pairs ===");
+print(typeof(vi8 + vi8));
+print(typeof(vu8 + vu8));
+print(typeof(vi16 + vi16));
+print(typeof(vu16 + vu16));
+print(typeof(vi32 + vi32));
+print(typeof(vu32 + vu32));
+print(typeof(vi64 + vi64));
+print(typeof(vu64 + vu64));
+print(typeof(vf32 + vf32));
+print(typeof(vf64 + vf64));
+
+// ========== Section 2: i8 cross pairs ==========
+print("=== i8 + others ===");
+print(typeof(vi8 + vu8));     // u8
+print(typeof(vi8 + vi16));    // i16
+print(typeof(vi8 + vu16));    // u16
+print(typeof(vi8 + vi32));    // i32
+print(typeof(vi8 + vu32));    // u32
+print(typeof(vi8 + vi64));    // i64
+print(typeof(vi8 + vu64));    // u64
+print(typeof(vi8 + vf32));    // f32
+print(typeof(vi8 + vf64));    // f64
+
+// ========== Section 3: u8 cross pairs ==========
+print("=== u8 + others ===");
+print(typeof(vu8 + vi16));    // i16
+print(typeof(vu8 + vu16));    // u16
+print(typeof(vu8 + vi32));    // i32
+print(typeof(vu8 + vu32));    // u32
+print(typeof(vu8 + vi64));    // i64
+print(typeof(vu8 + vu64));    // u64
+print(typeof(vu8 + vf32));    // f32
+print(typeof(vu8 + vf64));    // f64
+
+// ========== Section 4: i16 cross pairs ==========
+print("=== i16 + others ===");
+print(typeof(vi16 + vu16));   // u16
+print(typeof(vi16 + vi32));   // i32
+print(typeof(vi16 + vu32));   // u32
+print(typeof(vi16 + vi64));   // i64
+print(typeof(vi16 + vu64));   // u64
+print(typeof(vi16 + vf32));   // f32
+print(typeof(vi16 + vf64));   // f64
+
+// ========== Section 5: u16 cross pairs ==========
+print("=== u16 + others ===");
+print(typeof(vu16 + vi32));   // i32
+print(typeof(vu16 + vu32));   // u32
+print(typeof(vu16 + vi64));   // i64
+print(typeof(vu16 + vu64));   // u64
+print(typeof(vu16 + vf32));   // f32
+print(typeof(vu16 + vf64));   // f64
+
+// ========== Section 6: i32 cross pairs ==========
+print("=== i32 + others ===");
+print(typeof(vi32 + vu32));   // u32
+print(typeof(vi32 + vi64));   // i64
+print(typeof(vi32 + vu64));   // u64
+print(typeof(vi32 + vf32));   // f32
+print(typeof(vi32 + vf64));   // f64
+
+// ========== Section 7: u32 cross pairs ==========
+print("=== u32 + others ===");
+print(typeof(vu32 + vi64));   // i64
+print(typeof(vu32 + vu64));   // u64
+print(typeof(vu32 + vf32));   // f32
+print(typeof(vu32 + vf64));   // f64
+
+// ========== Section 8: i64 cross pairs ==========
+print("=== i64 + others ===");
+print(typeof(vi64 + vu64));   // u64
+print(typeof(vi64 + vf32));   // f64 (special: precision preservation)
+print(typeof(vi64 + vf64));   // f64
+
+// ========== Section 9: u64 cross pairs ==========
+print("=== u64 + others ===");
+print(typeof(vu64 + vf32));   // f64 (special: precision preservation)
+print(typeof(vu64 + vf64));   // f64
+
+// ========== Section 10: f32 cross pairs ==========
+print("=== f32 + others ===");
+print(typeof(vf32 + vf64));   // f64
+
+// ========== Section 11: Value correctness ==========
+print("=== Values ===");
+print(vi8 + vu8);      // 5
+print(vi8 + vi16);     // 6
+print(vi32 + vu32);    // 13
+print(vi64 + vu64);    // 17
+print(vi32 + vf64);    // 8.5
+print(vf32 + vf64);    // 4
+
+// ========== Section 12: Subtraction ==========
+print("=== Subtraction ===");
+print(typeof(vi8 - vu8));     // u8
+print(typeof(vi16 - vi32));   // i32
+print(typeof(vu32 - vi64));   // i64
+print(typeof(vi32 - vf64));   // f64
+print(typeof(vi64 - vf32));   // f64 (special)
+
+// ========== Section 13: Multiplication ==========
+print("=== Multiplication ===");
+print(typeof(vi8 * vu8));     // u8
+print(typeof(vi16 * vu16));   // u16
+print(typeof(vi32 * vi64));   // i64
+print(typeof(vu64 * vf32));   // f64 (special)
+print(typeof(vf32 * vf64));   // f64
+
+// ========== Section 14: Modulo ==========
+print("=== Modulo ===");
+print(typeof(vi8 % vu8));     // u8
+print(typeof(vi16 % vi32));   // i32
+print(typeof(vu32 % vu64));   // u64
+print(typeof(vf32 % vf64));   // f64
+
+// ========== Section 15: Division always f64 ==========
+print("=== Division ===");
+print(typeof(vi8 / vu8));     // f64
+print(typeof(vi32 / vi32));   // f64
+print(typeof(vi64 / vu64));   // f64
+print(typeof(vf32 / vf64));   // f64
+print(10 / 3);                // 3.3333...
+print(10 / 3 > 3.3);          // true
+
+// ========== Section 16: Bitwise with mixed types ==========
+print("=== Bitwise ===");
+print(typeof(vi8 & vu8));     // u8
+print(typeof(vi8 | vi16));    // i16
+print(typeof(vu16 ^ vi32));   // i32
+print(typeof(vi32 & vu32));   // u32
+print(typeof(vi32 | vi64));   // i64
+print(typeof(vu32 & vu64));   // u64
+
+// ========== Section 17: Commutativity ==========
+print("=== Commutativity ===");
+print(typeof(vu8 + vi8));     // u8 (same as i8 + u8)
+print(typeof(vf64 + vi32));   // f64 (same as i32 + f64)
+print(typeof(vf32 + vi64));   // f64 (same as i64 + f32)
+print(typeof(vu32 + vi32));   // u32 (same as i32 + u32)
+
+// ========== Section 18: Chained mixed expressions ==========
+print("=== Chained ===");
+let chain1 = vi8 + vi16 + vi32;
+print(typeof(chain1));        // i32
+let chain2 = vi8 + vu8 + vi64;
+print(typeof(chain2));        // i64
+let chain3 = vi32 + vf32 + vf64;
+print(typeof(chain3));        // f64
+
+print("done");

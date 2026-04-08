@@ -134,8 +134,12 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             case HML_OP_BIT_AND: return hml_val_i32(l & r);
             case HML_OP_BIT_OR: return hml_val_i32(l | r);
             case HML_OP_BIT_XOR: return hml_val_i32(l ^ r);
-            case HML_OP_LSHIFT: return hml_val_i32(l << r);
-            case HML_OP_RSHIFT: return hml_val_i32(l >> r);
+            case HML_OP_LSHIFT:
+                if (r < 0) hml_runtime_error("Shift amount must be non-negative");
+                return hml_val_i32(r >= 32 ? 0 : (int32_t)((uint32_t)l << r));
+            case HML_OP_RSHIFT:
+                if (r < 0) hml_runtime_error("Shift amount must be non-negative");
+                return hml_val_i32(r >= 32 ? (l < 0 ? -1 : 0) : l >> r);
             default: break;
         }
     }
@@ -163,8 +167,12 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             case HML_OP_BIT_AND: return hml_val_i64(l & r);
             case HML_OP_BIT_OR: return hml_val_i64(l | r);
             case HML_OP_BIT_XOR: return hml_val_i64(l ^ r);
-            case HML_OP_LSHIFT: return hml_val_i64(l << r);
-            case HML_OP_RSHIFT: return hml_val_i64(l >> r);
+            case HML_OP_LSHIFT:
+                if (r < 0) hml_runtime_error("Shift amount must be non-negative");
+                return hml_val_i64(r >= 64 ? 0 : (int64_t)((uint64_t)l << r));
+            case HML_OP_RSHIFT:
+                if (r < 0) hml_runtime_error("Shift amount must be non-negative");
+                return hml_val_i64(r >= 64 ? (l < 0 ? -1 : 0) : l >> r);
             default: break;
         }
     }
@@ -356,10 +364,22 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             return make_int_result(result_type, l | r);
         case HML_OP_BIT_XOR:
             return make_int_result(result_type, l ^ r);
-        case HML_OP_LSHIFT:
-            return make_int_result(result_type, l << r);
-        case HML_OP_RSHIFT:
-            return make_int_result(result_type, l >> r);
+        case HML_OP_LSHIFT: {
+            if (r < 0) hml_runtime_error("Shift amount must be non-negative");
+            int bw = (result_type == HML_VAL_I8 || result_type == HML_VAL_U8) ? 8 :
+                     (result_type == HML_VAL_I16 || result_type == HML_VAL_U16) ? 16 :
+                     (result_type == HML_VAL_I32 || result_type == HML_VAL_U32) ? 32 : 64;
+            return make_int_result(result_type, r >= bw ? 0 : (int64_t)((uint64_t)l << r));
+        }
+        case HML_OP_RSHIFT: {
+            if (r < 0) hml_runtime_error("Shift amount must be non-negative");
+            int bw = (result_type == HML_VAL_I8 || result_type == HML_VAL_U8) ? 8 :
+                     (result_type == HML_VAL_I16 || result_type == HML_VAL_U16) ? 16 :
+                     (result_type == HML_VAL_I32 || result_type == HML_VAL_U32) ? 32 : 64;
+            int is_signed = (result_type == HML_VAL_I8 || result_type == HML_VAL_I16 ||
+                            result_type == HML_VAL_I32 || result_type == HML_VAL_I64);
+            return make_int_result(result_type, r >= bw ? (is_signed && l < 0 ? -1 : 0) : l >> r);
+        }
         default:
             break;
     }

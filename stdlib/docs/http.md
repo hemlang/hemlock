@@ -227,6 +227,26 @@ import { post_timeout } from "@stdlib/http";
 let response = post_timeout("https://api.example.com/upload", large_body, null, 120000);
 ```
 
+#### `put_timeout(url: string, body?: string, headers?: array<string>, timeout_ms?: i32): object`
+
+PUT request with custom timeout.
+
+```hemlock
+import { put_timeout } from "@stdlib/http";
+
+let response = put_timeout("https://api.example.com/users/1", '{"name":"Bob"}', null, 60000);
+```
+
+#### `delete_timeout(url: string, headers?: array<string>, timeout_ms?: i32): object`
+
+DELETE request with custom timeout.
+
+```hemlock
+import { delete_timeout } from "@stdlib/http";
+
+let response = delete_timeout("https://api.example.com/users/1", null, 60000);
+```
+
 #### `request_timeout(method: string, url: string, body?: string, headers?: array<string>, timeout_ms?: i32): object`
 
 Generic HTTP request with custom timeout.

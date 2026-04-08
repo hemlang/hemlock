@@ -1,0 +1,20 @@
+i32 add overflow: caught
+i32 sub underflow: caught
+i32 mul overflow: caught
+i8 max: 127
+i8 min: -128
+i8 assign overflow: caught
+i8 assign underflow: caught
+u8 max: 255
+u8 min: 0
+u8 assign overflow: caught
+u8 assign negative: caught
+i8 max as i16: 127
+i8 min as i32: -128
+i32 max as i64: 2147483647
+127 as i8: 127
+narrowing i8(128): caught
+f64 3.99 as i32: 3
+f64 -7.5 as i32: -7
+float-to-i8 overflow: caught
+PASS

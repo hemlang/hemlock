@@ -16,6 +16,9 @@ CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr) {
             if (expr->as.number.is_float) {
                 return checked_type_primitive(CHECKED_F64);
             }
+            if (expr->as.number.is_u64) {
+                return checked_type_primitive(CHECKED_U64);
+            }
             // Check if it fits in i32
             if (expr->as.number.int_value >= -2147483648LL &&
                 expr->as.number.int_value <= 2147483647LL) {

@@ -1,0 +1,40 @@
+=== Defer LIFO ===
+body
+d3
+d2
+d1
+=== Defer early return ===
+positive
+cleanup 5
+5
+negative
+cleanup -3
+-1
+=== Defer with exception ===
+caught: error
+after catch
+inner defer
+defer runs despite throw
+=== Nested block defers ===
+in block
+after block
+block defer
+fn defer
+=== Defer in while ===
+while body 0
+while body 1
+while body 2
+while defer
+while defer
+while defer
+=== Defer with branches ===
+true path
+after if
+true branch defer
+always defer
+---
+false path
+after if
+false branch defer
+always defer
+done

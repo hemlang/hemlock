@@ -41,7 +41,7 @@ static int is_const_null(Expr *expr) {
  * Check if an expression is a constant integer (not float).
  */
 static int is_const_int(Expr *expr) {
-    return expr && expr->type == EXPR_NUMBER && !expr->as.number.is_float;
+    return expr && expr->type == EXPR_NUMBER && !expr->as.number.is_float && !expr->as.number.is_u64;
 }
 
 /*
@@ -84,6 +84,8 @@ static int get_const_truthiness(Expr *expr, int *truthy) {
     if (is_const_number(expr)) {
         if (expr->as.number.is_float) {
             *truthy = expr->as.number.float_value != 0.0;
+        } else if (expr->as.number.is_u64) {
+            *truthy = expr->as.number.uint_value != 0;
         } else {
             *truthy = expr->as.number.int_value != 0;
         }
@@ -103,6 +105,9 @@ static double get_number_as_double(Expr *expr) {
     if (expr->as.number.is_float) {
         return expr->as.number.float_value;
     }
+    if (expr->as.number.is_u64) {
+        return (double)expr->as.number.uint_value;
+    }
     return (double)expr->as.number.int_value;
 }
 
@@ -112,6 +117,9 @@ static double get_number_as_double(Expr *expr) {
 static int64_t get_number_as_int(Expr *expr) {
     if (expr->as.number.is_float) {
         return (int64_t)expr->as.number.float_value;
+    }
+    if (expr->as.number.is_u64) {
+        return (int64_t)expr->as.number.uint_value;
     }
     return expr->as.number.int_value;
 }
@@ -253,12 +261,14 @@ static Expr *try_fold_binary_numeric(BinaryOp op, Expr *left, Expr *right, int l
 
         case OP_BIT_LSHIFT:
             if (result_is_float) return NULL;
-            result = make_int_expr(left_i << right_i, line);
+            if (right_i < 0) return NULL;  // Negative shift - let runtime error
+            result = make_int_expr(right_i >= 64 ? 0 : (int64_t)((uint64_t)left_i << right_i), line);
             break;
 
         case OP_BIT_RSHIFT:
             if (result_is_float) return NULL;
-            result = make_int_expr(left_i >> right_i, line);
+            if (right_i < 0) return NULL;  // Negative shift - let runtime error
+            result = make_int_expr(right_i >= 64 ? (left_i < 0 ? -1 : 0) : left_i >> right_i, line);
             break;
 
         /* Logical operators handled separately */

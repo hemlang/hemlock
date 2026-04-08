@@ -150,6 +150,68 @@ if (find("error", "This is an error message")) {
 
 ---
 
+#### `replace(pattern, text, replacement, flags?)`
+
+Replace the first match of pattern in text (one-shot, compiles and frees automatically).
+
+**Parameters:**
+- `pattern: string` - The regex pattern
+- `text: string` - The text to search
+- `replacement: string` - The replacement string
+- `flags?: i32` - Optional compilation flags
+
+**Returns:** `string` - Text with first match replaced
+
+**Example:**
+```hemlock
+import { replace } from "@stdlib/regex";
+
+let result = replace("[0-9]+", "abc 123 def 456", "NUM", null);
+print(result);  // "abc NUM def 456"
+```
+
+---
+
+#### `replace_all(pattern, text, replacement, flags?)`
+
+Replace all matches of pattern in text (one-shot, compiles and frees automatically).
+
+**Parameters:**
+- `pattern: string` - The regex pattern
+- `text: string` - The text to search
+- `replacement: string` - The replacement string
+- `flags?: i32` - Optional compilation flags
+
+**Returns:** `string` - Text with all matches replaced
+
+**Example:**
+```hemlock
+import { replace_all } from "@stdlib/regex";
+
+let result = replace_all("[0-9]+", "abc 123 def 456", "NUM", null);
+print(result);  // "abc NUM def NUM"
+```
+
+---
+
+#### `error_message(errcode)`
+
+Get a human-readable error message for a regex error code.
+
+**Parameters:**
+- `errcode: i32` - Regex error code (e.g., from a failed compilation)
+
+**Returns:** `string` - Error description
+
+**Example:**
+```hemlock
+import { error_message, REG_EBRACK } from "@stdlib/regex";
+
+print(error_message(REG_EBRACK));  // Description of bracket error
+```
+
+---
+
 ### Regex Object
 
 Returned by `compile()`. Represents a compiled regex pattern.
@@ -188,6 +250,68 @@ Alias for `regex.test(text)`.
 #### `regex.find(text)`
 
 Alias for `regex.test(text)`.
+
+---
+
+#### `regex.find_all(text, max_matches?)`
+
+Find all matches in the text and return an array of match objects.
+
+**Parameters:**
+- `text: string` - The text to search
+- `max_matches: i32` (optional) - Maximum number of matches to return
+
+**Returns:** `array` - Array of match objects with `{ start: i32, end: i32, text: string }`
+
+**Example:**
+```hemlock
+let pattern = compile("[0-9]+");
+let matches = pattern.find_all("abc 123 def 456 ghi 789");
+for (m in matches) {
+    print(m.text);  // "123", "456", "789"
+}
+pattern.free();
+```
+
+---
+
+#### `regex.replace(text, replacement)`
+
+Replace the first match in the text with the replacement string.
+
+**Parameters:**
+- `text: string` - The text to search
+- `replacement: string` - The replacement string
+
+**Returns:** `string` - Text with first match replaced
+
+**Example:**
+```hemlock
+let pattern = compile("[0-9]+");
+let result = pattern.replace("abc 123 def 456", "NUM");
+print(result);  // "abc NUM def 456"
+pattern.free();
+```
+
+---
+
+#### `regex.replace_all(text, replacement)`
+
+Replace all matches in the text with the replacement string.
+
+**Parameters:**
+- `text: string` - The text to search
+- `replacement: string` - The replacement string
+
+**Returns:** `string` - Text with all matches replaced
+
+**Example:**
+```hemlock
+let pattern = compile("[0-9]+");
+let result = pattern.replace_all("abc 123 def 456", "NUM");
+print(result);  // "abc NUM def NUM"
+pattern.free();
+```
 
 ---
 
@@ -491,17 +615,11 @@ try {
 
 ## Limitations
 
-1. **No capture groups:** The current API only supports match/no-match testing. Extracting matched substrings is not yet supported.
+1. **No capture groups:** The current API only supports match/no-match testing and full-match extraction. Extracting individual capture group substrings is not yet supported.
 
-2. **No match positions:** Cannot get the position of matches within the text.
+2. **POSIX ERE only:** Uses POSIX Extended Regular Expressions, not Perl-compatible (PCRE) syntax. Some advanced features like lookahead/lookbehind are not available.
 
-3. **No global matching:** Cannot find all matches in a string (only first match).
-
-4. **No replace:** Cannot perform regex-based string replacement.
-
-5. **POSIX ERE only:** Uses POSIX Extended Regular Expressions, not Perl-compatible (PCRE) syntax. Some advanced features like lookahead/lookbehind are not available.
-
-6. **Manual memory management:** Must explicitly call `.free()` on compiled regex objects.
+3. **Manual memory management:** Must explicitly call `.free()` on compiled regex objects.
 
 ---
 
@@ -509,9 +627,6 @@ try {
 
 Planned additions:
 - Capture group extraction
-- Match position reporting
-- Global match finding (find all occurrences)
-- Regex-based string replacement
 - Split string by regex pattern
 - Optional PCRE support for advanced features
 

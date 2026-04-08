@@ -1,0 +1,113 @@
+=== Same-type pairs ===
+i8
+u8
+i16
+u16
+i32
+u32
+i64
+u64
+f32
+f64
+=== i8 + others ===
+u8
+i16
+u16
+i32
+u32
+i64
+u64
+f32
+f64
+=== u8 + others ===
+i16
+u16
+i32
+u32
+i64
+u64
+f32
+f64
+=== i16 + others ===
+u16
+i32
+u32
+i64
+u64
+f32
+f64
+=== u16 + others ===
+i32
+u32
+i64
+u64
+f32
+f64
+=== i32 + others ===
+u32
+i64
+u64
+f32
+f64
+=== u32 + others ===
+i64
+u64
+f32
+f64
+=== i64 + others ===
+u64
+f64
+f64
+=== u64 + others ===
+f64
+f64
+=== f32 + others ===
+f64
+=== Values ===
+5
+6
+13
+17
+8.5
+4
+=== Subtraction ===
+u8
+i32
+i64
+f64
+f64
+=== Multiplication ===
+u8
+u16
+i64
+f64
+f64
+=== Modulo ===
+u8
+i32
+u64
+f64
+=== Division ===
+f64
+f64
+f64
+f64
+3.33333
+true
+=== Bitwise ===
+u8
+i16
+i32
+u32
+i64
+u64
+=== Commutativity ===
+u8
+f64
+f64
+u32
+=== Chained ===
+i32
+i64
+f64
+done
