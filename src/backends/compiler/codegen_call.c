@@ -1336,7 +1336,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // divi(a, b) - floor division returning integer
+        // divi(a, b) - truncating division returning integer
         if (strcmp(fn_name, "__divi") == 0 && expr->as.call.num_args == 2) {
             char *a = codegen_expr(ctx, expr->as.call.args[0]);
             char *b = codegen_expr(ctx, expr->as.call.args[1]);
