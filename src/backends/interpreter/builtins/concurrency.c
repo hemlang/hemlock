@@ -358,7 +358,9 @@ Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
     // Check if task threw an exception
     if (task->ctx->exception_state.is_throwing) {
         // Re-throw the exception in the current context
+        // Retain the exception value since both task and caller will release it
         ctx->exception_state = task->ctx->exception_state;
+        VALUE_RETAIN(ctx->exception_state.exception_value);
         pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);
         return val_null();
     }

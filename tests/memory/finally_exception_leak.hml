@@ -1,0 +1,19 @@
+// Test for memory leak when finally block throws a new exception
+// Previously, the original exception would leak when finally threw
+
+fn test_finally_throws() {
+    try {
+        throw "original exception";
+    } finally {
+        throw "finally exception";
+    }
+}
+
+// Test the scenario
+try {
+    test_finally_throws();
+} catch (e) {
+    print("Caught: " + e);
+}
+
+print("Test passed - no memory leak");

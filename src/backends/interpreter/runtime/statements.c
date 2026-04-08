@@ -750,6 +750,10 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 int was_breaking = ctx->loop_state.is_breaking;
                 int was_continuing = ctx->loop_state.is_continuing;
 
+                // Retain saved values to prevent them from being freed while we execute finally
+                VALUE_RETAIN(saved_return);
+                VALUE_RETAIN(saved_exception);
+
                 // Clear states before finally
                 ctx->return_state.is_returning = 0;
                 ctx->exception_state.is_throwing = 0;
@@ -768,6 +772,13 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     ctx->exception_state.exception_value = saved_exception;
                     ctx->loop_state.is_breaking = was_breaking;
                     ctx->loop_state.is_continuing = was_continuing;
+                    // Release our extra references since we're restoring the values
+                    VALUE_RELEASE(saved_return);
+                    VALUE_RELEASE(saved_exception);
+                } else {
+                    // Finally changed control flow - release saved values since they won't be used
+                    VALUE_RELEASE(saved_return);
+                    VALUE_RELEASE(saved_exception);
                 }
             }
             break;
