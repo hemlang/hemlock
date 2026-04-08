@@ -249,6 +249,8 @@ void fmt_expr(FmtCtx *ctx, Expr *expr) {
                 buf_append(&ctx->buf, original);
             } else if (expr->as.number.is_float) {
                 buf_printf(&ctx->buf, "%g", expr->as.number.float_value);
+            } else if (expr->as.number.is_u64) {
+                buf_printf(&ctx->buf, "%" PRIu64, expr->as.number.uint_value);
             } else {
                 buf_printf(&ctx->buf, "%ld", (long)expr->as.number.int_value);
             }

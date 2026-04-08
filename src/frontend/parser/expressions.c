@@ -208,6 +208,9 @@ static Pattern* parse_primary_pattern(Parser *p) {
             Expr *lit;
             if (p->previous.is_float) {
                 lit = expr_number_float(-p->previous.float_value);
+            } else if (p->previous.is_u64) {
+                // Negating a u64 literal > INT64_MAX: cast to i64 (wraps, same as C)
+                lit = expr_number_int(-(int64_t)p->previous.uint_value);
             } else {
                 lit = expr_number_int(-p->previous.int_value);
             }
@@ -225,6 +228,8 @@ static Pattern* parse_primary_pattern(Parser *p) {
         Expr *lit;
         if (p->previous.is_float) {
             lit = expr_number_float(p->previous.float_value);
+        } else if (p->previous.is_u64) {
+            lit = expr_number_u64(p->previous.uint_value);
         } else {
             lit = expr_number_int(p->previous.int_value);
         }
@@ -463,6 +468,8 @@ Expr* primary(Parser *p) {
         Expr *expr;
         if (p->previous.is_float) {
             expr = expr_number_float(p->previous.float_value);
+        } else if (p->previous.is_u64) {
+            expr = expr_number_u64(p->previous.uint_value);
         } else {
             expr = expr_number_int(p->previous.int_value);
         }

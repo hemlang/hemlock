@@ -287,6 +287,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 int is_truthy = 0;
                 if (stmt->as.if_stmt.condition->as.number.is_float) {
                     is_truthy = stmt->as.if_stmt.condition->as.number.float_value != 0.0;
+                } else if (stmt->as.if_stmt.condition->as.number.is_u64) {
+                    is_truthy = stmt->as.if_stmt.condition->as.number.uint_value != 0;
                 } else {
                     is_truthy = stmt->as.if_stmt.condition->as.number.int_value != 0;
                 }

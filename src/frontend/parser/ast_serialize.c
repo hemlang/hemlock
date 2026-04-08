@@ -331,8 +331,12 @@ static void serialize_expr(SerializeContext *ctx, Expr *expr) {
     switch (expr->type) {
         case EXPR_NUMBER:
             write_u8(ctx, expr->as.number.is_float);
+            write_u8(ctx, expr->as.number.is_u64);
             if (expr->as.number.is_float) {
                 write_f64(ctx, expr->as.number.float_value);
+            } else if (expr->as.number.is_u64) {
+                // write_i64 preserves bit pattern (uses uint64_t internally)
+                write_i64(ctx, (int64_t)expr->as.number.uint_value);
             } else {
                 write_i64(ctx, expr->as.number.int_value);
             }
@@ -564,8 +568,11 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
     switch (expr->type) {
         case EXPR_NUMBER:
             expr->as.number.is_float = read_u8(ctx);
+            expr->as.number.is_u64 = read_u8(ctx);
             if (expr->as.number.is_float) {
                 expr->as.number.float_value = read_f64(ctx);
+            } else if (expr->as.number.is_u64) {
+                expr->as.number.uint_value = (uint64_t)read_i64(ctx);
             } else {
                 expr->as.number.int_value = read_i64(ctx);
             }

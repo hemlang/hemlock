@@ -18,6 +18,8 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
         case EXPR_NUMBER:
             if (expr->as.number.is_float) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_f64(%g);", result, expr->as.number.float_value);
+            } else if (expr->as.number.is_u64) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_u64(%" PRIu64 "ULL);", result, expr->as.number.uint_value);
             } else {
                 // Check if it fits in i32
                 if (expr->as.number.int_value >= INT32_MIN && expr->as.number.int_value <= INT32_MAX) {
@@ -81,7 +83,8 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
 
             // OPTIMIZATION: Constant folding for unary operations on literals
             if (expr->as.unary.operand->type == EXPR_NUMBER &&
-                !expr->as.unary.operand->as.number.is_float) {
+                !expr->as.unary.operand->as.number.is_float &&
+                !expr->as.unary.operand->as.number.is_u64) {
                 int64_t val = expr->as.unary.operand->as.number.int_value;
                 int can_fold = 1;
 

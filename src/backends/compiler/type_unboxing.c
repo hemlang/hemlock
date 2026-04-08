@@ -228,7 +228,7 @@ void type_check_analyze_for_loop(TypeCheckContext *ctx, Stmt *stmt) {
     Expr *init_value = init->as.let.value;
 
     // Check initializer is an integer literal
-    if (!init_value || init_value->type != EXPR_NUMBER || init_value->as.number.is_float) {
+    if (!init_value || init_value->type != EXPR_NUMBER || init_value->as.number.is_float || init_value->as.number.is_u64) {
         return;
     }
 
@@ -323,6 +323,9 @@ CheckedTypeKind infer_expr_native_type(TypeCheckContext *ctx, Expr *expr) {
         case EXPR_NUMBER:
             if (expr->as.number.is_float) {
                 return CHECKED_F64;
+            }
+            if (expr->as.number.is_u64) {
+                return CHECKED_U64;
             }
             // Determine integer type based on value range
             if (expr->as.number.int_value >= -128 && expr->as.number.int_value <= 127) {

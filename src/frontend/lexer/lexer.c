@@ -4,6 +4,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <errno.h>
 
 // ========== PRIVATE HELPERS ==========
 
@@ -181,6 +182,7 @@ static Token number(Lexer *lex) {
 
             Token token = make_token(lex, TOK_NUMBER);
             token.is_float = 0;
+            token.is_u64 = 0;
 
             // Strip underscores and parse
             char *clean = strip_underscores(lex->start + 2, (int)(lex->current - lex->start - 2));
@@ -188,7 +190,18 @@ static Token number(Lexer *lex) {
                 return error_token(lex, "Failed to allocate number buffer");
             }
             char *endptr;
-            token.int_value = strtoll(clean, &endptr, 16);
+            errno = 0;
+            uint64_t uval = strtoull(clean, &endptr, 16);
+            if (errno == ERANGE) {
+                free(clean);
+                return error_token(lex, "Hex literal exceeds maximum u64 value");
+            }
+            if (uval > (uint64_t)INT64_MAX) {
+                token.is_u64 = 1;
+                token.uint_value = uval;
+            } else {
+                token.int_value = (int64_t)uval;
+            }
             free(clean);
             return token;
         }
@@ -208,6 +221,7 @@ static Token number(Lexer *lex) {
 
             Token token = make_token(lex, TOK_NUMBER);
             token.is_float = 0;
+            token.is_u64 = 0;
 
             // Strip underscores and parse
             char *clean = strip_underscores(lex->start + 2, (int)(lex->current - lex->start - 2));
@@ -215,7 +229,18 @@ static Token number(Lexer *lex) {
                 return error_token(lex, "Failed to allocate number buffer");
             }
             char *endptr;
-            token.int_value = strtoll(clean, &endptr, 2);
+            errno = 0;
+            uint64_t uval = strtoull(clean, &endptr, 2);
+            if (errno == ERANGE) {
+                free(clean);
+                return error_token(lex, "Binary literal exceeds maximum u64 value");
+            }
+            if (uval > (uint64_t)INT64_MAX) {
+                token.is_u64 = 1;
+                token.uint_value = uval;
+            } else {
+                token.int_value = (int64_t)uval;
+            }
             free(clean);
             return token;
         }
@@ -235,6 +260,7 @@ static Token number(Lexer *lex) {
 
             Token token = make_token(lex, TOK_NUMBER);
             token.is_float = 0;
+            token.is_u64 = 0;
 
             // Strip underscores and parse
             char *clean = strip_underscores(lex->start + 2, (int)(lex->current - lex->start - 2));
@@ -242,7 +268,18 @@ static Token number(Lexer *lex) {
                 return error_token(lex, "Failed to allocate number buffer");
             }
             char *endptr;
-            token.int_value = strtoll(clean, &endptr, 8);
+            errno = 0;
+            uint64_t uval = strtoull(clean, &endptr, 8);
+            if (errno == ERANGE) {
+                free(clean);
+                return error_token(lex, "Octal literal exceeds maximum u64 value");
+            }
+            if (uval > (uint64_t)INT64_MAX) {
+                token.is_u64 = 1;
+                token.uint_value = uval;
+            } else {
+                token.int_value = (int64_t)uval;
+            }
             free(clean);
             return token;
         }
@@ -297,6 +334,7 @@ static Token number(Lexer *lex) {
 
     Token token = make_token(lex, TOK_NUMBER);
     token.is_float = is_float;
+    token.is_u64 = 0;
 
     // Strip underscores and parse
     char *clean = strip_underscores(lex->start, (int)(lex->current - lex->start));
@@ -308,8 +346,19 @@ static Token number(Lexer *lex) {
         token.float_value = strtod(clean, &endptr);
     } else {
         // Use strtoll to parse 64-bit integers
+        errno = 0;
         token.int_value = strtoll(clean, &endptr, 10);
-        // Note: strtoll will handle negative numbers correctly
+        if (errno == ERANGE) {
+            // Value exceeds i64 range, try parsing as u64
+            errno = 0;
+            uint64_t uval = strtoull(clean, &endptr, 10);
+            if (errno == ERANGE || clean[0] == '-') {
+                free(clean);
+                return error_token(lex, "Integer literal exceeds maximum u64 value");
+            }
+            token.is_u64 = 1;
+            token.uint_value = uval;
+        }
     }
     free(clean);
 

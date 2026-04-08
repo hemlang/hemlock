@@ -12,6 +12,18 @@ Expr* expr_number_int(int64_t value) {
     expr->column = 0;
     expr->as.number.int_value = value;
     expr->as.number.is_float = 0;
+    expr->as.number.is_u64 = 0;
+    return expr;
+}
+
+Expr* expr_number_u64(uint64_t value) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_NUMBER;
+    expr->line = 0;
+    expr->column = 0;
+    expr->as.number.uint_value = value;
+    expr->as.number.is_float = 0;
+    expr->as.number.is_u64 = 1;
     return expr;
 }
 
@@ -1018,6 +1030,8 @@ Expr* expr_clone(const Expr *expr) {
         case EXPR_NUMBER:
             if (expr->as.number.is_float) {
                 return expr_number_float(expr->as.number.float_value);
+            } else if (expr->as.number.is_u64) {
+                return expr_number_u64(expr->as.number.uint_value);
             } else {
                 return expr_number_int(expr->as.number.int_value);
             }

@@ -34,6 +34,9 @@ char* codegen_native_expr(CodegenContext *ctx, Expr *expr, CheckedTypeKind *out_
             if (expr->as.number.is_float) {
                 snprintf(buf, sizeof(buf), "%g", expr->as.number.float_value);
                 *out_type = CHECKED_F64;
+            } else if (expr->as.number.is_u64) {
+                snprintf(buf, sizeof(buf), "%" PRIu64 "ULL", expr->as.number.uint_value);
+                *out_type = CHECKED_U64;
             } else if (expr->as.number.int_value > 2147483647LL ||
                        expr->as.number.int_value < -2147483648LL) {
                 snprintf(buf, sizeof(buf), "%" PRId64 "LL", expr->as.number.int_value);
@@ -203,7 +206,7 @@ static int get_power_of_2_exponent(int64_t value) {
 // Returns 1 if constant, 0 otherwise. Sets *value to the constant value.
 static int is_const_integer(Expr *expr, int64_t *value) {
     if (!expr) return 0;
-    if (expr->type == EXPR_NUMBER && !expr->as.number.is_float) {
+    if (expr->type == EXPR_NUMBER && !expr->as.number.is_float && !expr->as.number.is_u64) {
         *value = expr->as.number.int_value;
         return 1;
     }
@@ -250,6 +253,9 @@ static InferredNumericType infer_numeric_type(CodegenContext *ctx, Expr *expr) {
         case EXPR_NUMBER:
             if (expr->as.number.is_float) {
                 return INFER_F64;
+            }
+            if (expr->as.number.is_u64) {
+                return INFER_I64;  // Treat u64 as i64 for binary op inference
             }
             // Check if it fits in i32
             if (expr->as.number.int_value >= INT32_MIN &&
@@ -703,7 +709,9 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
             if (expr->as.binary.left->type == EXPR_NUMBER &&
                 expr->as.binary.right->type == EXPR_NUMBER &&
                 !expr->as.binary.left->as.number.is_float &&
-                !expr->as.binary.right->as.number.is_float) {
+                !expr->as.binary.right->as.number.is_float &&
+                !expr->as.binary.left->as.number.is_u64 &&
+                !expr->as.binary.right->as.number.is_u64) {
                 int64_t l = expr->as.binary.left->as.number.int_value;
                 int64_t r = expr->as.binary.right->as.number.int_value;
                 int64_t const_result = 0;
