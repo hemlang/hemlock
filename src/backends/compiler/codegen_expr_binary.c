@@ -74,6 +74,8 @@ char* codegen_native_expr(CodegenContext *ctx, Expr *expr, CheckedTypeKind *out_
             if (expr->as.binary.op == OP_DIV) return NULL;
             // Logical AND/OR have short-circuit semantics - can't inline
             if (expr->as.binary.op == OP_AND || expr->as.binary.op == OP_OR) return NULL;
+            // Shifts need validation (negative/oversized) - use safe runtime path
+            if (expr->as.binary.op == OP_BIT_LSHIFT || expr->as.binary.op == OP_BIT_RSHIFT) return NULL;
 
             CheckedTypeKind left_type, right_type;
             char *left = codegen_native_expr(ctx, expr->as.binary.left, &left_type);
@@ -572,18 +574,9 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
                             }
                             break;
                         case OP_BIT_LSHIFT:
-                            if (checked_kind_is_integer(left_native)) {
-                                codegen_writeln(ctx, "HmlValue %s = %s(%s << %s);", result, box_func, left_var, right_var);
-                            } else {
-                                handled = 0;
-                            }
-                            break;
                         case OP_BIT_RSHIFT:
-                            if (checked_kind_is_integer(left_native)) {
-                                codegen_writeln(ctx, "HmlValue %s = %s(%s >> %s);", result, box_func, left_var, right_var);
-                            } else {
-                                handled = 0;
-                            }
+                            // Shifts need validation - fall through to safe runtime path
+                            handled = 0;
                             break;
                         default:
                             handled = 0;
@@ -744,8 +737,16 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
                     case OP_BIT_AND: const_result = l & r; break;
                     case OP_BIT_OR: const_result = l | r; break;
                     case OP_BIT_XOR: const_result = l ^ r; break;
-                    case OP_BIT_LSHIFT: const_result = l << r; break;
-                    case OP_BIT_RSHIFT: const_result = l >> r; break;
+                    case OP_BIT_LSHIFT:
+                        if (r < 0) { can_fold = 0; }
+                        else if (r >= 64) { const_result = 0; }
+                        else { const_result = (int64_t)((uint64_t)l << r); }
+                        break;
+                    case OP_BIT_RSHIFT:
+                        if (r < 0) { can_fold = 0; }
+                        else if (r >= 64) { const_result = l < 0 ? -1 : 0; }
+                        else { const_result = l >> r; }
+                        break;
                     default: can_fold = 0; break;
                 }
 

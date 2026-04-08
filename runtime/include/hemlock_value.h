@@ -428,11 +428,23 @@ static inline HmlValue hml_i32_bit_xor(HmlValue left, HmlValue right) {
 }
 
 static inline HmlValue hml_i32_lshift(HmlValue left, HmlValue right) {
-    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 << right.as.as_i32 };
+    int32_t r = right.as.as_i32;
+    if (__builtin_expect(r < 0, 0)) {
+        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
+        hml_runtime_error("Shift amount must be non-negative");
+    }
+    if (__builtin_expect(r >= 32, 0)) return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = 0 };
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = (int32_t)((uint32_t)left.as.as_i32 << r) };
 }
 
 static inline HmlValue hml_i32_rshift(HmlValue left, HmlValue right) {
-    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 >> right.as.as_i32 };
+    int32_t r = right.as.as_i32;
+    if (__builtin_expect(r < 0, 0)) {
+        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
+        hml_runtime_error("Shift amount must be non-negative");
+    }
+    if (__builtin_expect(r >= 32, 0)) return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 < 0 ? -1 : 0 };
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 >> r };
 }
 
 // ========== i64 FAST PATH OPERATIONS ==========
@@ -526,11 +538,23 @@ static inline HmlValue hml_i64_bit_xor(HmlValue left, HmlValue right) {
 }
 
 static inline HmlValue hml_i64_lshift(HmlValue left, HmlValue right) {
-    return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = left.as.as_i64 << right.as.as_i64 };
+    int64_t r = right.as.as_i64;
+    if (__builtin_expect(r < 0, 0)) {
+        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
+        hml_runtime_error("Shift amount must be non-negative");
+    }
+    if (__builtin_expect(r >= 64, 0)) return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = 0 };
+    return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = (int64_t)((uint64_t)left.as.as_i64 << r) };
 }
 
 static inline HmlValue hml_i64_rshift(HmlValue left, HmlValue right) {
-    return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = left.as.as_i64 >> right.as.as_i64 };
+    int64_t r = right.as.as_i64;
+    if (__builtin_expect(r < 0, 0)) {
+        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
+        hml_runtime_error("Shift amount must be non-negative");
+    }
+    if (__builtin_expect(r >= 64, 0)) return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = left.as.as_i64 < 0 ? -1 : 0 };
+    return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = left.as.as_i64 >> r };
 }
 
 // Fast path: Check if value needs refcounting (primitives don't)

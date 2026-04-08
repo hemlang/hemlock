@@ -104,8 +104,12 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             case OP_BIT_AND: return val_i32(l & r);
             case OP_BIT_OR: return val_i32(l | r);
             case OP_BIT_XOR: return val_i32(l ^ r);
-            case OP_BIT_LSHIFT: return val_i32(l << r);
-            case OP_BIT_RSHIFT: return val_i32(l >> r);
+            case OP_BIT_LSHIFT:
+                if (r < 0) { runtime_error_at(ctx, expr->line, "Shift amount must be non-negative"); return val_null(); }
+                return val_i32(r >= 32 ? 0 : (int32_t)((uint32_t)l << r));
+            case OP_BIT_RSHIFT:
+                if (r < 0) { runtime_error_at(ctx, expr->line, "Shift amount must be non-negative"); return val_null(); }
+                return val_i32(r >= 32 ? (l < 0 ? -1 : 0) : l >> r);
             default: break;  // Fall through to generic path
         }
     }
@@ -154,8 +158,12 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             case OP_BIT_AND: return val_i64(l & r);
             case OP_BIT_OR: return val_i64(l | r);
             case OP_BIT_XOR: return val_i64(l ^ r);
-            case OP_BIT_LSHIFT: return val_i64(l << r);
-            case OP_BIT_RSHIFT: return val_i64(l >> r);
+            case OP_BIT_LSHIFT:
+                if (r < 0) { runtime_error_at(ctx, expr->line, "Shift amount must be non-negative"); return val_null(); }
+                return val_i64(r >= 64 ? 0 : (int64_t)((uint64_t)l << r));
+            case OP_BIT_RSHIFT:
+                if (r < 0) { runtime_error_at(ctx, expr->line, "Shift amount must be non-negative"); return val_null(); }
+                return val_i64(r >= 64 ? (l < 0 ? -1 : 0) : l >> r);
             default: break;
         }
     }
@@ -226,8 +234,12 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             case OP_BIT_AND: return val_i64(l & r);
             case OP_BIT_OR: return val_i64(l | r);
             case OP_BIT_XOR: return val_i64(l ^ r);
-            case OP_BIT_LSHIFT: return val_i64(l << r);
-            case OP_BIT_RSHIFT: return val_i64(l >> r);
+            case OP_BIT_LSHIFT:
+                if (r < 0) { runtime_error_at(ctx, expr->line, "Shift amount must be non-negative"); return val_null(); }
+                return val_i64(r >= 64 ? 0 : (int64_t)((uint64_t)l << r));
+            case OP_BIT_RSHIFT:
+                if (r < 0) { runtime_error_at(ctx, expr->line, "Shift amount must be non-negative"); return val_null(); }
+                return val_i64(r >= 64 ? (l < 0 ? -1 : 0) : l >> r);
             default: break;
         }
     }
@@ -849,8 +861,18 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         case OP_BIT_AND: result = l & r; break;
                         case OP_BIT_OR: result = l | r; break;
                         case OP_BIT_XOR: result = l ^ r; break;
-                        case OP_BIT_LSHIFT: result = l << r; break;
-                        case OP_BIT_RSHIFT: result = l >> r; break;
+                        case OP_BIT_LSHIFT: {
+                            if (r < 0) { runtime_error(ctx, "Shift amount must be non-negative"); goto binary_cleanup; }
+                            int bw = (result_type == VAL_I8) ? 8 : (result_type == VAL_I16) ? 16 : (result_type == VAL_I32) ? 32 : 64;
+                            result = (r >= bw) ? 0 : (int64_t)((uint64_t)l << r);
+                            break;
+                        }
+                        case OP_BIT_RSHIFT: {
+                            if (r < 0) { runtime_error(ctx, "Shift amount must be non-negative"); goto binary_cleanup; }
+                            int bw = (result_type == VAL_I8) ? 8 : (result_type == VAL_I16) ? 16 : (result_type == VAL_I32) ? 32 : 64;
+                            result = (r >= bw) ? (l < 0 ? -1 : 0) : l >> r;
+                            break;
+                        }
                         default: result = 0; break;
                     }
 
@@ -886,8 +908,18 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         case OP_BIT_AND: result = l & r; break;
                         case OP_BIT_OR: result = l | r; break;
                         case OP_BIT_XOR: result = l ^ r; break;
-                        case OP_BIT_LSHIFT: result = l << r; break;
-                        case OP_BIT_RSHIFT: result = l >> r; break;
+                        case OP_BIT_LSHIFT: {
+                            if ((int64_t)r < 0) { runtime_error(ctx, "Shift amount must be non-negative"); goto binary_cleanup; }
+                            int bw = (result_type == VAL_U8) ? 8 : (result_type == VAL_U16) ? 16 : (result_type == VAL_U32) ? 32 : 64;
+                            result = (r >= (uint64_t)bw) ? 0 : l << r;
+                            break;
+                        }
+                        case OP_BIT_RSHIFT: {
+                            if ((int64_t)r < 0) { runtime_error(ctx, "Shift amount must be non-negative"); goto binary_cleanup; }
+                            int bw = (result_type == VAL_U8) ? 8 : (result_type == VAL_U16) ? 16 : (result_type == VAL_U32) ? 32 : 64;
+                            result = (r >= (uint64_t)bw) ? 0 : l >> r;
+                            break;
+                        }
                         default: result = 0; break;
                     }
 
