@@ -185,11 +185,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
         }
 
         case STMT_FOR: {
-            // Create new environment for loop scope
+            // Create new environment for loop scope (holds the loop variable)
             Environment *loop_env = env_new(env);
             const char *loop_label = stmt->as.for_loop.label;
 
-            // Execute initializer
+            // Execute initializer (e.g., "let i = 0" defines i in loop_env)
             if (stmt->as.for_loop.initializer) {
                 eval_stmt(stmt->as.for_loop.initializer, loop_env, ctx);
                 // Check for exception/return after initializer
@@ -199,12 +199,9 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 }
             }
 
-            // Create iteration environment once, reuse each iteration
-            Environment *iter_env = env_new(loop_env);
-
             // Loop
             for (;;) {
-                // Check condition
+                // Check condition (operates on loop_env where the counter lives)
                 if (stmt->as.for_loop.condition) {
                     Value cond = eval_expr(stmt->as.for_loop.condition, loop_env, ctx);
                     // Check for exception after condition evaluation
@@ -219,9 +216,31 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(cond);  // Release condition after checking
                 }
 
-                // Clear and reuse iteration environment
-                env_clear(iter_env);
+                // Create a FRESH iteration environment each iteration.
+                // This provides per-iteration variable binding so that closures
+                // created in the loop body capture their own copy of loop variables
+                // (e.g., for (let i = 0; ...) { fns.push(fn() { return i; }); })
+                Environment *iter_env = env_new(loop_env);
+
+                // Copy loop variables into iter_env for per-iteration capture.
+                // The body sees these copies; condition/increment use loop_env directly.
+                for (int vi = 0; vi < loop_env->count; vi++) {
+                    env_define(iter_env, loop_env->names[vi], loop_env->values[vi], 0, ctx);
+                }
                 eval_stmt(stmt->as.for_loop.body, iter_env, ctx);
+
+                // Copy loop variable values back from iter_env to loop_env
+                // so that body modifications (e.g., i = 100) still affect
+                // the loop counter for condition/increment evaluation.
+                for (int vi = 0; vi < loop_env->count; vi++) {
+                    Value old_val = loop_env->values[vi];
+                    Value new_val = iter_env->values[vi];
+                    VALUE_RETAIN(new_val);
+                    loop_env->values[vi] = new_val;
+                    VALUE_RELEASE(old_val);
+                }
+
+                env_release(iter_env);
 
                 // Check for break/continue/return/exception
                 if (ctx->loop_state.is_breaking) {
@@ -259,7 +278,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     break;
                 }
 
-                // Execute increment
+                // Execute increment (operates on loop_env where the counter lives)
                 if (stmt->as.for_loop.increment) {
                     Value incr_result = eval_expr(stmt->as.for_loop.increment, loop_env, ctx);
                     VALUE_RELEASE(incr_result);  // Release increment expression result
@@ -270,7 +289,6 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 }
             }
 
-            env_release(iter_env);
             env_release(loop_env);
             break;
         }
@@ -294,30 +312,32 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             }
 
             Environment *loop_env = env_new(env);
-            // Create iteration environment once, reuse each iteration
-            Environment *iter_env = env_new(loop_env);
 
             if (iterable.type == VAL_ARRAY) {
                 Array *arr = iterable.as.as_array;
 
                 for (int i = 0; i < arr->length; i++) {
-                    // Clear and reuse iteration environment
-                    env_clear(iter_env);
+                    // Create a FRESH iteration environment each iteration for
+                    // per-iteration variable binding (closure capture correctness)
+                    Environment *iter_env = env_new(loop_env);
 
                     // Define variables in iter_env (not env_set, which walks up scope chain)
                     if (stmt->as.for_in.key_var) {
                         env_define(iter_env, stmt->as.for_in.key_var, val_i32(i), 0, ctx);
                         if (ctx->exception_state.is_throwing) {
+                            env_release(iter_env);
                             break;
                         }
                     }
                     env_define(iter_env, stmt->as.for_in.value_var, arr->elements[i], 0, ctx);
                     if (ctx->exception_state.is_throwing) {
+                        env_release(iter_env);
                         break;
                     }
 
                     // Execute body
                     eval_stmt(stmt->as.for_in.body, iter_env, ctx);
+                    env_release(iter_env);
 
                     // Check break/continue/return/exception
                     if (ctx->loop_state.is_breaking) {
@@ -354,23 +374,26 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 Object *obj = iterable.as.as_object;
 
                 for (int i = 0; i < obj->num_fields; i++) {
-                    // Clear and reuse iteration environment
-                    env_clear(iter_env);
+                    // Create a FRESH iteration environment each iteration
+                    Environment *iter_env = env_new(loop_env);
 
                     // Define variables in iter_env (not env_set, which walks up scope chain)
                     if (stmt->as.for_in.key_var) {
                         env_define(iter_env, stmt->as.for_in.key_var, val_string(obj->fields[i].name), 0, ctx);
                         if (ctx->exception_state.is_throwing) {
+                            env_release(iter_env);
                             break;
                         }
                     }
                     env_define(iter_env, stmt->as.for_in.value_var, obj->fields[i].value, 0, ctx);
                     if (ctx->exception_state.is_throwing) {
+                        env_release(iter_env);
                         break;
                     }
 
                     // Execute body
                     eval_stmt(stmt->as.for_in.body, iter_env, ctx);
+                    env_release(iter_env);
 
                     // Check break/continue/return/exception
                     if (ctx->loop_state.is_breaking) {
@@ -412,13 +435,14 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 }
 
                 for (int i = 0; i < str->char_length; i++) {
-                    // Clear and reuse iteration environment
-                    env_clear(iter_env);
+                    // Create a FRESH iteration environment each iteration
+                    Environment *iter_env = env_new(loop_env);
 
                     // Define index if key_var is specified
                     if (stmt->as.for_in.key_var) {
                         env_define(iter_env, stmt->as.for_in.key_var, val_i32(i), 0, ctx);
                         if (ctx->exception_state.is_throwing) {
+                            env_release(iter_env);
                             break;
                         }
                     }
@@ -429,11 +453,13 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
                     env_define(iter_env, stmt->as.for_in.value_var, val_rune(codepoint), 0, ctx);
                     if (ctx->exception_state.is_throwing) {
+                        env_release(iter_env);
                         break;
                     }
 
                     // Execute body
                     eval_stmt(stmt->as.for_in.body, iter_env, ctx);
+                    env_release(iter_env);
 
                     // Check break/continue/return/exception
                     if (ctx->loop_state.is_breaking) {
@@ -468,7 +494,6 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 }
             }
 
-            env_release(iter_env);
             env_release(loop_env);
             VALUE_RELEASE(iterable);  // Release iterable after loop completes
             break;

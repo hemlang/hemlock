@@ -10,6 +10,48 @@
 #include "codegen_call_internal.h"
 
 /*
+ * Check if an expression references a main variable that is currently
+ * shadowed by a block-local variable. Used to prevent incorrect inlining.
+ * Returns 1 if there's a conflict, 0 if safe to inline.
+ */
+static int codegen_inline_has_shadow_conflict(CodegenContext *ctx, Expr *expr) {
+    if (!expr) return 0;
+    switch (expr->type) {
+        case EXPR_IDENT:
+            // A main var that's shadowed in the current scope would resolve
+            // to the shadow instead of _main_<name> when inlined
+            if (codegen_is_main_var(ctx, expr->as.ident.name) &&
+                ctx->current_scope &&
+                scope_is_defined(ctx->current_scope, expr->as.ident.name)) {
+                return 1;
+            }
+            return 0;
+        case EXPR_BINARY:
+            return codegen_inline_has_shadow_conflict(ctx, expr->as.binary.left) ||
+                   codegen_inline_has_shadow_conflict(ctx, expr->as.binary.right);
+        case EXPR_UNARY:
+            return codegen_inline_has_shadow_conflict(ctx, expr->as.unary.operand);
+        case EXPR_CALL:
+            if (codegen_inline_has_shadow_conflict(ctx, expr->as.call.func)) return 1;
+            for (int i = 0; i < expr->as.call.num_args; i++) {
+                if (codegen_inline_has_shadow_conflict(ctx, expr->as.call.args[i])) return 1;
+            }
+            return 0;
+        case EXPR_INDEX:
+            return codegen_inline_has_shadow_conflict(ctx, expr->as.index.object) ||
+                   codegen_inline_has_shadow_conflict(ctx, expr->as.index.index);
+        case EXPR_GET_PROPERTY:
+            return codegen_inline_has_shadow_conflict(ctx, expr->as.get_property.object);
+        case EXPR_TERNARY:
+            return codegen_inline_has_shadow_conflict(ctx, expr->as.ternary.condition) ||
+                   codegen_inline_has_shadow_conflict(ctx, expr->as.ternary.true_expr) ||
+                   codegen_inline_has_shadow_conflict(ctx, expr->as.ternary.false_expr);
+        default:
+            return 0;
+    }
+}
+
+/*
  * Generate a pointer expression for ref parameter passing.
  * For EXPR_IDENT: returns "&_main_varname" or "&varname"
  * For other expressions: evaluates to temp and returns "&temp"
@@ -2641,6 +2683,13 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 Stmt *body = func_ast->as.function.body;
                 Expr *return_expr = body->as.block.statements[0]->as.return_stmt.value;
 
+                // Safety check: don't inline if the return expression references
+                // a main variable that is currently shadowed by a block-local variable.
+                // Inlining would resolve the identifier to the shadow instead of the
+                // original _main_ prefixed variable, producing incorrect results.
+                int has_shadow_conflict = codegen_inline_has_shadow_conflict(ctx, return_expr);
+                if (has_shadow_conflict) goto skip_inline;
+
                 // Declare result BEFORE the block so it remains in scope after
                 codegen_writeln(ctx, "HmlValue %s;", result);
 
@@ -2737,6 +2786,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 return result;
             }
         }
+        skip_inline:
 
         if (codegen_is_main_func(ctx, fn_name) && !import_binding && !ctx->current_module &&
             expr->as.call.arg_names == NULL) {  // Skip direct call when named args are used

@@ -10,6 +10,29 @@
 #include "codegen_internal.h"
 #include "codegen_expr_internal.h"
 
+/*
+ * Emit hml_closure_env_set with automatic boxing for unboxed variables.
+ * When capturing an unboxed variable (e.g., int32_t loop counter), it must be
+ * wrapped in the appropriate hml_val_*() constructor since the closure env
+ * stores HmlValue.
+ */
+static void emit_closure_env_set(CodegenContext *ctx, const char *env_name,
+                                  int index, const char *var_c_name,
+                                  const char *var_hml_name) {
+    CheckedTypeKind cap_type = CHECKED_UNKNOWN;
+    if (ctx->optimize && ctx->type_ctx) {
+        cap_type = type_check_get_unboxable(ctx->type_ctx, var_hml_name);
+    }
+    const char *box_func = (cap_type != CHECKED_UNKNOWN) ?
+                           checked_type_to_box_func(cap_type) : NULL;
+    if (box_func) {
+        codegen_writeln(ctx, "hml_closure_env_set(%s, %d, %s(%s));",
+                      env_name, index, box_func, var_c_name);
+    } else {
+        codegen_writeln(ctx, "hml_closure_env_set(%s, %d, %s);",
+                      env_name, index, var_c_name);
+    }
+}
 
 char* codegen_expr(CodegenContext *ctx, Expr *expr) {
     char *result = codegen_temp(ctx);
@@ -637,12 +660,15 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             find_free_vars_stmt(expr->as.function.body, func_scope, free_vars);
 
             // Filter out builtins and global functions from free vars
-            // (We only want to capture actual local variables)
+            // (We only want to capture actual local/shadow variables)
             FreeVarSet *captured = free_var_set_new();
             for (int i = 0; i < free_vars->num_vars; i++) {
                 const char *var = free_vars->vars[i];
-                // Check if it's a local variable in the current scope
-                if (codegen_is_local(ctx, var)) {
+                // Check if it's a local variable, shadow variable (catch params etc.),
+                // or a variable defined in the current block scope
+                if (codegen_is_local(ctx, var) ||
+                    codegen_is_shadow(ctx, var) ||
+                    (ctx->current_scope && scope_is_defined(ctx->current_scope, var))) {
                     free_var_set_add(captured, var);
                 }
             }
@@ -727,21 +753,32 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     int shared_idx = shared_env_get_index(ctx, captured->vars[i]);
                     if (shared_idx >= 0) {
                         // Determine which variable name to use:
+                        // Check block-scope and shadows BEFORE main vars to handle shadowing correctly
+                        // - Block-scoped vars shadow main vars - use bare name
+                        // - Shadow vars (catch params etc.) use bare name
                         // - Main file vars are stored as _main_<name> in C
                         // - Module-local vars are stored as <name> in C (sanitized)
-                        // - Module-local vars should shadow outer (main) vars with same name
                         if (ctx->current_module && codegen_is_local(ctx, captured->vars[i])) {
                             char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                            codegen_writeln(ctx, "hml_closure_env_set(%s, %d, %s);",
-                                          ctx->shared_env_name, shared_idx, safe_cap);
+                            emit_closure_env_set(ctx, ctx->shared_env_name, shared_idx, safe_cap, captured->vars[i]);
+                            free(safe_cap);
+                        } else if (ctx->current_scope && scope_is_defined(ctx->current_scope, captured->vars[i])) {
+                            // Block-local variable shadows any main var with the same name
+                            char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
+                            emit_closure_env_set(ctx, ctx->shared_env_name, shared_idx, safe_cap, captured->vars[i]);
+                            free(safe_cap);
+                        } else if (codegen_is_shadow(ctx, captured->vars[i])) {
+                            // Shadow variable (catch param etc.) - use bare name
+                            char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
+                            emit_closure_env_set(ctx, ctx->shared_env_name, shared_idx, safe_cap, captured->vars[i]);
                             free(safe_cap);
                         } else if (codegen_is_main_var(ctx, captured->vars[i])) {
-                            codegen_writeln(ctx, "hml_closure_env_set(%s, %d, _main_%s);",
-                                          ctx->shared_env_name, shared_idx, captured->vars[i]);
+                            char main_name[256];
+                            snprintf(main_name, sizeof(main_name), "_main_%s", captured->vars[i]);
+                            emit_closure_env_set(ctx, ctx->shared_env_name, shared_idx, main_name, captured->vars[i]);
                         } else {
                             char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                            codegen_writeln(ctx, "hml_closure_env_set(%s, %d, %s);",
-                                          ctx->shared_env_name, shared_idx, safe_cap);
+                            emit_closure_env_set(ctx, ctx->shared_env_name, shared_idx, safe_cap, captured->vars[i]);
                             free(safe_cap);
                         }
                     }
@@ -802,20 +839,34 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                               env_id, captured->num_vars);
                 for (int i = 0; i < captured->num_vars; i++) {
                     // Determine which variable name to use:
+                    // - Block-scoped vars shadow main vars - use bare name
+                    // - Shadow vars (catch params etc.) use bare name
                     // - Main file vars are stored as _main_<name> in C
                     // - Module-local vars are stored as sanitized name in C
+                    // Check block-scope and shadows BEFORE main vars to handle shadowing correctly
+                    char env_name_buf[64];
+                    snprintf(env_name_buf, sizeof(env_name_buf), "_env_%d", env_id);
                     if (ctx->current_module && codegen_is_local(ctx, captured->vars[i])) {
                         char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                        codegen_writeln(ctx, "hml_closure_env_set(_env_%d, %d, %s);",
-                                      env_id, i, safe_cap);
+                        emit_closure_env_set(ctx, env_name_buf, i, safe_cap, captured->vars[i]);
+                        free(safe_cap);
+                    } else if (ctx->current_scope && scope_is_defined(ctx->current_scope, captured->vars[i])) {
+                        // Block-local variable shadows any main var with the same name
+                        char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
+                        emit_closure_env_set(ctx, env_name_buf, i, safe_cap, captured->vars[i]);
+                        free(safe_cap);
+                    } else if (codegen_is_shadow(ctx, captured->vars[i])) {
+                        // Shadow variable (catch param etc.) - use bare name
+                        char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
+                        emit_closure_env_set(ctx, env_name_buf, i, safe_cap, captured->vars[i]);
                         free(safe_cap);
                     } else if (codegen_is_main_var(ctx, captured->vars[i])) {
-                        codegen_writeln(ctx, "hml_closure_env_set(_env_%d, %d, _main_%s);",
-                                      env_id, i, captured->vars[i]);
+                        char main_name[256];
+                        snprintf(main_name, sizeof(main_name), "_main_%s", captured->vars[i]);
+                        emit_closure_env_set(ctx, env_name_buf, i, main_name, captured->vars[i]);
                     } else {
                         char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                        codegen_writeln(ctx, "hml_closure_env_set(_env_%d, %d, %s);",
-                                      env_id, i, safe_cap);
+                        emit_closure_env_set(ctx, env_name_buf, i, safe_cap, captured->vars[i]);
                         free(safe_cap);
                     }
                 }

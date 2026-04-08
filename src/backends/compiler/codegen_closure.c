@@ -334,10 +334,11 @@ void scan_closures_stmt(CodegenContext *ctx, Stmt *stmt, Scope *local_scope) {
         case STMT_TRY:
             scan_closures_stmt(ctx, stmt->as.try_stmt.try_block, local_scope);
             if (stmt->as.try_stmt.catch_block) {
-                // Add catch param to scope so closures inside catch don't capture it
-                if (stmt->as.try_stmt.catch_param) {
-                    scope_add_var(local_scope, stmt->as.try_stmt.catch_param);
-                }
+                // NOTE: Do NOT add catch param to scope here. Closures inside
+                // the catch block need to capture it as a free variable since the
+                // catch param is only a C local in the catch block, not accessible
+                // from a closure's generated function. Non-closure code accesses it
+                // via the shadow system in codegen_stmt.c.
                 scan_closures_stmt(ctx, stmt->as.try_stmt.catch_block, local_scope);
             }
             if (stmt->as.try_stmt.finally_block) {
@@ -594,10 +595,10 @@ void find_free_vars_stmt(Stmt *stmt, Scope *local_scope, FreeVarSet *free_vars) 
         case STMT_TRY:
             find_free_vars_stmt(stmt->as.try_stmt.try_block, local_scope, free_vars);
             if (stmt->as.try_stmt.catch_block) {
-                // Add catch param to scope temporarily
-                if (stmt->as.try_stmt.catch_param) {
-                    scope_add_var(local_scope, stmt->as.try_stmt.catch_param);
-                }
+                // NOTE: Do NOT add catch param to scope here. If a closure inside
+                // the catch block references the catch param, it must be detected
+                // as a free variable so it gets captured in the closure environment.
+                // The catch param only exists as a C local in the catch block.
                 find_free_vars_stmt(stmt->as.try_stmt.catch_block, local_scope, free_vars);
             }
             if (stmt->as.try_stmt.finally_block) {
