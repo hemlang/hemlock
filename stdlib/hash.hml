@@ -105,12 +105,14 @@ export fn murmur3(input: string, seed?: 0): u32 {
 		h = (h ^ k1) & 4294967295;
 	}
 
-	// Finalization mix
+	// Finalization mix - use u32 constants to keep multiplication in wrapping u32 space
+	let fmix1: u32 = 2246822507;  // 0x85ebca6b
+	let fmix2: u32 = 3266489909;  // 0xc2b2ae35
 	h = (h ^ len) & 4294967295;
 	h = (h ^ h >> 16 & 4294967295) & 4294967295;
-	h = h * 2246822507 & 4294967295;  // 0x85ebca6b
+	h = h * fmix1 & 4294967295;
 	h = (h ^ h >> 13 & 4294967295) & 4294967295;
-	h = h * 3266489909 & 4294967295;  // 0xc2b2ae35
+	h = h * fmix2 & 4294967295;
 	h = (h ^ h >> 16 & 4294967295) & 4294967295;
 
 	return h;

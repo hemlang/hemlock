@@ -7,7 +7,7 @@ try {
     let y: i8 = x + 1;
     print("ERROR: i8 overflow should have been caught");
 } catch (e) {
-    print("i8 overflow caught: " + e);
+    print("i8 overflow caught");
 }
 
 // i8 underflow
@@ -16,7 +16,7 @@ try {
     let y: i8 = x - 1;
     print("ERROR: i8 underflow should have been caught");
 } catch (e) {
-    print("i8 underflow caught: " + e);
+    print("i8 underflow caught");
 }
 
 // i16 overflow
@@ -25,16 +25,16 @@ try {
     let y: i16 = x + 1;
     print("ERROR: i16 overflow should have been caught");
 } catch (e) {
-    print("i16 overflow caught: " + e);
+    print("i16 overflow caught");
 }
 
-// i32 overflow - test if detected
+// i32 overflow
 try {
     let x: i32 = 2147483647;
     let y: i32 = x + 1;
-    print("i32 overflow not caught, result: " + typeof(y));
+    print("ERROR: i32 overflow should have been caught");
 } catch (e) {
-    print("i32 overflow caught: " + e);
+    print("i32 overflow caught");
 }
 
 // u8 overflow
@@ -43,7 +43,7 @@ try {
     let y: u8 = x + 1;
     print("ERROR: u8 overflow should have been caught");
 } catch (e) {
-    print("u8 overflow caught: " + e);
+    print("u8 overflow caught");
 }
 
 // u16 overflow
@@ -52,16 +52,12 @@ try {
     let y: u16 = x + 1;
     print("ERROR: u16 overflow should have been caught");
 } catch (e) {
-    print("u16 overflow caught: " + e);
+    print("u16 overflow caught");
 }
 
-// u32 overflow
-try {
-    let x: u32 = 4294967295;
-    let y: u32 = x + 1;
-    print("u32 overflow not caught or detected");
-} catch (e) {
-    print("u32 overflow caught: " + e);
-}
+// u32 wraps (unsigned arithmetic wraps by design)
+let x2: u32 = 4294967295;
+let y2: u32 = x2 + 1;
+print("u32 wraps to: " + y2);
 
 print("PASS");

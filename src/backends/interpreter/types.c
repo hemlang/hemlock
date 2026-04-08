@@ -1623,15 +1623,15 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
     } else if (value.type == VAL_STRING && target_kind == TYPE_BOOL) {
         // String to bool via type annotation is not allowed
         // Use explicit conversion: bool("true") or bool("false")
-        fprintf(stderr, "Runtime error: Cannot convert string to bool via type annotation. Use bool(\"...\") instead.\n");
-        exit(1);
+        runtime_error(ctx, "Cannot convert string to bool via type annotation. Use bool(\"...\") instead.");
+        return val_null();
     } else if (value.type == VAL_STRING && is_numeric_type(target_kind)) {
         // String to numeric via type annotation is not allowed
         // Use explicit conversion: i32("42"), f64("3.14"), etc.
         const char *type_name = type_kind_to_string(target_kind);
-        fprintf(stderr, "Runtime error: Cannot convert string to %s via type annotation. Use %s(\"...\") instead.\n",
+        runtime_error(ctx, "Cannot convert string to %s via type annotation. Use %s(\"...\") instead.",
                 type_name, type_name);
-        exit(1);
+        return val_null();
     } else if (value.type == VAL_BOOL && target_kind == TYPE_BOOL) {
         return value;  // Bool to bool, ok
     } else if (value.type == VAL_NULL && target_kind == TYPE_NULL) {
@@ -1656,8 +1656,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
                 int_val = (int64_t)float_val;
             }
             if (int_val < HML_I8_MIN || int_val > HML_I8_MAX) {
-                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i8 [%d, %d]\n", int_val, HML_I8_MIN, HML_I8_MAX);
-                exit(1);
+                runtime_error(ctx, "Value %" PRId64 " out of range for i8 [%d, %d]", int_val, HML_I8_MIN, HML_I8_MAX);
+                return val_null();
             }
             return val_i8((int8_t)int_val);
 
@@ -1666,8 +1666,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
                 int_val = (int64_t)float_val;
             }
             if (int_val < HML_I16_MIN || int_val > HML_I16_MAX) {
-                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i16 [%d, %d]\n", int_val, HML_I16_MIN, HML_I16_MAX);
-                exit(1);
+                runtime_error(ctx, "Value %" PRId64 " out of range for i16 [%d, %d]", int_val, HML_I16_MIN, HML_I16_MAX);
+                return val_null();
             }
             return val_i16((int16_t)int_val);
 
@@ -1676,8 +1676,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
                 int_val = (int64_t)float_val;
             }
             if (int_val < HML_I32_MIN || int_val > HML_I32_MAX) {
-                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i32 [%lld, %lld]\n", int_val, (long long)HML_I32_MIN, (long long)HML_I32_MAX);
-                exit(1);
+                runtime_error(ctx, "Value %" PRId64 " out of range for i32 [%lld, %lld]", int_val, (long long)HML_I32_MIN, (long long)HML_I32_MAX);
+                return val_null();
             }
             return val_i32((int32_t)int_val);
 
@@ -1694,8 +1694,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
                 int_val = (int64_t)float_val;
             }
             if (int_val < 0 || int_val > HML_U8_MAX) {
-                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u8 [0, %d]\n", int_val, HML_U8_MAX);
-                exit(1);
+                runtime_error(ctx, "Value %" PRId64 " out of range for u8 [0, %d]", int_val, HML_U8_MAX);
+                return val_null();
             }
             return val_u8((uint8_t)int_val);
 
@@ -1704,8 +1704,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
                 int_val = (int64_t)float_val;
             }
             if (int_val < 0 || int_val > HML_U16_MAX) {
-                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u16 [0, %d]\n", int_val, HML_U16_MAX);
-                exit(1);
+                runtime_error(ctx, "Value %" PRId64 " out of range for u16 [0, %d]", int_val, HML_U16_MAX);
+                return val_null();
             }
             return val_u16((uint16_t)int_val);
 
@@ -1714,8 +1714,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
                 int_val = (int64_t)float_val;
             }
             if (int_val < 0 || int_val > HML_U32_MAX) {
-                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u32 [0, %lld]\n", int_val, (long long)HML_U32_MAX);
-                exit(1);
+                runtime_error(ctx, "Value %" PRId64 " out of range for u32 [0, %lld]", int_val, (long long)HML_U32_MAX);
+                return val_null();
             }
             return val_u32((uint32_t)int_val);
 
@@ -1724,8 +1724,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
                 int_val = (int64_t)float_val;
             }
             if (int_val < 0) {
-                fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u64 [0, 18446744073709551615]\n", int_val);
-                exit(1);
+                runtime_error(ctx, "Value %" PRId64 " out of range for u64 [0, 18446744073709551615]", int_val);
+                return val_null();
             }
             return val_u64((uint64_t)int_val);
 
@@ -1782,8 +1782,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
                 snprintf(buf, sizeof(buf), "%.17g", fval);
                 return val_string(buf);
             }
-            fprintf(stderr, "Runtime error: Cannot convert to string\n");
-            exit(1);
+            runtime_error(ctx, "Cannot convert to string");
+            return val_null();
 
         case TYPE_RUNE:
             if (value.type == VAL_RUNE) {
@@ -1793,34 +1793,34 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             if (is_integer(value)) {
                 int64_t codepoint = value_to_int(value);
                 if (codepoint < 0 || codepoint > 0x10FFFF) {
-                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for rune [0, 0x10FFFF]\n", codepoint);
-                    exit(1);
+                    runtime_error(ctx, "Value %" PRId64 " out of range for rune [0, 0x10FFFF]", codepoint);
+                    return val_null();
                 }
                 return val_rune((uint32_t)codepoint);
             }
-            fprintf(stderr, "Runtime error: Cannot convert to rune\n");
-            exit(1);
+            runtime_error(ctx, "Cannot convert to rune");
+            return val_null();
 
         case TYPE_PTR:
             if (value.type == VAL_PTR) {
                 return value;
             }
-            fprintf(stderr, "Runtime error: Cannot convert to ptr\n");
-            exit(1);
+            runtime_error(ctx, "Cannot convert to ptr");
+            return val_null();
 
         case TYPE_BUFFER:
             if (value.type == VAL_BUFFER) {
                 return value;
             }
-            fprintf(stderr, "Runtime error: Cannot convert to buffer\n");
-            exit(1);
+            runtime_error(ctx, "Cannot convert to buffer");
+            return val_null();
 
         case TYPE_ARRAY:
             if (value.type == VAL_ARRAY) {
                 return value;
             }
-            fprintf(stderr, "Runtime error: Cannot convert to array\n");
-            exit(1);
+            runtime_error(ctx, "Cannot convert to array");
+            return val_null();
 
         case TYPE_NULL:
             return val_null();
@@ -1831,31 +1831,31 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         case TYPE_ENUM:
             // Enum type should be handled earlier in the function
             // If we reach here, something went wrong
-            fprintf(stderr, "Runtime error: Enum type should be handled earlier\n");
-            exit(1);
+            runtime_error(ctx, "Enum type should be handled earlier");
+            return val_null();
 
         case TYPE_VOID:
             // Void type is only used for FFI function return types
             // Should not be converted to in normal code
-            fprintf(stderr, "Runtime error: Cannot convert to void type\n");
-            exit(1);
+            runtime_error(ctx, "Cannot convert to void type");
+            return val_null();
 
         case TYPE_CUSTOM_OBJECT:
         case TYPE_GENERIC_OBJECT:
             // These should have been handled above in the early return
-            fprintf(stderr, "Runtime error: Internal error - object type not handled properly\n");
-            exit(1);
+            runtime_error(ctx, "Internal error - object type not handled properly");
+            return val_null();
 
         case TYPE_PARAM:
             // Type parameters should be substituted before reaching this point
             // If we get here, it means we're using a generic type without type arguments
-            fprintf(stderr, "Runtime error: Unresolved type parameter - generic type requires type arguments\n");
-            exit(1);
+            runtime_error(ctx, "Unresolved type parameter - generic type requires type arguments");
+            return val_null();
 
         case TYPE_COMPOUND:
             // Compound types are handled earlier in this function
-            fprintf(stderr, "Runtime error: Internal error - compound type not handled properly\n");
-            exit(1);
+            runtime_error(ctx, "Internal error - compound type not handled properly");
+            return val_null();
 
         case TYPE_FUNCTION:
             // Function types are used for type annotations on callbacks
@@ -1863,17 +1863,17 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             if (value.type == VAL_FUNCTION) {
                 return value;
             }
-            fprintf(stderr, "Runtime error: Expected function value\n");
-            exit(1);
+            runtime_error(ctx, "Expected function value");
+            return val_null();
 
         case TYPE_SELF:
             // Self type should be substituted with the concrete type before runtime
-            fprintf(stderr, "Runtime error: Unresolved Self type - should be substituted before runtime\n");
-            exit(1);
+            runtime_error(ctx, "Unresolved Self type - should be substituted before runtime");
+            return val_null();
     }
 
-    fprintf(stderr, "Runtime error: Unknown type conversion\n");
-    exit(1);
+    runtime_error(ctx, "Unknown type conversion");
+    return val_null();
 }
 
 // Parse a value to a target type (for type constructors like i32("42"))
@@ -1898,8 +1898,8 @@ Value parse_string_to_type(Value value, Type *target_type, Environment *env, Exe
             str->data[2] == 'l' && str->data[3] == 's' && str->data[4] == 'e') {
             return val_bool(0);
         }
-        fprintf(stderr, "Runtime error: Cannot parse string as bool (expected 'true' or 'false')\n");
-        exit(1);
+        runtime_error(ctx, "Cannot parse string as bool (expected 'true' or 'false')");
+        return val_null();
     } else if (value.type == VAL_STRING && is_numeric_type(target_kind)) {
         // String to numeric conversion - parse the string
         String *str = value.as.as_string;
@@ -1929,23 +1929,23 @@ Value parse_string_to_type(Value value, Type *target_type, Environment *env, Exe
             if (has_decimal) {
                 float_val = strtod(cstr, &endptr);
                 if (endptr == cstr || *endptr != '\0') {
-                    fprintf(stderr, "Runtime error: Cannot parse '%s' as number\n", cstr);
+                    runtime_error(ctx, "Cannot parse '%s' as number", cstr);
                     free(cstr);
-                    exit(1);
+                    return val_null();
                 }
                 is_float = 1;
             } else {
                 int_val = strtoll(cstr, &endptr, 0);  // base 0 supports hex, octal
                 if (endptr == cstr || *endptr != '\0') {
-                    fprintf(stderr, "Runtime error: Cannot parse '%s' as integer\n", cstr);
+                    runtime_error(ctx, "Cannot parse '%s' as integer", cstr);
                     free(cstr);
-                    exit(1);
+                    return val_null();
                 }
             }
             free(cstr);
         } else {
-            fprintf(stderr, "Runtime error: Cannot convert empty string to number\n");
-            exit(1);
+            runtime_error(ctx, "Cannot convert empty string to number");
+            return val_null();
         }
 
         // Now convert to target type with range checking
@@ -1953,24 +1953,24 @@ Value parse_string_to_type(Value value, Type *target_type, Environment *env, Exe
             case TYPE_I8:
                 if (is_float) int_val = (int64_t)float_val;
                 if (int_val < -128 || int_val > 127) {
-                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i8 [-128, 127]\n", int_val);
-                    exit(1);
+                    runtime_error(ctx, "Value %" PRId64 " out of range for i8 [-128, 127]", int_val);
+                    return val_null();
                 }
                 return val_i8((int8_t)int_val);
 
             case TYPE_I16:
                 if (is_float) int_val = (int64_t)float_val;
                 if (int_val < -32768 || int_val > 32767) {
-                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i16 [-32768, 32767]\n", int_val);
-                    exit(1);
+                    runtime_error(ctx, "Value %" PRId64 " out of range for i16 [-32768, 32767]", int_val);
+                    return val_null();
                 }
                 return val_i16((int16_t)int_val);
 
             case TYPE_I32:
                 if (is_float) int_val = (int64_t)float_val;
                 if (int_val < HML_I32_MIN || int_val > HML_I32_MAX) {
-                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for i32\n", int_val);
-                    exit(1);
+                    runtime_error(ctx, "Value %" PRId64 " out of range for i32", int_val);
+                    return val_null();
                 }
                 return val_i32((int32_t)int_val);
 
@@ -1981,32 +1981,32 @@ Value parse_string_to_type(Value value, Type *target_type, Environment *env, Exe
             case TYPE_U8:
                 if (is_float) int_val = (int64_t)float_val;
                 if (int_val < 0 || int_val > HML_U8_MAX) {
-                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u8 [0, %d]\n", int_val, HML_U8_MAX);
-                    exit(1);
+                    runtime_error(ctx, "Value %" PRId64 " out of range for u8 [0, %d]", int_val, HML_U8_MAX);
+                    return val_null();
                 }
                 return val_u8((uint8_t)int_val);
 
             case TYPE_U16:
                 if (is_float) int_val = (int64_t)float_val;
                 if (int_val < 0 || int_val > HML_U16_MAX) {
-                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u16 [0, %d]\n", int_val, HML_U16_MAX);
-                    exit(1);
+                    runtime_error(ctx, "Value %" PRId64 " out of range for u16 [0, %d]", int_val, HML_U16_MAX);
+                    return val_null();
                 }
                 return val_u16((uint16_t)int_val);
 
             case TYPE_U32:
                 if (is_float) int_val = (int64_t)float_val;
                 if (int_val < 0 || int_val > HML_U32_MAX) {
-                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u32\n", int_val);
-                    exit(1);
+                    runtime_error(ctx, "Value %" PRId64 " out of range for u32", int_val);
+                    return val_null();
                 }
                 return val_u32((uint32_t)int_val);
 
             case TYPE_U64:
                 if (is_float) int_val = (int64_t)float_val;
                 if (int_val < 0) {
-                    fprintf(stderr, "Runtime error: Value %" PRId64 " out of range for u64\n", int_val);
-                    exit(1);
+                    runtime_error(ctx, "Value %" PRId64 " out of range for u64", int_val);
+                    return val_null();
                 }
                 return val_u64((uint64_t)int_val);
 
