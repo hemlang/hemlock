@@ -1132,6 +1132,16 @@ HmlValue hml_builtin_atomic_exchange_i64(HmlClosureEnv *env, HmlValue ptr, HmlVa
 
 HmlValue hml_builtin_atomic_fence(HmlClosureEnv *env);
 
+// ========== MEMORY-MAPPED FILE I/O ==========
+
+HmlValue hml_builtin_mmap_open(HmlClosureEnv *env, HmlValue path, HmlValue mode);
+HmlValue hml_builtin_mmap_open_anon(HmlClosureEnv *env, HmlValue size);
+HmlValue hml_builtin_mmap_sync(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_mmap_close(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_mmap_size(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_mmap_advise(HmlClosureEnv *env, HmlValue ptr, HmlValue advice);
+HmlValue hml_builtin_mmap_protect(HmlClosureEnv *env, HmlValue ptr, HmlValue prot);
+
 // ========== BYTE ORDER OPERATIONS ==========
 
 // Byte swap functions
