@@ -464,6 +464,7 @@ analyze-clean:
 COMPILER_SRCS = $(SRC_DIR)/backends/compiler/main.c \
                 $(wildcard $(SRC_DIR)/backends/compiler/codegen*.c) \
                 $(TYPECHECK_SRCS) \
+                $(SHARED_SRCS) \
                 $(FRONTEND_COMPILER_SRCS)
 
 COMPILER_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(COMPILER_SRCS))

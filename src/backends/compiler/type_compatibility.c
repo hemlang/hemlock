@@ -5,6 +5,7 @@
  */
 
 #include "type_check_internal.h"
+#include "type_promotion.h"
 
 // ========== TYPE COMPATIBILITY ==========
 
@@ -169,34 +170,33 @@ CheckedType* type_common(CheckedType *a, CheckedType *b) {
     if (a->kind == CHECKED_ANY) return checked_type_clone(b);
     if (b->kind == CHECKED_ANY) return checked_type_clone(a);
 
-    // Numeric promotion
+    // Numeric promotion using shared rules
     if (type_is_numeric(a) && type_is_numeric(b)) {
-        // Float wins over integer
-        if (type_is_float(a) || type_is_float(b)) {
-            if (a->kind == CHECKED_F64 || b->kind == CHECKED_F64) {
-                return checked_type_primitive(CHECKED_F64);
-            }
-            // f32 with i64/u64 should promote to f64 to preserve precision
-            // (f32 has only 24-bit mantissa, i64/u64 need 53+ bits)
-            if (a->kind == CHECKED_I64 || a->kind == CHECKED_U64 ||
-                b->kind == CHECKED_I64 || b->kind == CHECKED_U64) {
-                return checked_type_primitive(CHECKED_F64);
-            }
-            return checked_type_primitive(CHECKED_F32);
-        }
-
-        // Larger integer wins
-        int sizes[] = {
-            [CHECKED_I8] = 1, [CHECKED_U8] = 1,
-            [CHECKED_I16] = 2, [CHECKED_U16] = 2,
-            [CHECKED_I32] = 4, [CHECKED_U32] = 4,
-            [CHECKED_I64] = 8, [CHECKED_U64] = 8,
+        static const HmlTypeKind checked_to_tk_map[] = {
+            [CHECKED_I8]  = HML_TK_I8,  [CHECKED_I16] = HML_TK_I16,
+            [CHECKED_I32] = HML_TK_I32, [CHECKED_I64] = HML_TK_I64,
+            [CHECKED_U8]  = HML_TK_U8,  [CHECKED_U16] = HML_TK_U16,
+            [CHECKED_U32] = HML_TK_U32, [CHECKED_U64] = HML_TK_U64,
+            [CHECKED_F32] = HML_TK_F32, [CHECKED_F64] = HML_TK_F64,
         };
-        int size_a = (a->kind <= CHECKED_U64) ? sizes[a->kind] : 4;
-        int size_b = (b->kind <= CHECKED_U64) ? sizes[b->kind] : 4;
+        HmlTypeKind ta = checked_to_tk_map[a->kind];
+        HmlTypeKind tb = checked_to_tk_map[b->kind];
+        HmlTypeKind result = hml_tk_promote(ta, tb);
 
-        if (size_a >= size_b) return checked_type_clone(a);
-        return checked_type_clone(b);
+        // Map back to CheckedTypeKind
+        switch (result) {
+            case HML_TK_I8:  return checked_type_primitive(CHECKED_I8);
+            case HML_TK_I16: return checked_type_primitive(CHECKED_I16);
+            case HML_TK_I32: return checked_type_primitive(CHECKED_I32);
+            case HML_TK_I64: return checked_type_primitive(CHECKED_I64);
+            case HML_TK_U8:  return checked_type_primitive(CHECKED_U8);
+            case HML_TK_U16: return checked_type_primitive(CHECKED_U16);
+            case HML_TK_U32: return checked_type_primitive(CHECKED_U32);
+            case HML_TK_U64: return checked_type_primitive(CHECKED_U64);
+            case HML_TK_F32: return checked_type_primitive(CHECKED_F32);
+            case HML_TK_F64: return checked_type_primitive(CHECKED_F64);
+            default:         return checked_type_primitive(CHECKED_ANY);
+        }
     }
 
     // String concatenation

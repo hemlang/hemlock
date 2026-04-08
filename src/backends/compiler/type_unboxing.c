@@ -7,6 +7,53 @@
  */
 
 #include "type_check_internal.h"
+#include "type_promotion.h"
+
+// ========== CHECKED <-> SHARED TYPE MAPPING ==========
+
+static HmlTypeKind checked_to_tk(CheckedTypeKind kind) {
+    switch (kind) {
+        case CHECKED_I8:   return HML_TK_I8;
+        case CHECKED_I16:  return HML_TK_I16;
+        case CHECKED_I32:  return HML_TK_I32;
+        case CHECKED_I64:  return HML_TK_I64;
+        case CHECKED_U8:   return HML_TK_U8;
+        case CHECKED_U16:  return HML_TK_U16;
+        case CHECKED_U32:  return HML_TK_U32;
+        case CHECKED_U64:  return HML_TK_U64;
+        case CHECKED_F32:  return HML_TK_F32;
+        case CHECKED_F64:  return HML_TK_F64;
+        case CHECKED_RUNE: return HML_TK_RUNE;
+        case CHECKED_BOOL: return HML_TK_BOOL;
+        default:           return HML_TK_OTHER;
+    }
+}
+
+static CheckedTypeKind tk_to_checked(HmlTypeKind tk) {
+    switch (tk) {
+        case HML_TK_I8:   return CHECKED_I8;
+        case HML_TK_I16:  return CHECKED_I16;
+        case HML_TK_I32:  return CHECKED_I32;
+        case HML_TK_I64:  return CHECKED_I64;
+        case HML_TK_U8:   return CHECKED_U8;
+        case HML_TK_U16:  return CHECKED_U16;
+        case HML_TK_U32:  return CHECKED_U32;
+        case HML_TK_U64:  return CHECKED_U64;
+        case HML_TK_F32:  return CHECKED_F32;
+        case HML_TK_F64:  return CHECKED_F64;
+        case HML_TK_RUNE: return CHECKED_RUNE;
+        case HML_TK_BOOL: return CHECKED_BOOL;
+        default:           return CHECKED_UNKNOWN;
+    }
+}
+
+// Promote two CheckedTypeKinds using the shared type promotion rules
+static CheckedTypeKind checked_promote(CheckedTypeKind a, CheckedTypeKind b) {
+    HmlTypeKind ta = checked_to_tk(a);
+    HmlTypeKind tb = checked_to_tk(b);
+    if (ta == HML_TK_OTHER || tb == HML_TK_OTHER) return CHECKED_UNKNOWN;
+    return tk_to_checked(hml_tk_promote(ta, tb));
+}
 
 // ========== UNBOXING OPTIMIZATION ==========
 
@@ -394,26 +441,8 @@ CheckedTypeKind infer_expr_native_type(TypeCheckContext *ctx, Expr *expr) {
                 return CHECKED_BOOL;
             }
 
-            // Type promotion for arithmetic/bitwise operators
-            // Float always wins
-            if (left == CHECKED_F64 || right == CHECKED_F64) return CHECKED_F64;
-            if (left == CHECKED_F32 || right == CHECKED_F32) {
-                // i64/u64 + f32 -> f64 to preserve precision
-                if (left == CHECKED_I64 || left == CHECKED_U64 ||
-                    right == CHECKED_I64 || right == CHECKED_U64) {
-                    return CHECKED_F64;
-                }
-                return CHECKED_F32;
-            }
-
-            // Integer promotion: i64 > i32 > smaller types
-            if (left == CHECKED_I64 || right == CHECKED_I64) return CHECKED_I64;
-            if (left == CHECKED_U64 || right == CHECKED_U64) return CHECKED_U64;
-            if (left == CHECKED_I32 || right == CHECKED_I32) return CHECKED_I32;
-            if (left == CHECKED_U32 || right == CHECKED_U32) return CHECKED_U32;
-
-            // For smaller integers, promote to i32
-            return CHECKED_I32;
+            // Use shared type promotion rules (matches interpreter exactly)
+            return checked_promote(left, right);
         }
 
         case EXPR_UNARY:
