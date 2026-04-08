@@ -1,0 +1,93 @@
+// Test @stdlib/decimal - decimal formatting, number parsing, string building
+import { to_fixed, to_precision, to_hex, to_oct, to_bin, number_to_string } from "@stdlib/decimal";
+import { parse_int, parse_float } from "@stdlib/decimal";
+import { sb_new, sb_append, sb_prepend, sb_to_string, sb_join, sb_count, sb_clear } from "@stdlib/decimal";
+
+// ---- to_fixed ----
+print(to_fixed(3.14159, 2));
+print(to_fixed(3, 4));
+print(to_fixed(0, 3));
+print(to_fixed(-1.5, 0));
+print(to_fixed(42));
+print(to_fixed(9.999, 2));
+print(to_fixed(0.1, 1));
+print(to_fixed(100.0, 0));
+
+// ---- to_precision ----
+print(to_precision(3.14159, 3));
+print(to_precision(0.001234, 3));
+print(to_precision(1234, 2));
+print(to_precision(0, 3));
+print(to_precision(123.456, 5));
+
+// ---- to_hex ----
+print(to_hex(255));
+print(to_hex(0));
+print(to_hex(16));
+print(to_hex(4096));
+
+// ---- to_oct ----
+print(to_oct(8));
+print(to_oct(64));
+print(to_oct(0));
+print(to_oct(511));
+
+// ---- to_bin ----
+print(to_bin(10));
+print(to_bin(255));
+print(to_bin(0));
+print(to_bin(1));
+
+// ---- number_to_string ----
+print(number_to_string(255, 16));
+print(number_to_string(10, 2));
+print(number_to_string(35, 36));
+print(number_to_string(100));
+
+// ---- parse_int ----
+print(parse_int("42"));
+print(parse_int("-100"));
+print(parse_int("ff", 16));
+print(parse_int("777", 8));
+print(parse_int("1010", 2));
+print(parse_int("0xff"));
+print(parse_int("0o77"));
+print(parse_int("0b1010"));
+print(parse_int("1_000"));
+
+// ---- parse_float ----
+print(parse_float("3.14"));
+print(parse_float("-0.5"));
+print(parse_float(".5"));
+print(parse_float("1.5e3"));
+
+// ---- StringBuilder ----
+let sb = sb_new();
+print(sb_count(sb));
+sb_append(sb, "Hello");
+sb_append(sb, " ");
+sb_append(sb, "World");
+print(sb_to_string(sb));
+print(sb_count(sb));
+
+sb_prepend(sb, ">> ");
+print(sb_to_string(sb));
+
+let sb2 = sb_new();
+sb_append(sb2, "a");
+sb_append(sb2, "b");
+sb_append(sb2, "c");
+print(sb_join(sb2, ","));
+
+sb_clear(sb2);
+print(sb_count(sb2));
+print(sb_to_string(sb2));
+
+// ---- sb with numbers ----
+let sb3 = sb_new();
+sb_append(sb3, 42);
+sb_append(sb3, true);
+sb_append(sb3, 3.14);
+print(sb_to_string(sb3));
+
+print("done");

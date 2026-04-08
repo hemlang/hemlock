@@ -1,0 +1,52 @@
+// Test @stdlib/decimal to_precision function
+import { to_precision } from "@stdlib/decimal";
+
+print("Testing to_precision...");
+
+// Basic usage
+print(to_precision(3.14159, 3) == "3.14");
+print(to_precision(3.14159, 5) == "3.1416");
+print(to_precision(3.14159, 1) == "3");
+
+// Small numbers
+print(to_precision(0.001234, 3) == "0.00123");
+print(to_precision(0.001234, 1) == "0.001");
+
+// Large numbers (trailing zeros implied)
+print(to_precision(1234, 2) == "1200");
+print(to_precision(9876, 3) == "9880");
+
+// Zero
+print(to_precision(0, 1) == "0");
+print(to_precision(0, 3) == "0.00");
+
+// Mixed integer and fractional
+print(to_precision(123.456, 5) == "123.46");
+print(to_precision(123.456, 4) == "123.5");
+
+// Negative numbers
+print(to_precision(-3.14, 2) == "-3.1");
+print(to_precision(-0.00456, 2) == "-0.0046");
+
+// Exact value
+print(to_precision(1.0, 1) == "1");
+print(to_precision(10.0, 2) == "10");
+
+// Error handling
+let caught = false;
+try {
+    to_precision(1.0, 0);
+} catch (e) {
+    caught = true;
+}
+print(caught == true);
+
+caught = false;
+try {
+    to_precision(1.0, 22);
+} catch (e) {
+    caught = true;
+}
+print(caught == true);
+
+print("All to_precision tests passed!");

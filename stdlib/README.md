@@ -186,6 +186,17 @@ Advanced string utilities beyond the 18 built-in methods:
 
 See [docs/strings.md](docs/strings.md) for detailed documentation.
 
+### Decimal (`@stdlib/decimal`)
+**Status:** Complete
+
+Decimal formatting, number parsing, and string building:
+- **Fixed formatting:** to_fixed, to_precision - Control decimal places and significant figures
+- **Base conversion:** to_hex, to_oct, to_bin, number_to_string - Integer to string in any base
+- **Number parsing:** parse_int, parse_float - String to number with radix and prefix support
+- **StringBuilder:** sb_new, sb_append, sb_prepend, sb_to_string, sb_join, sb_clear
+
+See [docs/decimal.md](docs/decimal.md) for detailed documentation.
+
 ### Encoding (`@stdlib/encoding`)
 **Status:** Complete
 
@@ -257,6 +268,7 @@ import { get, post, fetch } from "@stdlib/http";
 import { WebSocket, WebSocketServer } from "@stdlib/websocket";
 import { parse, stringify, pretty, get, set } from "@stdlib/json";
 import { pad_left, is_alpha, reverse, lines, words } from "@stdlib/strings";
+import { to_fixed, to_hex, parse_int, parse_float, sb_new, sb_append } from "@stdlib/decimal";
 import { base64_encode, base64_decode, hex_encode, url_encode } from "@stdlib/encoding";
 import { describe, test, expect, assert_eq, run } from "@stdlib/testing";
 import { Logger, DEBUG, INFO, WARN, ERROR } from "@stdlib/logging";
@@ -272,6 +284,7 @@ import * as http from "@stdlib/http";
 import * as ws from "@stdlib/websocket";
 import * as json from "@stdlib/json";
 import * as strings from "@stdlib/strings";
+import * as decimal from "@stdlib/decimal";
 import * as encoding from "@stdlib/encoding";
 import * as testing from "@stdlib/testing";
 import * as logging from "@stdlib/logging";
@@ -451,6 +464,25 @@ let text_lines = lines("line1\nline2\nline3");  // ["line1", "line2", "line3"]
 let word_list = words("the quick brown fox");   // ["the", "quick", "brown", "fox"]
 ```
 
+### Decimal
+```hemlock
+import { to_fixed, to_hex, parse_int, sb_new, sb_append, sb_to_string } from "@stdlib/decimal";
+
+// Format numbers
+print(to_fixed(3.14159, 2));  // "3.14"
+print(to_hex(255));            // "ff"
+
+// Parse strings to numbers
+let port = parse_int("8080");       // 8080
+let color = parse_int("0xFF8800");  // 16746496
+
+// Build strings efficiently
+let sb = sb_new();
+sb_append(sb, "Hello ");
+sb_append(sb, "World");
+print(sb_to_string(sb));  // "Hello World"
+```
+
 ### Encoding
 ```hemlock
 import { base64_encode, hex_encode, url_encode } from "@stdlib/encoding";
@@ -503,6 +535,7 @@ stdlib/
 ├── websocket_pure.hml  # WebSocket pure Hemlock implementation (educational)
 ├── json.hml            # JSON module (pure Hemlock)
 ├── strings.hml         # String utilities module (pure Hemlock)
+├── decimal.hml         # Decimal formatting, parsing, StringBuilder (pure Hemlock)
 ├── encoding.hml        # Encoding module (pure Hemlock)
 ├── testing.hml         # Testing framework (pure Hemlock)
 ├── c/                  # C FFI wrappers (compiled with 'make stdlib')
@@ -520,6 +553,7 @@ stdlib/
     ├── websocket.md    # WebSocket API reference
     ├── json.md         # JSON API reference
     ├── strings.md      # Strings API reference
+    ├── decimal.md      # Decimal API reference
     ├── encoding.md     # Encoding API reference
     └── testing.md      # Testing API reference
 ```
@@ -565,6 +599,7 @@ See `STDLIB_ANALYSIS_UPDATED.md` and `STDLIB_NETWORKING_DESIGN.md` for detailed 
 | websocket | ✅ Production (libwebsockets) | ✅ Complete | ✅ Good | 318 | High |
 | json | ✅ Comprehensive | ✅ Complete | ✅ Good | 550+ | High |
 | strings | ✅ Complete | ✅ Complete | ✅ Comprehensive | 293 | High |
+| decimal | ✅ Complete | ✅ Complete | ✅ Comprehensive | 370 | High |
 | encoding | ✅ Complete | ✅ Complete | ✅ Comprehensive | 370 | High |
 | testing | ✅ Complete | ✅ Complete | ✅ Good | 410 | High |
 
