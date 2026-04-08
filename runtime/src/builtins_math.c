@@ -90,7 +90,7 @@ HmlValue hml_divi(HmlValue a, HmlValue b) {
     double ad = hml_to_f64(a);
     double bd = hml_to_f64(b);
     if (bd == 0.0) hml_runtime_error("Division by zero");
-    return hml_val_i64((int64_t)floor(ad / bd));
+    return hml_val_i64((int64_t)trunc(ad / bd));
 }
 
 // ========== MISC MATH FUNCTIONS ==========
