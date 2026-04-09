@@ -1,0 +1,563 @@
+// Hemlock Standard Library: Matrix Operations
+// Dense matrix operations for linear algebra and numeric computation
+
+import { sqrt, abs } from "@stdlib/math";
+
+// ========== MATRIX CONSTRUCTOR ==========
+
+// Create a matrix with given dimensions, initialized to zero
+// Returns an object with methods for matrix operations
+export fn Matrix(rows: i32, cols: i32) {
+	if (rows <= 0 || cols <= 0) {
+		throw "Matrix dimensions must be positive";
+	}
+
+	let data = [];
+	let total = rows * cols;
+	for (let i = 0; i < total; i++) {
+		data.push(0.0);
+	}
+
+	fn idx(r, c) {
+		return r * cols + c;
+	}
+
+	fn check_bounds(r, c) {
+		if (r < 0 || r >= rows || c < 0 || c >= cols) {
+			throw "Matrix index out of bounds: (" + r + ", " + c + ") for " + rows + "x" + cols + " matrix";
+		}
+	}
+
+	let mat = {
+		rows: rows,
+		cols: cols,
+
+		// Get element at (r, c)
+		get: fn(r: i32, c: i32): f64 {
+			check_bounds(r, c);
+			return data[idx(r, c)];
+		},
+
+		// Set element at (r, c)
+		set: fn(r: i32, c: i32, val: f64) {
+			check_bounds(r, c);
+			data[idx(r, c)] = val;
+		},
+
+		// Get a row as an array
+		row: fn(r: i32): array {
+			if (r < 0 || r >= rows) {
+				throw "Row index out of bounds: " + r;
+			}
+			let result = [];
+			for (let c = 0; c < cols; c++) {
+				result.push(data[idx(r, c)]);
+			}
+			return result;
+		},
+
+		// Get a column as an array
+		col: fn(c: i32): array {
+			if (c < 0 || c >= cols) {
+				throw "Column index out of bounds: " + c;
+			}
+			let result = [];
+			for (let r = 0; r < rows; r++) {
+				result.push(data[idx(r, c)]);
+			}
+			return result;
+		},
+
+		// Return a flat copy of the underlying data
+		to_array: fn(): array {
+			let result = [];
+			for (let i = 0; i < total; i++) {
+				result.push(data[i]);
+			}
+			return result;
+		},
+
+		// Deep copy
+		clone: fn() {
+			let m = Matrix(rows, cols);
+			for (let i = 0; i < total; i++) {
+				let r = __divi(i, cols);
+				let c = i % cols;
+				m.set(r, c, data[i]);
+			}
+			return m;
+		},
+
+		// Transpose: return new matrix with rows/cols swapped
+		transpose: fn() {
+			let m = Matrix(cols, rows);
+			for (let r = 0; r < rows; r++) {
+				for (let c = 0; c < cols; c++) {
+					m.set(c, r, data[idx(r, c)]);
+				}
+			}
+			return m;
+		},
+
+		// Matrix addition: return new matrix = this + other
+		add: fn(other) {
+			if (rows != other.rows || cols != other.cols) {
+				throw "Matrix dimensions must match for addition: " + rows + "x" + cols + " vs " + other.rows + "x" + other.cols;
+			}
+			let m = Matrix(rows, cols);
+			for (let r = 0; r < rows; r++) {
+				for (let c = 0; c < cols; c++) {
+					m.set(r, c, data[idx(r, c)] + other.get(r, c));
+				}
+			}
+			return m;
+		},
+
+		// Matrix subtraction: return new matrix = this - other
+		sub: fn(other) {
+			if (rows != other.rows || cols != other.cols) {
+				throw "Matrix dimensions must match for subtraction: " + rows + "x" + cols + " vs " + other.rows + "x" + other.cols;
+			}
+			let m = Matrix(rows, cols);
+			for (let r = 0; r < rows; r++) {
+				for (let c = 0; c < cols; c++) {
+					m.set(r, c, data[idx(r, c)] - other.get(r, c));
+				}
+			}
+			return m;
+		},
+
+		// Matrix multiplication: return new matrix = this * other
+		mul: fn(other) {
+			if (cols != other.rows) {
+				throw "Matrix dimensions incompatible for multiplication: " + rows + "x" + cols + " * " + other.rows + "x" + other.cols;
+			}
+			let m = Matrix(rows, other.cols);
+			for (let r = 0; r < rows; r++) {
+				for (let c = 0; c < other.cols; c++) {
+					let sum = 0.0;
+					for (let k = 0; k < cols; k++) {
+						sum = sum + data[idx(r, k)] * other.get(k, c);
+					}
+					m.set(r, c, sum);
+				}
+			}
+			return m;
+		},
+
+		// Scalar multiplication: return new matrix = this * scalar
+		scale: fn(scalar: f64) {
+			let m = Matrix(rows, cols);
+			for (let r = 0; r < rows; r++) {
+				for (let c = 0; c < cols; c++) {
+					m.set(r, c, data[idx(r, c)] * scalar);
+				}
+			}
+			return m;
+		},
+
+		// Negate: return new matrix = -this
+		negate: fn() {
+			let m = Matrix(rows, cols);
+			for (let i = 0; i < total; i++) {
+				let r = __divi(i, cols);
+				let c = i % cols;
+				m.set(r, c, -data[i]);
+			}
+			return m;
+		},
+
+		// Trace: sum of diagonal elements (square matrices only)
+		trace: fn(): f64 {
+			if (rows != cols) {
+				throw "Trace requires a square matrix";
+			}
+			let sum = 0.0;
+			for (let i = 0; i < rows; i++) {
+				sum = sum + data[idx(i, i)];
+			}
+			return sum;
+		},
+
+		// Determinant (square matrices, recursive cofactor expansion)
+		det: fn(): f64 {
+			if (rows != cols) {
+				throw "Determinant requires a square matrix";
+			}
+			let n = rows;
+
+			if (n == 1) {
+				return data[0];
+			}
+			if (n == 2) {
+				return data[idx(0, 0)] * data[idx(1, 1)] - data[idx(0, 1)] * data[idx(1, 0)];
+			}
+			if (n == 3) {
+				let a = data[idx(0, 0)];
+				let b = data[idx(0, 1)];
+				let c = data[idx(0, 2)];
+				let d = data[idx(1, 0)];
+				let e = data[idx(1, 1)];
+				let f = data[idx(1, 2)];
+				let g = data[idx(2, 0)];
+				let h = data[idx(2, 1)];
+				let ii = data[idx(2, 2)];
+				return a * (e * ii - f * h) - b * (d * ii - f * g) + c * (d * h - e * g);
+			}
+
+			// General case: cofactor expansion along first row
+			let result = 0.0;
+			for (let j = 0; j < n; j++) {
+				let sub = Matrix(n - 1, n - 1);
+				for (let r = 1; r < n; r++) {
+					let sc = 0;
+					for (let c = 0; c < n; c++) {
+						if (c != j) {
+							sub.set(r - 1, sc, data[idx(r, c)]);
+							sc++;
+						}
+					}
+				}
+				let sign = 1.0;
+				if (j % 2 != 0) {
+					sign = -1.0;
+				}
+				result = result + sign * data[idx(0, j)] * sub.det();
+			}
+			return result;
+		},
+
+		// Inverse (using Gauss-Jordan elimination)
+		inverse: fn() {
+			if (rows != cols) {
+				throw "Inverse requires a square matrix";
+			}
+			let n = rows;
+
+			// Build augmented matrix [A | I]
+			let aug = Matrix(n, n * 2);
+			for (let r = 0; r < n; r++) {
+				for (let c = 0; c < n; c++) {
+					aug.set(r, c, data[idx(r, c)]);
+				}
+				aug.set(r, r + n, 1.0);
+			}
+
+			// Forward elimination with partial pivoting
+			for (let col = 0; col < n; col++) {
+				// Find pivot
+				let max_val = abs(aug.get(col, col));
+				let max_row = col;
+				for (let r = col + 1; r < n; r++) {
+					let v = abs(aug.get(r, col));
+					if (v > max_val) {
+						max_val = v;
+						max_row = r;
+					}
+				}
+
+				if (max_val < 1e-12) {
+					throw "Matrix is singular, cannot invert";
+				}
+
+				// Swap rows
+				if (max_row != col) {
+					for (let c = 0; c < n * 2; c++) {
+						let tmp = aug.get(col, c);
+						aug.set(col, c, aug.get(max_row, c));
+						aug.set(max_row, c, tmp);
+					}
+				}
+
+				// Scale pivot row
+				let pivot = aug.get(col, col);
+				for (let c = 0; c < n * 2; c++) {
+					aug.set(col, c, aug.get(col, c) / pivot);
+				}
+
+				// Eliminate column
+				for (let r = 0; r < n; r++) {
+					if (r != col) {
+						let factor = aug.get(r, col);
+						for (let c = 0; c < n * 2; c++) {
+							aug.set(r, c, aug.get(r, c) - factor * aug.get(col, c));
+						}
+					}
+				}
+			}
+
+			// Extract result from right half
+			let result = Matrix(n, n);
+			for (let r = 0; r < n; r++) {
+				for (let c = 0; c < n; c++) {
+					result.set(r, c, aug.get(r, c + n));
+				}
+			}
+			return result;
+		},
+
+		// Apply function to each element, return new matrix
+		map: fn(f) {
+			let m = Matrix(rows, cols);
+			for (let r = 0; r < rows; r++) {
+				for (let c = 0; c < cols; c++) {
+					m.set(r, c, f(data[idx(r, c)], r, c));
+				}
+			}
+			return m;
+		},
+
+		// Check equality (element-wise, with tolerance)
+		equals: fn(other, epsilon?: 1e-10): bool {
+			if (rows != other.rows || cols != other.cols) {
+				return false;
+			}
+			for (let r = 0; r < rows; r++) {
+				for (let c = 0; c < cols; c++) {
+					if (abs(data[idx(r, c)] - other.get(r, c)) > epsilon) {
+						return false;
+					}
+				}
+			}
+			return true;
+		},
+
+		// Frobenius norm: sqrt(sum of squares of all elements)
+		norm: fn(): f64 {
+			let sum = 0.0;
+			for (let i = 0; i < total; i++) {
+				sum = sum + data[i] * data[i];
+			}
+			return sqrt(sum);
+		},
+
+		// Dot product of two vectors (1xN or Nx1 matrices, or matching dimensions)
+		dot: fn(other): f64 {
+			if (rows != other.rows || cols != other.cols) {
+				throw "Matrix dimensions must match for dot product";
+			}
+			let sum = 0.0;
+			for (let r = 0; r < rows; r++) {
+				for (let c = 0; c < cols; c++) {
+					sum = sum + data[idx(r, c)] * other.get(r, c);
+				}
+			}
+			return sum;
+		},
+
+		// Element-wise multiplication (Hadamard product)
+		hadamard: fn(other) {
+			if (rows != other.rows || cols != other.cols) {
+				throw "Matrix dimensions must match for Hadamard product";
+			}
+			let m = Matrix(rows, cols);
+			for (let r = 0; r < rows; r++) {
+				for (let c = 0; c < cols; c++) {
+					m.set(r, c, data[idx(r, c)] * other.get(r, c));
+				}
+			}
+			return m;
+		},
+
+		// Extract a submatrix
+		submatrix: fn(r1: i32, c1: i32, r2: i32, c2: i32) {
+			if (r1 < 0 || c1 < 0 || r2 > rows || c2 > cols || r1 >= r2 || c1 >= c2) {
+				throw "Invalid submatrix range";
+			}
+			let m = Matrix(r2 - r1, c2 - c1);
+			for (let r = r1; r < r2; r++) {
+				for (let c = c1; c < c2; c++) {
+					m.set(r - r1, c - c1, data[idx(r, c)]);
+				}
+			}
+			return m;
+		},
+
+		// String representation
+		to_string: fn(): string {
+			let s = "[";
+			for (let r = 0; r < rows; r++) {
+				if (r > 0) {
+					s = s + " ";
+				}
+				s = s + "[";
+				for (let c = 0; c < cols; c++) {
+					if (c > 0) {
+						s = s + ", ";
+					}
+					s = s + data[idx(r, c)];
+				}
+				s = s + "]";
+				if (r < rows - 1) {
+					s = s + "\n";
+				}
+			}
+			s = s + "]";
+			return s;
+		}
+	};
+
+	return mat;
+}
+
+// ========== FACTORY FUNCTIONS ==========
+
+// Create a matrix from a flat array of values (row-major order)
+export fn from_array(rows: i32, cols: i32, values: array) {
+	if (values.length != rows * cols) {
+		throw "Array length " + values.length + " does not match dimensions " + rows + "x" + cols;
+	}
+	let m = Matrix(rows, cols);
+	for (let r = 0; r < rows; r++) {
+		for (let c = 0; c < cols; c++) {
+			m.set(r, c, values[r * cols + c]);
+		}
+	}
+	return m;
+}
+
+// Create a matrix from an array of row arrays
+export fn from_rows(row_arrays: array) {
+	let rows = row_arrays.length;
+	if (rows == 0) {
+		throw "Cannot create matrix from empty array";
+	}
+	let cols = row_arrays[0].length;
+	for (let r = 1; r < rows; r++) {
+		if (row_arrays[r].length != cols) {
+			throw "All rows must have the same length";
+		}
+	}
+	let m = Matrix(rows, cols);
+	for (let r = 0; r < rows; r++) {
+		for (let c = 0; c < cols; c++) {
+			m.set(r, c, row_arrays[r][c]);
+		}
+	}
+	return m;
+}
+
+// Create an NxN identity matrix
+export fn identity(n: i32) {
+	let m = Matrix(n, n);
+	for (let i = 0; i < n; i++) {
+		m.set(i, i, 1.0);
+	}
+	return m;
+}
+
+// Create a matrix of zeros
+export fn zeros(rows: i32, cols: i32) {
+	return Matrix(rows, cols);
+}
+
+// Create a matrix of ones
+export fn ones(rows: i32, cols: i32) {
+	let m = Matrix(rows, cols);
+	for (let r = 0; r < rows; r++) {
+		for (let c = 0; c < cols; c++) {
+			m.set(r, c, 1.0);
+		}
+	}
+	return m;
+}
+
+// Create a diagonal matrix from an array of values
+export fn diagonal(values: array) {
+	let n = values.length;
+	let m = Matrix(n, n);
+	for (let i = 0; i < n; i++) {
+		m.set(i, i, values[i]);
+	}
+	return m;
+}
+
+// Create a column vector (Nx1 matrix) from an array
+export fn col_vector(values: array) {
+	let n = values.length;
+	let m = Matrix(n, 1);
+	for (let i = 0; i < n; i++) {
+		m.set(i, 0, values[i]);
+	}
+	return m;
+}
+
+// Create a row vector (1xN matrix) from an array
+export fn row_vector(values: array) {
+	let n = values.length;
+	let m = Matrix(1, n);
+	for (let i = 0; i < n; i++) {
+		m.set(0, i, values[i]);
+	}
+	return m;
+}
+
+// ========== UTILITY FUNCTIONS ==========
+
+// Solve linear system Ax = b using Gaussian elimination with partial pivoting
+// Returns x as a column vector
+export fn solve(A, b) {
+	if (A.rows != A.cols) {
+		throw "solve() requires a square coefficient matrix";
+	}
+	if (b.rows != A.rows || b.cols != 1) {
+		throw "solve() requires b to be a column vector with matching rows";
+	}
+
+	let n = A.rows;
+
+	// Build augmented matrix [A | b]
+	let aug = Matrix(n, n + 1);
+	for (let r = 0; r < n; r++) {
+		for (let c = 0; c < n; c++) {
+			aug.set(r, c, A.get(r, c));
+		}
+		aug.set(r, n, b.get(r, 0));
+	}
+
+	// Forward elimination with partial pivoting
+	for (let col = 0; col < n; col++) {
+		let max_val = abs(aug.get(col, col));
+		let max_row = col;
+		for (let r = col + 1; r < n; r++) {
+			let v = abs(aug.get(r, col));
+			if (v > max_val) {
+				max_val = v;
+				max_row = r;
+			}
+		}
+
+		if (max_val < 1e-12) {
+			throw "System is singular or nearly singular";
+		}
+
+		// Swap rows
+		if (max_row != col) {
+			for (let c = 0; c <= n; c++) {
+				let tmp = aug.get(col, c);
+				aug.set(col, c, aug.get(max_row, c));
+				aug.set(max_row, c, tmp);
+			}
+		}
+
+		// Eliminate below
+		for (let r = col + 1; r < n; r++) {
+			let factor = aug.get(r, col) / aug.get(col, col);
+			for (let c = col; c <= n; c++) {
+				aug.set(r, c, aug.get(r, c) - factor * aug.get(col, c));
+			}
+		}
+	}
+
+	// Back substitution
+	let x = Matrix(n, 1);
+	for (let r = n - 1; r >= 0; r--) {
+		let sum = aug.get(r, n);
+		for (let c = r + 1; c < n; c++) {
+			sum = sum - aug.get(r, c) * x.get(c, 0);
+		}
+		x.set(r, 0, sum / aug.get(r, r));
+	}
+
+	return x;
+}
