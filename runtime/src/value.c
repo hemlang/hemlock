@@ -607,25 +607,25 @@ void hml_retain(HmlValue *val) {
 
     switch (val->type) {
         case HML_VAL_STRING:
-            if (val->as.as_string) val->as.as_string->ref_count++;
+            if (val->as.as_string) atomic_fetch_add(&val->as.as_string->ref_count, 1);
             break;
         case HML_VAL_BUFFER:
-            if (val->as.as_buffer) val->as.as_buffer->ref_count++;
+            if (val->as.as_buffer) atomic_fetch_add(&val->as.as_buffer->ref_count, 1);
             break;
         case HML_VAL_ARRAY:
-            if (val->as.as_array) val->as.as_array->ref_count++;
+            if (val->as.as_array) atomic_fetch_add(&val->as.as_array->ref_count, 1);
             break;
         case HML_VAL_OBJECT:
-            if (val->as.as_object) val->as.as_object->ref_count++;
+            if (val->as.as_object) atomic_fetch_add(&val->as.as_object->ref_count, 1);
             break;
         case HML_VAL_FUNCTION:
-            if (val->as.as_function) val->as.as_function->ref_count++;
+            if (val->as.as_function) atomic_fetch_add(&val->as.as_function->ref_count, 1);
             break;
         case HML_VAL_CHANNEL:
-            if (val->as.as_channel) val->as.as_channel->ref_count++;
+            if (val->as.as_channel) atomic_fetch_add(&val->as.as_channel->ref_count, 1);
             break;
         case HML_VAL_TASK:
-            if (val->as.as_task) val->as.as_task->ref_count++;
+            if (val->as.as_task) atomic_fetch_add(&val->as.as_task->ref_count, 1);
             break;
         default:
             break;  // Primitive types don't need reference counting
@@ -646,8 +646,7 @@ static void buffer_free(HmlBuffer *buf) {
     if (buf) {
         if (buf->parent) {
             // Zero-copy view: release parent instead of freeing data
-            buf->parent->ref_count--;
-            if (buf->parent->ref_count <= 0) {
+            if (atomic_fetch_sub(&buf->parent->ref_count, 1) <= 1) {
                 buffer_free(buf->parent);
             }
         } else {
@@ -771,8 +770,7 @@ void hml_release(HmlValue *val) {
     switch (val->type) {
         case HML_VAL_STRING:
             if (val->as.as_string) {
-                val->as.as_string->ref_count--;
-                if (val->as.as_string->ref_count <= 0) {
+                if (atomic_fetch_sub(&val->as.as_string->ref_count, 1) <= 1) {
                     string_free(val->as.as_string);
                 }
                 val->as.as_string = NULL;
@@ -780,8 +778,7 @@ void hml_release(HmlValue *val) {
             break;
         case HML_VAL_BUFFER:
             if (val->as.as_buffer) {
-                val->as.as_buffer->ref_count--;
-                if (val->as.as_buffer->ref_count <= 0) {
+                if (atomic_fetch_sub(&val->as.as_buffer->ref_count, 1) <= 1) {
                     buffer_free(val->as.as_buffer);
                 }
                 val->as.as_buffer = NULL;
@@ -789,8 +786,7 @@ void hml_release(HmlValue *val) {
             break;
         case HML_VAL_ARRAY:
             if (val->as.as_array) {
-                val->as.as_array->ref_count--;
-                if (val->as.as_array->ref_count <= 0) {
+                if (atomic_fetch_sub(&val->as.as_array->ref_count, 1) <= 1) {
                     array_free(val->as.as_array);
                 }
                 val->as.as_array = NULL;
@@ -798,8 +794,7 @@ void hml_release(HmlValue *val) {
             break;
         case HML_VAL_OBJECT:
             if (val->as.as_object) {
-                val->as.as_object->ref_count--;
-                if (val->as.as_object->ref_count <= 0) {
+                if (atomic_fetch_sub(&val->as.as_object->ref_count, 1) <= 1) {
                     object_free(val->as.as_object);
                 }
                 val->as.as_object = NULL;
@@ -807,8 +802,7 @@ void hml_release(HmlValue *val) {
             break;
         case HML_VAL_FUNCTION:
             if (val->as.as_function) {
-                val->as.as_function->ref_count--;
-                if (val->as.as_function->ref_count <= 0) {
+                if (atomic_fetch_sub(&val->as.as_function->ref_count, 1) <= 1) {
                     function_free(val->as.as_function);
                 }
                 val->as.as_function = NULL;
@@ -816,8 +810,7 @@ void hml_release(HmlValue *val) {
             break;
         case HML_VAL_TASK:
             if (val->as.as_task) {
-                val->as.as_task->ref_count--;
-                if (val->as.as_task->ref_count <= 0) {
+                if (atomic_fetch_sub(&val->as.as_task->ref_count, 1) <= 1) {
                     task_free(val->as.as_task);
                 }
                 val->as.as_task = NULL;
@@ -825,8 +818,7 @@ void hml_release(HmlValue *val) {
             break;
         case HML_VAL_CHANNEL:
             if (val->as.as_channel) {
-                val->as.as_channel->ref_count--;
-                if (val->as.as_channel->ref_count <= 0) {
+                if (atomic_fetch_sub(&val->as.as_channel->ref_count, 1) <= 1) {
                     channel_free(val->as.as_channel);
                 }
                 val->as.as_channel = NULL;
@@ -967,21 +959,21 @@ HmlValue hml_value_deep_copy(HmlValue val) {
             // Functions are shared by reference
             // The closure environment is already designed for this
             if (val.as.as_function) {
-                val.as.as_function->ref_count++;
+                atomic_fetch_add(&val.as.as_function->ref_count, 1);
             }
             return val;
 
         case HML_VAL_TASK:
             // Task handles are shared - they're used for coordination
             if (val.as.as_task) {
-                val.as.as_task->ref_count++;
+                atomic_fetch_add(&val.as.as_task->ref_count, 1);
             }
             return val;
 
         case HML_VAL_CHANNEL:
             // Channels are shared - they're the communication mechanism
             if (val.as.as_channel) {
-                val.as.as_channel->ref_count++;
+                atomic_fetch_add(&val.as.as_channel->ref_count, 1);
             }
             return val;
 
