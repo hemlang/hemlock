@@ -1,5 +1,5 @@
 // Test @stdlib/ipc module
-import { MessageQueue, Semaphore, Mutex, SharedData, PidFile, Event } from "@stdlib/ipc";
+import { MessageQueue, Semaphore, Mutex, SharedData, PidFile, Event, Pipe, pipe_create, fd_read, fd_write, fd_close, STDIN_FD, STDOUT_FD, STDERR_FD } from "@stdlib/ipc";
 import { exists, remove_file, remove_dir } from "@stdlib/fs";
 import { time_ms } from "@stdlib/time";
 
@@ -124,5 +124,56 @@ print("After clear: " + event.is_set());
 
 // Test wait timeout
 print("Wait timeout (should be false): " + event.wait(100));
+
+// Test Pipe
+print("\n--- Pipe ---");
+let p = Pipe();
+print("Pipe created");
+print("Has read_fd: " + (p.read_fd >= 0));
+print("Has write_fd: " + (p.write_fd >= 0));
+
+// Write and read through the pipe
+let bytes_written = p.send("Hello, Pipe!");
+print("Bytes written: " + bytes_written);
+
+let data = p.recv(4096);
+print("Read data: " + data);
+
+// Close the pipe
+p.close();
+print("Pipe closed");
+
+// Test pipe_create (low-level)
+print("\n--- pipe_create ---");
+let fds = pipe_create();
+print("pipe_create has read_fd: " + (fds.read_fd >= 0));
+print("pipe_create has write_fd: " + (fds.write_fd >= 0));
+
+// Write and read using low-level fd functions
+fd_write(fds.write_fd, "Low-level pipe");
+let low_data = fd_read(fds.read_fd, 4096);
+print("Low-level read: " + low_data);
+
+fd_close(fds.read_fd);
+fd_close(fds.write_fd);
+print("Low-level pipe closed");
+
+// Test fd constants
+print("\n--- FD Constants ---");
+print("STDIN_FD: " + STDIN_FD);
+print("STDOUT_FD: " + STDOUT_FD);
+print("STDERR_FD: " + STDERR_FD);
+
+// Test multiple messages through a pipe
+print("\n--- Pipe Multiple Messages ---");
+let p2 = Pipe();
+p2.send("msg1|");
+p2.send("msg2|");
+p2.send("msg3");
+p2.close_write();
+
+let all_data = p2.recv(4096);
+print("All messages: " + all_data);
+p2.close_read();
 
 print("\n=== All IPC tests completed ===");

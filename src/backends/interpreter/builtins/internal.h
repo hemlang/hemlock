@@ -123,6 +123,13 @@ Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_abort(Value *args, int num_args, ExecutionContext *ctx);
 
+// Pipe builtins (env.c)
+Value builtin_pipe(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_close_fd(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_fd(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_fd(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_dup2(Value *args, int num_args, ExecutionContext *ctx);
+
 // Signal handling builtins (signals.c)
 Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_raise(Value *args, int num_args, ExecutionContext *ctx);
