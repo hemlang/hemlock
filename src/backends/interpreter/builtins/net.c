@@ -1,5 +1,6 @@
 #include "internal.h"
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -81,7 +82,8 @@ Value builtin_socket_create(Value *args, int num_args, ExecutionContext *ctx) {
 
     // Normalize protocol=0 to appropriate protocol for socket type
     // This is required on macOS where protocol=0 creates broken sockets
-    if (protocol == 0) {
+    // Only for inet domains - AF_UNIX must use protocol=0
+    if (protocol == 0 && (domain == AF_INET || domain == AF_INET6)) {
         if (type == SOCK_STREAM) {
             protocol = IPPROTO_TCP;
         } else if (type == SOCK_DGRAM) {
@@ -165,8 +167,23 @@ static Value socket_method_bind(SocketHandle *sock, Value *args, int num_args, E
         if (bind(sock->fd, (struct sockaddr *)&addr6, sizeof(addr6)) < 0) {
             return throw_runtime_error(ctx, "bind() failed: %s", strerror(errno));
         }
+    } else if (sock->domain == AF_UNIX) {
+        // Unix domain socket - address is the socket path, port is ignored
+        struct sockaddr_un addr_un;
+        memset(&addr_un, 0, sizeof(addr_un));
+        addr_un.sun_family = AF_UNIX;
+
+        if (strlen(address) >= sizeof(addr_un.sun_path)) {
+            return throw_runtime_error(ctx, "Unix socket path too long (max %zu): %s",
+                    sizeof(addr_un.sun_path) - 1, address);
+        }
+        strncpy(addr_un.sun_path, address, sizeof(addr_un.sun_path) - 1);
+
+        if (bind(sock->fd, (struct sockaddr *)&addr_un, sizeof(addr_un)) < 0) {
+            return throw_runtime_error(ctx, "bind() failed: %s", strerror(errno));
+        }
     } else {
-        return throw_runtime_error(ctx, "Unsupported socket domain (use AF_INET or AF_INET6)");
+        return throw_runtime_error(ctx, "Unsupported socket domain (use AF_INET, AF_INET6, or AF_UNIX)");
     }
 
     // Store address and port
@@ -247,7 +264,20 @@ static Value socket_method_accept(SocketHandle *sock, Value *args, int num_args,
     client_sock->nonblocking = 0;
 
     // Get client address and port based on address family
-    if (sock->domain == AF_INET6) {
+    if (sock->domain == AF_UNIX) {
+        struct sockaddr_un *addr_un = (struct sockaddr_un *)&client_addr;
+        if (client_len > offsetof(struct sockaddr_un, sun_path) && addr_un->sun_path[0] != '\0') {
+            client_sock->address = strdup(addr_un->sun_path);
+        } else {
+            client_sock->address = strdup("");
+        }
+        if (!client_sock->address) {
+            close(client_fd);
+            free(client_sock);
+            return throw_runtime_error(ctx, "Memory allocation failed for client address");
+        }
+        client_sock->port = 0;
+    } else if (sock->domain == AF_INET6) {
         struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&client_addr;
         char addr_str[INET6_ADDRSTRLEN];
         inet_ntop(AF_INET6, &addr6->sin6_addr, addr_str, sizeof(addr_str));
@@ -293,26 +323,44 @@ static Value socket_method_connect(SocketHandle *sock, Value *args, int num_args
     const char *address = args[0].as.as_string->data;
     int port = value_to_int(args[1]);
 
-    // Use getaddrinfo for both IPv4 and IPv6 resolution
-    struct addrinfo hints, *result;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = sock->domain;  // AF_INET or AF_INET6
-    hints.ai_socktype = sock->type;
+    if (sock->domain == AF_UNIX) {
+        // Unix domain socket - address is the socket path, port is ignored
+        struct sockaddr_un addr_un;
+        memset(&addr_un, 0, sizeof(addr_un));
+        addr_un.sun_family = AF_UNIX;
 
-    char port_str[16];
-    snprintf(port_str, sizeof(port_str), "%d", port);
+        if (strlen(address) >= sizeof(addr_un.sun_path)) {
+            return throw_runtime_error(ctx, "Unix socket path too long (max %zu): %s",
+                    sizeof(addr_un.sun_path) - 1, address);
+        }
+        strncpy(addr_un.sun_path, address, sizeof(addr_un.sun_path) - 1);
 
-    int gai_err = getaddrinfo(address, port_str, &hints, &result);
-    if (gai_err != 0) {
-        return throw_runtime_error(ctx, "Failed to resolve '%s': %s", address, gai_strerror(gai_err));
-    }
+        if (connect(sock->fd, (struct sockaddr *)&addr_un, sizeof(addr_un)) < 0) {
+            return throw_runtime_error(ctx, "Failed to connect to unix socket '%s': %s",
+                    address, strerror(errno));
+        }
+    } else {
+        // Use getaddrinfo for both IPv4 and IPv6 resolution
+        struct addrinfo hints, *result;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = sock->domain;  // AF_INET or AF_INET6
+        hints.ai_socktype = sock->type;
 
-    int connect_result = connect(sock->fd, result->ai_addr, result->ai_addrlen);
-    freeaddrinfo(result);
+        char port_str[16];
+        snprintf(port_str, sizeof(port_str), "%d", port);
 
-    if (connect_result < 0) {
-        return throw_runtime_error(ctx, "Failed to connect to %s:%d: %s",
-                address, port, strerror(errno));
+        int gai_err = getaddrinfo(address, port_str, &hints, &result);
+        if (gai_err != 0) {
+            return throw_runtime_error(ctx, "Failed to resolve '%s': %s", address, gai_strerror(gai_err));
+        }
+
+        int connect_result = connect(sock->fd, result->ai_addr, result->ai_addrlen);
+        freeaddrinfo(result);
+
+        if (connect_result < 0) {
+            return throw_runtime_error(ctx, "Failed to connect to %s:%d: %s",
+                    address, port, strerror(errno));
+        }
     }
 
     // Store address and port
@@ -480,7 +528,20 @@ static Value socket_method_sendto(SocketHandle *sock, Value *args, int num_args,
     }
 
     ssize_t sent;
-    if (sock->domain == AF_INET) {
+    if (sock->domain == AF_UNIX) {
+        struct sockaddr_un dest_un;
+        memset(&dest_un, 0, sizeof(dest_un));
+        dest_un.sun_family = AF_UNIX;
+
+        if (strlen(address) >= sizeof(dest_un.sun_path)) {
+            return throw_runtime_error(ctx, "Unix socket path too long (max %zu): %s",
+                    sizeof(dest_un.sun_path) - 1, address);
+        }
+        strncpy(dest_un.sun_path, address, sizeof(dest_un.sun_path) - 1);
+
+        sent = sendto(sock->fd, data, len, 0,
+                (struct sockaddr *)&dest_un, sizeof(dest_un));
+    } else if (sock->domain == AF_INET) {
         struct sockaddr_in dest_addr;
         memset(&dest_addr, 0, sizeof(dest_addr));
         dest_addr.sin_family = AF_INET;
@@ -505,7 +566,7 @@ static Value socket_method_sendto(SocketHandle *sock, Value *args, int num_args,
         sent = sendto(sock->fd, data, len, 0,
                 (struct sockaddr *)&dest_addr6, sizeof(dest_addr6));
     } else {
-        return throw_runtime_error(ctx, "Unsupported socket domain (use AF_INET or AF_INET6)");
+        return throw_runtime_error(ctx, "Unsupported socket domain (use AF_INET, AF_INET6, or AF_UNIX)");
     }
 
     if (sent < 0) {
@@ -561,9 +622,18 @@ static Value socket_method_recvfrom(SocketHandle *sock, Value *args, int num_arg
     atomic_store(&buf->freed, 0);  // Not freed
 
     // Get source address and port based on address family
-    char addr_str[INET6_ADDRSTRLEN];
+    char addr_str[256];
     int src_port;
-    if (sock->domain == AF_INET6) {
+    if (sock->domain == AF_UNIX) {
+        struct sockaddr_un *addr_un = (struct sockaddr_un *)&src_addr;
+        if (addr_len > offsetof(struct sockaddr_un, sun_path) && addr_un->sun_path[0] != '\0') {
+            strncpy(addr_str, addr_un->sun_path, sizeof(addr_str) - 1);
+            addr_str[sizeof(addr_str) - 1] = '\0';
+        } else {
+            addr_str[0] = '\0';
+        }
+        src_port = 0;
+    } else if (sock->domain == AF_INET6) {
         struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&src_addr;
         inet_ntop(AF_INET6, &addr6->sin6_addr, addr_str, sizeof(addr_str));
         src_port = ntohs(addr6->sin6_port);

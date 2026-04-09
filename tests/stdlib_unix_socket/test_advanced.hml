@@ -1,0 +1,178 @@
+// Test @stdlib/unix_socket advanced features
+// Tests write_line/read_line, multiple clients, timeouts, error handling, cleanup
+
+import { UnixListener, UnixStream, UnixDgramSocket, remove_socket, AF_UNIX } from "@stdlib/unix_socket";
+import { exists } from "@stdlib/fs";
+import { time_ms } from "@stdlib/time";
+
+let ts = time_ms();
+
+// === Constants ===
+print("=== Constants ===");
+assert(typeof(AF_UNIX) == "i32", "AF_UNIX is i32");
+print("AF_UNIX constant exported: " + typeof(AF_UNIX));
+
+// === Stream: write_line / read_line ===
+print("=== Stream write_line/read_line ===");
+let line_path = "/tmp/hemlock_test_unix_lines_" + ts + ".sock";
+remove_socket(line_path);
+
+async fn line_server() {
+	let listener = UnixListener(line_path);
+	defer listener.close();
+	defer listener.remove();
+
+	let stream = listener.accept();
+	defer stream.close();
+
+	let line1 = stream.read_line();
+	let line2 = stream.read_line();
+
+	stream.write_line("echo:" + line1);
+	stream.write_line("echo:" + line2);
+
+	return { line1, line2 };
+}
+
+async fn line_client() {
+	__sleep(0.05);
+	let stream = UnixStream(line_path);
+	defer stream.close();
+
+	stream.write_line("hello");
+	stream.write_line("world");
+
+	let reply1 = stream.read_line();
+	let reply2 = stream.read_line();
+
+	return { reply1, reply2 };
+}
+
+let srv_task = spawn(line_server);
+let cli_task = spawn(line_client);
+
+let srv_result = join(srv_task);
+let cli_result = join(cli_task);
+
+assert(srv_result.line1 == "hello", "server read line1");
+assert(srv_result.line2 == "world", "server read line2");
+assert(cli_result.reply1 == "echo:hello", "client read reply1");
+assert(cli_result.reply2 == "echo:world", "client read reply2");
+print("write_line/read_line passed!");
+
+// === Multiple clients ===
+print("=== Multiple clients ===");
+let multi_path = "/tmp/hemlock_test_unix_multi_" + ts + ".sock";
+remove_socket(multi_path);
+
+async fn multi_server() {
+	let listener = UnixListener(multi_path);
+	defer listener.close();
+	defer listener.remove();
+
+	// Accept 3 clients
+	let results: array = [];
+	let i = 0;
+	while (i < 3) {
+		let stream = listener.accept();
+		let data = stream.read(1024);
+		let msg = __string_from_bytes(data);
+		results.push(msg);
+		stream.write("ok");
+		stream.close();
+		i = i + 1;
+	}
+
+	return results;
+}
+
+async fn multi_client(id: i32) {
+	__sleep(0.05 + id * 0.02);
+	let stream = UnixStream(multi_path);
+	defer stream.close();
+
+	stream.write("client" + id);
+	let reply = stream.read(1024);
+	return __string_from_bytes(reply);
+}
+
+let server_t = spawn(multi_server);
+let c1 = spawn(multi_client, 0);
+let c2 = spawn(multi_client, 1);
+let c3 = spawn(multi_client, 2);
+
+let r1 = join(c1);
+let r2 = join(c2);
+let r3 = join(c3);
+let server_msgs = join(server_t);
+
+assert(r1 == "ok", "client 0 got ok");
+assert(r2 == "ok", "client 1 got ok");
+assert(r3 == "ok", "client 2 got ok");
+assert(server_msgs.length == 3, "server got 3 messages");
+assert(server_msgs.contains("client0"), "server got client0");
+assert(server_msgs.contains("client1"), "server got client1");
+assert(server_msgs.contains("client2"), "server got client2");
+print("Multiple clients passed!");
+
+// === Datagram bidirectional ===
+print("=== Datagram bidirectional ===");
+let dgram_a_path = "/tmp/hemlock_test_unix_dgram_a_" + ts + ".sock";
+let dgram_b_path = "/tmp/hemlock_test_unix_dgram_b_" + ts + ".sock";
+remove_socket(dgram_a_path);
+remove_socket(dgram_b_path);
+
+let sock_a = UnixDgramSocket(dgram_a_path);
+defer sock_a.close();
+defer sock_a.remove();
+
+let sock_b = UnixDgramSocket(dgram_b_path);
+defer sock_b.close();
+defer sock_b.remove();
+
+// A sends to B
+sock_a.send_to(dgram_b_path, "ping");
+let recv_b = sock_b.recv_from(1024);
+assert(__string_from_bytes(recv_b.data) == "ping", "B received ping");
+assert(recv_b.address == dgram_a_path, "B sees A's address");
+
+// B replies to A
+sock_b.send_to(recv_b.address, "pong");
+let recv_a = sock_a.recv_from(1024);
+assert(__string_from_bytes(recv_a.data) == "pong", "A received pong");
+assert(recv_a.address == dgram_b_path, "A sees B's address");
+print("Datagram bidirectional passed!");
+
+// === Socket cleanup ===
+print("=== Socket cleanup ===");
+let cleanup_path = "/tmp/hemlock_test_unix_cleanup_" + ts + ".sock";
+remove_socket(cleanup_path);
+
+let cleanup_listener = UnixListener(cleanup_path);
+assert(exists(cleanup_path), "socket file exists after bind");
+
+cleanup_listener.close();
+assert(exists(cleanup_path), "socket file persists after close");
+
+cleanup_listener.remove();
+assert(exists(cleanup_path) == false, "socket file gone after remove");
+print("Socket cleanup passed!");
+
+// === remove_socket on non-existent path ===
+print("=== remove_socket no-op ===");
+remove_socket("/tmp/hemlock_test_nonexistent_" + ts + ".sock");
+print("remove_socket no-op passed!");
+
+// === Error: connect to non-existent socket ===
+print("=== Error handling ===");
+let caught = false;
+try {
+	let bad = UnixStream("/tmp/hemlock_test_no_such_" + ts + ".sock");
+	bad.close();
+} catch (e) {
+	caught = true;
+}
+assert(caught, "connecting to non-existent socket throws");
+print("Error handling passed!");
+
+print("All unix_socket advanced tests passed!");

@@ -303,6 +303,7 @@ Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 | `time` | now, time_ms, sleep, clock |
 | `toml` | TOML parsing and generation |
 | `url` | URL parsing and manipulation |
+| `unix_socket` | Unix domain sockets (AF_UNIX stream/datagram) |
 | `uuid` | UUID generation |
 | `vector` | Vector similarity search (USearch ANN) |
 | `websocket` | WebSocket client |
