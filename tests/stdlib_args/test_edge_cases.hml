@@ -1,0 +1,130 @@
+// Test @stdlib/args edge cases and ArgParser validation
+
+import { parse, has_flag, get_option, get_positionals, get_script, shift, join_args, ArgParser } from "@stdlib/args";
+
+// === Empty and minimal args ===
+print("=== Empty/minimal args ===");
+
+// Single element (just script name)
+let parsed1 = parse(["script.hml"]);
+assert(get_script(parsed1) == "script.hml", "single arg script");
+assert(parsed1.flags.length == 0, "single arg no flags");
+assert(parsed1.positionals.length == 0, "single arg no positionals");
+print("Minimal args passed!");
+
+// === Mixed option styles ===
+print("=== Mixed option styles ===");
+let mixed = ["app", "-v", "--output=file.txt", "--port", "8080", "input.txt"];
+let parsed2 = parse(mixed, { strings: ["output", "port"] });
+assert(has_flag(parsed2, "v"), "short flag v");
+assert(get_option(parsed2, "output") == "file.txt", "long option with =");
+assert(get_option(parsed2, "port") == "8080", "long option with space");
+assert(parsed2.positionals[0] == "input.txt", "positional after options");
+print("Mixed options passed!");
+
+// === Multiple combined short flags ===
+print("=== Combined short flags ===");
+let combo = ["app", "-vxf"];
+let parsed3 = parse(combo);
+assert(has_flag(parsed3, "v"), "combined flag v");
+assert(has_flag(parsed3, "x"), "combined flag x");
+assert(has_flag(parsed3, "f"), "combined flag f");
+assert(has_flag(parsed3, "z") == false, "combined flag z absent");
+print("Combined flags passed!");
+
+// === End-of-options marker ===
+print("=== End-of-options ===");
+let eoo = ["app", "--verbose", "--", "--not-a-flag", "-x", "file.txt"];
+let parsed4 = parse(eoo);
+assert(has_flag(parsed4, "verbose"), "flag before --");
+assert(has_flag(parsed4, "not-a-flag") == false, "not a flag after --");
+assert(has_flag(parsed4, "x") == false, "not flag after --");
+assert(parsed4.positionals.length == 3, "3 positionals after --");
+assert(parsed4.positionals[0] == "--not-a-flag", "literal --not-a-flag");
+assert(parsed4.positionals[1] == "-x", "literal -x");
+assert(parsed4.positionals[2] == "file.txt", "file positional");
+print("End-of-options passed!");
+
+// === get_option with default ===
+print("=== get_option default ===");
+let parsed5 = parse(["app", "--name=Alice"]);
+assert(get_option(parsed5, "name") == "Alice", "option present");
+assert(get_option(parsed5, "missing", "default") == "default", "option missing with default");
+assert(get_option(parsed5, "missing") == null, "option missing without default");
+print("get_option defaults passed!");
+
+// === shift edge cases ===
+print("=== shift edge cases ===");
+// Default shift (1)
+let s1 = shift(["a", "b", "c"]);
+assert(s1.length == 2, "shift default length");
+assert(s1[0] == "b", "shift default [0]");
+
+// Shift 0
+let s2 = shift(["a", "b", "c"], 0);
+assert(s2.length == 3, "shift 0 length");
+
+// Shift more than length
+let s3 = shift(["a", "b"], 5);
+assert(s3.length == 0, "shift > length empty");
+
+print("shift edge cases passed!");
+
+// === join_args edge cases ===
+print("=== join_args edge cases ===");
+// Empty array
+let j1 = join_args([]);
+assert(j1 == "", "join empty");
+
+// Single element
+let j2 = join_args(["hello"]);
+assert(j2 == "hello", "join single");
+
+// Custom separator
+let j3 = join_args(["a", "b", "c"], ":");
+assert(j3 == "a:b:c", "join with colon");
+
+// Empty separator
+let j4 = join_args(["a", "b", "c"], "");
+assert(j4 == "abc", "join empty separator");
+print("join_args edge cases passed!");
+
+// === ArgParser ===
+print("=== ArgParser builder ===");
+
+// Build a parser
+let parser = ArgParser("myapp", "A test application")
+    .version("2.0.0")
+    .flag("v", "verbose", "Enable verbose output")
+    .flag("d", "debug", "Enable debug mode")
+    .option("o", "output", "Output file", "out.txt")
+    .option("p", "port", "Port number", "3000")
+    .positional("input", "Input file", true)
+    .positional("extra", "Extra file", false);
+
+// Test help text generation
+let help = parser.help();
+assert(help.contains("myapp"), "help has app name");
+assert(help.contains("A test application"), "help has description");
+assert(help.contains("verbose"), "help has verbose flag");
+assert(help.contains("debug"), "help has debug flag");
+assert(help.contains("output"), "help has output option");
+assert(help.contains("port"), "help has port option");
+assert(help.contains("input"), "help has positional");
+print("ArgParser help text passed!");
+
+// Test parsing with ArgParser
+let result = parser.parse_args(["myapp", "--verbose", "--output=custom.txt", "input.txt"]);
+assert(result.valid == true, "parse valid");
+assert(has_flag(result, "verbose"), "parsed verbose flag");
+assert(has_flag(result, "debug") == false, "debug not set");
+assert(get_option(result, "output") == "custom.txt", "parsed output option");
+print("ArgParser parsing passed!");
+
+// Test ArgParser with short flags
+let result2 = parser.parse_args(["myapp", "-v", "-d", "-o", "file.out", "data.txt"]);
+assert(result2.valid == true, "short flags valid");
+assert(has_flag(result2, "v") || has_flag(result2, "verbose"), "short v flag");
+print("ArgParser short flags passed!");
+
+print("\nAll args edge case tests passed!");
