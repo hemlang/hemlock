@@ -1245,7 +1245,8 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         codegen_write(ctx, "#include <sys/un.h>\n");
         codegen_write(ctx, "#include <netinet/in.h>\n");
         codegen_write(ctx, "#include <arpa/inet.h>\n");
-        codegen_write(ctx, "#include <poll.h>\n\n");
+        codegen_write(ctx, "#include <poll.h>\n");
+        codegen_write(ctx, "#include <sys/mman.h>\n\n");
         codegen_write(ctx, "// Signal constants\n");
     }
 

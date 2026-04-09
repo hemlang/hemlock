@@ -139,6 +139,25 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(1);", result);
     } else if (strcmp(expr->as.ident.name, "__STDERR_FILENO") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(2);", result);
+    // Mmap constants
+    } else if (strcmp(expr->as.ident.name, "__PROT_NONE") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(PROT_NONE);", result);
+    } else if (strcmp(expr->as.ident.name, "__PROT_READ") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(PROT_READ);", result);
+    } else if (strcmp(expr->as.ident.name, "__PROT_WRITE") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(PROT_WRITE);", result);
+    } else if (strcmp(expr->as.ident.name, "__PROT_EXEC") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(PROT_EXEC);", result);
+    } else if (strcmp(expr->as.ident.name, "__MADV_NORMAL") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(MADV_NORMAL);", result);
+    } else if (strcmp(expr->as.ident.name, "__MADV_SEQUENTIAL") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(MADV_SEQUENTIAL);", result);
+    } else if (strcmp(expr->as.ident.name, "__MADV_RANDOM") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(MADV_RANDOM);", result);
+    } else if (strcmp(expr->as.ident.name, "__MADV_WILLNEED") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(MADV_WILLNEED);", result);
+    } else if (strcmp(expr->as.ident.name, "__MADV_DONTNEED") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(MADV_DONTNEED);", result);
     // Handle TYPEID constants for typeid() builtin
     } else if (strcmp(expr->as.ident.name, "TYPEID_I8") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(0);", result);
@@ -567,6 +586,21 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     // Memory fence
     } else if (strcmp(expr->as.ident.name, "atomic_fence") == 0 || strcmp(expr->as.ident.name, "__atomic_fence") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_fence, 0, 0, 0);", result);
+    // Memory-mapped file I/O operations
+    } else if (strcmp(expr->as.ident.name, "__mmap_open") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_open, 1, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__mmap_open_anon") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_open_anon, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__mmap_sync") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_sync, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__mmap_close") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_close, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__mmap_size") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_size, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__mmap_advise") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_advise, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__mmap_protect") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_protect, 2, 2, 0);", result);
     // Byte order operations
     } else if (strcmp(expr->as.ident.name, "bswap16") == 0 || strcmp(expr->as.ident.name, "__bswap16") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_bswap16, 1, 1, 0);", result);

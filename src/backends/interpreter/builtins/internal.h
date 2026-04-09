@@ -365,6 +365,15 @@ Value builtin_write_u32_le(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_write_u64_be(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_write_u64_le(Value *args, int num_args, ExecutionContext *ctx);
 
+// Memory-mapped file I/O builtins (mmap.c)
+Value builtin_mmap_open(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_open_anon(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_sync(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_close(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_size(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_advise(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_protect(Value *args, int num_args, ExecutionContext *ctx);
+
 // Regex builtins (regex.c)
 Value builtin_regex_compile(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_regex_test(Value *args, int num_args, ExecutionContext *ctx);
