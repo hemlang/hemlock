@@ -1802,6 +1802,59 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // ========== PIPE BUILTINS ==========
+
+        // pipe()
+        if (strcmp(fn_name, "__pipe") == 0 && expr->as.call.num_args == 0) {
+            codegen_writeln(ctx, "HmlValue %s = hml_pipe();", result);
+            return result;
+        }
+
+        // close_fd(fd)
+        if (strcmp(fn_name, "__close_fd") == 0 && expr->as.call.num_args == 1) {
+            char *fd = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_close_fd(%s);", result, fd);
+            codegen_writeln(ctx, "hml_release(&%s);", fd);
+            free(fd);
+            return result;
+        }
+
+        // read_fd(fd, size)
+        if (strcmp(fn_name, "__read_fd") == 0 && expr->as.call.num_args == 2) {
+            char *fd = codegen_expr(ctx, expr->as.call.args[0]);
+            char *size = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_read_fd(%s, %s);", result, fd, size);
+            codegen_writeln(ctx, "hml_release(&%s);", fd);
+            codegen_writeln(ctx, "hml_release(&%s);", size);
+            free(fd);
+            free(size);
+            return result;
+        }
+
+        // write_fd(fd, data)
+        if (strcmp(fn_name, "__write_fd") == 0 && expr->as.call.num_args == 2) {
+            char *fd = codegen_expr(ctx, expr->as.call.args[0]);
+            char *data = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_write_fd(%s, %s);", result, fd, data);
+            codegen_writeln(ctx, "hml_release(&%s);", fd);
+            codegen_writeln(ctx, "hml_release(&%s);", data);
+            free(fd);
+            free(data);
+            return result;
+        }
+
+        // dup2(oldfd, newfd)
+        if (strcmp(fn_name, "__dup2") == 0 && expr->as.call.num_args == 2) {
+            char *oldfd = codegen_expr(ctx, expr->as.call.args[0]);
+            char *newfd = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_dup2(%s, %s);", result, oldfd, newfd);
+            codegen_writeln(ctx, "hml_release(&%s);", oldfd);
+            codegen_writeln(ctx, "hml_release(&%s);", newfd);
+            free(oldfd);
+            free(newfd);
+            return result;
+        }
+
         // ========== SOCKET BUILTINS ==========
 
         // socket_create(domain, type, protocol)

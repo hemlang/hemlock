@@ -106,6 +106,12 @@ static BuiltinInfo builtins[] = {
     {"__wait", builtin_wait},
     {"__waitpid", builtin_waitpid},
     {"__abort", builtin_abort},
+    // Pipe operations (use @stdlib/ipc for public API)
+    {"__pipe", builtin_pipe},
+    {"__close_fd", builtin_close_fd},
+    {"__read_fd", builtin_read_fd},
+    {"__write_fd", builtin_write_fd},
+    {"__dup2", builtin_dup2},
     // Internal helper builtins
     {"__read_u32", builtin_read_u32},
     {"__read_u64", builtin_read_u64},
@@ -415,6 +421,11 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
     env_set(env, "__POLLHUP", val_i32(POLLHUP), ctx);
     env_set(env, "__POLLNVAL", val_i32(POLLNVAL), ctx);
     env_set(env, "__POLLPRI", val_i32(POLLPRI), ctx);
+
+    // Standard file descriptor constants for pipe/IPC operations (__ prefixed)
+    env_set(env, "__STDIN_FILENO", val_i32(STDIN_FILENO), ctx);
+    env_set(env, "__STDOUT_FILENO", val_i32(STDOUT_FILENO), ctx);
+    env_set(env, "__STDERR_FILENO", val_i32(STDERR_FILENO), ctx);
 
     // Internal mmap constants for stdlib use (__ prefixed)
     env_set(env, "__PROT_NONE", val_i32(PROT_NONE), ctx);
