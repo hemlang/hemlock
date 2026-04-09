@@ -215,3 +215,135 @@ assert(exists(pid_path) == false, "pidfile removed");
 print("PidFile ownership passed!");
 
 print("\nAll advanced IPC tests passed!");
+
+// === Pipe basic send/recv ===
+print("\n=== Pipe basic send/recv ===");
+import { Pipe, pipe_create, fd_read, fd_write, fd_close, dup2, STDIN_FD, STDOUT_FD, STDERR_FD } from "@stdlib/ipc";
+
+let p1 = Pipe();
+assert(p1.read_fd >= 0, "pipe read_fd is valid");
+assert(p1.write_fd >= 0, "pipe write_fd is valid");
+assert(p1.read_fd != p1.write_fd, "read_fd != write_fd");
+
+let written = p1.send("Hello, Pipe!");
+assert(written == 12, "wrote 12 bytes");
+
+let pipe_data = p1.recv(4096);
+assert(pipe_data == "Hello, Pipe!", "received correct data");
+
+p1.close();
+print("Pipe basic send/recv passed!");
+
+// === Pipe multiple sends ===
+print("=== Pipe multiple sends ===");
+let p2 = Pipe();
+p2.send("aaa");
+p2.send("bbb");
+p2.send("ccc");
+p2.close_write();
+
+let all = p2.recv(4096);
+assert(all == "aaabbbccc", "multiple sends concatenate");
+p2.close_read();
+print("Pipe multiple sends passed!");
+
+// === Pipe EOF behavior ===
+print("=== Pipe EOF behavior ===");
+let p3 = Pipe();
+p3.send("data");
+p3.close_write();
+
+let first_read = p3.recv(4096);
+assert(first_read == "data", "first read gets data");
+
+let eof_read = p3.recv(4096);
+assert(eof_read == null, "read after EOF returns null");
+
+p3.close_read();
+print("Pipe EOF behavior passed!");
+
+// === Pipe close idempotency ===
+print("=== Pipe close idempotency ===");
+let p4 = Pipe();
+p4.close_read();
+p4.close_read();  // should not throw
+p4.close_write();
+p4.close_write();  // should not throw
+p4.close();  // should not throw even after individual closes
+print("Pipe close idempotency passed!");
+
+// === Low-level pipe_create + fd functions ===
+print("=== Low-level fd functions ===");
+let fds = pipe_create();
+assert(fds.read_fd >= 0, "pipe_create read_fd valid");
+assert(fds.write_fd >= 0, "pipe_create write_fd valid");
+
+let w = fd_write(fds.write_fd, "low-level");
+assert(w == 9, "fd_write returns byte count");
+
+let r = fd_read(fds.read_fd, 4096);
+assert(r == "low-level", "fd_read returns data");
+
+fd_close(fds.write_fd);
+fd_close(fds.read_fd);
+print("Low-level fd functions passed!");
+
+// === Pipe partial reads ===
+print("=== Pipe partial reads ===");
+let p5 = Pipe();
+p5.send("abcdefghij");  // 10 bytes
+let partial = p5.recv(5);  // read only 5
+assert(partial == "abcde", "partial read gets first 5 bytes");
+let rest = p5.recv(5);
+assert(rest == "fghij", "second read gets remaining 5 bytes");
+p5.close();
+print("Pipe partial reads passed!");
+
+// === FD constants ===
+print("=== FD constants ===");
+assert(STDIN_FD == 0, "STDIN_FD is 0");
+assert(STDOUT_FD == 1, "STDOUT_FD is 1");
+assert(STDERR_FD == 2, "STDERR_FD is 2");
+print("FD constants passed!");
+
+// === dup2 test ===
+print("=== dup2 test ===");
+let p6 = Pipe();
+
+// dup2 the write end to a high fd number, then write through it
+let new_fd = dup2(p6.write_fd, 99);
+assert(new_fd == 99, "dup2 returns new fd");
+
+// Write through the duplicated fd
+fd_write(99, "via dup2");
+fd_close(99);
+
+let dup_data = p6.recv(4096);
+assert(dup_data == "via dup2", "data written through dup2'd fd");
+p6.close();
+print("dup2 test passed!");
+
+// === Pipe with fork (parent-child IPC) ===
+print("=== Pipe fork test ===");
+import { fork, wait } from "@stdlib/process";
+
+let p7 = Pipe();
+let pid = fork();
+
+if (pid == 0) {
+    // Child process: close read end, send message, exit
+    p7.close_read();
+    p7.send("hello from child");
+    p7.close_write();
+    __exit(0);
+} else {
+    // Parent process: close write end, read message, wait for child
+    p7.close_write();
+    let child_msg = p7.recv(4096);
+    assert(child_msg == "hello from child", "parent received child message");
+    p7.close_read();
+    wait();
+    print("Pipe fork test passed!");
+}
+
+print("\nAll advanced pipe tests passed!");

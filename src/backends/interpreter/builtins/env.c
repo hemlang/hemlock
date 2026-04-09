@@ -1054,3 +1054,158 @@ Value builtin_abort(Value *args, int num_args, ExecutionContext *ctx) {
     abort();
     return val_null();  // Never reached
 }
+
+// ========== PIPE OPERATIONS ==========
+
+Value builtin_pipe(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
+
+    // SANDBOX: Check if process operations are allowed
+    if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_PROCESS)) {
+        sandbox_error(ctx, "pipe creation");
+        return val_null();
+    }
+
+    if (num_args != 0) {
+        runtime_error(ctx, "pipe() expects no arguments, got %d", num_args);
+        return val_null();
+    }
+
+    int fds[2];
+    if (pipe(fds) != 0) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "pipe() failed: %s", strerror(errno));
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    Object *result = object_new(NULL, 2);
+    if (!result) {
+        close(fds[0]);
+        close(fds[1]);
+        runtime_error(ctx, "pipe() memory allocation failed");
+        return val_null();
+    }
+    result->fields[0].name = strdup("read_fd");
+    result->fields[0].value = val_i32(fds[0]);
+    result->num_fields++;
+    result->fields[1].name = strdup("write_fd");
+    result->fields[1].value = val_i32(fds[1]);
+    result->num_fields++;
+
+    return val_object(result);
+}
+
+Value builtin_close_fd(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "close_fd() expects 1 argument, got %d", num_args);
+        return val_null();
+    }
+
+    int fd = value_to_int(args[0]);
+    if (close(fd) != 0) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "close_fd(%d) failed: %s", fd, strerror(errno));
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+    }
+    return val_null();
+}
+
+Value builtin_read_fd(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 2) {
+        runtime_error(ctx, "read_fd() expects 2 arguments (fd, size), got %d", num_args);
+        return val_null();
+    }
+
+    int fd = value_to_int(args[0]);
+    int buf_size = value_to_int(args[1]);
+
+    if (buf_size <= 0) {
+        runtime_error(ctx, "read_fd() size must be positive, got %d", buf_size);
+        return val_null();
+    }
+
+    char *buf = malloc((size_t)buf_size + 1);
+    if (!buf) {
+        runtime_error(ctx, "read_fd() memory allocation failed");
+        return val_null();
+    }
+
+    ssize_t bytes_read = read(fd, buf, (size_t)buf_size);
+    if (bytes_read < 0) {
+        free(buf);
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return val_null();
+        }
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "read_fd(%d) failed: %s", fd, strerror(errno));
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    if (bytes_read == 0) {
+        free(buf);
+        return val_null();
+    }
+
+    buf[bytes_read] = '\0';
+    Value result = val_string(buf);
+    free(buf);
+    return result;
+}
+
+Value builtin_write_fd(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 2) {
+        runtime_error(ctx, "write_fd() expects 2 arguments (fd, data), got %d", num_args);
+        return val_null();
+    }
+
+    int fd = value_to_int(args[0]);
+
+    if (args[1].type != VAL_STRING || !args[1].as.as_string) {
+        runtime_error(ctx, "write_fd() data must be a string");
+        return val_null();
+    }
+
+    String *str = args[1].as.as_string;
+    ssize_t written = write(fd, str->data, (size_t)str->length);
+    if (written < 0) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "write_fd(%d) failed: %s", fd, strerror(errno));
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    return val_i32((int32_t)written);
+}
+
+Value builtin_dup2(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 2) {
+        runtime_error(ctx, "dup2() expects 2 arguments (oldfd, newfd), got %d", num_args);
+        return val_null();
+    }
+
+    // SANDBOX: Check if process operations are allowed
+    if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_PROCESS)) {
+        sandbox_error(ctx, "dup2() operation");
+        return val_null();
+    }
+
+    int old_fd = value_to_int(args[0]);
+    int new_fd = value_to_int(args[1]);
+
+    int result = dup2(old_fd, new_fd);
+    if (result < 0) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "dup2(%d, %d) failed: %s", old_fd, new_fd, strerror(errno));
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    return val_i32(result);
+}
