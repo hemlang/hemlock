@@ -448,7 +448,7 @@ void hml_task_debug_info(HmlValue task_val) {
     }
     printf("Joined: %s\n", task->joined ? "true" : "false");
     printf("Detached: %s\n", task->detached ? "true" : "false");
-    printf("Ref Count: %d\n", task->ref_count);
+    printf("Ref Count: %d\n", atomic_load(&task->ref_count));
     printf("Has Result: %s\n", task->result.type != HML_VAL_NULL ? "true" : "false");
     printf("======================\n");
 
