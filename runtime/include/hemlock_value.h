@@ -104,7 +104,7 @@ struct HmlString {
     int length;              // Byte length
     int char_length;         // Codepoint length (-1 if uncalculated)
     int capacity;            // For heap: allocated size; for SSO: HML_SSO_THRESHOLD+1
-    int ref_count;
+    _Atomic int ref_count;
     int is_sso;              // 1 if using inline storage, 0 if heap allocated
     char inline_data[HML_SSO_THRESHOLD + 1];  // Inline storage for small strings
 };
@@ -114,7 +114,7 @@ struct HmlBuffer {
     void *data;
     int length;
     int capacity;
-    int ref_count;
+    _Atomic int ref_count;
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
     HmlBuffer *parent;   // Non-NULL for zero-copy slice views (keeps parent alive)
 };
@@ -124,7 +124,7 @@ struct HmlArray {
     HmlValue *elements;
     int length;
     int capacity;
-    int ref_count;
+    _Atomic int ref_count;
     HmlValueType element_type;  // HML_VAL_NULL for untyped
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
 };
@@ -141,7 +141,7 @@ struct HmlObject {
     HmlFieldEntry *fields;  // Unified array of field entries (reduces fragmentation)
     int num_fields;
     int capacity;
-    int ref_count;
+    _Atomic int ref_count;
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
     int is_pooled;          // 1 if allocated from object pool
     // Hash table for O(1) field lookup (lazy initialization)
@@ -159,7 +159,7 @@ struct HmlFunction {
     int num_required;       // Number of required parameters (for arity checking)
     int is_async;
     int has_rest_param;     // Has rest parameter (...args) - accepts unlimited extra args
-    int ref_count;
+    _Atomic int ref_count;
 };
 
 // File handle
@@ -186,7 +186,7 @@ struct HmlTask {
     int joined;
     int detached;
     HmlTaskSync *sync;      // Single allocation for all sync primitives (reduces fragmentation)
-    int ref_count;
+    _Atomic int ref_count;
     // For storing function and args to call
     HmlValue function;
     HmlValue *args;
@@ -214,7 +214,7 @@ struct HmlChannel {
     int count;
     int closed;
     HmlChannelSync *sync;        // Single allocation for all sync primitives (reduces fragmentation)
-    int ref_count;
+    _Atomic int ref_count;
     // Unbuffered channel support (rendezvous)
     HmlValue unbuffered_value;   // Value being transferred in rendezvous (inline, no separate alloc)
     int sender_waiting;          // Flag: sender is blocked waiting for receiver
