@@ -1,0 +1,100 @@
+// Test @stdlib/process exec and exec_argv functions
+
+import { get_pid, get_ppid, get_uid, get_gid, exec, exec_argv } from "@stdlib/process";
+
+// === Process identification (expanded) ===
+print("=== Process identification ===");
+
+let pid = get_pid();
+assert(pid > 0, "pid is positive");
+
+// PID is consistent within same process
+assert(get_pid() == pid, "pid is consistent");
+
+let ppid = get_ppid();
+assert(ppid > 0, "ppid is positive");
+assert(ppid != pid, "ppid != pid");
+
+let uid = get_uid();
+assert(uid >= 0, "uid is non-negative");
+
+let gid = get_gid();
+assert(gid >= 0, "gid is non-negative");
+
+print("Process identification passed!");
+
+// === exec basic commands ===
+print("=== exec basic ===");
+
+let result1 = exec("echo hello");
+assert(result1.exit_code == 0, "echo exit code 0");
+assert(result1.output.contains("hello"), "echo output");
+
+// exec with multiple words
+let result2 = exec("echo foo bar baz");
+assert(result2.exit_code == 0, "multi-word echo exit code");
+assert(result2.output.contains("foo bar baz"), "multi-word output");
+
+// exec command that fails
+let result3 = exec("false");
+assert(result3.exit_code != 0, "false command non-zero exit");
+
+// exec with pipe
+let result4 = exec("echo hello world | tr ' ' '_'");
+assert(result4.exit_code == 0, "pipe exit code");
+assert(result4.output.contains("hello_world"), "pipe output");
+
+print("exec basic passed!");
+
+// === exec_argv (safe execution) ===
+print("=== exec_argv ===");
+
+let av1 = exec_argv(["echo", "hello", "world"]);
+assert(av1.exit_code == 0, "exec_argv echo exit code");
+assert(av1.output.contains("hello world"), "exec_argv echo output");
+
+// exec_argv with no shell interpretation (semicolons treated literally)
+let av2 = exec_argv(["echo", "no;injection"]);
+assert(av2.exit_code == 0, "exec_argv no injection exit code");
+assert(av2.output.contains("no;injection"), "exec_argv treats ; literally");
+
+// exec_argv captures stderr
+let av3 = exec_argv(["ls", "/nonexistent_path_12345"]);
+assert(av3.exit_code != 0, "exec_argv ls nonexistent fails");
+
+// exec_argv with single command
+let av4 = exec_argv(["true"]);
+assert(av4.exit_code == 0, "exec_argv true");
+
+let av5 = exec_argv(["false"]);
+assert(av5.exit_code != 0, "exec_argv false");
+
+print("exec_argv passed!");
+
+// === exec with arguments ===
+print("=== exec with args ===");
+
+let result5 = exec("printf", ["%s %s", "hello", "world"]);
+assert(result5.exit_code == 0, "exec with args exit code");
+assert(result5.output.contains("hello world"), "exec with args output");
+
+print("exec with args passed!");
+
+// === fork + wait ===
+print("=== fork + wait ===");
+
+// Test fork - child process returns 0, parent gets child pid
+let child_pid = __fork();
+if (child_pid == 0) {
+    // Child process
+    print("child: pid=" + get_pid());
+    __exit(0);
+} else {
+    // Parent process
+    assert(child_pid > 0, "fork returns positive child pid");
+    let status = __wait();
+    assert(status != null, "wait returns status");
+    print("parent: child exited");
+}
+
+print("\nAll process tests passed!");

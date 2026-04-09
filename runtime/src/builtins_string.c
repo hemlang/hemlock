@@ -906,7 +906,7 @@ HmlValue hml_buffer_slice(HmlValue buf, HmlValue start, HmlValue end) {
     view->ref_count = 1;
     atomic_store(&view->freed, 0);
     view->parent = root;
-    root->ref_count++;  // Keep root alive
+    atomic_fetch_add(&root->ref_count, 1);  // Keep root alive
 
     HmlValue val;
     val.type = HML_VAL_BUFFER;
