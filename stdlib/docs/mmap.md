@@ -283,12 +283,12 @@ let size = mmap_size(p);
 
 // Read header (first 4 bytes = width, next 4 = height)
 let width = ptr_read_i32(p);
-let height = ptr_read_i32(ptr_offset(p, 4));
+let height = ptr_read_i32(ptr_offset(p, 4, 1));
 print("Image: " + width + "x" + height);
 
 // Read pixel data starting at offset 8
 for (let i = 0; i < width * height; i++) {
-    let pixel = ptr_read_u8(ptr_offset(p, 8 + i));
+    let pixel = ptr_read_u8(ptr_offset(p, 8 + i, 1));
     // process pixel...
 }
 
@@ -348,7 +348,7 @@ mmap_advise(p, MADV_SEQUENTIAL);
 // Process file byte by byte
 let line_count = 0;
 for (let i: i64 = 0; i < size; i++) {
-    let byte = ptr_read_u8(ptr_offset(p, i));
+    let byte = ptr_read_u8(ptr_offset(p, i, 1));
     if (byte == 10) {  // newline
         line_count++;
     }

@@ -230,6 +230,106 @@ assert(caught_ro2, "MappedFile.write_i32 should throw in read-only mode");
 mf3.close();
 print("  read-only rejection OK");
 
+// ========== Test mmap_protect ==========
+
+print("Testing mmap_protect...");
+let prot_map = mmap.mmap_open_anon(4096);
+ptr_write_i32(prot_map, 42);
+
+// Change to read-only
+let prot_result = mmap.mmap_protect(prot_map, mmap.PROT_READ);
+assert(prot_result == true, "mmap_protect should return true");
+
+// Change back to read-write
+let prot_result2 = mmap.mmap_protect(prot_map, mmap.PROT_READ | mmap.PROT_WRITE);
+assert(prot_result2 == true, "mmap_protect rw should return true");
+
+// Verify we can still read after protection changes
+let prot_val = ptr_read_i32(prot_map);
+assert(prot_val == 42, "Should still read 42 after protect changes, got " + prot_val);
+
+mmap.mmap_close(prot_map);
+print("  mmap_protect OK");
+
+// ========== Test mmap_advise with different hints ==========
+
+print("Testing mmap_advise with different hints...");
+let adv_map = mmap.mmap_open(test_file, "r");
+
+let adv1 = mmap.mmap_advise(adv_map, mmap.MADV_NORMAL);
+assert(adv1 == true, "MADV_NORMAL should succeed");
+
+let adv2 = mmap.mmap_advise(adv_map, mmap.MADV_RANDOM);
+assert(adv2 == true, "MADV_RANDOM should succeed");
+
+let adv3 = mmap.mmap_advise(adv_map, mmap.MADV_WILLNEED);
+assert(adv3 == true, "MADV_WILLNEED should succeed");
+
+let adv4 = mmap.mmap_advise(adv_map, mmap.MADV_DONTNEED);
+assert(adv4 == true, "MADV_DONTNEED should succeed");
+
+mmap.mmap_close(adv_map);
+print("  mmap_advise hints OK");
+
+// ========== Test MappedFile read_i64 / read_f64 ==========
+
+print("Testing MappedFile read_i64 and read_f64...");
+
+// Create a file with i64 and f64 data
+let data_file = "/tmp/hemlock_mmap_test_types.bin";
+let tbuf = buffer(16);
+tbuf.write_i32_le(0, 0);
+tbuf.write_i32_le(4, 0);
+tbuf.write_i32_le(8, 0);
+tbuf.write_i32_le(12, 0);
+let tf = open(data_file, "w");
+tf.write_bytes(tbuf);
+tf.close();
+
+// Write known i64 value via mmap
+let tw = mmap.mmap_open(data_file, "rw");
+ptr_write_i64(tw, 123456789);
+ptr_write_f64(ptr_offset(tw, 8, 1), 3.14);
+mmap.mmap_sync(tw);
+mmap.mmap_close(tw);
+
+let mf4 = mmap.MappedFile(data_file, "r");
+
+let read_i64_val = mf4.read_i64(0);
+assert(read_i64_val == 123456789, "MappedFile.read_i64 should return 123456789, got " + read_i64_val);
+
+let read_f64_val = mf4.read_f64(8);
+// Check approximate equality for float
+assert(read_f64_val > 3.13 && read_f64_val < 3.15, "MappedFile.read_f64 should return ~3.14, got " + read_f64_val);
+
+mf4.close();
+remove_file(data_file);
+print("  read_i64 / read_f64 OK");
+
+// ========== Test named imports ==========
+
+print("Testing named imports...");
+import { mmap_open, mmap_close, mmap_size, PROT_READ, MADV_SEQUENTIAL } from "@stdlib/mmap";
+
+let ni = mmap_open(test_file, "r");
+assert(ni != null, "Named import mmap_open should work");
+let ni_size = mmap_size(ni);
+assert(ni_size == 16, "Named import mmap_size should return 16");
+assert(typeof(PROT_READ) == "i32", "Named import PROT_READ should be i32");
+assert(typeof(MADV_SEQUENTIAL) == "i32", "Named import MADV_SEQUENTIAL should be i32");
+mmap_close(ni);
+print("  named imports OK");
+
+// ========== Test constant values are distinct ==========
+
+print("Testing constant values...");
+assert(mmap.PROT_NONE != mmap.PROT_READ, "PROT_NONE != PROT_READ");
+assert(mmap.PROT_READ != mmap.PROT_WRITE, "PROT_READ != PROT_WRITE");
+assert(mmap.PROT_WRITE != mmap.PROT_EXEC, "PROT_WRITE != PROT_EXEC");
+assert(mmap.MADV_NORMAL != mmap.MADV_SEQUENTIAL, "MADV_NORMAL != MADV_SEQUENTIAL");
+assert(mmap.MADV_SEQUENTIAL != mmap.MADV_RANDOM, "MADV_SEQUENTIAL != MADV_RANDOM");
+print("  constant values OK");
+
 // ========== Cleanup ==========
 
 remove_file(test_file);
