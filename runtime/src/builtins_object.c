@@ -159,10 +159,9 @@ void hml_object_set_field(HmlValue obj, const char *field, HmlValue val) {
     hml_retain(&o->fields[o->num_fields].value);
     o->num_fields++;
 
-    // Invalidate hash table - will be rebuilt on next lookup
-    free(o->hash_table);
-    o->hash_table = NULL;
-    o->hash_capacity = 0;
+    // Eagerly rebuild hash table to avoid thread-unsafe lazy initialization.
+    // Without this, concurrent readers race on the lazy init in object_lookup_field.
+    object_hash_rebuild(o);
 }
 
 int hml_object_has_field(HmlValue obj, const char *field) {
@@ -198,10 +197,8 @@ int hml_object_delete_field(HmlValue obj, const char *field) {
 
     o->num_fields--;
 
-    // Invalidate hash table - will be rebuilt on next lookup
-    free(o->hash_table);
-    o->hash_table = NULL;
-    o->hash_capacity = 0;
+    // Eagerly rebuild hash table to avoid thread-unsafe lazy initialization
+    object_hash_rebuild(o);
 
     return 1;  // Deleted
 }
