@@ -1,0 +1,137 @@
+// Test @stdlib/semver - Semantic versioning
+
+import { parse, format, compare, lt, gt, eq, lte, gte, neq } from "@stdlib/semver";
+import { increment, satisfies, valid, clean, major, minor, patch } from "@stdlib/semver";
+import { sort, max, min, diff } from "@stdlib/semver";
+
+// ============================================================================
+// Parsing
+// ============================================================================
+
+let v = parse("1.2.3");
+assert(v["major"] == 1, "parse major");
+assert(v["minor"] == 2, "parse minor");
+assert(v["patch"] == 3, "parse patch");
+assert(v["prerelease"] == "", "parse no prerelease");
+
+let pre = parse("1.0.0-alpha.1");
+assert(pre["major"] == 1, "parse pre major");
+assert(pre["prerelease"] == "alpha.1", "parse prerelease");
+
+let build = parse("1.0.0+build.123");
+assert(build["build"] == "build.123", "parse build metadata");
+
+let full = parse("2.1.0-beta.2+sha.abc123");
+assert(full["major"] == 2, "parse full major");
+assert(full["prerelease"] == "beta.2", "parse full prerelease");
+assert(full["build"] == "sha.abc123", "parse full build");
+
+// Leading v
+let vprefix = parse("v1.2.3");
+assert(vprefix["major"] == 1, "parse v-prefix");
+
+print("PASS: parsing");
+
+// ============================================================================
+// Formatting
+// ============================================================================
+
+assert(format(parse("1.2.3")) == "1.2.3", "format simple");
+assert(format(parse("1.0.0-alpha")) == "1.0.0-alpha", "format prerelease");
+assert(format(parse("1.0.0+build")) == "1.0.0+build", "format build");
+
+print("PASS: formatting");
+
+// ============================================================================
+// Comparison
+// ============================================================================
+
+assert(compare("1.0.0", "2.0.0") == -1, "1.0.0 < 2.0.0");
+assert(compare("2.0.0", "1.0.0") == 1, "2.0.0 > 1.0.0");
+assert(compare("1.0.0", "1.0.0") == 0, "1.0.0 == 1.0.0");
+assert(compare("1.2.0", "1.3.0") == -1, "minor compare");
+assert(compare("1.2.3", "1.2.4") == -1, "patch compare");
+
+// Prerelease ordering
+assert(compare("1.0.0-alpha", "1.0.0") == -1, "prerelease < release");
+assert(compare("1.0.0", "1.0.0-alpha") == 1, "release > prerelease");
+assert(compare("1.0.0-alpha", "1.0.0-beta") == -1, "alpha < beta");
+
+print("PASS: comparison");
+
+// ============================================================================
+// Comparison Helpers
+// ============================================================================
+
+assert(lt("1.0.0", "2.0.0") == true, "lt");
+assert(gt("2.0.0", "1.0.0") == true, "gt");
+assert(eq("1.0.0", "1.0.0") == true, "eq");
+assert(lte("1.0.0", "1.0.0") == true, "lte equal");
+assert(lte("1.0.0", "2.0.0") == true, "lte less");
+assert(gte("2.0.0", "1.0.0") == true, "gte greater");
+assert(neq("1.0.0", "2.0.0") == true, "neq");
+
+print("PASS: comparison helpers");
+
+// ============================================================================
+// Incrementing
+// ============================================================================
+
+assert(increment("1.2.3", "major") == "2.0.0", "increment major");
+assert(increment("1.2.3", "minor") == "1.3.0", "increment minor");
+assert(increment("1.2.3", "patch") == "1.2.4", "increment patch");
+assert(increment("1.2.3", "premajor") == "2.0.0-0", "increment premajor");
+
+print("PASS: incrementing");
+
+// ============================================================================
+// Range Satisfaction
+// ============================================================================
+
+assert(satisfies("1.5.0", ">=1.0.0 <2.0.0") == true, "range >=1 <2");
+assert(satisfies("2.0.0", ">=1.0.0 <2.0.0") == false, "range excludes 2.0");
+assert(satisfies("1.2.4", "^1.2.3") == true, "caret range");
+assert(satisfies("2.0.0", "^1.2.3") == false, "caret rejects major bump");
+assert(satisfies("1.2.5", "~1.2.3") == true, "tilde range");
+assert(satisfies("1.3.0", "~1.2.3") == false, "tilde rejects minor bump");
+
+print("PASS: range satisfaction");
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+assert(valid("1.2.3") == true, "valid version");
+assert(valid("not.a.version") == false, "invalid version");
+assert(clean("v1.2.3") == "1.2.3", "clean strips v");
+assert(major("1.2.3") == 1, "major()");
+assert(minor("1.2.3") == 2, "minor()");
+assert(patch("1.2.3") == 3, "patch()");
+
+print("PASS: utilities");
+
+// ============================================================================
+// Sort
+// ============================================================================
+
+let sorted = sort(["2.0.0", "1.0.0", "1.5.0", "3.0.0"]);
+assert(sorted[0] == "1.0.0", "sort first");
+assert(sorted[3] == "3.0.0", "sort last");
+
+assert(max("1.0.0", "2.0.0") == "2.0.0", "max");
+assert(min("1.0.0", "2.0.0") == "1.0.0", "min");
+
+print("PASS: sort");
+
+// ============================================================================
+// Diff
+// ============================================================================
+
+assert(diff("1.0.0", "2.0.0") == "major", "diff major");
+assert(diff("1.0.0", "1.1.0") == "minor", "diff minor");
+assert(diff("1.0.0", "1.0.1") == "patch", "diff patch");
+assert(diff("1.0.0", "1.0.0") == null, "diff equal");
+
+print("PASS: diff");
+
+print("All semver tests passed!");

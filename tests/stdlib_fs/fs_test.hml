@@ -1,0 +1,109 @@
+// Test @stdlib/fs - File system operations
+
+import { exists, read_file, write_file, append_file, remove_file } from "@stdlib/fs";
+import { make_dir, remove_dir, list_dir, is_file, is_dir } from "@stdlib/fs";
+import { cwd, rename, copy_file, file_stat } from "@stdlib/fs";
+
+let test_dir = "/tmp/hemlock_fs_test";
+
+// ============================================================================
+// Setup
+// ============================================================================
+
+try { remove_file(test_dir + "/test.txt"); } catch (e) {}
+try { remove_file(test_dir + "/copy.txt"); } catch (e) {}
+try { remove_file(test_dir + "/renamed.txt"); } catch (e) {}
+try { remove_dir(test_dir); } catch (e) {}
+
+make_dir(test_dir);
+
+print("PASS: setup");
+
+// ============================================================================
+// Write and Read
+// ============================================================================
+
+write_file(test_dir + "/test.txt", "hello world");
+let content = read_file(test_dir + "/test.txt");
+assert(content == "hello world", "write then read");
+
+print("PASS: write and read");
+
+// ============================================================================
+// Append
+// ============================================================================
+
+append_file(test_dir + "/test.txt", "\nline 2");
+content = read_file(test_dir + "/test.txt");
+assert(content == "hello world\nline 2", "append");
+
+print("PASS: append");
+
+// ============================================================================
+// Exists, is_file, is_dir
+// ============================================================================
+
+assert(exists(test_dir + "/test.txt") == true, "file exists");
+assert(exists(test_dir + "/nonexistent.txt") == false, "file not exists");
+assert(is_file(test_dir + "/test.txt") == true, "is_file true");
+assert(is_dir(test_dir) == true, "is_dir true");
+assert(is_dir(test_dir + "/test.txt") == false, "is_dir false for file");
+
+print("PASS: exists and type checks");
+
+// ============================================================================
+// Copy and Rename
+// ============================================================================
+
+copy_file(test_dir + "/test.txt", test_dir + "/copy.txt");
+assert(exists(test_dir + "/copy.txt") == true, "copy exists");
+assert(read_file(test_dir + "/copy.txt") == "hello world\nline 2", "copy content");
+
+rename(test_dir + "/copy.txt", test_dir + "/renamed.txt");
+assert(exists(test_dir + "/renamed.txt") == true, "renamed exists");
+assert(exists(test_dir + "/copy.txt") == false, "original gone after rename");
+
+print("PASS: copy and rename");
+
+// ============================================================================
+// List Directory
+// ============================================================================
+
+let entries = list_dir(test_dir);
+assert(entries.length >= 2, "list_dir has entries");
+
+print("PASS: list directory");
+
+// ============================================================================
+// File Stat
+// ============================================================================
+
+let stat = file_stat(test_dir + "/test.txt");
+assert(stat["size"] > 0, "stat has size");
+
+print("PASS: file stat");
+
+// ============================================================================
+// Current Working Directory
+// ============================================================================
+
+let wd = cwd();
+assert(wd.length > 0, "cwd not empty");
+assert(is_dir(wd) == true, "cwd is directory");
+
+print("PASS: cwd");
+
+// ============================================================================
+// Remove
+// ============================================================================
+
+remove_file(test_dir + "/test.txt");
+assert(exists(test_dir + "/test.txt") == false, "file removed");
+
+remove_file(test_dir + "/renamed.txt");
+remove_dir(test_dir);
+assert(exists(test_dir) == false, "dir removed");
+
+print("PASS: remove");
+
+print("All fs tests passed!");

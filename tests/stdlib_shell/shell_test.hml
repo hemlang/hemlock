@@ -1,0 +1,115 @@
+// Test @stdlib/shell - Shell utilities
+
+import { escape, quote, double_quote, build_command } from "@stdlib/shell";
+import { and_then, or_else, sequential, pipe } from "@stdlib/shell";
+import { run, run_capture, run_output, run_lines } from "@stdlib/shell";
+import { parse_columns, parse_env_output } from "@stdlib/shell";
+import { env_or, has_env } from "@stdlib/shell";
+import { subshell, background, redirect_stdout } from "@stdlib/shell";
+
+// ============================================================================
+// Escaping
+// ============================================================================
+
+assert(escape("hello") == "hello", "escape simple");
+assert(escape("hello world").contains("\\"), "escape space");
+assert(escape("it's").contains("\\"), "escape quote");
+assert(escape("$HOME").contains("\\"), "escape dollar");
+
+print("PASS: escape");
+
+// ============================================================================
+// Quoting
+// ============================================================================
+
+assert(quote("hello") == "'hello'", "quote simple");
+assert(quote("hello world") == "'hello world'", "quote with space");
+
+let dq = double_quote("hello");
+assert(dq == "\"hello\"", "double quote simple");
+let dq2 = double_quote("say \"hi\"");
+assert(dq2.contains("\\\""), "double quote escapes quotes");
+
+print("PASS: quoting");
+
+// ============================================================================
+// Command Building
+// ============================================================================
+
+let cmd = build_command(["echo", "hello", "world"]);
+assert(cmd.contains("echo"), "build_command has command");
+assert(cmd.contains("hello"), "build_command has arg1");
+
+let chain = and_then(["cmd1", "cmd2"]);
+assert(chain == "cmd1 && cmd2", "and_then");
+
+let alt = or_else(["cmd1", "cmd2"]);
+assert(alt == "cmd1 || cmd2", "or_else");
+
+let seq = sequential(["cmd1", "cmd2", "cmd3"]);
+assert(seq == "cmd1; cmd2; cmd3", "sequential");
+
+let piped = pipe(["ls", "grep foo"]);
+assert(piped == "ls | grep foo", "pipe");
+
+print("PASS: command building");
+
+// ============================================================================
+// Command Execution
+// ============================================================================
+
+assert(run("true") == true, "run true");
+assert(run("false") == false, "run false");
+
+let result = run_capture("echo hello");
+assert(result["success"] == true, "run_capture success");
+assert(result["stdout"].contains("hello"), "run_capture stdout");
+
+let output = run_output("echo test");
+assert(output.contains("test"), "run_output");
+
+let lines = run_lines("printf 'a\nb\nc\n'");
+assert(lines.length == 3, "run_lines count");
+assert(lines[0] == "a", "run_lines first");
+
+print("PASS: command execution");
+
+// ============================================================================
+// Output Parsing
+// ============================================================================
+
+let cols = parse_columns("  PID  USER  CMD  ");
+assert(cols.length == 3, "parse_columns count");
+assert(cols[0] == "PID", "parse_columns first");
+assert(cols[2] == "CMD", "parse_columns last");
+
+let env_out = parse_env_output("FOO=bar\nBAZ=qux\n");
+assert(env_out["FOO"] == "bar", "parse_env FOO");
+assert(env_out["BAZ"] == "qux", "parse_env BAZ");
+
+print("PASS: output parsing");
+
+// ============================================================================
+// Environment Helpers
+// ============================================================================
+
+assert(has_env("PATH") == true, "has_env PATH");
+assert(has_env("HEMLOCK_NONEXISTENT_VAR_XYZ") == false, "has_env nonexistent");
+
+let home = env_or("HOME", "/tmp");
+assert(home != "/tmp", "env_or HOME exists");
+assert(env_or("HEMLOCK_NONEXISTENT_VAR_XYZ", "fallback") == "fallback", "env_or fallback");
+
+print("PASS: environment helpers");
+
+// ============================================================================
+// Shell Combinators
+// ============================================================================
+
+assert(subshell("ls") == "(ls)", "subshell");
+assert(background("sleep 1") == "sleep 1 &", "background");
+assert(redirect_stdout("echo hi", "/tmp/out") == "echo hi > '/tmp/out'", "redirect");
+
+print("PASS: shell combinators");
+
+print("All shell tests passed!");

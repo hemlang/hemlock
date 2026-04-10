@@ -1,0 +1,62 @@
+// Test @stdlib/ffi - FFI type constants and utilities
+
+import { FFI_VOID, FFI_INT, FFI_FLOAT, FFI_DOUBLE, FFI_POINTER, FFI_STRING } from "@stdlib/ffi";
+import { FFI_INT8, FFI_INT16, FFI_INT32, FFI_INT64 } from "@stdlib/ffi";
+import { FFI_UINT8, FFI_UINT16, FFI_UINT32, FFI_UINT64 } from "@stdlib/ffi";
+import { ffi_sizeof } from "@stdlib/ffi";
+
+// ============================================================================
+// FFI Type Constants
+// ============================================================================
+
+assert(FFI_VOID == 0, "FFI_VOID");
+assert(FFI_INT == 1, "FFI_INT");
+assert(FFI_FLOAT == 2, "FFI_FLOAT");
+assert(FFI_DOUBLE == 3, "FFI_DOUBLE");
+assert(FFI_POINTER == 4, "FFI_POINTER");
+assert(FFI_STRING == 5, "FFI_STRING");
+
+assert(FFI_INT8 == 6, "FFI_INT8");
+assert(FFI_INT16 == 7, "FFI_INT16");
+assert(FFI_INT32 == 8, "FFI_INT32");
+assert(FFI_INT64 == 9, "FFI_INT64");
+
+assert(FFI_UINT8 == 10, "FFI_UINT8");
+assert(FFI_UINT16 == 11, "FFI_UINT16");
+assert(FFI_UINT32 == 12, "FFI_UINT32");
+assert(FFI_UINT64 == 13, "FFI_UINT64");
+
+print("PASS: FFI type constants");
+
+// ============================================================================
+// All Constants Are Distinct
+// ============================================================================
+
+let types = [FFI_VOID, FFI_INT, FFI_FLOAT, FFI_DOUBLE, FFI_POINTER, FFI_STRING,
+	FFI_INT8, FFI_INT16, FFI_INT32, FFI_INT64,
+	FFI_UINT8, FFI_UINT16, FFI_UINT32, FFI_UINT64];
+
+for (let i = 0; i < types.length; i++) {
+	for (let j = i + 1; j < types.length; j++) {
+		assert(types[i] != types[j], "FFI types distinct " + i + " vs " + j);
+	}
+}
+
+print("PASS: FFI types distinct");
+
+// ============================================================================
+// ffi_sizeof (takes string type names)
+// ============================================================================
+
+assert(ffi_sizeof("i8") == 1, "sizeof i8");
+assert(ffi_sizeof("i16") == 2, "sizeof i16");
+assert(ffi_sizeof("i32") == 4, "sizeof i32");
+assert(ffi_sizeof("i64") == 8, "sizeof i64");
+assert(ffi_sizeof("u8") == 1, "sizeof u8");
+assert(ffi_sizeof("f32") == 4, "sizeof f32");
+assert(ffi_sizeof("f64") == 8, "sizeof f64");
+assert(ffi_sizeof("ptr") > 0, "sizeof ptr > 0");
+
+print("PASS: ffi_sizeof");
+
+print("All FFI tests passed!");

@@ -1,0 +1,59 @@
+// Test @stdlib/signal - Signal constants and utilities
+
+import { SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGABRT } from "@stdlib/signal";
+import { SIGUSR1, SIGUSR2, SIGALRM, SIGCHLD, SIGPIPE } from "@stdlib/signal";
+import { SIGCONT, SIGSTOP, SIGTSTP } from "@stdlib/signal";
+import { name } from "@stdlib/signal";
+
+// ============================================================================
+// Signal Constants Exist and Are Positive Integers
+// ============================================================================
+
+assert(SIGINT > 0, "SIGINT is positive");
+assert(SIGTERM > 0, "SIGTERM is positive");
+assert(SIGHUP > 0, "SIGHUP is positive");
+assert(SIGQUIT > 0, "SIGQUIT is positive");
+assert(SIGABRT > 0, "SIGABRT is positive");
+assert(SIGUSR1 > 0, "SIGUSR1 is positive");
+assert(SIGUSR2 > 0, "SIGUSR2 is positive");
+assert(SIGALRM > 0, "SIGALRM is positive");
+assert(SIGCHLD > 0, "SIGCHLD is positive");
+assert(SIGPIPE > 0, "SIGPIPE is positive");
+assert(SIGCONT > 0, "SIGCONT is positive");
+assert(SIGSTOP > 0, "SIGSTOP is positive");
+assert(SIGTSTP > 0, "SIGTSTP is positive");
+
+print("PASS: signal constants");
+
+// ============================================================================
+// Standard Signal Values (POSIX)
+// ============================================================================
+
+assert(SIGINT == 2, "SIGINT == 2");
+assert(SIGTERM == 15, "SIGTERM == 15");
+assert(SIGHUP == 1, "SIGHUP == 1");
+
+print("PASS: standard POSIX values");
+
+// ============================================================================
+// Signal Names
+// ============================================================================
+
+assert(name(SIGINT) == "SIGINT", "name SIGINT");
+assert(name(SIGTERM) == "SIGTERM", "name SIGTERM");
+assert(name(SIGHUP) == "SIGHUP", "name SIGHUP");
+assert(name(SIGUSR1) == "SIGUSR1", "name SIGUSR1");
+
+print("PASS: signal names");
+
+// ============================================================================
+// All Signals Are Distinct
+// ============================================================================
+
+assert(SIGINT != SIGTERM, "SIGINT != SIGTERM");
+assert(SIGTERM != SIGHUP, "SIGTERM != SIGHUP");
+assert(SIGUSR1 != SIGUSR2, "SIGUSR1 != SIGUSR2");
+
+print("PASS: signals distinct");
+
+print("All signal tests passed!");

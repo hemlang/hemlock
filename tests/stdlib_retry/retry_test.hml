@@ -1,0 +1,128 @@
+// Test @stdlib/retry - Retry and backoff utilities
+
+import { retry, exponential_backoff, linear_backoff, constant_backoff, add_jitter, retry_if } from "@stdlib/retry";
+
+// ============================================================================
+// Backoff Calculations
+// ============================================================================
+
+assert(exponential_backoff(0) == 100, "exp backoff attempt 0");
+assert(exponential_backoff(1) == 200, "exp backoff attempt 1");
+assert(exponential_backoff(2) == 400, "exp backoff attempt 2");
+assert(exponential_backoff(3) == 800, "exp backoff attempt 3");
+
+// Custom base
+assert(exponential_backoff(0, 50) == 50, "exp backoff custom base");
+assert(exponential_backoff(1, 50) == 100, "exp backoff custom base attempt 1");
+
+// Max delay cap
+assert(exponential_backoff(20, 100, 1000) <= 1000, "exp backoff max cap");
+
+assert(linear_backoff(0) == 100, "linear backoff attempt 0");
+assert(linear_backoff(1) == 1100, "linear backoff attempt 1");
+assert(linear_backoff(2) == 2100, "linear backoff attempt 2");
+
+assert(constant_backoff(500) == 500, "constant backoff");
+
+print("PASS: backoff calculations");
+
+// ============================================================================
+// Jitter
+// ============================================================================
+
+let jittered = add_jitter(1000, 0.1);
+assert(jittered >= 900 && jittered <= 1100, "jitter within range");
+
+// Zero jitter
+assert(add_jitter(1000, 0) == 1000, "zero jitter");
+
+print("PASS: jitter");
+
+// ============================================================================
+// Retry - Immediate Success
+// ============================================================================
+
+let call_count = 0;
+let result = retry(fn() {
+	call_count = call_count + 1;
+	return 42;
+});
+assert(result == 42, "retry immediate success");
+assert(call_count == 1, "retry called once on success");
+
+print("PASS: retry immediate success");
+
+// ============================================================================
+// Retry - Eventual Success
+// ============================================================================
+
+let attempts = 0;
+result = retry(fn() {
+	attempts = attempts + 1;
+	if (attempts < 3) {
+		throw "not yet";
+	}
+	return "ok";
+}, 5);
+assert(result == "ok", "retry eventual success");
+assert(attempts == 3, "retry took 3 attempts");
+
+print("PASS: retry eventual success");
+
+// ============================================================================
+// Retry - All Attempts Fail
+// ============================================================================
+
+try {
+	retry(fn() { throw "always fails"; }, 3);
+	assert(false, "should have thrown");
+} catch (e) {
+	assert(e == "always fails", "retry throws last error");
+}
+
+print("PASS: retry all fail");
+
+// ============================================================================
+// Retry If - Conditional Retry
+// ============================================================================
+
+let retry_count = 0;
+try {
+	retry_if(
+		fn() {
+			retry_count = retry_count + 1;
+			if (retry_count == 1) { throw "transient"; }
+			if (retry_count == 2) { throw "permanent"; }
+		},
+		fn(err) { return err == "transient"; },
+		3,
+		0
+	);
+} catch (e) {
+	assert(e == "permanent", "retry_if stops on non-retryable error");
+}
+assert(retry_count == 2, "retry_if stopped at permanent error");
+
+print("PASS: retry_if");
+
+// ============================================================================
+// Error Handling
+// ============================================================================
+
+try {
+	retry("not a function");
+	assert(false, "should throw on non-function");
+} catch (e) {
+	assert(e.contains("function"), "non-function error");
+}
+
+try {
+	retry(fn() { return 1; }, 0);
+	assert(false, "should throw on 0 attempts");
+} catch (e) {
+	assert(e.contains(">="), "zero attempts error");
+}
+
+print("PASS: error handling");
+
+print("All retry tests passed!");

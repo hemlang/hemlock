@@ -1,0 +1,144 @@
+// Test @stdlib/random - Random number and selection utilities
+
+import { set_seed, randint, randf, shuffle, choice, sample, choices } from "@stdlib/random";
+import { coin_flip, dice, roll, random_bool, random_string, random_hex } from "@stdlib/random";
+
+// Seed for reproducibility
+set_seed(42);
+
+// ============================================================================
+// Random Numbers
+// ============================================================================
+
+// randint range check
+for (let i = 0; i < 50; i++) {
+	let n = randint(1, 10);
+	assert(n >= 1 && n <= 10, "randint in range");
+}
+
+// randf range check
+for (let i = 0; i < 50; i++) {
+	let f = randf(0, 1);
+	assert(f >= 0 && f < 1, "randf in range");
+}
+
+// Edge case: min == max
+assert(randint(5, 5) == 5, "randint min==max");
+
+print("PASS: random numbers");
+
+// ============================================================================
+// Shuffle
+// ============================================================================
+
+let arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+let original_len = arr.length;
+shuffle(arr);
+assert(arr.length == original_len, "shuffle preserves length");
+
+// Check all elements still present (sum should be same)
+let sum = 0;
+for (let i = 0; i < arr.length; i++) { sum = sum + arr[i]; }
+assert(sum == 55, "shuffle preserves elements");
+
+print("PASS: shuffle");
+
+// ============================================================================
+// Choice
+// ============================================================================
+
+let items = ["a", "b", "c", "d"];
+for (let i = 0; i < 20; i++) {
+	let c = choice(items);
+	assert(c == "a" || c == "b" || c == "c" || c == "d", "choice from items");
+}
+
+print("PASS: choice");
+
+// ============================================================================
+// Sample
+// ============================================================================
+
+let s = sample([1, 2, 3, 4, 5], 3);
+assert(s.length == 3, "sample length");
+
+// Empty sample
+let empty = sample([1, 2, 3], 0);
+assert(empty.length == 0, "sample 0");
+
+print("PASS: sample");
+
+// ============================================================================
+// Choices (with replacement)
+// ============================================================================
+
+let ch = choices(["x", "y"], 5);
+assert(ch.length == 5, "choices length");
+for (let i = 0; i < ch.length; i++) {
+	assert(ch[i] == "x" || ch[i] == "y", "choices valid element");
+}
+
+print("PASS: choices");
+
+// ============================================================================
+// Dice and Coin
+// ============================================================================
+
+for (let i = 0; i < 20; i++) {
+	let flip = coin_flip();
+	assert(typeof(flip) == "bool", "coin_flip is bool");
+}
+
+for (let i = 0; i < 20; i++) {
+	let d = dice(6);
+	assert(d >= 1 && d <= 6, "dice in range");
+}
+
+let r = roll(3, 6);
+assert(r >= 3 && r <= 18, "roll 3d6 in range");
+
+print("PASS: dice and coin");
+
+// ============================================================================
+// Random Bool
+// ============================================================================
+
+// probability 1.0 should always be true, 0.0 always false
+for (let i = 0; i < 10; i++) {
+	assert(random_bool(1) == true, "random_bool(1)");
+	assert(random_bool(0) == false, "random_bool(0)");
+}
+
+print("PASS: random_bool");
+
+// ============================================================================
+// Random Strings
+// ============================================================================
+
+let rs = random_string(10);
+assert(rs.length == 10, "random_string length");
+
+let hex = random_hex(8);
+assert(hex.length == 8, "random_hex length");
+// All chars should be hex
+for (let i = 0; i < hex.length; i++) {
+	let c = hex.char_at(i);
+	let valid = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+	assert(valid, "random_hex valid chars");
+}
+
+assert(random_string(0) == "", "random_string 0");
+
+print("PASS: random strings");
+
+// ============================================================================
+// Error Cases
+// ============================================================================
+
+try { randint(10, 5); assert(false, "should throw"); } catch (e) { assert(e.contains("min"), "randint range error"); }
+try { choice([]); assert(false, "should throw"); } catch (e) { assert(e.contains("empty"), "choice empty error"); }
+try { sample([1], 5); assert(false, "should throw"); } catch (e) { assert(e.contains("length"), "sample overflow error"); }
+
+print("PASS: error cases");
+
+print("All random tests passed!");
