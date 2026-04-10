@@ -2,10 +2,8 @@
 #include "hemlock_limits.h"
 
 Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: typeof() expects 1 argument\n");
-        exit(1);
+        runtime_error(ctx, "typeof() expects 1 argument"); return val_null();
     }
 
     const char *type_name;
@@ -96,10 +94,8 @@ Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_typeid(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: typeid() expects 1 argument\n");
-        exit(1);
+        runtime_error(ctx, "typeid() expects 1 argument"); return val_null();
     }
 
     int32_t tid;
@@ -136,8 +132,7 @@ Value builtin_typeid(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_assert(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args < 1 || num_args > 2) {
-        fprintf(stderr, "Runtime error: assert() expects 1-2 arguments (condition, [message])\n");
-        exit(1);
+        runtime_error(ctx, "assert() expects 1-2 arguments (condition, [message])"); return val_null();
     }
 
     // Check if condition is truthy

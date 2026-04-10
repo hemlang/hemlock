@@ -8,20 +8,16 @@ static void set_object_field(Object *obj, const char *name, Value value);
 
 Value builtin_now(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: now() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "now() expects no arguments"); return val_null();
     }
     return val_i64((int64_t)time(NULL));
 }
 
 Value builtin_time_ms(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: time_ms() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "time_ms() expects no arguments"); return val_null();
     }
     struct timeval tv;
     gettimeofday(&tv, NULL);
@@ -30,19 +26,15 @@ Value builtin_time_ms(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_sleep(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: sleep() expects 1 argument (seconds)\n");
-        exit(1);
+        runtime_error(ctx, "sleep() expects 1 argument (seconds)"); return val_null();
     }
     if (!is_numeric(args[0])) {
-        fprintf(stderr, "Runtime error: sleep() argument must be numeric\n");
-        exit(1);
+        runtime_error(ctx, "sleep() argument must be numeric"); return val_null();
     }
     double seconds = value_to_float(args[0]);
     if (seconds < 0) {
-        fprintf(stderr, "Runtime error: sleep() argument must be non-negative\n");
-        exit(1);
+        runtime_error(ctx, "sleep() argument must be non-negative"); return val_null();
     }
     // Use nanosleep for more precise sleep
     struct timespec req;
@@ -54,10 +46,8 @@ Value builtin_sleep(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_clock(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: clock() expects no arguments\n");
-        exit(1);
+        runtime_error(ctx, "clock() expects no arguments"); return val_null();
     }
     // Returns CPU time in seconds as f64
     return val_f64((double)clock() / CLOCKS_PER_SEC);
@@ -69,22 +59,18 @@ Value builtin_localtime(Value *args, int num_args, ExecutionContext *ctx) {
     struct tm *tm_info;
     Object *obj;
 
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: localtime() expects 1 argument (timestamp)\n");
-        exit(1);
+        runtime_error(ctx, "localtime() expects 1 argument (timestamp)"); return val_null();
     }
     if (!is_numeric(args[0])) {
-        fprintf(stderr, "Runtime error: localtime() argument must be numeric\n");
-        exit(1);
+        runtime_error(ctx, "localtime() argument must be numeric"); return val_null();
     }
 
     timestamp = (time_t)value_to_int64(args[0]);
     tm_info = localtime(&timestamp);
 
     if (!tm_info) {
-        fprintf(stderr, "Runtime error: localtime() failed to convert timestamp\n");
-        exit(1);
+        runtime_error(ctx, "localtime() failed to convert timestamp"); return val_null();
     }
 
     // Create object with time components
@@ -108,22 +94,18 @@ Value builtin_gmtime(Value *args, int num_args, ExecutionContext *ctx) {
     struct tm *tm_info;
     Object *obj;
 
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: gmtime() expects 1 argument (timestamp)\n");
-        exit(1);
+        runtime_error(ctx, "gmtime() expects 1 argument (timestamp)"); return val_null();
     }
     if (!is_numeric(args[0])) {
-        fprintf(stderr, "Runtime error: gmtime() argument must be numeric\n");
-        exit(1);
+        runtime_error(ctx, "gmtime() argument must be numeric"); return val_null();
     }
 
     timestamp = (time_t)value_to_int64(args[0]);
     tm_info = gmtime(&timestamp);
 
     if (!tm_info) {
-        fprintf(stderr, "Runtime error: gmtime() failed to convert timestamp\n");
-        exit(1);
+        runtime_error(ctx, "gmtime() failed to convert timestamp"); return val_null();
     }
 
     // Create object with time components
@@ -173,14 +155,11 @@ Value builtin_mktime(Value *args, int num_args, ExecutionContext *ctx) {
     Value year_val, month_val, day_val, hour_val, minute_val, second_val;
     time_t timestamp;
 
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: mktime() expects 1 argument (time components object)\n");
-        exit(1);
+        runtime_error(ctx, "mktime() expects 1 argument (time components object)"); return val_null();
     }
     if (args[0].type != VAL_OBJECT) {
-        fprintf(stderr, "Runtime error: mktime() argument must be an object\n");
-        exit(1);
+        runtime_error(ctx, "mktime() argument must be an object"); return val_null();
     }
 
     obj = args[0].as.as_object;
@@ -195,8 +174,7 @@ Value builtin_mktime(Value *args, int num_args, ExecutionContext *ctx) {
 
     if (year_val.type == VAL_NULL || month_val.type == VAL_NULL ||
         day_val.type == VAL_NULL) {
-        fprintf(stderr, "Runtime error: mktime() requires year, month, and day fields\n");
-        exit(1);
+        runtime_error(ctx, "mktime() requires year, month, and day fields"); return val_null();
     }
 
     tm_info.tm_year = value_to_int(year_val) - 1900;
@@ -209,8 +187,7 @@ Value builtin_mktime(Value *args, int num_args, ExecutionContext *ctx) {
 
     timestamp = mktime(&tm_info);
     if (timestamp == -1) {
-        fprintf(stderr, "Runtime error: mktime() failed to convert time components\n");
-        exit(1);
+        runtime_error(ctx, "mktime() failed to convert time components"); return val_null();
     }
 
     return val_i64((int64_t)timestamp);
@@ -226,18 +203,14 @@ Value builtin_strftime(Value *args, int num_args, ExecutionContext *ctx) {
     char buffer[256];
     size_t len;
 
-    (void)ctx;
     if (num_args != 2) {
-        fprintf(stderr, "Runtime error: strftime() expects 2 arguments (format, time components)\n");
-        exit(1);
+        runtime_error(ctx, "strftime() expects 2 arguments (format, time components)"); return val_null();
     }
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: strftime() format argument must be a string\n");
-        exit(1);
+        runtime_error(ctx, "strftime() format argument must be a string"); return val_null();
     }
     if (args[1].type != VAL_OBJECT) {
-        fprintf(stderr, "Runtime error: strftime() time components argument must be an object\n");
-        exit(1);
+        runtime_error(ctx, "strftime() time components argument must be an object"); return val_null();
     }
 
     format = args[0].as.as_string->data;
@@ -255,8 +228,7 @@ Value builtin_strftime(Value *args, int num_args, ExecutionContext *ctx) {
 
     if (year_val.type == VAL_NULL || month_val.type == VAL_NULL ||
         day_val.type == VAL_NULL) {
-        fprintf(stderr, "Runtime error: strftime() requires year, month, and day fields\n");
-        exit(1);
+        runtime_error(ctx, "strftime() requires year, month, and day fields"); return val_null();
     }
 
     tm_info.tm_year = value_to_int(year_val) - 1900;
@@ -272,8 +244,7 @@ Value builtin_strftime(Value *args, int num_args, ExecutionContext *ctx) {
     // Format the time
     len = strftime(buffer, sizeof(buffer), format, &tm_info);
     if (len == 0) {
-        fprintf(stderr, "Runtime error: strftime() formatting failed\n");
-        exit(1);
+        runtime_error(ctx, "strftime() formatting failed"); return val_null();
     }
 
     return val_string(buffer);

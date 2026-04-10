@@ -888,6 +888,84 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // ========== MEMORY-MAPPED FILE I/O ==========
+
+        // mmap_open(path, mode?) -> ptr
+        if (strcmp(fn_name, "__mmap_open") == 0 && (expr->as.call.num_args == 1 || expr->as.call.num_args == 2)) {
+            char *path = codegen_expr(ctx, expr->as.call.args[0]);
+            if (expr->as.call.num_args == 2) {
+                char *mode = codegen_expr(ctx, expr->as.call.args[1]);
+                codegen_writeln(ctx, "HmlValue %s = hml_builtin_mmap_open(NULL, %s, %s);", result, path, mode);
+                codegen_writeln(ctx, "hml_release(&%s);", mode);
+                free(mode);
+            } else {
+                codegen_writeln(ctx, "HmlValue %s = hml_builtin_mmap_open(NULL, %s, hml_val_null());", result, path);
+            }
+            codegen_writeln(ctx, "hml_release(&%s);", path);
+            free(path);
+            return result;
+        }
+
+        // mmap_open_anon(size) -> ptr
+        if (strcmp(fn_name, "__mmap_open_anon") == 0 && expr->as.call.num_args == 1) {
+            char *size = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_mmap_open_anon(NULL, %s);", result, size);
+            codegen_writeln(ctx, "hml_release(&%s);", size);
+            free(size);
+            return result;
+        }
+
+        // mmap_sync(ptr) -> bool
+        if (strcmp(fn_name, "__mmap_sync") == 0 && expr->as.call.num_args == 1) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_mmap_sync(NULL, %s);", result, ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(ptr);
+            return result;
+        }
+
+        // mmap_close(ptr) -> bool
+        if (strcmp(fn_name, "__mmap_close") == 0 && expr->as.call.num_args == 1) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_mmap_close(NULL, %s);", result, ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(ptr);
+            return result;
+        }
+
+        // mmap_size(ptr) -> i64
+        if (strcmp(fn_name, "__mmap_size") == 0 && expr->as.call.num_args == 1) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_mmap_size(NULL, %s);", result, ptr);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(ptr);
+            return result;
+        }
+
+        // mmap_advise(ptr, advice) -> bool
+        if (strcmp(fn_name, "__mmap_advise") == 0 && expr->as.call.num_args == 2) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            char *advice = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_mmap_advise(NULL, %s, %s);", result, ptr, advice);
+            codegen_writeln(ctx, "hml_release(&%s);", advice);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(advice);
+            free(ptr);
+            return result;
+        }
+
+        // mmap_protect(ptr, prot) -> bool
+        if (strcmp(fn_name, "__mmap_protect") == 0 && expr->as.call.num_args == 2) {
+            char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
+            char *prot = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_builtin_mmap_protect(NULL, %s, %s);", result, ptr, prot);
+            codegen_writeln(ctx, "hml_release(&%s);", prot);
+            codegen_writeln(ctx, "hml_release(&%s);", ptr);
+            free(prot);
+            free(ptr);
+            return result;
+        }
+
         // ========== BYTE ORDER OPERATIONS ==========
 
         // bswap16(val) -> u16
@@ -1336,7 +1414,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
-        // divi(a, b) - floor division returning integer
+        // divi(a, b) - truncating division returning integer
         if (strcmp(fn_name, "__divi") == 0 && expr->as.call.num_args == 2) {
             char *a = codegen_expr(ctx, expr->as.call.args[0]);
             char *b = codegen_expr(ctx, expr->as.call.args[1]);
@@ -1721,6 +1799,59 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             codegen_writeln(ctx, "hml_release(&%s);", sig);
             free(pid);
             free(sig);
+            return result;
+        }
+
+        // ========== PIPE BUILTINS ==========
+
+        // pipe()
+        if (strcmp(fn_name, "__pipe") == 0 && expr->as.call.num_args == 0) {
+            codegen_writeln(ctx, "HmlValue %s = hml_pipe();", result);
+            return result;
+        }
+
+        // close_fd(fd)
+        if (strcmp(fn_name, "__close_fd") == 0 && expr->as.call.num_args == 1) {
+            char *fd = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_close_fd(%s);", result, fd);
+            codegen_writeln(ctx, "hml_release(&%s);", fd);
+            free(fd);
+            return result;
+        }
+
+        // read_fd(fd, size)
+        if (strcmp(fn_name, "__read_fd") == 0 && expr->as.call.num_args == 2) {
+            char *fd = codegen_expr(ctx, expr->as.call.args[0]);
+            char *size = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_read_fd(%s, %s);", result, fd, size);
+            codegen_writeln(ctx, "hml_release(&%s);", fd);
+            codegen_writeln(ctx, "hml_release(&%s);", size);
+            free(fd);
+            free(size);
+            return result;
+        }
+
+        // write_fd(fd, data)
+        if (strcmp(fn_name, "__write_fd") == 0 && expr->as.call.num_args == 2) {
+            char *fd = codegen_expr(ctx, expr->as.call.args[0]);
+            char *data = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_write_fd(%s, %s);", result, fd, data);
+            codegen_writeln(ctx, "hml_release(&%s);", fd);
+            codegen_writeln(ctx, "hml_release(&%s);", data);
+            free(fd);
+            free(data);
+            return result;
+        }
+
+        // dup2(oldfd, newfd)
+        if (strcmp(fn_name, "__dup2") == 0 && expr->as.call.num_args == 2) {
+            char *oldfd = codegen_expr(ctx, expr->as.call.args[0]);
+            char *newfd = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_dup2(%s, %s);", result, oldfd, newfd);
+            codegen_writeln(ctx, "hml_release(&%s);", oldfd);
+            codegen_writeln(ctx, "hml_release(&%s);", newfd);
+            free(oldfd);
+            free(newfd);
             return result;
         }
 

@@ -1,0 +1,585 @@
+// @stdlib/decimal - Decimal formatting, number parsing, and string building
+//
+// Provides utilities for converting numbers to strings with control over
+// formatting, parsing strings into numbers, and efficient string building.
+//
+// Usage:
+// import { to_fixed, to_hex, parse_int, sb_new, sb_append, sb_to_string } from "@stdlib/decimal";
+// print(to_fixed(3.14159, 2));      // "3.14"
+// print(to_hex(255));               // "ff"
+// print(parse_int("ff", 16));       // 255
+
+// ============================================================================
+// Number-to-String Formatting
+// ============================================================================
+
+// Format number to fixed decimal places with rounding
+// Parameters:
+// num: number - Number to format
+// places: i32 - Number of decimal places (0-20)
+// Returns: string - Formatted number string
+// Examples:
+// to_fixed(3.14159, 2) -> "3.14"
+// to_fixed(3.145, 2) -> "3.15"  (rounds up)
+// to_fixed(3, 2) -> "3.00"
+// to_fixed(-1.5, 0) -> "-2"
+export fn to_fixed(num, places?: 0): string {
+	let n: f64 = num;
+	if (places < 0) {
+		throw "to_fixed() places must be non-negative";
+	}
+	if (places > 20) {
+		throw "to_fixed() places must be <= 20";
+	}
+
+	let negative = n < 0;
+	if (negative) {
+		n = -n;
+	}
+
+	// Round: multiply by 10^places, add 0.5, truncate
+	let mult: i64 = 1;
+	let i = 0;
+	while (i < places) {
+		mult = mult * 10;
+		i = i + 1;
+	}
+	let rounded: i64 = n * mult + 0.5;
+
+	// Extract integer and fractional parts from the rounded integer
+	let int_part: i64 = __divi(rounded, mult);
+	let frac_part: i64 = rounded % mult;
+
+	// Build integer part string
+	let int_str = "" + int_part;
+
+	// Build result
+	let result = int_str;
+	if (places > 0) {
+		// Build fractional part with leading zeros
+		let frac_str = "" + frac_part;
+		while (frac_str.length < places) {
+			frac_str = "0" + frac_str;
+		}
+		result = result + "." + frac_str;
+	}
+
+	if (negative) {
+		result = "-" + result;
+	}
+
+	return result;
+}
+
+// Format number to N significant figures
+// Parameters:
+// num: number - Number to format
+// digits: i32 - Number of significant digits (1-21)
+// Returns: string - Formatted number string
+// Examples:
+// to_precision(3.14159, 3) -> "3.14"
+// to_precision(0.001234, 3) -> "0.00123"
+// to_precision(1234, 2) -> "1200"
+export fn to_precision(num, digits): string {
+	let n: f64 = num;
+	if (digits < 1) {
+		throw "to_precision() digits must be >= 1";
+	}
+	if (digits > 21) {
+		throw "to_precision() digits must be <= 21";
+	}
+
+	if (n == 0) {
+		if (digits == 1) {
+			return "0";
+		}
+		let result = "0.";
+		let i = 1;
+		while (i < digits) {
+			result = result + "0";
+			i = i + 1;
+		}
+		return result;
+	}
+
+	let negative = n < 0;
+	if (negative) {
+		n = -n;
+	}
+
+	// Find order of magnitude
+	let magnitude = 0;
+	let temp = n;
+	if (temp >= 1) {
+		while (temp >= 10) {
+			temp = temp / 10;
+			magnitude = magnitude + 1;
+		}
+	} else {
+		while (temp < 1) {
+			temp = temp * 10;
+			magnitude = magnitude - 1;
+		}
+	}
+
+	// Round to the correct number of significant digits
+	let shift = digits - magnitude - 1;
+	let multiplier: f64 = 1;
+	let i = 0;
+	if (shift >= 0) {
+		while (i < shift) {
+			multiplier = multiplier * 10;
+			i = i + 1;
+		}
+		let rounded: i64 = n * multiplier + 0.5;
+		n = rounded / multiplier;
+	} else {
+		let abs_shift = -shift;
+		while (i < abs_shift) {
+			multiplier = multiplier * 10;
+			i = i + 1;
+		}
+		let rounded: i64 = n / multiplier + 0.5;
+		n = rounded * multiplier;
+	}
+
+	// Determine decimal places needed
+	let result = "";
+	if (magnitude >= digits - 1) {
+		// All significant digits are in integer part
+		let int_val: i64 = n + 0.5;
+		result = "" + int_val;
+	} else if (magnitude >= 0) {
+		// Some digits in integer part, some in fractional
+		let decimal_places = digits - magnitude - 1;
+		result = _format_float_rounded(n, decimal_places);
+	} else {
+		// All significant digits are in fractional part
+		let decimal_places = -magnitude - 1 + digits;
+		result = _format_float_rounded(n, decimal_places);
+	}
+
+	if (negative) {
+		result = "-" + result;
+	}
+
+	return result;
+}
+
+// Internal helper: format a float with given decimal places (already rounded)
+fn _format_float_rounded(num, places): string {
+	let int_part: i64 = num;
+	let frac = num - int_part;
+
+	let int_str = "" + int_part;
+
+	if (places <= 0) {
+		return int_str;
+	}
+
+	// Use integer-based extraction to avoid floating-point drift
+	let mult: f64 = 1;
+	let i = 0;
+	while (i < places) {
+		mult = mult * 10;
+		i = i + 1;
+	}
+	let frac_int: i64 = frac * mult + 0.5;
+
+	// Handle carry (e.g., 0.9999 * 10 + 0.5 = 10)
+	if (frac_int >= mult) {
+		int_part = int_part + 1;
+		frac_int = 0;
+		int_str = "" + int_part;
+	}
+
+	let frac_str = "" + frac_int;
+	while (frac_str.length < places) {
+		frac_str = "0" + frac_str;
+	}
+
+	return int_str + "." + frac_str;
+}
+
+// ============================================================================
+// Base Conversion (Number → String)
+// ============================================================================
+
+// Convert integer to hexadecimal string
+// Parameters:
+// num: integer - Number to convert
+// Returns: string - Lowercase hex string (no "0x" prefix)
+// Examples:
+// to_hex(255) -> "ff"
+// to_hex(0) -> "0"
+// to_hex(16) -> "10"
+export fn to_hex(num): string {
+	return _int_to_base(num, 16, false);
+}
+
+// Convert integer to octal string
+// Parameters:
+// num: integer - Number to convert
+// Returns: string - Octal string (no "0o" prefix)
+// Examples:
+// to_oct(8) -> "10"
+// to_oct(64) -> "100"
+export fn to_oct(num): string {
+	return _int_to_base(num, 8, false);
+}
+
+// Convert integer to binary string
+// Parameters:
+// num: integer - Number to convert
+// Returns: string - Binary string (no "0b" prefix)
+// Examples:
+// to_bin(10) -> "1010"
+// to_bin(255) -> "11111111"
+export fn to_bin(num): string {
+	return _int_to_base(num, 2, false);
+}
+
+// Convert integer to string in arbitrary base (2-36)
+// Parameters:
+// num: integer - Number to convert
+// radix: i32 - Base (2-36)
+// Returns: string - String representation in given base
+// Examples:
+// number_to_string(255, 16) -> "ff"
+// number_to_string(10, 2) -> "1010"
+// number_to_string(35, 36) -> "z"
+export fn number_to_string(num, radix?: 10): string {
+	if (radix < 2 || radix > 36) {
+		throw "number_to_string() radix must be 2-36";
+	}
+	return _int_to_base(num, radix, false);
+}
+
+// Internal: convert integer to string in given base
+fn _int_to_base(num, base, upper): string {
+	let digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+	if (upper) {
+		digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	}
+
+	let n: i64 = num;
+
+	if (n == 0) {
+		return "0";
+	}
+
+	let negative = n < 0;
+	if (negative) {
+		n = -n;
+	}
+
+	let result = "";
+	while (n > 0) {
+		let digit = n % base;
+		result = digits.substr(digit, 1) + result;
+		n = __divi(n, base);
+	}
+
+	if (negative) {
+		result = "-" + result;
+	}
+
+	return result;
+}
+
+// ============================================================================
+// String-to-Number Parsing
+// ============================================================================
+
+// Parse string to integer with optional radix
+// Parameters:
+// str: string - String to parse
+// radix: i32 - Base (2-36, default: 10). Auto-detects 0x, 0o, 0b prefixes when radix is 10.
+// Returns: i64 - Parsed integer
+// Throws: on invalid input
+// Examples:
+// parse_int("42") -> 42
+// parse_int("ff", 16) -> 255
+// parse_int("0xff") -> 255  (auto-detect hex)
+// parse_int("0b1010") -> 10  (auto-detect binary)
+// parse_int("0o77") -> 63  (auto-detect octal)
+export fn parse_int(str, radix?: 10): i64 {
+	if (typeof(str) != "string") {
+		throw "parse_int() requires string argument";
+	}
+	if (radix < 2 || radix > 36) {
+		throw "parse_int() radix must be 2-36";
+	}
+
+	let s = str.trim();
+	if (s.length == 0) {
+		throw "parse_int() cannot parse empty string";
+	}
+
+	let i = 0;
+	let negative = false;
+	if (s.char_at(0) == '-') {
+		negative = true;
+		i = 1;
+	} else if (s.char_at(0) == '+') {
+		i = 1;
+	}
+
+	// Auto-detect prefix when radix is 10
+	if (radix == 10 && i + 1 < s.length && s.char_at(i) == '0') {
+		let prefix = s.char_at(i + 1);
+		if (prefix == 'x' || prefix == 'X') {
+			radix = 16;
+			i = i + 2;
+		} else if (prefix == 'o' || prefix == 'O') {
+			radix = 8;
+			i = i + 2;
+		} else if (prefix == 'b' || prefix == 'B') {
+			radix = 2;
+			i = i + 2;
+		}
+	}
+
+	if (i >= s.length) {
+		throw "parse_int() invalid number: " + str;
+	}
+
+	let result: i64 = 0;
+	let found_digit = false;
+
+	while (i < s.length) {
+		let c = s.char_at(i);
+
+		// Skip underscores (numeric separator)
+		if (c == '_') {
+			i = i + 1;
+			continue;
+		}
+
+		let digit_val = _char_to_digit(c, radix);
+		if (digit_val < 0) {
+			break;
+		}
+		result = result * radix + digit_val;
+		found_digit = true;
+		i = i + 1;
+	}
+
+	if (!found_digit) {
+		throw "parse_int() invalid number: " + str;
+	}
+
+	if (negative) {
+		return -result;
+	}
+	return result;
+}
+
+// Parse string to floating-point number
+// Parameters:
+// str: string - String to parse
+// Returns: f64 - Parsed float
+// Throws: on invalid input
+// Examples:
+// parse_float("3.14") -> 3.14
+// parse_float("-0.5") -> -0.5
+// parse_float(".5") -> 0.5
+// parse_float("1_000.5") -> 1000.5
+export fn parse_float(str): f64 {
+	if (typeof(str) != "string") {
+		throw "parse_float() requires string argument";
+	}
+
+	let s = str.trim();
+	if (s.length == 0) {
+		throw "parse_float() cannot parse empty string";
+	}
+
+	let i = 0;
+	let negative = false;
+	if (s.char_at(0) == '-') {
+		negative = true;
+		i = 1;
+	} else if (s.char_at(0) == '+') {
+		i = 1;
+	}
+
+	// Parse integer part
+	let int_part: f64 = 0;
+	let found_digit = false;
+	while (i < s.length) {
+		let c = s.char_at(i);
+		if (c == '_') {
+			i = i + 1;
+			continue;
+		}
+		let code: i32 = c;
+		if (code >= 48 && code <= 57) {
+			int_part = int_part * 10 + (code - 48);
+			found_digit = true;
+			i = i + 1;
+		} else {
+			break;
+		}
+	}
+
+	// Parse fractional part
+	let frac_part: f64 = 0;
+	if (i < s.length && s.char_at(i) == '.') {
+		i = i + 1;
+		let frac_mult: f64 = 0.1;
+		while (i < s.length) {
+			let c = s.char_at(i);
+			if (c == '_') {
+				i = i + 1;
+				continue;
+			}
+			let code: i32 = c;
+			if (code >= 48 && code <= 57) {
+				frac_part = frac_part + (code - 48) * frac_mult;
+				frac_mult = frac_mult / 10;
+				found_digit = true;
+				i = i + 1;
+			} else {
+				break;
+			}
+		}
+	}
+
+	if (!found_digit) {
+		throw "parse_float() invalid number: " + str;
+	}
+
+	let result = int_part + frac_part;
+
+	// Parse exponent (e/E)
+	if (i < s.length) {
+		let ec = s.char_at(i);
+		if (ec == 'e' || ec == 'E') {
+			i = i + 1;
+			let exp_neg = false;
+			if (i < s.length) {
+				if (s.char_at(i) == '-') {
+					exp_neg = true;
+					i = i + 1;
+				} else if (s.char_at(i) == '+') {
+					i = i + 1;
+				}
+			}
+			let exp: f64 = 0;
+			while (i < s.length) {
+				let c = s.char_at(i);
+				let code: i32 = c;
+				if (code >= 48 && code <= 57) {
+					exp = exp * 10 + (code - 48);
+					i = i + 1;
+				} else {
+					break;
+				}
+			}
+			let exp_mult: f64 = 1;
+			let j = 0;
+			while (j < exp) {
+				exp_mult = exp_mult * 10;
+				j = j + 1;
+			}
+			if (exp_neg) {
+				result = result / exp_mult;
+			} else {
+				result = result * exp_mult;
+			}
+		}
+	}
+
+	if (negative) {
+		return -result;
+	}
+	return result;
+}
+
+// Internal: convert char to digit value in given radix, returns -1 if invalid
+fn _char_to_digit(c, radix): i32 {
+	let code: i32 = c;
+	let val = -1;
+	if (code >= 48 && code <= 57) {
+		val = code - 48;
+	} else if (code >= 97 && code <= 122) {
+		val = code - 97 + 10;
+	} else if (code >= 65 && code <= 90) {
+		val = code - 65 + 10;
+	}
+	if (val >= 0 && val < radix) {
+		return val;
+	}
+	return -1;
+}
+
+// ============================================================================
+// StringBuilder - Efficient incremental string building
+// ============================================================================
+
+// Create a new StringBuilder
+// Returns: object - StringBuilder object with parts array
+// Example:
+// let sb = sb_new();
+// sb_append(sb, "Hello");
+// sb_append(sb, " ");
+// sb_append(sb, "World");
+// print(sb_to_string(sb));  // "Hello World"
+export fn sb_new(): object {
+	return { parts: [] };
+}
+
+// Append a value to the StringBuilder
+// Parameters:
+// sb: object - StringBuilder from sb_new()
+// val: any - Value to append (converted to string)
+// Returns: object - Same StringBuilder (for chaining)
+export fn sb_append(sb, val): object {
+	sb.parts.push("" + val);
+	return sb;
+}
+
+// Prepend a value to the StringBuilder
+// Parameters:
+// sb: object - StringBuilder from sb_new()
+// val: any - Value to prepend (converted to string)
+// Returns: object - Same StringBuilder (for chaining)
+export fn sb_prepend(sb, val): object {
+	sb.parts.unshift("" + val);
+	return sb;
+}
+
+// Convert StringBuilder to string
+// Parameters:
+// sb: object - StringBuilder from sb_new()
+// Returns: string - Concatenated result
+export fn sb_to_string(sb): string {
+	return sb.parts.join("");
+}
+
+// Convert StringBuilder to string with separator
+// Parameters:
+// sb: object - StringBuilder from sb_new()
+// sep: string - Separator between parts
+// Returns: string - Joined result
+export fn sb_join(sb, sep): string {
+	return sb.parts.join(sep);
+}
+
+// Get number of parts in the StringBuilder
+// Parameters:
+// sb: object - StringBuilder from sb_new()
+// Returns: i32 - Number of appended parts
+export fn sb_count(sb): i32 {
+	return sb.parts.length;
+}
+
+// Clear the StringBuilder
+// Parameters:
+// sb: object - StringBuilder from sb_new()
+// Returns: object - Same StringBuilder (for chaining)
+export fn sb_clear(sb): object {
+	sb.parts.clear();
+	return sb;
+}

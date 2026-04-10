@@ -808,6 +808,7 @@ print(config.length);  // 3
 - Character access: `char_at`, `byte_at`, `chars`, `bytes`, `to_bytes`
 
 **Related stdlib modules:**
+- `@stdlib/decimal` - Number formatting, parsing, and StringBuilder
 - `@stdlib/regex` - Pattern matching with regular expressions
 - `@stdlib/json` - JSON parsing includes string escaping/unescaping
 - `@stdlib/collections` - Data structures for storing processed strings

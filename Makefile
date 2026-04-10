@@ -716,7 +716,7 @@ test-memory: compiler
 
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler parity test-bundler test-lsp test-memory
+test-all: test test-compiler parity test-bundler test-lsp test-memory test-formatter
 
 # ========== RELEASE BUILD ==========
 

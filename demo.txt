@@ -1,3 +1,0 @@
-Hello, Hemlock!
-This is a test.
-Appended line.

@@ -1,0 +1,97 @@
+// Matrix arithmetic operation tests
+
+import { from_rows, identity, ones } from "@stdlib/matrix";
+
+print("=== Testing add ===");
+let a = from_rows([[1, 2], [3, 4]]);
+let b = from_rows([[5, 6], [7, 8]]);
+let c = a.add(b);
+assert(c.get(0, 0) == 6, "add [0,0]");
+assert(c.get(0, 1) == 8, "add [0,1]");
+assert(c.get(1, 0) == 10, "add [1,0]");
+assert(c.get(1, 1) == 12, "add [1,1]");
+// Original unchanged
+assert(a.get(0, 0) == 1, "add does not mutate");
+print("add tests passed!");
+
+print("=== Testing sub ===");
+let d = b.sub(a);
+assert(d.get(0, 0) == 4, "sub [0,0]");
+assert(d.get(0, 1) == 4, "sub [0,1]");
+assert(d.get(1, 0) == 4, "sub [1,0]");
+assert(d.get(1, 1) == 4, "sub [1,1]");
+print("sub tests passed!");
+
+print("=== Testing mul ===");
+let m1 = from_rows([[1, 2], [3, 4]]);
+let m2 = from_rows([[5, 6], [7, 8]]);
+let prod = m1.mul(m2);
+assert(prod.get(0, 0) == 19, "mul [0,0]: 1*5+2*7=19");
+assert(prod.get(0, 1) == 22, "mul [0,1]: 1*6+2*8=22");
+assert(prod.get(1, 0) == 43, "mul [1,0]: 3*5+4*7=43");
+assert(prod.get(1, 1) == 50, "mul [1,1]: 3*6+4*8=50");
+print("mul tests passed!");
+
+print("=== Testing non-square mul ===");
+let r = from_rows([[1, 2, 3], [4, 5, 6]]);  // 2x3
+let s = from_rows([[1, 2], [3, 4], [5, 6]]); // 3x2
+let rs = r.mul(s);
+assert(rs.rows == 2, "non-square mul rows");
+assert(rs.cols == 2, "non-square mul cols");
+assert(rs.get(0, 0) == 22, "non-square mul [0,0]: 1*1+2*3+3*5=22");
+assert(rs.get(0, 1) == 28, "non-square mul [0,1]: 1*2+2*4+3*6=28");
+assert(rs.get(1, 0) == 49, "non-square mul [1,0]: 4*1+5*3+6*5=49");
+assert(rs.get(1, 1) == 64, "non-square mul [1,1]: 4*2+5*4+6*6=64");
+print("non-square mul tests passed!");
+
+print("=== Testing scale ===");
+let sc = from_rows([[1, 2], [3, 4]]);
+let scaled = sc.scale(3.0);
+assert(scaled.get(0, 0) == 3, "scale [0,0]");
+assert(scaled.get(0, 1) == 6, "scale [0,1]");
+assert(scaled.get(1, 0) == 9, "scale [1,0]");
+assert(scaled.get(1, 1) == 12, "scale [1,1]");
+print("scale tests passed!");
+
+print("=== Testing negate ===");
+let neg = from_rows([[1, -2], [3, -4]]).negate();
+assert(neg.get(0, 0) == -1, "negate [0,0]");
+assert(neg.get(0, 1) == 2, "negate [0,1]");
+assert(neg.get(1, 0) == -3, "negate [1,0]");
+assert(neg.get(1, 1) == 4, "negate [1,1]");
+print("negate tests passed!");
+
+print("=== Testing hadamard ===");
+let h1 = from_rows([[1, 2], [3, 4]]);
+let h2 = from_rows([[5, 6], [7, 8]]);
+let hp = h1.hadamard(h2);
+assert(hp.get(0, 0) == 5, "hadamard [0,0]");
+assert(hp.get(0, 1) == 12, "hadamard [0,1]");
+assert(hp.get(1, 0) == 21, "hadamard [1,0]");
+assert(hp.get(1, 1) == 32, "hadamard [1,1]");
+print("hadamard tests passed!");
+
+print("=== Testing identity mul ===");
+let I = identity(2);
+let orig = from_rows([[3, 7], [2, 5]]);
+let result = orig.mul(I);
+assert(result.get(0, 0) == 3, "A*I = A [0,0]");
+assert(result.get(0, 1) == 7, "A*I = A [0,1]");
+assert(result.get(1, 0) == 2, "A*I = A [1,0]");
+assert(result.get(1, 1) == 5, "A*I = A [1,1]");
+print("identity mul tests passed!");
+
+print("=== Testing dimension mismatch ===");
+let caught = false;
+try {
+	let x = from_rows([[1, 2]]);
+	let y = from_rows([[1], [2], [3]]);
+	x.add(y);
+} catch (err) {
+	caught = true;
+}
+assert(caught == true, "Dimension mismatch should throw");
+print("dimension mismatch tests passed!");
+
+print("");
+print("All arithmetic tests passed!");

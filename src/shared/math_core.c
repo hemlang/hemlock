@@ -133,5 +133,5 @@ double hml_math_div(double a, double b) {
 
 int64_t hml_math_divi(double a, double b) {
     /* Caller must check for division by zero */
-    return (int64_t)floor(a / b);
+    return (int64_t)trunc(a / b);
 }

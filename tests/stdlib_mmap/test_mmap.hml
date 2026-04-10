@@ -1,0 +1,339 @@
+// Test @stdlib/mmap module
+import * as mmap from "@stdlib/mmap";
+import { open, remove_file } from "@stdlib/fs";
+
+// ========== Setup: Create test files ==========
+
+let test_file = "/tmp/hemlock_mmap_test.bin";
+let test_rw_file = "/tmp/hemlock_mmap_test_rw.bin";
+
+// Helper: write binary data to a file using write_bytes
+fn write_test_data(path: string) {
+	let buf = buffer(16);
+	buf.write_i32_le(0, 42);
+	buf.write_i32_le(4, 100);
+	buf.write_i32_le(8, 255);
+	buf.write_i32_le(12, 0);
+	let f = open(path, "w");
+	f.write_bytes(buf);
+	f.close();
+}
+
+write_test_data(test_file);
+write_test_data(test_rw_file);
+
+// ========== Test Constants ==========
+
+print("Testing mmap constants...");
+assert(typeof(mmap.PROT_NONE) == "i32", "PROT_NONE should be i32");
+assert(typeof(mmap.PROT_READ) == "i32", "PROT_READ should be i32");
+assert(typeof(mmap.PROT_WRITE) == "i32", "PROT_WRITE should be i32");
+assert(typeof(mmap.PROT_EXEC) == "i32", "PROT_EXEC should be i32");
+assert(typeof(mmap.MADV_NORMAL) == "i32", "MADV_NORMAL should be i32");
+assert(typeof(mmap.MADV_SEQUENTIAL) == "i32", "MADV_SEQUENTIAL should be i32");
+assert(typeof(mmap.MADV_RANDOM) == "i32", "MADV_RANDOM should be i32");
+assert(typeof(mmap.MADV_WILLNEED) == "i32", "MADV_WILLNEED should be i32");
+assert(typeof(mmap.MADV_DONTNEED) == "i32", "MADV_DONTNEED should be i32");
+print("  constants OK");
+
+// ========== Test mmap_open (read-only) ==========
+
+print("Testing mmap_open (read-only)...");
+let p = mmap.mmap_open(test_file, "r");
+assert(p != null, "mmap_open should return a non-null pointer");
+assert(typeof(p) == "ptr", "mmap_open should return a ptr");
+print("  mmap_open OK");
+
+// ========== Test mmap_size ==========
+
+print("Testing mmap_size...");
+let size = mmap.mmap_size(p);
+assert(size == 16, "mmap_size should return 16 for our test file, got " + size);
+print("  mmap_size = " + size + " OK");
+
+// ========== Test reading mapped data ==========
+
+print("Testing read from mapped region...");
+let val1 = ptr_read_i32(p);
+assert(val1 == 42, "First i32 should be 42, got " + val1);
+
+let val2 = ptr_read_i32(ptr_offset(p, 4, 1));
+assert(val2 == 100, "Second i32 should be 100, got " + val2);
+
+let val3 = ptr_read_i32(ptr_offset(p, 8, 1));
+assert(val3 == 255, "Third i32 should be 255, got " + val3);
+print("  read OK");
+
+// ========== Test mmap_advise ==========
+
+print("Testing mmap_advise...");
+let adv_result = mmap.mmap_advise(p, mmap.MADV_SEQUENTIAL);
+assert(adv_result == true, "mmap_advise should return true");
+print("  mmap_advise OK");
+
+// ========== Test mmap_close ==========
+
+print("Testing mmap_close...");
+let close_result = mmap.mmap_close(p);
+assert(close_result == true, "mmap_close should return true");
+print("  mmap_close OK");
+
+// ========== Test mmap_open (read-write) ==========
+
+print("Testing mmap_open (read-write)...");
+let rw = mmap.mmap_open(test_rw_file, "rw");
+assert(rw != null, "mmap_open rw should return a non-null pointer");
+
+// Read original value
+let orig = ptr_read_i32(rw);
+assert(orig == 42, "Original value should be 42, got " + orig);
+
+// Write new value
+ptr_write_i32(rw, 999);
+let updated = ptr_read_i32(rw);
+assert(updated == 999, "Updated value should be 999, got " + updated);
+
+// Sync to disk
+let sync_result = mmap.mmap_sync(rw);
+assert(sync_result == true, "mmap_sync should return true");
+
+mmap.mmap_close(rw);
+print("  mmap_open rw + sync OK");
+
+// Verify the write persisted by re-mapping
+let verify = mmap.mmap_open(test_rw_file, "r");
+let persisted = ptr_read_i32(verify);
+assert(persisted == 999, "Persisted value should be 999, got " + persisted);
+mmap.mmap_close(verify);
+print("  persistence verified OK");
+
+// ========== Test mmap_open_anon ==========
+
+print("Testing mmap_open_anon...");
+let anon = mmap.mmap_open_anon(4096);
+assert(anon != null, "mmap_open_anon should return a non-null pointer");
+assert(typeof(anon) == "ptr", "mmap_open_anon should return a ptr");
+
+let anon_size = mmap.mmap_size(anon);
+assert(anon_size == 4096, "Anonymous mapping size should be 4096, got " + anon_size);
+
+// Anonymous memory should be zero-initialized
+let zero_val = ptr_read_i32(anon);
+assert(zero_val == 0, "Anonymous mapping should be zero-initialized, got " + zero_val);
+
+// Write and read back
+ptr_write_i32(anon, 12345);
+let anon_read = ptr_read_i32(anon);
+assert(anon_read == 12345, "Should read back 12345 from anon mapping, got " + anon_read);
+
+// Write at an offset
+ptr_write_i32(ptr_offset(anon, 100, 1), 67890);
+let anon_read2 = ptr_read_i32(ptr_offset(anon, 100, 1));
+assert(anon_read2 == 67890, "Should read back 67890 at offset 100, got " + anon_read2);
+
+mmap.mmap_close(anon);
+print("  mmap_open_anon OK");
+
+// ========== Test mmap_open default mode ==========
+
+print("Testing mmap_open default mode...");
+let def = mmap.mmap_open(test_file);
+assert(def != null, "mmap_open with default mode should work");
+let def_val = ptr_read_i32(def);
+assert(def_val == 42, "Should read 42 with default mode, got " + def_val);
+mmap.mmap_close(def);
+print("  default mode OK");
+
+// ========== Test MappedFile wrapper ==========
+
+print("Testing MappedFile wrapper...");
+
+// Reset the rw file for MappedFile test
+write_test_data(test_rw_file);
+
+let mf = mmap.MappedFile(test_rw_file, "rw");
+assert(mf.size == 16, "MappedFile.size should be 16, got " + mf.size);
+assert(mf.ptr != null, "MappedFile.ptr should be non-null");
+
+// Read operations
+let mf_byte = mf.read_u8(0);
+assert(typeof(mf_byte) == "u8", "MappedFile.read_u8 should return u8");
+
+let mf_i32 = mf.read_i32(0);
+assert(mf_i32 == 42, "MappedFile.read_i32(0) should be 42, got " + mf_i32);
+
+let mf_i32_2 = mf.read_i32(4);
+assert(mf_i32_2 == 100, "MappedFile.read_i32(4) should be 100, got " + mf_i32_2);
+
+// Write operations
+mf.write_u8(0, 0xFF);
+let wb = mf.read_u8(0);
+assert(wb == 0xFF, "MappedFile.write_u8 should persist, got " + wb);
+
+mf.write_i32(4, 777);
+let wi = mf.read_i32(4);
+assert(wi == 777, "MappedFile.write_i32 should persist, got " + wi);
+
+// Sync and close
+let mf_sync = mf.sync();
+assert(mf_sync == true, "MappedFile.sync should return true");
+
+let mf_close = mf.close();
+assert(mf_close == true, "MappedFile.close should return true");
+print("  MappedFile wrapper OK");
+
+// ========== Test bounds checking in MappedFile ==========
+
+print("Testing MappedFile bounds checking...");
+let mf2 = mmap.MappedFile(test_file, "r");
+
+let caught_oob = false;
+try {
+	mf2.read_u8(-1);
+} catch (e) {
+	caught_oob = true;
+}
+assert(caught_oob, "MappedFile.read_u8 should throw on negative offset");
+
+let caught_oob2 = false;
+try {
+	mf2.read_i32(14);  // 14 + 4 > 16
+} catch (e) {
+	caught_oob2 = true;
+}
+assert(caught_oob2, "MappedFile.read_i32 should throw when read exceeds size");
+
+mf2.close();
+print("  bounds checking OK");
+
+// ========== Test read-only MappedFile rejects writes ==========
+
+print("Testing MappedFile read-only write rejection...");
+let mf3 = mmap.MappedFile(test_file, "r");
+
+let caught_ro = false;
+try {
+	mf3.write_u8(0, 0);
+} catch (e) {
+	caught_ro = true;
+}
+assert(caught_ro, "MappedFile.write_u8 should throw in read-only mode");
+
+let caught_ro2 = false;
+try {
+	mf3.write_i32(0, 0);
+} catch (e) {
+	caught_ro2 = true;
+}
+assert(caught_ro2, "MappedFile.write_i32 should throw in read-only mode");
+
+mf3.close();
+print("  read-only rejection OK");
+
+// ========== Test mmap_protect ==========
+
+print("Testing mmap_protect...");
+let prot_map = mmap.mmap_open_anon(4096);
+ptr_write_i32(prot_map, 42);
+
+// Change to read-only
+let prot_result = mmap.mmap_protect(prot_map, mmap.PROT_READ);
+assert(prot_result == true, "mmap_protect should return true");
+
+// Change back to read-write
+let prot_result2 = mmap.mmap_protect(prot_map, mmap.PROT_READ | mmap.PROT_WRITE);
+assert(prot_result2 == true, "mmap_protect rw should return true");
+
+// Verify we can still read after protection changes
+let prot_val = ptr_read_i32(prot_map);
+assert(prot_val == 42, "Should still read 42 after protect changes, got " + prot_val);
+
+mmap.mmap_close(prot_map);
+print("  mmap_protect OK");
+
+// ========== Test mmap_advise with different hints ==========
+
+print("Testing mmap_advise with different hints...");
+let adv_map = mmap.mmap_open(test_file, "r");
+
+let adv1 = mmap.mmap_advise(adv_map, mmap.MADV_NORMAL);
+assert(adv1 == true, "MADV_NORMAL should succeed");
+
+let adv2 = mmap.mmap_advise(adv_map, mmap.MADV_RANDOM);
+assert(adv2 == true, "MADV_RANDOM should succeed");
+
+let adv3 = mmap.mmap_advise(adv_map, mmap.MADV_WILLNEED);
+assert(adv3 == true, "MADV_WILLNEED should succeed");
+
+let adv4 = mmap.mmap_advise(adv_map, mmap.MADV_DONTNEED);
+assert(adv4 == true, "MADV_DONTNEED should succeed");
+
+mmap.mmap_close(adv_map);
+print("  mmap_advise hints OK");
+
+// ========== Test MappedFile read_i64 / read_f64 ==========
+
+print("Testing MappedFile read_i64 and read_f64...");
+
+// Create a file with i64 and f64 data
+let data_file = "/tmp/hemlock_mmap_test_types.bin";
+let tbuf = buffer(16);
+tbuf.write_i32_le(0, 0);
+tbuf.write_i32_le(4, 0);
+tbuf.write_i32_le(8, 0);
+tbuf.write_i32_le(12, 0);
+let tf = open(data_file, "w");
+tf.write_bytes(tbuf);
+tf.close();
+
+// Write known i64 value via mmap
+let tw = mmap.mmap_open(data_file, "rw");
+ptr_write_i64(tw, 123456789);
+ptr_write_f64(ptr_offset(tw, 8, 1), 3.14);
+mmap.mmap_sync(tw);
+mmap.mmap_close(tw);
+
+let mf4 = mmap.MappedFile(data_file, "r");
+
+let read_i64_val = mf4.read_i64(0);
+assert(read_i64_val == 123456789, "MappedFile.read_i64 should return 123456789, got " + read_i64_val);
+
+let read_f64_val = mf4.read_f64(8);
+// Check approximate equality for float
+assert(read_f64_val > 3.13 && read_f64_val < 3.15, "MappedFile.read_f64 should return ~3.14, got " + read_f64_val);
+
+mf4.close();
+remove_file(data_file);
+print("  read_i64 / read_f64 OK");
+
+// ========== Test named imports ==========
+
+print("Testing named imports...");
+import { mmap_open, mmap_close, mmap_size, PROT_READ, MADV_SEQUENTIAL } from "@stdlib/mmap";
+
+let ni = mmap_open(test_file, "r");
+assert(ni != null, "Named import mmap_open should work");
+let ni_size = mmap_size(ni);
+assert(ni_size == 16, "Named import mmap_size should return 16");
+assert(typeof(PROT_READ) == "i32", "Named import PROT_READ should be i32");
+assert(typeof(MADV_SEQUENTIAL) == "i32", "Named import MADV_SEQUENTIAL should be i32");
+mmap_close(ni);
+print("  named imports OK");
+
+// ========== Test constant values are distinct ==========
+
+print("Testing constant values...");
+assert(mmap.PROT_NONE != mmap.PROT_READ, "PROT_NONE != PROT_READ");
+assert(mmap.PROT_READ != mmap.PROT_WRITE, "PROT_READ != PROT_WRITE");
+assert(mmap.PROT_WRITE != mmap.PROT_EXEC, "PROT_WRITE != PROT_EXEC");
+assert(mmap.MADV_NORMAL != mmap.MADV_SEQUENTIAL, "MADV_NORMAL != MADV_SEQUENTIAL");
+assert(mmap.MADV_SEQUENTIAL != mmap.MADV_RANDOM, "MADV_SEQUENTIAL != MADV_RANDOM");
+print("  constant values OK");
+
+// ========== Cleanup ==========
+
+remove_file(test_file);
+remove_file(test_rw_file);
+
+print("");
+print("All mmap tests passed!");

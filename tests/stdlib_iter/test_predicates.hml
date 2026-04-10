@@ -1,0 +1,166 @@
+// Test iter.hml predicate, accumulation, and array processing functions
+
+import {
+    flatten_deep, group_by, partition,
+    sum, product, min_val, max_val, average,
+    all, any, none, count, find_first, find_index
+} from "@stdlib/iter";
+
+// === flatten_deep ===
+let fd1 = flatten_deep([1, [2, [3, [4, 5]]]]);
+assert(fd1.length == 5, "flatten_deep length");
+assert(fd1[0] == 1, "flatten_deep [0]");
+assert(fd1[1] == 2, "flatten_deep [1]");
+assert(fd1[2] == 3, "flatten_deep [2]");
+assert(fd1[3] == 4, "flatten_deep [3]");
+assert(fd1[4] == 5, "flatten_deep [4]");
+
+// flatten_deep already flat
+let fd2 = flatten_deep([1, 2, 3]);
+assert(fd2.length == 3, "flatten_deep flat");
+
+// flatten_deep empty
+let fd3 = flatten_deep([]);
+assert(fd3.length == 0, "flatten_deep empty");
+
+// flatten_deep with mixed nesting
+let fd4 = flatten_deep([[1], 2, [[3]]]);
+assert(fd4.length == 3, "flatten_deep mixed");
+assert(fd4[0] == 1, "flatten_deep mixed [0]");
+assert(fd4[1] == 2, "flatten_deep mixed [1]");
+assert(fd4[2] == 3, "flatten_deep mixed [2]");
+
+// === group_by ===
+let items = [1, 2, 3, 4, 5, 6];
+let groups = group_by(items, fn(x) { return x % 2 == 0 ? "even" : "odd"; });
+assert(groups["even"].length == 3, "group_by even count");
+assert(groups["odd"].length == 3, "group_by odd count");
+assert(groups["even"][0] == 2, "group_by even[0]");
+assert(groups["odd"][0] == 1, "group_by odd[0]");
+
+// group_by with strings
+let words = ["cat", "car", "dog", "dot"];
+let by_first = group_by(words, fn(w) { return w.substr(0, 1); });
+assert(by_first["c"].length == 2, "group_by c count");
+assert(by_first["d"].length == 2, "group_by d count");
+
+// group_by empty
+let empty_groups = group_by([], fn(x) { return x; });
+assert(empty_groups.keys().length == 0, "group_by empty");
+
+// === partition ===
+let parts = partition([1, 2, 3, 4, 5, 6], fn(x) { return x % 2 == 0; });
+assert(parts.length == 2, "partition result length");
+assert(parts[0].length == 3, "partition matching length");
+assert(parts[1].length == 3, "partition non-matching length");
+assert(parts[0][0] == 2, "partition match [0]");
+assert(parts[1][0] == 1, "partition non-match [0]");
+
+// partition all match
+let all_match = partition([2, 4, 6], fn(x) { return x % 2 == 0; });
+assert(all_match[0].length == 3, "partition all match");
+assert(all_match[1].length == 0, "partition none non-match");
+
+// partition empty
+let empty_parts = partition([], fn(x) { return true; });
+assert(empty_parts[0].length == 0, "partition empty match");
+assert(empty_parts[1].length == 0, "partition empty non-match");
+
+// === sum ===
+assert(sum([1, 2, 3, 4]) == 10, "sum basic");
+assert(sum([]) == 0, "sum empty");
+assert(sum([5]) == 5, "sum single");
+assert(sum([-1, 1]) == 0, "sum cancel");
+
+// === product ===
+assert(product([2, 3, 4]) == 24, "product basic");
+assert(product([]) == 1, "product empty");
+assert(product([7]) == 7, "product single");
+assert(product([2, 0, 5]) == 0, "product with zero");
+
+// === min_val ===
+assert(min_val([3, 1, 4, 1, 5]) == 1, "min_val basic");
+assert(min_val([42]) == 42, "min_val single");
+assert(min_val([-5, -2, -8]) == -8, "min_val negative");
+
+// min_val empty should throw
+let caught = false;
+try {
+    min_val([]);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "min_val empty throws");
+
+// === max_val ===
+assert(max_val([3, 1, 4, 1, 5]) == 5, "max_val basic");
+assert(max_val([42]) == 42, "max_val single");
+assert(max_val([-5, -2, -8]) == -2, "max_val negative");
+
+// max_val empty should throw
+caught = false;
+try {
+    max_val([]);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "max_val empty throws");
+
+// === average ===
+assert(average([2, 4, 6]) == 4, "average basic");
+assert(average([10]) == 10, "average single");
+
+// average empty should throw
+caught = false;
+try {
+    average([]);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "average empty throws");
+
+// === all ===
+assert(all([2, 4, 6], fn(x) { return x % 2 == 0; }) == true, "all true");
+assert(all([2, 3, 6], fn(x) { return x % 2 == 0; }) == false, "all false");
+assert(all([], fn(x) { return false; }) == true, "all empty is vacuously true");
+
+// === any ===
+assert(any([1, 3, 5], fn(x) { return x % 2 == 0; }) == false, "any false");
+assert(any([1, 2, 5], fn(x) { return x % 2 == 0; }) == true, "any true");
+assert(any([], fn(x) { return true; }) == false, "any empty is false");
+
+// === none ===
+assert(none([1, 3, 5], fn(x) { return x % 2 == 0; }) == true, "none true");
+assert(none([1, 2, 5], fn(x) { return x % 2 == 0; }) == false, "none false");
+assert(none([], fn(x) { return true; }) == true, "none empty is true");
+
+// === count ===
+assert(count([1, 2, 3, 4, 5, 6], fn(x) { return x % 2 == 0; }) == 3, "count evens");
+assert(count([1, 3, 5], fn(x) { return x % 2 == 0; }) == 0, "count none");
+assert(count([], fn(x) { return true; }) == 0, "count empty");
+
+// === find_first ===
+let ff1 = find_first([1, 2, 3, 4], fn(x) { return x > 2; });
+assert(ff1 == 3, "find_first found");
+
+let ff2 = find_first([1, 2, 3], fn(x) { return x > 10; });
+assert(ff2 == null, "find_first not found returns null");
+
+let ff3 = find_first([], fn(x) { return true; });
+assert(ff3 == null, "find_first empty returns null");
+
+// === find_index ===
+let fi1 = find_index([10, 20, 30, 40], fn(x) { return x > 25; });
+assert(fi1 == 2, "find_index found");
+
+let fi2 = find_index([1, 2, 3], fn(x) { return x > 10; });
+assert(fi2 == -1, "find_index not found returns -1");
+
+let fi3 = find_index([], fn(x) { return true; });
+assert(fi3 == -1, "find_index empty returns -1");
+
+// find_index returns first match
+let fi4 = find_index([5, 10, 15, 20], fn(x) { return x >= 10; });
+assert(fi4 == 1, "find_index first match");
+
+print("All predicate and accumulation tests passed!");

@@ -1,15 +1,12 @@
 #include "internal.h"
 
 Value builtin_read_u32(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: __read_u32() expects 1 argument (ptr)\n");
-        exit(1);
+        runtime_error(ctx, "__read_u32() expects 1 argument (ptr)"); return val_null();
     }
 
     if (args[0].type != VAL_PTR) {
-        fprintf(stderr, "Runtime error: __read_u32() requires a pointer\n");
-        exit(1);
+        runtime_error(ctx, "__read_u32() requires a pointer"); return val_null();
     }
 
     uint32_t *ptr = (uint32_t*)args[0].as.as_ptr;
@@ -17,15 +14,12 @@ Value builtin_read_u32(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_read_u64(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: __read_u64() expects 1 argument (ptr)\n");
-        exit(1);
+        runtime_error(ctx, "__read_u64() expects 1 argument (ptr)"); return val_null();
     }
 
     if (args[0].type != VAL_PTR) {
-        fprintf(stderr, "Runtime error: __read_u64() requires a pointer\n");
-        exit(1);
+        runtime_error(ctx, "__read_u64() requires a pointer"); return val_null();
     }
 
     uint64_t *ptr = (uint64_t*)args[0].as.as_ptr;
@@ -34,15 +28,12 @@ Value builtin_read_u64(Value *args, int num_args, ExecutionContext *ctx) {
 
 // Read a pointer from memory (for pointer-to-pointer / double indirection FFI calls)
 Value builtin_read_ptr(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: __read_ptr() expects 1 argument (ptr)\n");
-        exit(1);
+        runtime_error(ctx, "__read_ptr() expects 1 argument (ptr)"); return val_null();
     }
 
     if (args[0].type != VAL_PTR) {
-        fprintf(stderr, "Runtime error: __read_ptr() requires a pointer\n");
-        exit(1);
+        runtime_error(ctx, "__read_ptr() requires a pointer"); return val_null();
     }
 
     void **pptr = (void**)args[0].as.as_ptr;
@@ -51,25 +42,20 @@ Value builtin_read_ptr(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_strerror_fn(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
-    (void)ctx;
     if (num_args != 0) {
-        fprintf(stderr, "Runtime error: __strerror() expects 0 arguments\n");
-        exit(1);
+        runtime_error(ctx, "__strerror() expects 0 arguments"); return val_null();
     }
 
     return val_string(strerror(errno));
 }
 
 Value builtin_dirent_name(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: __dirent_name() expects 1 argument (dirent ptr)\n");
-        exit(1);
+        runtime_error(ctx, "__dirent_name() expects 1 argument (dirent ptr)"); return val_null();
     }
 
     if (args[0].type != VAL_PTR) {
-        fprintf(stderr, "Runtime error: __dirent_name() requires a pointer\n");
-        exit(1);
+        runtime_error(ctx, "__dirent_name() requires a pointer"); return val_null();
     }
 
     struct dirent *entry = (struct dirent*)args[0].as.as_ptr;
@@ -77,22 +63,18 @@ Value builtin_dirent_name(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_string_to_cstr(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: __string_to_cstr() expects 1 argument (string)\n");
-        exit(1);
+        runtime_error(ctx, "__string_to_cstr() expects 1 argument (string)"); return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        fprintf(stderr, "Runtime error: __string_to_cstr() requires a string\n");
-        exit(1);
+        runtime_error(ctx, "__string_to_cstr() requires a string"); return val_null();
     }
 
     String *str = args[0].as.as_string;
     char *cstr = malloc(str->length + 1);
     if (!cstr) {
-        fprintf(stderr, "Runtime error: __string_to_cstr() memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "__string_to_cstr() memory allocation failed"); return val_null();
     }
     memcpy(cstr, str->data, str->length);
     cstr[str->length] = '\0';
@@ -100,15 +82,12 @@ Value builtin_string_to_cstr(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_cstr_to_string(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: __cstr_to_string() expects 1 argument (ptr)\n");
-        exit(1);
+        runtime_error(ctx, "__cstr_to_string() expects 1 argument (ptr)"); return val_null();
     }
 
     if (args[0].type != VAL_PTR) {
-        fprintf(stderr, "Runtime error: __cstr_to_string() requires a pointer\n");
-        exit(1);
+        runtime_error(ctx, "__cstr_to_string() requires a pointer"); return val_null();
     }
 
     char *cstr = (char*)args[0].as.as_ptr;
@@ -121,10 +100,8 @@ Value builtin_cstr_to_string(Value *args, int num_args, ExecutionContext *ctx) {
 // Convert an array of bytes (integers 0-255) to a UTF-8 string
 // This allows proper reconstruction of multi-byte UTF-8 sequences
 Value builtin_string_from_bytes(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: __string_from_bytes() expects 1 argument (array of bytes or buffer)\n");
-        exit(1);
+        runtime_error(ctx, "__string_from_bytes() expects 1 argument (array of bytes or buffer)"); return val_null();
     }
 
     char *data = NULL;
@@ -139,8 +116,7 @@ Value builtin_string_from_bytes(Value *args, int num_args, ExecutionContext *ctx
         length = buf->length;
         data = malloc(length + 1);
         if (!data) {
-            fprintf(stderr, "Runtime error: __string_from_bytes() memory allocation failed\n");
-            exit(1);
+            runtime_error(ctx, "__string_from_bytes() memory allocation failed"); return val_null();
         }
         memcpy(data, buf->data, length);
         data[length] = '\0';
@@ -153,8 +129,7 @@ Value builtin_string_from_bytes(Value *args, int num_args, ExecutionContext *ctx
         length = arr->length;
         data = malloc(length + 1);
         if (!data) {
-            fprintf(stderr, "Runtime error: __string_from_bytes() memory allocation failed\n");
-            exit(1);
+            runtime_error(ctx, "__string_from_bytes() memory allocation failed"); return val_null();
         }
 
         for (int i = 0; i < arr->length; i++) {
@@ -180,16 +155,15 @@ Value builtin_string_from_bytes(Value *args, int num_args, ExecutionContext *ctx
                 byte_val = (int)(elem.as.as_u64 & 0xFF);
             } else {
                 free(data);
-                fprintf(stderr, "Runtime error: __string_from_bytes() array element at index %d is not an integer\n", i);
-                exit(1);
+                runtime_error(ctx, "__string_from_bytes() array element at index %d is not an integer", i);
+                return val_null();
             }
 
             data[i] = (char)byte_val;
         }
         data[length] = '\0';
     } else {
-        fprintf(stderr, "Runtime error: __string_from_bytes() requires array or buffer argument\n");
-        exit(1);
+        runtime_error(ctx, "__string_from_bytes() requires array or buffer argument"); return val_null();
     }
 
     // Use val_string_take to avoid copying the data again
