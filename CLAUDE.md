@@ -250,7 +250,7 @@ Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
 ---
 
-## Standard Library (50 modules)
+## Standard Library (52 modules)
 
 Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 
@@ -284,6 +284,7 @@ Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 | `json` | parse, stringify, pretty, get, set |
 | `logging` | Logger with levels |
 | `math` | sin, cos, sqrt, pow, rand, PI, E |
+| `matrix` | Dense matrix operations (add, multiply, transpose, determinant, inverse) |
 | `mmap` | Memory-mapped file I/O (mmap, munmap, msync) |
 | `net` | TcpListener, TcpStream, UdpSocket |
 | `os` | platform, arch, cpu_count, hostname |

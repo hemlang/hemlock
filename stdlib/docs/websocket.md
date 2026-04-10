@@ -430,9 +430,9 @@ spawn(process_messages, ws);
 - Change server port
 - Kill process using the port: `lsof -i :8080`
 
-**Binary messages show as text:**
-- Buffer FFI not yet fully implemented
-- Use text messages for now
+**Binary messages:**
+- Use `send_binary(data)` for binary frame transmission
+- Use `__lws_msg_binary` to extract binary message data as a buffer
 
 ## Examples
 

@@ -522,17 +522,99 @@ static void serialize_expr(SerializeContext *ctx, Expr *expr) {
                             serialize_type(ctx, arm->pattern->as.typed.type_annotation);
                             break;
                         case PATTERN_OR:
-                            // Complex pattern - not fully supported in serialization
-                            write_u32(ctx, 0);  // Write 0 alternatives
+                            write_u32(ctx, (uint32_t)arm->pattern->as.or_pattern.num_alternatives);
+                            for (int j = 0; j < arm->pattern->as.or_pattern.num_alternatives; j++) {
+                                Pattern *alt = arm->pattern->as.or_pattern.alternatives[j];
+                                if (alt) {
+                                    write_u8(ctx, (uint8_t)alt->type);
+                                    switch (alt->type) {
+                                        case PATTERN_LITERAL:
+                                            serialize_expr(ctx, alt->as.literal);
+                                            break;
+                                        case PATTERN_WILDCARD:
+                                            break;
+                                        case PATTERN_BINDING:
+                                            write_string_id(ctx, alt->as.binding.name);
+                                            break;
+                                        case PATTERN_TYPED:
+                                            write_string_id(ctx, alt->as.typed.name);
+                                            serialize_type(ctx, alt->as.typed.type_annotation);
+                                            break;
+                                        default:
+                                            // Nested OR/object/array in OR not supported
+                                            write_u32(ctx, 0);
+                                            break;
+                                    }
+                                } else {
+                                    write_u8(ctx, NULL_MARKER);
+                                }
+                            }
                             break;
                         case PATTERN_OBJECT:
-                            // Complex pattern - not fully supported in serialization
-                            write_u32(ctx, 0);  // Write 0 fields
-                            write_u8(ctx, 0);   // has_rest = false
+                            write_u32(ctx, (uint32_t)arm->pattern->as.object.num_fields);
+                            for (int j = 0; j < arm->pattern->as.object.num_fields; j++) {
+                                ObjectFieldPattern *fp = &arm->pattern->as.object.fields[j];
+                                write_string_id(ctx, fp->name);
+                                if (fp->pattern) {
+                                    write_u8(ctx, 1);  // has sub-pattern
+                                    write_u8(ctx, (uint8_t)fp->pattern->type);
+                                    switch (fp->pattern->type) {
+                                        case PATTERN_LITERAL:
+                                            serialize_expr(ctx, fp->pattern->as.literal);
+                                            break;
+                                        case PATTERN_WILDCARD:
+                                            break;
+                                        case PATTERN_BINDING:
+                                            write_string_id(ctx, fp->pattern->as.binding.name);
+                                            break;
+                                        case PATTERN_TYPED:
+                                            write_string_id(ctx, fp->pattern->as.typed.name);
+                                            serialize_type(ctx, fp->pattern->as.typed.type_annotation);
+                                            break;
+                                        default:
+                                            write_u32(ctx, 0);
+                                            break;
+                                    }
+                                } else {
+                                    write_u8(ctx, 0);  // no sub-pattern (shorthand bind)
+                                }
+                            }
+                            write_u8(ctx, arm->pattern->as.object.has_rest ? 1 : 0);
+                            if (arm->pattern->as.object.has_rest && arm->pattern->as.object.rest_name) {
+                                write_string_id(ctx, arm->pattern->as.object.rest_name);
+                            }
                             break;
                         case PATTERN_ARRAY:
-                            // Complex pattern - not fully supported in serialization
-                            write_u32(ctx, 0);  // Write 0 elements
+                            write_u32(ctx, (uint32_t)arm->pattern->as.array.num_elements);
+                            for (int j = 0; j < arm->pattern->as.array.num_elements; j++) {
+                                ArrayElementPattern *ep = &arm->pattern->as.array.elements[j];
+                                write_u8(ctx, ep->is_rest ? 1 : 0);
+                                if (ep->is_rest) {
+                                    write_string_id(ctx, ep->rest_name);
+                                } else if (ep->pattern) {
+                                    write_u8(ctx, 1);  // has pattern
+                                    write_u8(ctx, (uint8_t)ep->pattern->type);
+                                    switch (ep->pattern->type) {
+                                        case PATTERN_LITERAL:
+                                            serialize_expr(ctx, ep->pattern->as.literal);
+                                            break;
+                                        case PATTERN_WILDCARD:
+                                            break;
+                                        case PATTERN_BINDING:
+                                            write_string_id(ctx, ep->pattern->as.binding.name);
+                                            break;
+                                        case PATTERN_TYPED:
+                                            write_string_id(ctx, ep->pattern->as.typed.name);
+                                            serialize_type(ctx, ep->pattern->as.typed.type_annotation);
+                                            break;
+                                        default:
+                                            write_u32(ctx, 0);
+                                            break;
+                                    }
+                                } else {
+                                    write_u8(ctx, 0);  // no pattern
+                                }
+                            }
                             break;
                     }
                 } else {
@@ -856,20 +938,140 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
                                 arm->pattern->as.typed.name = read_string_id(ctx);
                                 arm->pattern->as.typed.type_annotation = deserialize_type(ctx);
                                 break;
-                            case PATTERN_OR:
-                                arm->pattern->as.or_pattern.num_alternatives = (int)read_u32(ctx);
-                                arm->pattern->as.or_pattern.alternatives = NULL;
+                            case PATTERN_OR: {
+                                int num_alts = (int)read_u32(ctx);
+                                arm->pattern->as.or_pattern.num_alternatives = num_alts;
+                                if (num_alts > 0) {
+                                    arm->pattern->as.or_pattern.alternatives = malloc(sizeof(Pattern*) * num_alts);
+                                    for (int j = 0; j < num_alts; j++) {
+                                        uint8_t alt_marker = read_u8(ctx);
+                                        if (alt_marker == NULL_MARKER) {
+                                            arm->pattern->as.or_pattern.alternatives[j] = NULL;
+                                        } else {
+                                            Pattern *alt = malloc(sizeof(Pattern));
+                                            memset(alt, 0, sizeof(Pattern));
+                                            alt->type = (PatternType)alt_marker;
+                                            alt->line = expr->line;
+                                            switch (alt->type) {
+                                                case PATTERN_LITERAL:
+                                                    alt->as.literal = deserialize_expr(ctx);
+                                                    break;
+                                                case PATTERN_WILDCARD:
+                                                    break;
+                                                case PATTERN_BINDING:
+                                                    alt->as.binding.name = read_string_id(ctx);
+                                                    break;
+                                                case PATTERN_TYPED:
+                                                    alt->as.typed.name = read_string_id(ctx);
+                                                    alt->as.typed.type_annotation = deserialize_type(ctx);
+                                                    break;
+                                                default:
+                                                    read_u32(ctx);  // consume placeholder
+                                                    break;
+                                            }
+                                            arm->pattern->as.or_pattern.alternatives[j] = alt;
+                                        }
+                                    }
+                                } else {
+                                    arm->pattern->as.or_pattern.alternatives = NULL;
+                                }
                                 break;
-                            case PATTERN_OBJECT:
-                                arm->pattern->as.object.num_fields = (int)read_u32(ctx);
-                                arm->pattern->as.object.fields = NULL;
+                            }
+                            case PATTERN_OBJECT: {
+                                int num_fields = (int)read_u32(ctx);
+                                arm->pattern->as.object.num_fields = num_fields;
+                                if (num_fields > 0) {
+                                    arm->pattern->as.object.fields = malloc(sizeof(ObjectFieldPattern) * num_fields);
+                                    for (int j = 0; j < num_fields; j++) {
+                                        arm->pattern->as.object.fields[j].name = read_string_id(ctx);
+                                        uint8_t has_sub = read_u8(ctx);
+                                        if (has_sub) {
+                                            Pattern *fp = malloc(sizeof(Pattern));
+                                            memset(fp, 0, sizeof(Pattern));
+                                            uint8_t fp_type = read_u8(ctx);
+                                            fp->type = (PatternType)fp_type;
+                                            fp->line = expr->line;
+                                            switch (fp->type) {
+                                                case PATTERN_LITERAL:
+                                                    fp->as.literal = deserialize_expr(ctx);
+                                                    break;
+                                                case PATTERN_WILDCARD:
+                                                    break;
+                                                case PATTERN_BINDING:
+                                                    fp->as.binding.name = read_string_id(ctx);
+                                                    break;
+                                                case PATTERN_TYPED:
+                                                    fp->as.typed.name = read_string_id(ctx);
+                                                    fp->as.typed.type_annotation = deserialize_type(ctx);
+                                                    break;
+                                                default:
+                                                    read_u32(ctx);
+                                                    break;
+                                            }
+                                            arm->pattern->as.object.fields[j].pattern = fp;
+                                        } else {
+                                            arm->pattern->as.object.fields[j].pattern = NULL;
+                                        }
+                                    }
+                                } else {
+                                    arm->pattern->as.object.fields = NULL;
+                                }
                                 arm->pattern->as.object.has_rest = read_u8(ctx);
-                                arm->pattern->as.object.rest_name = NULL;
+                                if (arm->pattern->as.object.has_rest) {
+                                    arm->pattern->as.object.rest_name = read_string_id(ctx);
+                                } else {
+                                    arm->pattern->as.object.rest_name = NULL;
+                                }
                                 break;
-                            case PATTERN_ARRAY:
-                                arm->pattern->as.array.num_elements = (int)read_u32(ctx);
-                                arm->pattern->as.array.elements = NULL;
+                            }
+                            case PATTERN_ARRAY: {
+                                int num_elems = (int)read_u32(ctx);
+                                arm->pattern->as.array.num_elements = num_elems;
+                                if (num_elems > 0) {
+                                    arm->pattern->as.array.elements = malloc(sizeof(ArrayElementPattern) * num_elems);
+                                    for (int j = 0; j < num_elems; j++) {
+                                        uint8_t is_rest = read_u8(ctx);
+                                        arm->pattern->as.array.elements[j].is_rest = is_rest;
+                                        if (is_rest) {
+                                            arm->pattern->as.array.elements[j].rest_name = read_string_id(ctx);
+                                            arm->pattern->as.array.elements[j].pattern = NULL;
+                                        } else {
+                                            arm->pattern->as.array.elements[j].rest_name = NULL;
+                                            uint8_t has_pat = read_u8(ctx);
+                                            if (has_pat) {
+                                                Pattern *ep = malloc(sizeof(Pattern));
+                                                memset(ep, 0, sizeof(Pattern));
+                                                uint8_t ep_type = read_u8(ctx);
+                                                ep->type = (PatternType)ep_type;
+                                                ep->line = expr->line;
+                                                switch (ep->type) {
+                                                    case PATTERN_LITERAL:
+                                                        ep->as.literal = deserialize_expr(ctx);
+                                                        break;
+                                                    case PATTERN_WILDCARD:
+                                                        break;
+                                                    case PATTERN_BINDING:
+                                                        ep->as.binding.name = read_string_id(ctx);
+                                                        break;
+                                                    case PATTERN_TYPED:
+                                                        ep->as.typed.name = read_string_id(ctx);
+                                                        ep->as.typed.type_annotation = deserialize_type(ctx);
+                                                        break;
+                                                    default:
+                                                        read_u32(ctx);
+                                                        break;
+                                                }
+                                                arm->pattern->as.array.elements[j].pattern = ep;
+                                            } else {
+                                                arm->pattern->as.array.elements[j].pattern = NULL;
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    arm->pattern->as.array.elements = NULL;
+                                }
                                 break;
+                            }
                         }
                     }
 

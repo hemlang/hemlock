@@ -20,19 +20,21 @@ let x = 42  // ERROR: Missing semicolon
 let y = 10  // ERROR: Missing semicolon
 ```
 
-### Braces Are Always Required
+### Braces
 
-All control flow blocks must use braces, even for single statements:
+Braces are required for multi-statement blocks. Single-statement bodies may omit braces:
 
 ```hemlock
-// ✅ CORRECT
+// Multi-statement: braces required
 if (x > 0) {
-    print("positive");
+    let y = x * 2;
+    print(y);
 }
 
-// ❌ ERROR: Missing braces
-if (x > 0)
-    print("positive");
+// Single-statement: braces optional
+if (x > 0) print("positive");
+while (x > 0) x--;
+for (let i = 0; i < 10; i++) print(i);
 ```
 
 ### Comments
