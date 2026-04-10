@@ -138,9 +138,13 @@ static void ws_server_close_internal(ws_server_t *server) {
     server->closed = 1;
     server->shutdown = 1;
 
-    // Wait for any in-flight accept() call to finish its current iteration.
-    // accept() sleeps 10ms per iteration, so 50ms is sufficient.
-    usleep(50000);
+    // Wait for any in-flight accept() or recv() calls to notice the
+    // shutdown flag and exit.  recv() polls with 10ms sleeps and may
+    // be in the middle of a 100ms timeout, so 200ms gives plenty of
+    // margin.  The Hemlock-level Server.close() should already join
+    // spawned recv tasks before reaching this point, but we keep a
+    // safety sleep to guard against direct __lws_ws_server_close use.
+    usleep(200000);
 
     pthread_join(server->service_thread, NULL);
     pthread_mutex_destroy(&server->pending_mutex);
