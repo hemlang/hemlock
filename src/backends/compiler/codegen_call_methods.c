@@ -356,36 +356,86 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
             codegen_writeln(ctx, "    %s = hml_call_method(%s, \"recv\", _recv_args, 1);", result, obj_val);
             codegen_writeln(ctx, "}");
         }
-    // Socket-specific methods
+    // Socket-specific methods - guard with type check so object methods
+    // with the same name (e.g. gn.hml Server.listen()) fall through to
+    // hml_call_method dynamic dispatch.
     } else if (strcmp(method, "bind") == 0 && num_args == 2) {
-        codegen_writeln(ctx, "hml_socket_bind(%s, %s, %s);", obj_val, arg_temps[0], arg_temps[1]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    hml_socket_bind(%s, %s, %s);", obj_val, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _bind_args[2] = {%s, %s};", arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"bind\", _bind_args, 2);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "listen") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "hml_socket_listen(%s, %s);", obj_val, arg_temps[0]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    hml_socket_listen(%s, %s);", obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _listen_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"listen\", _listen_args, 1);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "accept") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_socket_accept(%s);", result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_socket_accept(%s);", result, obj_val);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"accept\", NULL, 0);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "connect") == 0 && num_args == 2) {
-        codegen_writeln(ctx, "hml_socket_connect(%s, %s, %s);", obj_val, arg_temps[0], arg_temps[1]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    hml_socket_connect(%s, %s, %s);", obj_val, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _connect_args[2] = {%s, %s};", arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"connect\", _connect_args, 2);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "sendto") == 0 && num_args == 3) {
-        codegen_writeln(ctx, "HmlValue %s = hml_socket_sendto(%s, %s, %s, %s);",
-                      result, obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_socket_sendto(%s, %s, %s, %s);", result, obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _sendto_args[3] = {%s, %s, %s};", arg_temps[0], arg_temps[1], arg_temps[2]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"sendto\", _sendto_args, 3);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "recvfrom") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_socket_recvfrom(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_socket_recvfrom(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _recvfrom_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"recvfrom\", _recvfrom_args, 1);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "setsockopt") == 0 && num_args == 3) {
-        codegen_writeln(ctx, "hml_socket_setsockopt(%s, %s, %s, %s);",
-                      obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    hml_socket_setsockopt(%s, %s, %s, %s);", obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _setsockopt_args[3] = {%s, %s, %s};", arg_temps[0], arg_temps[1], arg_temps[2]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"setsockopt\", _setsockopt_args, 3);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "set_timeout") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "hml_socket_set_timeout(%s, %s);",
-                      obj_val, arg_temps[0]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    hml_socket_set_timeout(%s, %s);", obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _set_timeout_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"set_timeout\", _set_timeout_args, 1);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "set_nonblocking") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "hml_socket_set_nonblocking(%s, %s);",
-                      obj_val, arg_temps[0]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    hml_socket_set_nonblocking(%s, %s);", obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _set_nonblocking_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"set_nonblocking\", _set_nonblocking_args, 1);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "recv_timeout") == 0 && num_args == 1) {
         codegen_writeln(ctx, "HmlValue %s = hml_channel_recv_timeout(%s, %s);",
                       result, obj_val, arg_temps[0]);
