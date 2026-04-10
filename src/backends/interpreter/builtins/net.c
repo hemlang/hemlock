@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <poll.h>
+#include <stddef.h>
 #include <stdatomic.h>
 
 // ========== SOCKET BUILTINS ==========
