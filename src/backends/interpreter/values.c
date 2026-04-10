@@ -2026,10 +2026,10 @@ Value value_deep_copy(Value val) {
             break;
 
         case VAL_PTR:
-            // Raw pointers cannot be deep copied safely - this is intentional
-            // Tasks should not share raw pointers; use channels or buffers instead
-            fprintf(stderr, "Runtime error: Cannot pass raw pointer to spawned task (use buffer or channel instead)\n");
-            exit(1);
+            // Share raw pointers by reference - the programmer is responsible
+            // for synchronization, matching Hemlock's "unsafe is a feature" philosophy.
+            // This enables FFI handles (e.g. WebSocket ptrs) inside objects passed to tasks.
+            return val;
 
         case VAL_FILE:
             // File handles are OS resources - kernel handles concurrent access
