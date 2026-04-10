@@ -1,11 +1,18 @@
 # @stdlib/ipc - Inter-Process Communication
 
-The `ipc` module provides facilities for communication between processes using file-based mechanisms for simplicity and portability.
+The `ipc` module provides facilities for communication between processes, including OS-level pipes and file-based mechanisms.
 
 ## Quick Start
 
 ```hemlock
-import { MessageQueue, Semaphore, SharedData } from "@stdlib/ipc";
+import { Pipe, MessageQueue, Semaphore, SharedData } from "@stdlib/ipc";
+
+// OS-level pipe for fast IPC
+let p = Pipe();
+p.send("Hello from writer");
+let msg = p.recv();
+print(msg);  // "Hello from writer"
+p.close();
 
 // Message queue for process communication
 let mq = MessageQueue("/tmp/my_queue");
@@ -23,6 +30,98 @@ sem.release();
 ```
 
 ## API Reference
+
+### Pipe(): object
+
+Create an OS-level pipe for inter-process communication. Returns a Pipe object wrapping a unidirectional data channel.
+
+**Methods:**
+- `send(data)` - Write a string to the pipe. Returns number of bytes written
+- `recv(size?)` - Read up to `size` bytes (default 4096). Returns string or null on EOF
+- `close_read()` - Close the read end
+- `close_write()` - Close the write end
+- `close()` - Close both ends
+
+**Properties:**
+- `read_fd: i32` - The read file descriptor
+- `write_fd: i32` - The write file descriptor
+
+```hemlock
+import { Pipe } from "@stdlib/ipc";
+
+let p = Pipe();
+
+// Write data
+p.send("Hello, Pipe!");
+
+// Read data
+let data = p.recv();
+print(data);  // "Hello, Pipe!"
+
+// Close when done
+p.close();
+```
+
+### pipe_create(): object
+
+Low-level pipe creation. Returns `{ read_fd: i32, write_fd: i32 }`.
+
+```hemlock
+import { pipe_create, fd_read, fd_write, fd_close } from "@stdlib/ipc";
+
+let fds = pipe_create();
+fd_write(fds.write_fd, "raw pipe data");
+let data = fd_read(fds.read_fd, 4096);
+fd_close(fds.read_fd);
+fd_close(fds.write_fd);
+```
+
+### fd_read(fd, size?): string|null
+
+Read up to `size` bytes (default 4096) from a file descriptor. Returns null on EOF or when no data is available on a non-blocking fd.
+
+**Parameters:**
+- `fd: i32` - File descriptor to read from
+- `size: i32` - Maximum bytes to read (default: 4096)
+
+### fd_write(fd, data): i32
+
+Write a string to a file descriptor. Returns number of bytes written.
+
+**Parameters:**
+- `fd: i32` - File descriptor to write to
+- `data: string` - Data to write
+
+### fd_close(fd)
+
+Close a file descriptor. Throws on invalid fd.
+
+**Parameters:**
+- `fd: i32` - File descriptor to close
+
+### dup2(oldfd, newfd): i32
+
+Duplicate a file descriptor, making `newfd` refer to the same underlying resource as `oldfd`. If `newfd` is already open, it is closed first. Useful for redirecting stdin/stdout/stderr.
+
+**Parameters:**
+- `oldfd: i32` - Source file descriptor
+- `newfd: i32` - Target file descriptor number
+
+**Returns:** The new file descriptor (same as `newfd`).
+
+```hemlock
+import { Pipe, dup2, STDOUT_FD } from "@stdlib/ipc";
+
+let p = Pipe();
+// Redirect stdout to pipe write end
+dup2(p.write_fd, STDOUT_FD);
+```
+
+### Constants
+
+- `STDIN_FD` - Standard input file descriptor (0)
+- `STDOUT_FD` - Standard output file descriptor (1)
+- `STDERR_FD` - Standard error file descriptor (2)
 
 ### MessageQueue(path): object
 
@@ -222,6 +321,99 @@ print("Signal sent!");
 
 ## Examples
 
+### Parent-Child Pipe Communication
+
+```hemlock
+import { Pipe } from "@stdlib/ipc";
+import { fork, wait } from "@stdlib/process";
+import { exit } from "@stdlib/env";
+
+let p = Pipe();
+
+let pid = fork();
+if (pid == 0) {
+    // Child: close read end, write to parent
+    p.close_read();
+    p.send("Hello from child!");
+    p.close_write();
+    exit(0);
+} else {
+    // Parent: close write end, read from child
+    p.close_write();
+    let msg = p.recv();
+    print("Parent received: " + msg);  // "Hello from child!"
+    p.close_read();
+    wait();
+}
+```
+
+### Bidirectional Pipe Communication
+
+Use two pipes for two-way parent-child communication:
+
+```hemlock
+import { Pipe } from "@stdlib/ipc";
+import { fork, wait } from "@stdlib/process";
+import { exit } from "@stdlib/env";
+
+// parent→child pipe and child→parent pipe
+let to_child = Pipe();
+let to_parent = Pipe();
+
+let pid = fork();
+if (pid == 0) {
+    // Child: read from parent, respond back
+    to_child.close_write();
+    to_parent.close_read();
+
+    let request = to_child.recv();
+    to_parent.send("processed: " + request);
+
+    to_child.close_read();
+    to_parent.close_write();
+    exit(0);
+} else {
+    // Parent: send request, read response
+    to_child.close_read();
+    to_parent.close_write();
+
+    to_child.send("task-42");
+    to_child.close_write();
+
+    let response = to_parent.recv();
+    print(response);  // "processed: task-42"
+
+    to_parent.close_read();
+    wait();
+}
+```
+
+### Redirect Stdout to a Pipe
+
+```hemlock
+import { Pipe, dup2, STDOUT_FD } from "@stdlib/ipc";
+import { fork, wait } from "@stdlib/process";
+import { exit } from "@stdlib/env";
+
+let p = Pipe();
+let pid = fork();
+
+if (pid == 0) {
+    // Child: redirect stdout to pipe, then print
+    p.close_read();
+    dup2(p.write_fd, STDOUT_FD);
+    p.close_write();  // original fd no longer needed
+    print("captured output");
+    exit(0);
+} else {
+    p.close_write();
+    let output = p.recv();
+    print("Child said: " + output);  // "Child said: captured output\n"
+    p.close_read();
+    wait();
+}
+```
+
 ### Producer-Consumer Pattern
 
 ```hemlock
@@ -324,11 +516,21 @@ fn update_counter() {
 
 ## Notes
 
-- All IPC mechanisms use the file system for persistence and cross-process visibility
-- Files are created in the specified paths with appropriate permissions
+### Pipe behavior
+- `Pipe()` uses OS-level pipes (`pipe()` syscall) for fast, in-memory IPC
+- Pipes are unidirectional: one end writes, the other reads
+- `recv()` blocks until data is available or the write end is closed
+- `recv()` returns `null` on EOF (write end closed and buffer empty)
+- Close the write end of a pipe to signal EOF to the reader
+- For bidirectional communication, create two pipes (one per direction)
+- After `fork()`, close unused pipe ends in each process to avoid deadlocks
+- `close_read()` and `close_write()` are idempotent (safe to call multiple times)
+- Pipe buffer size is OS-dependent (typically 64KB on Linux)
+
+### File-based IPC
+- File-based mechanisms (MessageQueue, SharedData, etc.) persist across process restarts
 - Clean up temporary IPC files when done to avoid clutter
 - Timeout values are in milliseconds
-- For high-performance IPC, consider using shared memory or sockets
 
 ## See Also
 

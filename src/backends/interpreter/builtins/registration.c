@@ -1,6 +1,7 @@
 #include "internal.h"
 #include "hemlock_limits.h"
 #include <poll.h>
+#include <sys/mman.h>
 
 // Structure to hold builtin function info
 typedef struct {
@@ -105,6 +106,12 @@ static BuiltinInfo builtins[] = {
     {"__wait", builtin_wait},
     {"__waitpid", builtin_waitpid},
     {"__abort", builtin_abort},
+    // Pipe operations (use @stdlib/ipc for public API)
+    {"__pipe", builtin_pipe},
+    {"__close_fd", builtin_close_fd},
+    {"__read_fd", builtin_read_fd},
+    {"__write_fd", builtin_write_fd},
+    {"__dup2", builtin_dup2},
     // Internal helper builtins
     {"__read_u32", builtin_read_u32},
     {"__read_u64", builtin_read_u64},
@@ -303,6 +310,14 @@ static BuiltinInfo builtins[] = {
     {"__write_u32_le", builtin_write_u32_le},
     {"__write_u64_be", builtin_write_u64_be},
     {"__write_u64_le", builtin_write_u64_le},
+    // Memory-mapped file I/O builtins (use @stdlib/mmap for public API)
+    {"__mmap_open", builtin_mmap_open},
+    {"__mmap_open_anon", builtin_mmap_open_anon},
+    {"__mmap_sync", builtin_mmap_sync},
+    {"__mmap_close", builtin_mmap_close},
+    {"__mmap_size", builtin_mmap_size},
+    {"__mmap_advise", builtin_mmap_advise},
+    {"__mmap_protect", builtin_mmap_protect},
     {NULL, NULL}  // Sentinel
 };
 
@@ -391,6 +406,7 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
     // Internal socket constants for stdlib use (__ prefixed)
     env_set(env, "__AF_INET", val_i32(AF_INET), ctx);
     env_set(env, "__AF_INET6", val_i32(AF_INET6), ctx);
+    env_set(env, "__AF_UNIX", val_i32(AF_UNIX), ctx);
     env_set(env, "__SOCK_STREAM", val_i32(SOCK_STREAM), ctx);
     env_set(env, "__SOCK_DGRAM", val_i32(SOCK_DGRAM), ctx);
     env_set(env, "__IPPROTO_TCP", val_i32(IPPROTO_TCP), ctx);
@@ -406,6 +422,22 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
     env_set(env, "__POLLHUP", val_i32(POLLHUP), ctx);
     env_set(env, "__POLLNVAL", val_i32(POLLNVAL), ctx);
     env_set(env, "__POLLPRI", val_i32(POLLPRI), ctx);
+
+    // Standard file descriptor constants for pipe/IPC operations (__ prefixed)
+    env_set(env, "__STDIN_FILENO", val_i32(STDIN_FILENO), ctx);
+    env_set(env, "__STDOUT_FILENO", val_i32(STDOUT_FILENO), ctx);
+    env_set(env, "__STDERR_FILENO", val_i32(STDERR_FILENO), ctx);
+
+    // Internal mmap constants for stdlib use (__ prefixed)
+    env_set(env, "__PROT_NONE", val_i32(PROT_NONE), ctx);
+    env_set(env, "__PROT_READ", val_i32(PROT_READ), ctx);
+    env_set(env, "__PROT_WRITE", val_i32(PROT_WRITE), ctx);
+    env_set(env, "__PROT_EXEC", val_i32(PROT_EXEC), ctx);
+    env_set(env, "__MADV_NORMAL", val_i32(MADV_NORMAL), ctx);
+    env_set(env, "__MADV_SEQUENTIAL", val_i32(MADV_SEQUENTIAL), ctx);
+    env_set(env, "__MADV_RANDOM", val_i32(MADV_RANDOM), ctx);
+    env_set(env, "__MADV_WILLNEED", val_i32(MADV_WILLNEED), ctx);
+    env_set(env, "__MADV_DONTNEED", val_i32(MADV_DONTNEED), ctx);
 
     // Register builtin functions (may overwrite some type names if there are conflicts)
     for (int i = 0; builtins[i].name != NULL; i++) {

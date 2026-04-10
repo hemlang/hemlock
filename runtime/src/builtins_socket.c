@@ -55,25 +55,41 @@ void hml_socket_bind(HmlValue socket_val, HmlValue address, HmlValue port) {
     const char *addr_str = hml_to_string_ptr(address);
     int p = hml_to_i32(port);
 
-    if (sock->domain != AF_INET) {
-        hml_runtime_error("Only AF_INET sockets supported currently");
-    }
+    if (sock->domain == AF_UNIX) {
+        struct sockaddr_un addr_un;
+        memset(&addr_un, 0, sizeof(addr_un));
+        addr_un.sun_family = AF_UNIX;
 
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(p);
+        if (strlen(addr_str) >= sizeof(addr_un.sun_path)) {
+            hml_runtime_error("Unix socket path too long (max %zu): %s",
+                    sizeof(addr_un.sun_path) - 1, addr_str);
+        }
+        strncpy(addr_un.sun_path, addr_str, sizeof(addr_un.sun_path) - 1);
 
-    if (strcmp(addr_str, "0.0.0.0") == 0) {
-        addr.sin_addr.s_addr = INADDR_ANY;
-    } else if (inet_pton(AF_INET, addr_str, &addr.sin_addr) != 1) {
-        hml_runtime_error("Invalid IP address: %s", addr_str);
-    }
+        if (bind(sock->fd, (struct sockaddr *)&addr_un, sizeof(addr_un)) < 0) {
+            fprintf(stderr, "Runtime error: Failed to bind unix socket to %s: %s\n",
+                    addr_str, strerror(errno));
+            exit(1);
+        }
+    } else if (sock->domain == AF_INET) {
+        struct sockaddr_in addr;
+        memset(&addr, 0, sizeof(addr));
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(p);
 
-    if (bind(sock->fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        fprintf(stderr, "Runtime error: Failed to bind socket to %s:%d: %s\n",
-                addr_str, p, strerror(errno));
-        exit(1);
+        if (strcmp(addr_str, "0.0.0.0") == 0) {
+            addr.sin_addr.s_addr = INADDR_ANY;
+        } else if (inet_pton(AF_INET, addr_str, &addr.sin_addr) != 1) {
+            hml_runtime_error("Invalid IP address: %s", addr_str);
+        }
+
+        if (bind(sock->fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+            fprintf(stderr, "Runtime error: Failed to bind socket to %s:%d: %s\n",
+                    addr_str, p, strerror(errno));
+            exit(1);
+        }
+    } else {
+        hml_runtime_error("Unsupported socket domain for bind()");
     }
 
     if (sock->address) free(sock->address);
@@ -115,7 +131,7 @@ HmlValue hml_socket_accept(HmlValue socket_val) {
         hml_runtime_error("Socket must be listening before accept()");
     }
 
-    struct sockaddr_in client_addr;
+    struct sockaddr_storage client_addr;
     socklen_t client_len = sizeof(client_addr);
 
     int client_fd = accept(sock->fd, (struct sockaddr *)&client_addr, &client_len);
@@ -130,10 +146,21 @@ HmlValue hml_socket_accept(HmlValue socket_val) {
     client_sock->closed = 0;
     client_sock->listening = 0;
 
-    char addr_str[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &client_addr.sin_addr, addr_str, sizeof(addr_str));
-    client_sock->address = strdup(addr_str);
-    client_sock->port = ntohs(client_addr.sin_port);
+    if (sock->domain == AF_UNIX) {
+        struct sockaddr_un *addr_un = (struct sockaddr_un *)&client_addr;
+        if (client_len > offsetof(struct sockaddr_un, sun_path) && addr_un->sun_path[0] != '\0') {
+            client_sock->address = strdup(addr_un->sun_path);
+        } else {
+            client_sock->address = strdup("");
+        }
+        client_sock->port = 0;
+    } else {
+        char addr_str[INET_ADDRSTRLEN];
+        struct sockaddr_in *addr4 = (struct sockaddr_in *)&client_addr;
+        inet_ntop(AF_INET, &addr4->sin_addr, addr_str, sizeof(addr_str));
+        client_sock->address = strdup(addr_str);
+        client_sock->port = ntohs(addr4->sin_port);
+    }
 
     return hml_val_socket(client_sock);
 }
@@ -152,25 +179,43 @@ void hml_socket_connect(HmlValue socket_val, HmlValue address, HmlValue port) {
     const char *addr_str = hml_to_string_ptr(address);
     int p = hml_to_i32(port);
 
-    struct hostent *host = gethostbyname(addr_str);
-    if (!host) {
-        hml_runtime_error("Failed to resolve hostname '%s'", addr_str);
-    }
+    if (sock->domain == AF_UNIX) {
+        struct sockaddr_un addr_un;
+        memset(&addr_un, 0, sizeof(addr_un));
+        addr_un.sun_family = AF_UNIX;
 
-    if (sock->domain != AF_INET) {
-        hml_runtime_error("Only AF_INET sockets supported currently");
-    }
+        if (strlen(addr_str) >= sizeof(addr_un.sun_path)) {
+            hml_runtime_error("Unix socket path too long (max %zu): %s",
+                    sizeof(addr_un.sun_path) - 1, addr_str);
+        }
+        strncpy(addr_un.sun_path, addr_str, sizeof(addr_un.sun_path) - 1);
 
-    struct sockaddr_in server_addr;
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(p);
-    memcpy(&server_addr.sin_addr.s_addr, host->h_addr_list[0], host->h_length);
+        if (connect(sock->fd, (struct sockaddr *)&addr_un, sizeof(addr_un)) < 0) {
+            fprintf(stderr, "Runtime error: Failed to connect to unix socket '%s': %s\n",
+                    addr_str, strerror(errno));
+            exit(1);
+        }
+    } else {
+        struct hostent *host = gethostbyname(addr_str);
+        if (!host) {
+            hml_runtime_error("Failed to resolve hostname '%s'", addr_str);
+        }
 
-    if (connect(sock->fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        fprintf(stderr, "Runtime error: Failed to connect to %s:%d: %s\n",
-                addr_str, p, strerror(errno));
-        exit(1);
+        if (sock->domain != AF_INET) {
+            hml_runtime_error("Only AF_INET sockets supported currently");
+        }
+
+        struct sockaddr_in server_addr;
+        memset(&server_addr, 0, sizeof(server_addr));
+        server_addr.sin_family = AF_INET;
+        server_addr.sin_port = htons(p);
+        memcpy(&server_addr.sin_addr.s_addr, host->h_addr_list[0], host->h_length);
+
+        if (connect(sock->fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+            fprintf(stderr, "Runtime error: Failed to connect to %s:%d: %s\n",
+                    addr_str, p, strerror(errno));
+            exit(1);
+        }
     }
 
     if (sock->address) free(sock->address);
@@ -274,25 +319,40 @@ HmlValue hml_socket_sendto(HmlValue socket_val, HmlValue address, HmlValue port,
         hml_runtime_error("sendto() data must be string or buffer");
     }
 
-    if (sock->domain != AF_INET) {
-        hml_runtime_error("Only AF_INET sockets supported currently");
+    ssize_t sent;
+    if (sock->domain == AF_UNIX) {
+        struct sockaddr_un dest_un;
+        memset(&dest_un, 0, sizeof(dest_un));
+        dest_un.sun_family = AF_UNIX;
+
+        if (strlen(addr_str) >= sizeof(dest_un.sun_path)) {
+            hml_runtime_error("Unix socket path too long (max %zu): %s",
+                    sizeof(dest_un.sun_path) - 1, addr_str);
+        }
+        strncpy(dest_un.sun_path, addr_str, sizeof(dest_un.sun_path) - 1);
+
+        sent = sendto(sock->fd, buf, len, 0,
+                (struct sockaddr *)&dest_un, sizeof(dest_un));
+    } else if (sock->domain == AF_INET) {
+        struct sockaddr_in dest_addr;
+        memset(&dest_addr, 0, sizeof(dest_addr));
+        dest_addr.sin_family = AF_INET;
+        dest_addr.sin_port = htons(p);
+
+        if (inet_pton(AF_INET, addr_str, &dest_addr.sin_addr) != 1) {
+            hml_runtime_error("Invalid IP address: %s", addr_str);
+        }
+
+        sent = sendto(sock->fd, buf, len, 0,
+                (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+    } else {
+        hml_runtime_error("Unsupported socket domain for sendto()");
+        return hml_val_i32(0);  // unreachable
     }
-
-    struct sockaddr_in dest_addr;
-    memset(&dest_addr, 0, sizeof(dest_addr));
-    dest_addr.sin_family = AF_INET;
-    dest_addr.sin_port = htons(p);
-
-    if (inet_pton(AF_INET, addr_str, &dest_addr.sin_addr) != 1) {
-        hml_runtime_error("Invalid IP address: %s", addr_str);
-    }
-
-    ssize_t sent = sendto(sock->fd, buf, len, 0,
-            (struct sockaddr *)&dest_addr, sizeof(dest_addr));
 
     if (sent < 0) {
-        fprintf(stderr, "Runtime error: Failed to sendto %s:%d: %s\n",
-                addr_str, p, strerror(errno));
+        fprintf(stderr, "Runtime error: Failed to sendto %s: %s\n",
+                addr_str, strerror(errno));
         exit(1);
     }
 
@@ -316,7 +376,7 @@ HmlValue hml_socket_recvfrom(HmlValue socket_val, HmlValue size) {
     }
 
     void *buf = malloc(sz);
-    struct sockaddr_in src_addr;
+    struct sockaddr_storage src_addr;
     socklen_t addr_len = sizeof(src_addr);
 
     ssize_t received = recvfrom(sock->fd, buf, sz, 0,
@@ -336,10 +396,23 @@ HmlValue hml_socket_recvfrom(HmlValue socket_val, HmlValue size) {
     atomic_store(&hbuf->freed, 0);  // Not freed
     hbuf->parent = NULL;
 
-    // Get source address and port
-    char addr_str[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &src_addr.sin_addr, addr_str, sizeof(addr_str));
-    int src_port = ntohs(src_addr.sin_port);
+    // Get source address and port based on domain
+    char addr_str[256];
+    int src_port;
+    if (sock->domain == AF_UNIX) {
+        struct sockaddr_un *addr_un = (struct sockaddr_un *)&src_addr;
+        if (addr_len > offsetof(struct sockaddr_un, sun_path) && addr_un->sun_path[0] != '\0') {
+            strncpy(addr_str, addr_un->sun_path, sizeof(addr_str) - 1);
+            addr_str[sizeof(addr_str) - 1] = '\0';
+        } else {
+            addr_str[0] = '\0';
+        }
+        src_port = 0;
+    } else {
+        struct sockaddr_in *addr4 = (struct sockaddr_in *)&src_addr;
+        inet_ntop(AF_INET, &addr4->sin_addr, addr_str, sizeof(addr_str));
+        src_port = ntohs(addr4->sin_port);
+    }
 
     // Create result object { data, address, port }
     HmlValue result = hml_val_object();

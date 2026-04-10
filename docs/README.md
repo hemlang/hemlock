@@ -40,7 +40,9 @@ Welcome to the Hemlock programming language documentation!
 - [Signal Handling](advanced/signals.md) - POSIX signal handling
 - [Command-Line Arguments](advanced/command-line-args.md) - Access program arguments
 - [Command Execution](advanced/command-execution.md) - Execute shell commands
+- [Code Formatting](advanced/code-formatting.md) - Built-in code formatter
 - [Compiler Optimizations](advanced/compiler-optimizations.md) - Inlining, unboxing, and annotations
+- [Language Server (LSP)](advanced/lsp.md) - IDE integration for VS Code, Neovim, Vim, Emacs
 - [Profiling](advanced/profiling.md) - CPU time, memory tracking, and leak detection
 
 ### API Reference
@@ -59,6 +61,7 @@ Welcome to the Hemlock programming language documentation!
 - [Signature Syntax](design/signature-syntax.md) - Type system extensions and design
 
 ### Project
+- [Migration Guide (v1.x → v2.0)](migration-2.0.md) - Upgrading from v1.x to v2.0.0
 - [Versioning](versioning.md) - Version strategy and compatibility guarantees
 
 ### Contributing

@@ -239,11 +239,17 @@ static char* find_hem_modules(const char *start_path) {
             return strdup(hem_modules_path);
         }
 
-        char *parent = dirname(search_path);
-        if (strcmp(parent, search_path) == 0 || strcmp(parent, "/") == 0) {
+        // Walk up by truncating at last '/'
+        char *last_slash = strrchr(search_path, '/');
+        if (!last_slash || last_slash == search_path) {
+            // At root or no slash — check root hem_modules then stop
+            if (last_slash == search_path && search_path[1] != '\0') {
+                search_path[1] = '\0';
+                continue;
+            }
             break;
         }
-        strncpy(search_path, parent, PATH_MAX - 1);
+        *last_slash = '\0';
     }
 
     return NULL;
@@ -366,7 +372,10 @@ char* resolve_module_path(ModuleResolution *resolver, const char *importer_path,
         search_dir[PATH_MAX - 1] = '\0';
 
         if (importer_path) {
-            dirname(search_dir);
+            char *last_slash = strrchr(search_dir, '/');
+            if (last_slash) {
+                *last_slash = '\0';
+            }
         }
 
         char *hem_modules = find_hem_modules(search_dir);
