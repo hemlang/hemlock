@@ -1,0 +1,15 @@
+// Test: leading-dot floats with underscore separators
+
+let a = .5;
+print(a);
+
+let b = .123;
+print(b);
+
+// Leading dot with underscore separator
+let c = .1_5;
+print(c);
+
+// Regular float with underscores (for comparison)
+let d = 1_000.5;
+print(d);

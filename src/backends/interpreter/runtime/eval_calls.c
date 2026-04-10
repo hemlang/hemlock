@@ -1023,7 +1023,8 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     }
 
                     // Use fast param binding with pre-computed hash (skips redundant checks)
-                    env_define_param(call_env, fn->param_names[i], fn->param_hashes[i], arg_value);
+                    int is_const_param = fn->param_is_const && fn->param_is_const[i];
+                    env_define_param(call_env, fn->param_names[i], fn->param_hashes[i], arg_value, is_const_param);
 
                     // Release default param value if we created it (not from args array)
                     // For default params or ref params, arg_value was created locally and needs release

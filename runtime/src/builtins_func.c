@@ -90,6 +90,25 @@ void hml_defer_execute_all(void) {
     }
 }
 
+int hml_defer_save_depth(void) {
+    int depth = 0;
+    DeferEntry *e = g_defer_stack;
+    while (e) { depth++; e = e->next; }
+    return depth;
+}
+
+void hml_defer_execute_to_depth(int saved_depth) {
+    // Count current depth
+    int current = 0;
+    DeferEntry *e = g_defer_stack;
+    while (e) { current++; e = e->next; }
+    // Execute only the entries added since saved_depth
+    while (current > saved_depth && g_defer_stack) {
+        hml_defer_pop_and_execute();
+        current--;
+    }
+}
+
 // Helper for deferring HmlValue function calls
 static void hml_defer_call_wrapper(void *arg) {
     HmlValue *fn_ptr = (HmlValue *)arg;

@@ -1,0 +1,17 @@
+// Test: defer execution scoped to function calls (not global)
+
+fn inner() {
+    defer print("inner defer 1");
+    defer print("inner defer 2");
+    print("inner body");
+}
+
+fn outer() {
+    defer print("outer defer 1");
+    print("outer before inner");
+    inner();
+    print("outer after inner");
+    defer print("outer defer 2");
+}
+
+outer();

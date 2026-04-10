@@ -1,0 +1,23 @@
+// Test: OR patterns with variable bindings
+
+// Simple OR pattern with binding
+let val1 = match (42) {
+    n: i32 | n: f64 => "number: " + n,
+    _ => "other"
+};
+print(val1);
+
+// OR pattern with literal alternatives (no bindings)
+let val2 = match (2) {
+    1 | 2 | 3 => "small",
+    _ => "big"
+};
+print(val2);
+
+// OR pattern binding with guard
+let val3 = match (15) {
+    n if n < 10 => "small",
+    n if n < 20 => "medium: " + n,
+    n => "large"
+};
+print(val3);

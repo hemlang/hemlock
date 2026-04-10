@@ -177,7 +177,7 @@ void env_define(Environment *env, const char *name, Value value, int is_const, E
 // Fast variant that borrows the name string without strdup - caller must ensure name outlives env
 void env_define_borrowed(Environment *env, const char *name, Value value, int is_const, ExecutionContext *ctx);
 // Fastest variant for function params - uses pre-computed hash, skips "already defined" check
-void env_define_param(Environment *env, const char *name, uint32_t hash, Value value);
+void env_define_param(Environment *env, const char *name, uint32_t hash, Value value, int is_const);
 void env_set(Environment *env, const char *name, Value value, ExecutionContext *ctx);
 Value env_get(Environment *env, const char *name, ExecutionContext *ctx);
 

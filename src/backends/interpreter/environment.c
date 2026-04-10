@@ -596,7 +596,7 @@ void env_define_borrowed(Environment *env, const char *name, Value value, int is
 // This is safe because we know params are unique (enforced by parser) and env is freshly created
 // Note: This is typically called on newly created environments that aren't shared yet,
 // but we still lock for consistency if the env happens to be shared.
-void env_define_param(Environment *env, const char *name, uint32_t hash, Value value) {
+void env_define_param(Environment *env, const char *name, uint32_t hash, Value value, int is_const) {
     // Lock environment for thread-safe access
     pthread_mutex_t *mutex = (pthread_mutex_t*)env->mutex;
     if (mutex) pthread_mutex_lock(mutex);
@@ -613,7 +613,7 @@ void env_define_param(Environment *env, const char *name, uint32_t hash, Value v
     }
     VALUE_RETAIN(value);
     env->values[index] = value;
-    env->is_const[index] = 0;  // Params are never const
+    env->is_const[index] = is_const;
     env->count++;
 
     // Insert with pre-computed hash

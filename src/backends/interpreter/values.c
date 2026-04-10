@@ -696,6 +696,11 @@ void function_free(Function *fn) {
             free(fn->param_is_ref);
         }
 
+        // Free param_is_const array
+        if (fn->param_is_const) {
+            free(fn->param_is_const);
+        }
+
         // Free pre-computed param hashes
         if (fn->param_hashes) {
             free(fn->param_hashes);

@@ -143,6 +143,9 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
         codegen_writeln(ctx, "HML_CALL_ENTER();");
     }
 
+    // Save defer stack depth so we only execute this function's defers on return
+    codegen_writeln(ctx, "int _defer_depth = hml_defer_save_depth();");
+
     // OPTIMIZATION: Tail call elimination
     // Check if function is tail recursive and set up for tail call optimization
     // Tail call optimization converts: return func(args) -> reassign params; goto start
@@ -165,10 +168,10 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
     // Generate body
     funcgen_generate_body(ctx, func);
 
-    // Execute defers before implicit return
+    // Execute defers before implicit return (only this function's defers)
     codegen_defer_execute_all(ctx);
     if (ctx->has_defers) {
-        codegen_writeln(ctx, "hml_defer_execute_all();");
+        codegen_writeln(ctx, "hml_defer_execute_to_depth(_defer_depth);");
     }
 
     // Release body-local variables and shared env before returning
@@ -303,16 +306,19 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
         codegen_writeln(ctx, "HML_CALL_ENTER();");
     }
 
+    // Save defer stack depth so we only execute this function's defers on return
+    codegen_writeln(ctx, "int _defer_depth = hml_defer_save_depth();");
+
     // Set up shared environment for nested closures
     funcgen_setup_shared_env(ctx, func, closure);
 
     // Generate body
     funcgen_generate_body(ctx, func);
 
-    // Execute defers before implicit return
+    // Execute defers before implicit return (only this function's defers)
     codegen_defer_execute_all(ctx);
     if (ctx->has_defers) {
-        codegen_writeln(ctx, "hml_defer_execute_all();");
+        codegen_writeln(ctx, "hml_defer_execute_to_depth(_defer_depth);");
     }
 
     // Release body-local variables before returning

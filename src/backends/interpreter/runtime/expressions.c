@@ -361,6 +361,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             bound_fn->param_types = orig_fn->param_types;
                             bound_fn->param_defaults = orig_fn->param_defaults;
                             bound_fn->param_is_ref = orig_fn->param_is_ref;  // Share ref flags
+                            bound_fn->param_is_const = orig_fn->param_is_const;  // Share const flags
                             bound_fn->param_hashes = orig_fn->param_hashes;  // Share pre-computed hashes
                             bound_fn->num_params = orig_fn->num_params;
                             bound_fn->rest_param = orig_fn->rest_param;  // Share rest param name
@@ -773,6 +774,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             fn->param_types = expr->as.function.param_types;
             fn->param_defaults = expr->as.function.param_defaults;
             fn->param_is_ref = expr->as.function.param_is_ref;
+            fn->param_is_const = expr->as.function.param_is_const;
 
             // Lazily compute and cache param hashes on the AST node.
             // First closure from this AST node pays the cost; subsequent ones reuse.

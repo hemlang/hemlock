@@ -91,15 +91,15 @@ int match_pattern(Pattern *pattern, Value value, Environment *env, ExecutionCont
                 Environment *temp_env = env_new(env);
                 int matched = match_pattern(pattern->as.or_pattern.alternatives[i], value, temp_env, ctx);
                 if (matched) {
-                    // Copy bindings from temp_env into the real env
+                    // Transfer bindings from temp_env to the real env
                     for (int j = 0; j < temp_env->count; j++) {
                         VALUE_RETAIN(temp_env->values[j]);
                         env_define(env, temp_env->names[j], temp_env->values[j], 0, ctx);
                     }
-                    env_free(temp_env);
+                    env_release(temp_env);
                     return 1;
                 }
-                env_free(temp_env);
+                env_release(temp_env);
             }
             return 0;
         }
