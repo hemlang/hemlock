@@ -170,6 +170,10 @@ static void* task_thread_wrapper(void* arg) {
         pthread_mutex_unlock(&task->sync->mutex);
 
         hml_release(&exc);
+
+        // Release the thread's reference to the task
+        HmlValue task_val = { .type = HML_VAL_TASK, .as.as_task = task };
+        hml_release(&task_val);
         return NULL;
     }
 
@@ -180,6 +184,9 @@ static void* task_thread_wrapper(void* arg) {
     pthread_cond_signal(&task->sync->cond);
     pthread_mutex_unlock(&task->sync->mutex);
 
+    // Release the thread's reference to the task
+    HmlValue task_val = { .type = HML_VAL_TASK, .as.as_task = task };
+    hml_release(&task_val);
     return NULL;
 }
 
@@ -203,7 +210,10 @@ HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
     task->detached = 0;
     task->has_exception = 0;
     task->exception_value = hml_val_null();
-    task->ref_count = 1;
+    // ref_count=2: one for the caller, one for the thread wrapper.
+    // The thread releases its reference on completion, preventing
+    // use-after-free when the caller drops the task immediately.
+    task->ref_count = 2;
 
     // Store function and args
     task->function = fn;
@@ -291,7 +301,10 @@ HmlValue hml_spawn_with(HmlValue options, HmlValue fn, HmlValue *args, int num_a
     task->detached = 0;
     task->has_exception = 0;
     task->exception_value = hml_val_null();
-    task->ref_count = 1;
+    // ref_count=2: one for the caller, one for the thread wrapper.
+    // The thread releases its reference on completion, preventing
+    // use-after-free when the caller drops the task immediately.
+    task->ref_count = 2;
 
     // Store function and args
     task->function = fn;

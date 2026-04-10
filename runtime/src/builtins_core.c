@@ -23,8 +23,8 @@
 
 int g_argc = 0;
 char **g_argv = NULL;
-HmlExceptionContext *g_exception_stack = NULL;
-DeferEntry *g_defer_stack = NULL;
+__thread HmlExceptionContext *g_exception_stack = NULL;
+__thread DeferEntry *g_defer_stack = NULL;
 
 // Sandbox state
 static int g_sandbox_flags = 0;

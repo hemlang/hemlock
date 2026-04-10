@@ -81,7 +81,7 @@
 
 extern int g_argc;
 extern char **g_argv;
-extern HmlExceptionContext *g_exception_stack;
+extern __thread HmlExceptionContext *g_exception_stack;
 
 // Defer stack
 typedef struct DeferEntry {
@@ -90,7 +90,7 @@ typedef struct DeferEntry {
     struct DeferEntry *next;
 } DeferEntry;
 
-extern DeferEntry *g_defer_stack;
+extern __thread DeferEntry *g_defer_stack;
 
 // Random seed state (defined in builtins_math.c)
 extern int g_rand_seeded;
