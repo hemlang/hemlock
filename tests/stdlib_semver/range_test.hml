@@ -1,0 +1,12 @@
+// Test @stdlib/semver - Advanced range operations
+
+import { max_satisfying, min_satisfying } from "@stdlib/semver";
+
+let versions = ["1.0.0", "1.5.0", "2.0.0", "2.1.0", "3.0.0"];
+
+assert(max_satisfying(versions, "^1.0.0") == "1.5.0", "max satisfying ^1");
+assert(min_satisfying(versions, ">=2.0.0") == "2.0.0", "min satisfying >=2");
+assert(max_satisfying(versions, "<1.0.0") == null, "max satisfying none");
+
+print("PASS: range operations");
+print("All semver range tests passed!");
