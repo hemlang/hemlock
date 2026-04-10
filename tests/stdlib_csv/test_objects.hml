@@ -1,0 +1,126 @@
+// Test @stdlib/csv parse_objects and stringify_objects functions
+
+import { parse, parse_objects, stringify, stringify_objects, stringify_row, parse_row, row_count, column_count, get_column } from "@stdlib/csv";
+
+// === parse_objects ===
+print("=== parse_objects ===");
+let csv_text = "name,age,city\nAlice,30,NYC\nBob,25,LA\nCharlie,35,SF";
+let objs = parse_objects(csv_text);
+
+assert(objs.length == 3, "parse_objects count");
+assert(objs[0]["name"] == "Alice", "first name");
+assert(objs[0]["age"] == "30", "first age");
+assert(objs[0]["city"] == "NYC", "first city");
+assert(objs[1]["name"] == "Bob", "second name");
+assert(objs[2]["name"] == "Charlie", "third name");
+assert(objs[2]["city"] == "SF", "third city");
+print("parse_objects basic passed!");
+
+// parse_objects with custom delimiter
+let tsv = "name\tage\nAlice\t30\nBob\t25";
+let tsv_objs = parse_objects(tsv, { delimiter: "\t" });
+assert(tsv_objs.length == 2, "tsv parse_objects count");
+assert(tsv_objs[0]["name"] == "Alice", "tsv first name");
+assert(tsv_objs[0]["age"] == "30", "tsv first age");
+print("parse_objects custom delimiter passed!");
+
+// parse_objects with quoted fields
+let quoted_csv = "name,bio\nAlice,\"Likes commas, and quotes\"\nBob,\"Line1\nLine2\"";
+let quoted_objs = parse_objects(quoted_csv);
+assert(quoted_objs.length == 2, "quoted parse_objects count");
+assert(quoted_objs[0]["bio"].contains(","), "quoted field has comma");
+assert(quoted_objs[1]["bio"].contains("\n"), "quoted field has newline");
+print("parse_objects quoted fields passed!");
+
+// parse_objects empty input
+let empty_objs = parse_objects("name,age");
+assert(empty_objs.length == 0, "parse_objects header only");
+print("parse_objects edge cases passed!");
+
+// === stringify_objects ===
+print("\n=== stringify_objects ===");
+let people = [
+    { name: "Alice", age: 30, city: "NYC" },
+    { name: "Bob", age: 25, city: "LA" }
+];
+let headers = ["name", "age", "city"];
+let csv_out = stringify_objects(people, headers);
+assert(csv_out.contains("name,age,city"), "header row present");
+assert(csv_out.contains("Alice,30,NYC"), "first data row");
+assert(csv_out.contains("Bob,25,LA"), "second data row");
+print("stringify_objects basic passed!");
+
+// Round-trip: stringify_objects -> parse_objects
+let round_trip = parse_objects(csv_out);
+assert(round_trip.length == 2, "round trip count");
+assert(round_trip[0]["name"] == "Alice", "round trip first name");
+assert(round_trip[1]["age"] == "25", "round trip second age");
+print("stringify_objects round-trip passed!");
+
+// stringify_objects with missing keys
+let sparse = [
+    { name: "Alice", age: 30 },
+    { name: "Bob", city: "LA" }
+];
+let sparse_csv = stringify_objects(sparse, ["name", "age", "city"]);
+assert(sparse_csv.contains("name,age,city"), "sparse header");
+// Missing fields should be empty strings
+let sparse_parsed = parse(sparse_csv);
+assert(sparse_parsed.length == 3, "sparse row count (header + 2)");
+print("stringify_objects sparse data passed!");
+
+// === stringify_row edge cases ===
+print("\n=== stringify_row edge cases ===");
+// Empty fields
+let empty_row = stringify_row(["", "", ""]);
+assert(empty_row == ",,", "empty fields row");
+
+// Single field
+let single = stringify_row(["hello"]);
+assert(single == "hello", "single field");
+
+// Fields needing quoting
+let needs_quote = stringify_row(["normal", "has,comma", "has\"quote"]);
+assert(needs_quote.contains("\"has,comma\""), "comma field quoted");
+print("stringify_row edge cases passed!");
+
+// === parse_row edge cases ===
+print("\n=== parse_row edge cases ===");
+let simple_row = parse_row("a,b,c");
+assert(simple_row.length == 3, "simple row length");
+assert(simple_row[0] == "a", "simple row [0]");
+
+// Row with empty fields
+let empty_fields = parse_row(",b,");
+assert(empty_fields.length == 3, "empty fields length");
+assert(empty_fields[0] == "", "empty first field");
+assert(empty_fields[1] == "b", "middle field");
+assert(empty_fields[2] == "", "empty last field");
+print("parse_row edge cases passed!");
+
+// === get_column edge cases ===
+print("\n=== get_column edge cases ===");
+let data = [
+    ["a", "b", "c"],
+    ["1", "2", "3"],
+    ["4", "5", "6"]
+];
+
+let col0 = get_column(data, 0);
+assert(col0.length == 3, "column 0 length");
+assert(col0[0] == "a", "column 0 [0]");
+assert(col0[2] == "4", "column 0 [2]");
+
+let col2 = get_column(data, 2);
+assert(col2[0] == "c", "column 2 [0]");
+assert(col2[2] == "6", "column 2 [2]");
+
+// === row_count and column_count ===
+print("\n=== row_count / column_count ===");
+assert(row_count(data) == 3, "row_count");
+assert(column_count(data) == 3, "column_count");
+
+let empty_data: array = [];
+assert(row_count(empty_data) == 0, "row_count empty");
+
+print("\nAll CSV object tests passed!");

@@ -1,0 +1,24 @@
+=== Pipe basic ===
+read_fd valid: true
+write_fd valid: true
+bytes written: 6
+received: Hello!
+=== Multiple sends ===
+all: aaabbb
+=== EOF ===
+before eof: x
+after eof: true
+=== Partial reads ===
+first 3: 123
+next 3: 456
+=== Low-level ===
+fd_write: 3
+fd_read: raw
+=== Constants ===
+stdin: 0
+stdout: 1
+stderr: 2
+=== dup2 ===
+dup2 result: 77
+dup2 read: dup2data
+=== Done ===

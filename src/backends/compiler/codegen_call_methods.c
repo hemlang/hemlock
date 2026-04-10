@@ -228,30 +228,48 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         codegen_writeln(ctx, "%s = hml_call_method(%s, \"clear\", NULL, 0);", result, obj_val);
         codegen_indent_dec(ctx);
         codegen_writeln(ctx, "}");
-    // File methods
+    // File methods (with fallback to hml_call_method for generic objects)
     } else if (strcmp(method, "read") == 0 && (num_args == 0 || num_args == 1)) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_FILE) {", obj_val);
         if (num_args == 1) {
-            codegen_writeln(ctx, "HmlValue %s = hml_file_read(%s, %s);",
+            codegen_writeln(ctx, "    %s = hml_file_read(%s, %s);",
                           result, obj_val, arg_temps[0]);
         } else {
-            codegen_writeln(ctx, "HmlValue %s = hml_file_read_all(%s);", result, obj_val);
+            codegen_writeln(ctx, "    %s = hml_file_read_all(%s);", result, obj_val);
         }
+        codegen_writeln(ctx, "} else {");
+        if (num_args == 1) {
+            codegen_writeln(ctx, "    HmlValue _read_args[1] = {%s};", arg_temps[0]);
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"read\", _read_args, 1);", result, obj_val);
+        } else {
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"read\", NULL, 0);", result, obj_val);
+        }
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "write") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_file_write(%s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_FILE) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_file_write(%s, %s);",
                       result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _write_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"write\", _write_args, 1);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "seek") == 0 && num_args == 1) {
         codegen_writeln(ctx, "HmlValue %s = hml_file_seek(%s, %s);",
                       result, obj_val, arg_temps[0]);
     } else if (strcmp(method, "tell") == 0 && num_args == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_file_tell(%s);", result, obj_val);
     } else if (strcmp(method, "close") == 0 && num_args == 0) {
-        // Handle file.close(), channel.close(), and socket.close()
+        // Handle file.close(), channel.close(), socket.close(), and generic object.close()
         codegen_writeln(ctx, "if (%s.type == HML_VAL_FILE) {", obj_val);
         codegen_writeln(ctx, "    hml_file_close(%s);", obj_val);
         codegen_writeln(ctx, "} else if (%s.type == HML_VAL_CHANNEL) {", obj_val);
         codegen_writeln(ctx, "    hml_channel_close(%s);", obj_val);
         codegen_writeln(ctx, "} else if (%s.type == HML_VAL_SOCKET) {", obj_val);
         codegen_writeln(ctx, "    hml_socket_close(%s);", obj_val);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    hml_call_method(%s, \"close\", NULL, 0);", obj_val);
         codegen_writeln(ctx, "}");
         codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
     } else if (strcmp(method, "map") == 0 && num_args == 1) {
@@ -310,23 +328,33 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
     // Channel methods (also handle socket variants)
     } else if (strcmp(method, "send") == 0 && num_args == 1) {
-        // Channel send or socket send
+        // Channel send, socket send, or generic object send
+        codegen_writeln(ctx, "HmlValue %s;", result);
         codegen_writeln(ctx, "if (%s.type == HML_VAL_CHANNEL) {", obj_val);
         codegen_writeln(ctx, "    hml_channel_send(%s, %s);", obj_val, arg_temps[0]);
-        codegen_writeln(ctx, "}");
-        codegen_writeln(ctx, "HmlValue %s;", result);
-        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else if (%s.type == HML_VAL_SOCKET) {", obj_val);
         codegen_writeln(ctx, "    %s = hml_socket_send(%s, %s);", result, obj_val, arg_temps[0]);
         codegen_writeln(ctx, "} else {");
-        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "    HmlValue _send_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"send\", _send_args, 1);", result, obj_val);
         codegen_writeln(ctx, "}");
     } else if (strcmp(method, "recv") == 0) {
-        // Channel recv (no args) or socket recv (1 arg for size)
+        // Channel recv (no args), socket recv (1 arg for size), or generic object recv
         codegen_writeln(ctx, "HmlValue %s;", result);
         if (num_args == 0) {
-            codegen_writeln(ctx, "%s = hml_channel_recv(%s);", result, obj_val);
+            codegen_writeln(ctx, "if (%s.type == HML_VAL_CHANNEL) {", obj_val);
+            codegen_writeln(ctx, "    %s = hml_channel_recv(%s);", result, obj_val);
+            codegen_writeln(ctx, "} else {");
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"recv\", NULL, 0);", result, obj_val);
+            codegen_writeln(ctx, "}");
         } else if (arg_temps) {
-            codegen_writeln(ctx, "%s = hml_socket_recv(%s, %s);", result, obj_val, arg_temps[0]);
+            codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+            codegen_writeln(ctx, "    %s = hml_socket_recv(%s, %s);", result, obj_val, arg_temps[0]);
+            codegen_writeln(ctx, "} else {");
+            codegen_writeln(ctx, "    HmlValue _recv_args[1] = {%s};", arg_temps[0]);
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"recv\", _recv_args, 1);", result, obj_val);
+            codegen_writeln(ctx, "}");
         }
     // Socket-specific methods
     } else if (strcmp(method, "bind") == 0 && num_args == 2) {

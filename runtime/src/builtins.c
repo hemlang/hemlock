@@ -37,7 +37,7 @@ HmlValue hml_string_append_inplace(HmlValue *dest, HmlValue src) {
     HmlString *sd = dest->as.as_string;
 
     // If refcount > 1, we can't mutate - fall back to concat
-    if (sd->ref_count > 1) {
+    if (atomic_load(&sd->ref_count) > 1) {
         HmlValue result = hml_string_concat(*dest, src);
         hml_release(dest);
         *dest = result;

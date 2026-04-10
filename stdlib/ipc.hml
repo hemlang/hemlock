@@ -1,12 +1,16 @@
 // @stdlib/ipc - Inter-Process Communication
 //
 // Provides facilities for communication between processes.
-// Uses file-based mechanisms for simplicity and portability.
+// Includes both file-based mechanisms and OS-level pipes.
 //
 // Usage:
-// import { MessageQueue, Semaphore, SharedData } from "@stdlib/ipc";
+// import { MessageQueue, Semaphore, SharedData, Pipe } from "@stdlib/ipc";
 // let mq = MessageQueue("/tmp/my_queue");
 // mq.send("hello");
+// let p = Pipe();
+// p.send("data");
+// let data = p.recv();
+// p.close();
 import {
 	exists,
 	read_file,
@@ -532,3 +536,92 @@ fn remove_dir(path) {
 	// Use __remove_dir builtin
 	__remove_dir(path);
 }
+
+// ============================================================================
+// Pipe (OS-level pipe for IPC)
+// ============================================================================
+
+// Create an OS-level pipe for inter-process communication
+// Returns a Pipe object with read/write methods
+// The pipe provides a unidirectional data channel: write on one end, read on the other.
+//
+// Usage:
+// let p = Pipe();
+// p.write("hello");
+// let data = p.read();
+// p.close();
+export fn Pipe(): object {
+	let fds = __pipe();
+	return {
+		read_fd: fds.read_fd,
+		write_fd: fds.write_fd,
+		_read_closed: false,
+		_write_closed: false,
+		recv: fn(size?: 4096) {
+			// Read up to `size` bytes from the pipe
+			// Returns: string|null - Data read, or null on EOF/empty
+			return __read_fd(self.read_fd, size);
+		},
+		send: fn(data: string): i32 {
+			// Write data to the pipe
+			// Returns: i32 - Number of bytes written
+			return __write_fd(self.write_fd, data);
+		},
+		close_read: fn() {
+			// Close the read end of the pipe
+			if (!self._read_closed) {
+				__close_fd(self.read_fd);
+				self._read_closed = true;
+			}
+		},
+		close_write: fn() {
+			// Close the write end of the pipe
+			if (!self._write_closed) {
+				__close_fd(self.write_fd);
+				self._write_closed = true;
+			}
+		},
+		close: fn() {
+			// Close both ends of the pipe
+			self.close_read();
+			self.close_write();
+		},
+	};
+}
+
+// ============================================================================
+// Low-level pipe/fd exports
+// ============================================================================
+
+// Create a raw pipe, returns { read_fd: i32, write_fd: i32 }
+export fn pipe_create(): object {
+	return __pipe();
+}
+
+// Read from a file descriptor
+// Returns: string|null - Data read, or null on EOF
+export fn fd_read(fd: i32, size?: 4096): string {
+	return __read_fd(fd, size);
+}
+
+// Write to a file descriptor
+// Returns: i32 - Number of bytes written
+export fn fd_write(fd: i32, data: string): i32 {
+	return __write_fd(fd, data);
+}
+
+// Close a file descriptor
+export fn fd_close(fd: i32) {
+	__close_fd(fd);
+}
+
+// Duplicate a file descriptor
+// Returns: i32 - The new file descriptor
+export fn dup2(oldfd: i32, newfd: i32): i32 {
+	return __dup2(oldfd, newfd);
+}
+
+// Standard file descriptor constants
+export let STDIN_FD = __STDIN_FILENO;
+export let STDOUT_FD = __STDOUT_FILENO;
+export let STDERR_FD = __STDERR_FILENO;

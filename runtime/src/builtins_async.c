@@ -135,17 +135,42 @@ static void* task_thread_wrapper(void* arg) {
         can_use_direct_call = fn->num_params <= 8;
     }
 
+    // Set up exception handler so task exceptions are captured instead of crashing
+    // the whole process. This matches the interpreter's behavior where task exceptions
+    // are stored and re-thrown on join().
+    HmlExceptionContext *ex_ctx = hml_exception_push();
     HmlValue result;
-    if (can_use_direct_call) {
-        result = hml_call_function(task->function, task->args, task->num_args);
-    } else {
+
+    if (setjmp(ex_ctx->exception_buf) == 0) {
+        // Normal execution path
+        if (can_use_direct_call) {
+            result = hml_call_function(task->function, task->args, task->num_args);
+        } else {
 #ifdef __EMSCRIPTEN__
-        // WASM: libffi not available, direct dispatch only supports up to 8 params
-        hml_runtime_error("spawn(): functions with >8 parameters not supported in WASM");
-        result = hml_val_null();
+            // WASM: libffi not available, direct dispatch only supports up to 8 params
+            hml_runtime_error("spawn(): functions with >8 parameters not supported in WASM");
+            result = hml_val_null();
 #else
-        result = call_hemlock_function_ffi(fn_ptr, closure_env, task->args, task->num_args);
+            result = call_hemlock_function_ffi(fn_ptr, closure_env, task->args, task->num_args);
 #endif
+        }
+        hml_exception_pop();
+    } else {
+        // Exception was thrown - capture it for propagation on join()
+        HmlValue exc = hml_exception_get_value();
+        hml_exception_pop();
+
+        pthread_mutex_lock(&task->sync->mutex);
+        task->has_exception = 1;
+        task->exception_value = exc;
+        hml_retain(&task->exception_value);
+        task->result = hml_val_null();
+        task->state = HML_TASK_COMPLETED;
+        pthread_cond_signal(&task->sync->cond);
+        pthread_mutex_unlock(&task->sync->mutex);
+
+        hml_release(&exc);
+        return NULL;
     }
 
     // Store result and mark as completed
@@ -176,6 +201,8 @@ HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
     task->result = hml_val_null();
     task->joined = 0;
     task->detached = 0;
+    task->has_exception = 0;
+    task->exception_value = hml_val_null();
     task->ref_count = 1;
 
     // Store function and args
@@ -262,6 +289,8 @@ HmlValue hml_spawn_with(HmlValue options, HmlValue fn, HmlValue *args, int num_a
     task->result = hml_val_null();
     task->joined = 0;
     task->detached = 0;
+    task->has_exception = 0;
+    task->exception_value = hml_val_null();
     task->ref_count = 1;
 
     // Store function and args
@@ -347,11 +376,22 @@ HmlValue hml_join(HmlValue task_val) {
     // Get result while holding mutex
     HmlValue result = task->result;
     hml_retain(&result);
+    int had_exception = task->has_exception;
+    HmlValue exception = task->exception_value;
+    if (had_exception) {
+        hml_retain(&exception);
+    }
 
     pthread_mutex_unlock(&task->sync->mutex);
 
     // Join the thread (outside mutex to avoid blocking other operations)
     pthread_join(task->sync->thread, NULL);
+
+    // Re-throw task exception in the joining thread (parity with interpreter)
+    if (had_exception) {
+        hml_release(&result);
+        hml_throw(exception);
+    }
 
     return result;
 }
@@ -408,7 +448,7 @@ void hml_task_debug_info(HmlValue task_val) {
     }
     printf("Joined: %s\n", task->joined ? "true" : "false");
     printf("Detached: %s\n", task->detached ? "true" : "false");
-    printf("Ref Count: %d\n", task->ref_count);
+    printf("Ref Count: %d\n", atomic_load(&task->ref_count));
     printf("Has Result: %s\n", task->result.type != HML_VAL_NULL ? "true" : "false");
     printf("======================\n");
 

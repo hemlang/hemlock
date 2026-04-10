@@ -28,8 +28,11 @@ int type_matches_value(Type *type, Value value) {
         case TYPE_CUSTOM_OBJECT:
             // Check if object has a matching type name
             if (value.type == VAL_OBJECT && type->type_name) {
-                // For now, match any object (could check _type field later)
-                return 1;
+                Object *obj = value.as.as_object;
+                if (obj->type_name && strcmp(obj->type_name, type->type_name) == 0) {
+                    return 1;
+                }
+                return 0;
             }
             return 0;
         case TYPE_FUNCTION:

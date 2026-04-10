@@ -1,0 +1,7 @@
+div by zero caught: true
+float div zero: true
+nested: level2: level1
+finally normal: 11
+finally exception: 11
+sequence: first,second,third,
+done

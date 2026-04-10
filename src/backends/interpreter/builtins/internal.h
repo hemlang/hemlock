@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <dirent.h>
@@ -121,6 +122,13 @@ Value builtin_fork(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_abort(Value *args, int num_args, ExecutionContext *ctx);
+
+// Pipe builtins (env.c)
+Value builtin_pipe(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_close_fd(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_fd(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_fd(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_dup2(Value *args, int num_args, ExecutionContext *ctx);
 
 // Signal handling builtins (signals.c)
 Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx);
@@ -356,6 +364,15 @@ Value builtin_write_u32_be(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_write_u32_le(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_write_u64_be(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_write_u64_le(Value *args, int num_args, ExecutionContext *ctx);
+
+// Memory-mapped file I/O builtins (mmap.c)
+Value builtin_mmap_open(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_open_anon(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_sync(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_close(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_size(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_advise(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_protect(Value *args, int num_args, ExecutionContext *ctx);
 
 // Regex builtins (regex.c)
 Value builtin_regex_compile(Value *args, int num_args, ExecutionContext *ctx);

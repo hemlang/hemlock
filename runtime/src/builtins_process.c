@@ -881,4 +881,117 @@ HmlValue hml_raise(HmlValue signum) {
     return hml_val_null();
 }
 
+// ========== PIPE OPERATIONS ==========
+
+HmlValue hml_pipe(void) {
+    if (hml_sandbox_check(HML_SANDBOX_RESTRICT_PROCESS)) {
+        hml_sandbox_error("pipe creation");
+    }
+
+    int fds[2];
+    if (pipe(fds) != 0) {
+        hml_runtime_error("pipe() failed: %s", strerror(errno));
+    }
+
+    HmlValue result = hml_val_object();
+    hml_object_set_field(result, "read_fd", hml_val_i32(fds[0]));
+    hml_object_set_field(result, "write_fd", hml_val_i32(fds[1]));
+    return result;
+}
+
+HmlValue hml_close_fd(HmlValue fd) {
+    int file_fd = hml_to_i32(fd);
+    if (close(file_fd) != 0) {
+        hml_runtime_error("close_fd(%d) failed: %s", file_fd, strerror(errno));
+    }
+    return hml_val_null();
+}
+
+HmlValue hml_read_fd(HmlValue fd, HmlValue size) {
+    int file_fd = hml_to_i32(fd);
+    int buf_size = hml_to_i32(size);
+
+    if (buf_size <= 0) {
+        hml_runtime_error("read_fd() size must be positive, got %d", buf_size);
+    }
+
+    char *buf = malloc((size_t)buf_size + 1);
+    if (!buf) {
+        hml_runtime_error("read_fd() memory allocation failed");
+    }
+
+    ssize_t bytes_read = read(file_fd, buf, (size_t)buf_size);
+    if (bytes_read < 0) {
+        free(buf);
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return hml_val_null();
+        }
+        hml_runtime_error("read_fd(%d) failed: %s", file_fd, strerror(errno));
+    }
+
+    if (bytes_read == 0) {
+        free(buf);
+        return hml_val_null();
+    }
+
+    buf[bytes_read] = '\0';
+    HmlValue result = hml_val_string(buf);
+    free(buf);
+    return result;
+}
+
+HmlValue hml_write_fd(HmlValue fd, HmlValue data) {
+    int file_fd = hml_to_i32(fd);
+
+    if (data.type != HML_VAL_STRING || !data.as.as_string) {
+        hml_runtime_error("write_fd() data must be a string");
+    }
+
+    HmlString *str = data.as.as_string;
+    ssize_t written = write(file_fd, str->data, (size_t)str->length);
+    if (written < 0) {
+        hml_runtime_error("write_fd(%d) failed: %s", file_fd, strerror(errno));
+    }
+
+    return hml_val_i32((int32_t)written);
+}
+
+HmlValue hml_dup2(HmlValue oldfd, HmlValue newfd) {
+    int old_fd = hml_to_i32(oldfd);
+    int new_fd = hml_to_i32(newfd);
+
+    int result = dup2(old_fd, new_fd);
+    if (result < 0) {
+        hml_runtime_error("dup2(%d, %d) failed: %s", old_fd, new_fd, strerror(errno));
+    }
+
+    return hml_val_i32(result);
+}
+
+// Pipe builtin wrappers
+HmlValue hml_builtin_pipe(HmlClosureEnv *env) {
+    (void)env;
+    return hml_pipe();
+}
+
+HmlValue hml_builtin_close_fd(HmlClosureEnv *env, HmlValue fd) {
+    (void)env;
+    return hml_close_fd(fd);
+}
+
+HmlValue hml_builtin_read_fd(HmlClosureEnv *env, HmlValue fd, HmlValue size) {
+    (void)env;
+    return hml_read_fd(fd, size);
+}
+
+HmlValue hml_builtin_write_fd(HmlClosureEnv *env, HmlValue fd, HmlValue data) {
+    (void)env;
+    return hml_write_fd(fd, data);
+}
+
+HmlValue hml_builtin_dup2(HmlClosureEnv *env, HmlValue oldfd, HmlValue newfd) {
+    (void)env;
+    return hml_dup2(oldfd, newfd);
+}
+
 #endif // !__EMSCRIPTEN__

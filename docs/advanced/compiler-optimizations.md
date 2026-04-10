@@ -141,7 +141,7 @@ Benchmark improvements from these optimizations (measured on typical workloads):
 
 ## Helper Annotations
 
-The compiler supports 11 optimization annotations that map to GCC/Clang attributes:
+The compiler supports 10 optimization annotations that map to GCC/Clang attributes:
 
 | Annotation | Effect |
 |------------|--------|
