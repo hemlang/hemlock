@@ -670,36 +670,7 @@ void fmt_fn_params(FmtCtx *ctx, Expr *fn, const char *fn_name, const char *prefi
 // ========== PUBLIC API ==========
 
 // Read entire file into a string (caller must free)
-static char *read_file(const char *path) {
-    FILE *file = fopen(path, "rb");
-    if (file == NULL) {
-        fprintf(stderr, "Error: Could not open file '%s'\n", path);
-        return NULL;
-    }
-
-    fseek(file, 0, SEEK_END);
-    long size = ftell(file);
-    rewind(file);
-
-    char *buffer = malloc(size + 1);
-    if (buffer == NULL) {
-        fprintf(stderr, "Error: Could not allocate memory for file\n");
-        fclose(file);
-        return NULL;
-    }
-
-    size_t bytes_read = fread(buffer, 1, size, file);
-    if (bytes_read < (size_t)size) {
-        fprintf(stderr, "Error: Could not read file\n");
-        free(buffer);
-        fclose(file);
-        return NULL;
-    }
-
-    buffer[size] = '\0';
-    fclose(file);
-    return buffer;
-}
+// read_file() provided by shared/file_io.h
 
 static char *resolve_format_path(const char *path) {
     // Don't use module resolution - it adds .hml extension

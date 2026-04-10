@@ -21,13 +21,8 @@ uint64_t profiler_get_time_ns(void) {
 
 // ========== HASH UTILITIES ==========
 
-static uint32_t hash_string(const char *str) {
-    uint32_t hash = HML_DJB2_HASH_SEED;
-    while (*str) {
-        hash = ((hash << 5) + hash) + (unsigned char)*str++;
-    }
-    return hash;
-}
+#include "shared/hash.h"
+#define hash_string hml_hash_string
 
 static uint32_t hash_location(const char *file, int line) {
     uint32_t hash = hash_string(file ? file : "<unknown>");

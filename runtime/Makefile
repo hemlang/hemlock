@@ -60,7 +60,7 @@ SHARED_DIR = ../src/shared
 
 # Source files
 SRCS = $(wildcard $(SRC_DIR)/*.c)
-SHARED_SRCS = $(wildcard $(SHARED_DIR)/*.c)
+SHARED_SRCS = $(filter-out $(SHARED_DIR)/file_io.c, $(wildcard $(SHARED_DIR)/*.c))
 OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
 SHARED_OBJS = $(patsubst $(SHARED_DIR)/%.c,$(BUILD_DIR)/shared_%.o,$(SHARED_SRCS))
 

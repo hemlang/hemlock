@@ -8,41 +8,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "frontend/parser.h"
+#include "shared/file_io.h"
 
 Stmt** parse_file_to_ast(const char *path, int *stmt_count) {
-    FILE *file = fopen(path, "r");
-    if (!file) {
-        fprintf(stderr, "error: cannot open file '%s'\n", path);
-        *stmt_count = 0;
-        return NULL;
-    }
-
-    fseek(file, 0, SEEK_END);
-    long file_size = ftell(file);
-    if (file_size < 0) {
-        fprintf(stderr, "error: failed to determine size of '%s'\n", path);
-        fclose(file);
-        *stmt_count = 0;
-        return NULL;
-    }
-    fseek(file, 0, SEEK_SET);
-
-    char *source = malloc((size_t)file_size + 1);
+    char *source = read_file(path);
     if (!source) {
-        fprintf(stderr, "error: memory allocation failed for '%s' (%ld bytes)\n", path, file_size);
-        fclose(file);
         *stmt_count = 0;
         return NULL;
     }
-    if (fread(source, 1, (size_t)file_size, file) != (size_t)file_size) {
-        fprintf(stderr, "error: failed to read '%s'\n", path);
-        free(source);
-        fclose(file);
-        *stmt_count = 0;
-        return NULL;
-    }
-    source[file_size] = '\0';
-    fclose(file);
 
     Lexer lexer;
     lexer_init(&lexer, source);

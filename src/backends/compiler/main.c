@@ -12,6 +12,7 @@
 #include <sys/wait.h>
 #include <limits.h>
 #include "frontend.h"
+#include "shared/file_io.h"
 #include "../../include/version.h"
 #include "../../include/hemlock_limits.h"
 #include "codegen.h"
@@ -366,41 +367,7 @@ static Options parse_args(int argc, char **argv) {
 }
 
 // Read entire file into a string
-static char* read_file(const char *path) {
-    FILE *file = fopen(path, "rb");
-    if (file == NULL) {
-        fprintf(stderr, "error: Could not open file '%s'\n", path);
-        return NULL;
-    }
-
-    fseek(file, 0, SEEK_END);
-    long size = ftell(file);
-    if (size < 0) {
-        fprintf(stderr, "error: Could not determine file size\n");
-        fclose(file);
-        return NULL;
-    }
-    rewind(file);
-
-    char *buffer = malloc(size + 1);
-    if (buffer == NULL) {
-        fprintf(stderr, "error: Could not allocate memory for file\n");
-        fclose(file);
-        return NULL;
-    }
-
-    size_t bytes_read = fread(buffer, 1, size, file);
-    if (bytes_read < (size_t)size) {
-        fprintf(stderr, "error: Could not read file\n");
-        free(buffer);
-        fclose(file);
-        return NULL;
-    }
-
-    buffer[size] = '\0';
-    fclose(file);
-    return buffer;
-}
+// read_file() provided by shared/file_io.h
 
 // Generate C output filename from input filename
 static char* make_c_filename(const char *input) {

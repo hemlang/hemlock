@@ -9,6 +9,7 @@
 #include <inttypes.h>
 #include "frontend.h"
 #include "frontend/ast.h"
+#include "shared/file_io.h"
 
 // ========== STRING BUFFER ==========
 

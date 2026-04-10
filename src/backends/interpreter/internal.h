@@ -165,7 +165,7 @@ void visited_set_add(VisitedSet *set, void *ptr);
 
 // ========== ENVIRONMENT (environment.c) ==========
 
-// DJB2 hash function for variable names
+// DJB2 hash function for variable names (delegates to shared inline)
 uint32_t hash_string(const char *str);
 
 Environment* env_new(Environment *parent);

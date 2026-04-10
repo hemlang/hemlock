@@ -11,6 +11,7 @@
 #include "tools/bundler/bundler.h"
 #include "version.h"
 #include "profiler/profiler.h"
+#include "shared/file_io.h"
 
 #define HEMLOCK_BUILD_DATE __DATE__
 #define HEMLOCK_BUILD_TIME __TIME__
@@ -22,45 +23,6 @@
 // FFI functions (from interpreter/ffi.c)
 extern void ffi_init(void);
 extern void ffi_cleanup(void);
-
-// Read entire file into a string (caller must free)
-static char* read_file(const char *path) {
-    FILE *file = fopen(path, "rb");
-    if (file == NULL) {
-        fprintf(stderr, "Error: Could not open file '%s'\n", path);
-        return NULL;
-    }
-    
-    // Get file size
-    fseek(file, 0, SEEK_END);
-    long size = ftell(file);
-    if (fseek(file, 0, SEEK_SET) != 0) {
-        fprintf(stderr, "Error: Could not seek to beginning of file\n");
-        fclose(file);
-        return NULL;
-    }
-    
-    // Allocate buffer
-    char *buffer = malloc(size + 1);
-    if (buffer == NULL) {
-        fprintf(stderr, "Error: Could not allocate memory for file\n");
-        fclose(file);
-        return NULL;
-    }
-    
-    // Read file
-    size_t bytes_read = fread(buffer, 1, size, file);
-    if (bytes_read < (size_t)size) {
-        fprintf(stderr, "Error: Could not read file\n");
-        free(buffer);
-        fclose(file);
-        return NULL;
-    }
-    
-    buffer[size] = '\0';
-    fclose(file);
-    return buffer;
-}
 
 static void run_source(const char *source, int argc, char **argv, int stack_depth, int sandbox_flags, const char *sandbox_root) {
     // Parse

@@ -732,15 +732,8 @@ void function_release(Function *fn) {
     }
 }
 
-// DJB2 hash function for strings (fast and good distribution)
-static uint32_t djb2_hash(const char *str) {
-    uint32_t hash = HML_DJB2_HASH_SEED;
-    int c;
-    while ((c = *str++)) {
-        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
-    }
-    return hash;
-}
+#include "shared/hash.h"
+#define djb2_hash hml_hash_string
 
 // Rebuild hash table (called when fields are added and hash table needs rehashing)
 static void object_hash_rebuild(Object *obj) {

@@ -11,18 +11,13 @@
 #include <mach-o/dyld.h>
 #endif
 
+#include "shared/hash.h"
+
 // ========== SHARED CACHE MAP ==========
 
 #define MODULE_CACHE_INITIAL_SIZE 64
 
-static unsigned long module_path_hash(const char *str) {
-    unsigned long hash = 5381;
-    int c;
-    while ((c = *str++)) {
-        hash = ((hash << 5) + hash) + c;
-    }
-    return hash;
-}
+#define module_path_hash(s) ((unsigned long)hml_hash_string(s))
 
 void module_cache_map_init(ModuleCacheMap *map) {
     map->size = MODULE_CACHE_INITIAL_SIZE;
