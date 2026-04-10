@@ -205,55 +205,9 @@ void codegen_set_module_cache(CodegenContext *ctx, CompilerModuleCache *cache) {
     ctx->module_cache = cache;
 }
 
-// Parse a module file
+// Parse a module file - delegates to shared frontend utility
 Stmt** parse_module_file(const char *path, int *stmt_count) {
-    FILE *file = fopen(path, "r");
-    if (!file) {
-        fprintf(stderr, "error: Cannot open module file '%s'\n", path);
-        *stmt_count = 0;
-        return NULL;
-    }
-
-    // Read entire file
-    fseek(file, 0, SEEK_END);
-    long file_size = ftell(file);
-    if (file_size < 0) {
-        fprintf(stderr, "error: Failed to determine size of module file '%s'\n", path);
-        fclose(file);
-        *stmt_count = 0;
-        return NULL;
-    }
-    fseek(file, 0, SEEK_SET);
-
-    char *source = malloc((size_t)file_size + 1);
-    if (!source) {
-        fprintf(stderr, "error: Memory allocation failed for module source (%ld bytes)\n", file_size);
-        fclose(file);
-        *stmt_count = 0;
-        return NULL;
-    }
-    size_t bytes_read = fread(source, 1, (size_t)file_size, file);
-    source[bytes_read] = '\0';
-    fclose(file);
-
-    // Parse
-    Lexer lexer;
-    lexer_init(&lexer, source);
-
-    Parser parser;
-    parser_init(&parser, &lexer);
-
-    Stmt **statements = parse_program(&parser, stmt_count);
-
-    free(source);
-
-    if (parser.had_error) {
-        fprintf(stderr, "error: Failed to parse module '%s'\n", path);
-        *stmt_count = 0;
-        return NULL;
-    }
-
-    return statements;
+    return parse_file_to_ast(path, stmt_count);
 }
 
 CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
@@ -314,7 +268,8 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
         return NULL;
     }
 
-    // First pass: recursively compile imported modules and track import bindings
+    // First pass: recursively compile imported modules and re-export source modules,
+    // and track import bindings
     for (int i = 0; i < module->num_statements; i++) {
         Stmt *stmt = module->statements[i];
         if (stmt->type == STMT_IMPORT) {
@@ -345,12 +300,51 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
 
                     ExportedSymbol *exp = module_find_export(imported, import_name);
                     if (exp) {
+                        // Determine the correct module prefix for this export.
+                        // For re-exported symbols, the mangled_name belongs to a
+                        // different module than `imported`; extract the real prefix
+                        // from the mangled name (everything up to and including the
+                        // last underscore before the symbol name).
+                        const char *use_prefix = imported->module_prefix;
+                        char re_prefix[CODEGEN_MANGLED_NAME_SIZE];
+                        if (strncmp(exp->mangled_name, imported->module_prefix,
+                                    strlen(imported->module_prefix)) != 0) {
+                            // Re-exported symbol: extract prefix from mangled name
+                            // mangled_name is like "_mod3_Server", prefix is "_mod3_"
+                            size_t name_len = strlen(exp->name);
+                            size_t mangled_len = strlen(exp->mangled_name);
+                            if (mangled_len > name_len) {
+                                size_t prefix_len = mangled_len - name_len;
+                                if (prefix_len < sizeof(re_prefix)) {
+                                    memcpy(re_prefix, exp->mangled_name, prefix_len);
+                                    re_prefix[prefix_len] = '\0';
+                                    use_prefix = re_prefix;
+                                }
+                            }
+                        }
                         // Track this as an import binding with original name, module prefix, and func info
                         int is_extern = module_is_extern_fn(imported, import_name);
-                        module_add_import(module, bind_name, import_name, imported->module_prefix,
+                        module_add_import(module, bind_name, import_name, use_prefix,
                                         exp->is_function, exp->num_params, is_extern);
                     }
                 }
+            }
+        } else if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_reexport) {
+            // Re-export: export { X } from "./other.hml"
+            // Compile the source module so its exports are available
+            char *reexport_path = stmt->as.export_stmt.module_path;
+            char *resolved = resolve_module_path(cache->resolver, absolute_path, reexport_path);
+            if (!resolved) {
+                fprintf(stderr, "error: Could not resolve re-export source '%s' in '%s'\n", reexport_path, absolute_path);
+                return NULL;
+            }
+
+            CompiledModule *reexported = module_compile(ctx, resolved);
+            free(resolved);
+
+            if (!reexported) {
+                fprintf(stderr, "error: Failed to compile re-export source '%s'\n", reexport_path);
+                return NULL;
             }
         }
     }
@@ -388,7 +382,33 @@ CompiledModule* module_compile(CodegenContext *ctx, const char *absolute_path) {
                     snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, name);
                     module_add_export(module, name, mangled, is_function, num_params);
                 }
-            } else if (!stmt->as.export_stmt.is_reexport) {
+            } else if (stmt->as.export_stmt.is_reexport) {
+                // Re-export: export { X } from "./other.hml"
+                // Look up the source module (already compiled in first pass) and
+                // re-export its symbols under this module's namespace.
+                char *reexport_path = stmt->as.export_stmt.module_path;
+                char *resolved = resolve_module_path(cache->resolver, absolute_path, reexport_path);
+                CompiledModule *reexported = resolved ? module_get_cached(cache, resolved) : NULL;
+                free(resolved);
+
+                for (int j = 0; j < stmt->as.export_stmt.num_exports; j++) {
+                    const char *name = stmt->as.export_stmt.export_names[j];
+                    const char *alias = stmt->as.export_stmt.export_aliases[j];
+                    const char *export_name = alias ? alias : name;
+
+                    if (reexported) {
+                        ExportedSymbol *src_exp = module_find_export(reexported, name);
+                        if (src_exp) {
+                            // Re-export using the source module's mangled name directly
+                            module_add_export(module, export_name, src_exp->mangled_name,
+                                            src_exp->is_function, src_exp->num_params);
+                        } else {
+                            fprintf(stderr, "error: '%s' is not exported from re-export source '%s'\n",
+                                    name, reexport_path);
+                        }
+                    }
+                }
+            } else {
                 // Export list - need to find the declaration to get function info
                 for (int j = 0; j < stmt->as.export_stmt.num_exports; j++) {
                     const char *name = stmt->as.export_stmt.export_names[j];

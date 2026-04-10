@@ -22,4 +22,7 @@ typedef struct {
 void parser_init(Parser *parser, Lexer *lexer);
 Stmt** parse_program(Parser *parser, int *stmt_count);
 
+// Read a source file and parse it into an AST
+Stmt** parse_file_to_ast(const char *path, int *stmt_count);
+
 #endif // HEMLOCK_PARSER_H

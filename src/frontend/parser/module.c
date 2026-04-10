@@ -86,65 +86,13 @@ void module_cache_free(ModuleCache *cache) {
 
 // ========== MODULE LOADING ==========
 
-Module* get_cached_module(ModuleCache *cache, const char *absolute_path) {
-    return (Module *)module_cache_map_get(&cache->cache_map, absolute_path);
+static Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ctx) {
+    (void)ctx;
+    return parse_file_to_ast(path, stmt_count);
 }
 
-// Parse a module file and return statements
-static Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ctx) {
-    (void)ctx;  // Suppress unused parameter warning
-    // Read file
-    FILE *file = fopen(path, "r");
-    if (!file) {
-        fprintf(stderr, "error: cannot open module file '%s'\n", path);
-        *stmt_count = 0;
-        return NULL;
-    }
-
-    // Read entire file into memory
-    fseek(file, 0, SEEK_END);
-    long file_size = ftell(file);
-    if (file_size < 0) {
-        fprintf(stderr, "error: failed to determine size of module file '%s'\n", path);
-        fclose(file);
-        *stmt_count = 0;
-        return NULL;
-    }
-    fseek(file, 0, SEEK_SET);
-
-    char *source = malloc(file_size + 1);
-    if (!source) {
-        fprintf(stderr, "error: failed to allocate memory for module file '%s'\n", path);
-        fclose(file);
-        return NULL;
-    }
-    if (fread(source, 1, file_size, file) != (size_t)file_size) {
-        fprintf(stderr, "error: failed to read module file '%s'\n", path);
-        free(source);
-        fclose(file);
-        return NULL;
-    }
-    source[file_size] = '\0';
-    fclose(file);
-
-    // Parse
-    Lexer lexer;
-    lexer_init(&lexer, source);
-
-    Parser parser;
-    parser_init(&parser, &lexer);
-
-    Stmt **statements = parse_program(&parser, stmt_count);
-
-    free(source);
-
-    if (parser.had_error) {
-        fprintf(stderr, "error: failed to parse module '%s'\n", path);
-        *stmt_count = 0;
-        return NULL;
-    }
-
-    return statements;
+Module* get_cached_module(ModuleCache *cache, const char *absolute_path) {
+    return (Module *)module_cache_map_get(&cache->cache_map, absolute_path);
 }
 
 // Recursively load a module and its dependencies

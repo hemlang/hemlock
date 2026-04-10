@@ -398,7 +398,7 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
     CompiledModule *saved_module = ctx->current_module;
     ctx->current_module = module;
 
-    // First call init functions of imported modules
+    // First call init functions of imported modules and re-export source modules
     for (int i = 0; i < module->num_statements; i++) {
         Stmt *stmt = module->statements[i];
         if (stmt->type == STMT_IMPORT) {
@@ -408,6 +408,16 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
                 CompiledModule *imported = module_get_cached(ctx->module_cache, resolved);
                 if (imported) {
                     codegen_writeln(ctx, "%sinit();", imported->module_prefix);
+                }
+                free(resolved);
+            }
+        } else if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_reexport) {
+            char *reexport_path = stmt->as.export_stmt.module_path;
+            char *resolved = resolve_module_path(ctx->module_cache->resolver, module->absolute_path, reexport_path);
+            if (resolved) {
+                CompiledModule *reexported = module_get_cached(ctx->module_cache, resolved);
+                if (reexported) {
+                    codegen_writeln(ctx, "%sinit();", reexported->module_prefix);
                 }
                 free(resolved);
             }
@@ -892,7 +902,24 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                                 int is_function = exp ? exp->is_function : 0;
                                 int num_params = exp ? exp->num_params : 0;
                                 int is_extern = module_is_extern_fn(mod, import_name);
-                                codegen_add_main_import(ctx, local_name, import_name, mod->module_prefix, is_function, num_params, is_extern);
+                                // For re-exported symbols, the mangled name belongs to
+                                // a different module; extract the real prefix from it.
+                                const char *use_prefix = mod->module_prefix;
+                                char re_prefix[CODEGEN_MANGLED_NAME_SIZE];
+                                if (exp && strncmp(exp->mangled_name, mod->module_prefix,
+                                            strlen(mod->module_prefix)) != 0) {
+                                    size_t name_len = strlen(exp->name);
+                                    size_t mangled_len = strlen(exp->mangled_name);
+                                    if (mangled_len > name_len) {
+                                        size_t prefix_len = mangled_len - name_len;
+                                        if (prefix_len < sizeof(re_prefix)) {
+                                            memcpy(re_prefix, exp->mangled_name, prefix_len);
+                                            re_prefix[prefix_len] = '\0';
+                                            use_prefix = re_prefix;
+                                        }
+                                    }
+                                }
+                                codegen_add_main_import(ctx, local_name, import_name, use_prefix, is_function, num_params, is_extern);
                             }
                         }
                     }
@@ -1518,6 +1545,12 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         while (mod) {
             // Generate global variable for each export
             for (int i = 0; i < mod->num_exports; i++) {
+                // Skip re-exports (mangled name belongs to another module,
+                // already declared when that module was processed)
+                if (strncmp(mod->exports[i].mangled_name, mod->module_prefix,
+                            strlen(mod->module_prefix)) != 0) {
+                    continue;
+                }
                 codegen_write(ctx, "static HmlValue %s = {0};\n", mod->exports[i].mangled_name);
             }
             // Also generate global variables for non-exported (private) variables

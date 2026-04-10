@@ -556,40 +556,9 @@ static char* resolve_import_path(BundleContext *ctx, const char *importer_path, 
     return resolve_module_path(ctx->bundle->resolver, importer_path, import_path);
 }
 
-// Parse a module file
+// Parse a module file - delegates to shared frontend utility
 static Stmt** parse_file(const char *path, int *stmt_count) {
-    FILE *file = fopen(path, "r");
-    if (!file) {
-        fprintf(stderr, "Error: Cannot open file '%s'\n", path);
-        *stmt_count = 0;
-        return NULL;
-    }
-
-    fseek(file, 0, SEEK_END);
-    long file_size = ftell(file);
-    fseek(file, 0, SEEK_SET);
-
-    char *source = malloc(file_size + 1);
-    size_t bytes_read = fread(source, 1, file_size, file);
-    source[bytes_read] = '\0';
-    fclose(file);
-
-    Lexer lexer;
-    lexer_init(&lexer, source);
-
-    Parser parser;
-    parser_init(&parser, &lexer);
-
-    Stmt **statements = parse_program(&parser, stmt_count);
-    free(source);
-
-    if (parser.had_error) {
-        fprintf(stderr, "Error: Failed to parse '%s'\n", path);
-        *stmt_count = 0;
-        return NULL;
-    }
-
-    return statements;
+    return parse_file_to_ast(path, stmt_count);
 }
 
 // Check if module is already in bundle
