@@ -5,6 +5,49 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`@stdlib/decimal` module** - Number formatting (`to_fixed`, `to_hex`), parsing (`parse_int`, `parse_float`), and `StringBuilder` utility
+- **`@stdlib/mmap` module** - Memory-mapped file I/O (`mmap`, `munmap`, `msync`) with compiler and runtime support
+- **`@stdlib/matrix` module** - Dense matrix operations (add, multiply, transpose, determinant, inverse, LU decomposition)
+- **`@stdlib/unix_socket` module** - Unix domain sockets (AF_UNIX stream/datagram) with advanced tests
+- **Pipe IPC support** - Low-level fd-based pipe operations in `@stdlib/ipc`
+- **`array.findIndex()` method** - Returns the index of the first element matching a predicate
+- **`array.lastIndexOf()` method** - Returns the last index of a value
+- **`array.flat()` method** - Flattens nested arrays by one level
+- **`string.trim_start()` method** - Trims whitespace from start of string
+- **`string.trim_end()` method** - Trims whitespace from end of string
+- **`sha1`, `crc32`, `adler32` hash functions** in `@stdlib/hash`
+- **Custom HTTP request headers** in `@stdlib/http`
+- **Object key coercion** - Integer, bool, float, and rune keys auto-coerce to strings via bracket notation
+- Expanded `@stdlib/iter` with `map`, `filter`, `reduce` and other core functions
+- Expanded `@stdlib/math` with `sign`, `cbrt`, `hypot`, `gcd`, `lcm`, and hyperbolic functions
+- Expanded `@stdlib/datetime` with `is_leap_year`, `days_in_month`, and validation
+- Expanded `@stdlib/testing` with deep object comparison
+- Expanded stdlib test coverage for 8 under-tested modules
+
+### Fixed
+
+- **OR-pattern bindings in interpreter** - Variable bindings from matched OR pattern arms are now properly propagated to the match body (previously silently discarded)
+- **Typed pattern matching on custom objects** - `match val { Point p => ... }` now checks the object's actual type name instead of matching any object
+- **AST serialization for complex patterns** - `PATTERN_OR`, `PATTERN_OBJECT`, and `PATTERN_ARRAY` are now properly serialized/deserialized in `.hmlc` cache files (previously written as empty stubs)
+- **`divi()` truncation** - Now truncates toward zero consistently across all code paths
+- **Closure scoping** - Fixed correctness in both interpreter and compiler
+- **Type promotion** - Fixed compiler promotion logic for mixed arithmetic
+- **Float-to-int conversion edge cases** - Proper handling of NaN, Inf, and out-of-range values
+- **Shift operation semantics** - Well-defined behavior for signed and oversized shifts
+- **Integer boundary overflow detection** - Catchable errors for hex/bin/oct literals near max values
+- **`@stdlib/testing` callback dispatch** - Fixed method call self-injection
+- **`print()` stdout flushing** - Interpreter now flushes stdout after print output
+- **Data race in ref_count** - Fixed flaky `async_env_stress` test on macOS ARM
+- **Object hash table lazy init race** - Fixed concurrent access during initialization
+- **Compiler memory leaks** - Release local variables at function exit, fix refcount in variable reassignment, block-scope cleanup
+- **Compiler closure environment lifetime** - Proper refcounting for shared closure environments
+- **Clang warnings** - Fixed const-correctness, missing prototypes, strict prototypes
+- Documentation inaccuracies and stdlib compilation errors for `hemlockc`
+
 ## [2.0.0] - 2026-04-05
 
 ### Breaking Changes

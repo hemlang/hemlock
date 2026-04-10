@@ -81,7 +81,7 @@ let pid = getpid();
 | **FFI** | Call C functions from shared libraries, export extern |
 | **Error Handling** | try/catch/finally/throw, panic() |
 | **I/O** | File API, signal handling, command execution |
-| **Stdlib** | 46 modules (math, net, crypto, signal, atomic, ffi, and more) |
+| **Stdlib** | 52 modules (math, net, crypto, signal, atomic, ffi, and more) |
 | **Packages** | [hpm](https://github.com/hemlang/hpm) package manager with GitHub registry |
 
 ## Building
@@ -200,12 +200,12 @@ Hemlock v2.0.0 is released with:
 - Expression-bodied functions, type aliases, named arguments, null coalescing
 - Manual memory management with safe and unsafe options
 - Async/await with true pthread parallelism
-- 46 stdlib modules
+- 52 stdlib modules
 - FFI for C interop with `export extern fn` for reusable library wrappers
 - Compiler backend (C code generation) with 100% interpreter parity
 - LSP server with go-to-definition and find-references
 - [hpm](https://github.com/hemlang/hpm) package manager with GitHub-based registry
-- 628+ tests with 188 parity tests (100% pass rate)
+- 900+ tests with 231 parity tests (100% pass rate)
 
 ## Philosophy
 

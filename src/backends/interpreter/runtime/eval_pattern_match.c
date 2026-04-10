@@ -28,8 +28,11 @@ int type_matches_value(Type *type, Value value) {
         case TYPE_CUSTOM_OBJECT:
             // Check if object has a matching type name
             if (value.type == VAL_OBJECT && type->type_name) {
-                // For now, match any object (could check _type field later)
-                return 1;
+                Object *obj = value.as.as_object;
+                if (obj->type_name && strcmp(obj->type_name, type->type_name) == 0) {
+                    return 1;
+                }
+                return 0;
             }
             return 0;
         case TYPE_FUNCTION:
@@ -88,9 +91,11 @@ int match_pattern(Pattern *pattern, Value value, Environment *env, ExecutionCont
                 Environment *temp_env = env_new(env);
                 int matched = match_pattern(pattern->as.or_pattern.alternatives[i], value, temp_env, ctx);
                 if (matched) {
-                    // Copy bindings from temp_env to env
-                    // For now, just match without bindings in OR patterns
-                    // (bindings in OR patterns are complex - they must bind the same vars)
+                    // Copy bindings from temp_env into the real env
+                    for (int j = 0; j < temp_env->count; j++) {
+                        VALUE_RETAIN(temp_env->values[j]);
+                        env_define(env, temp_env->names[j], temp_env->values[j], 0, ctx);
+                    }
                     env_free(temp_env);
                     return 1;
                 }
