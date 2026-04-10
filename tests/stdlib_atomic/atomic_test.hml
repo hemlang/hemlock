@@ -1,0 +1,149 @@
+// Test @stdlib/atomic - Atomic operations and high-level wrappers
+
+import { AtomicI32, AtomicI64, SpinLock, atomic_fence } from "@stdlib/atomic";
+
+// ============================================================================
+// AtomicI32 - Basic Operations
+// ============================================================================
+
+let a = AtomicI32(0);
+assert(a.load() == 0, "AtomicI32 initial value");
+
+a.store(42);
+assert(a.load() == 42, "AtomicI32 store/load");
+
+let prev = a.add(10);
+assert(prev == 42, "AtomicI32 add returns previous");
+assert(a.load() == 52, "AtomicI32 add result");
+
+prev = a.sub(2);
+assert(prev == 52, "AtomicI32 sub returns previous");
+assert(a.load() == 50, "AtomicI32 sub result");
+
+print("PASS: AtomicI32 basic operations");
+
+// ============================================================================
+// AtomicI32 - Increment/Decrement
+// ============================================================================
+
+let counter = AtomicI32(10);
+prev = counter.increment();
+assert(prev == 10, "increment returns previous");
+assert(counter.load() == 11, "increment result");
+
+prev = counter.decrement();
+assert(prev == 11, "decrement returns previous");
+assert(counter.load() == 10, "decrement result");
+
+print("PASS: AtomicI32 increment/decrement");
+
+// ============================================================================
+// AtomicI32 - Compare-and-Swap (CAS)
+// ============================================================================
+
+let cas_val = AtomicI32(100);
+
+// Successful CAS
+let success = cas_val.cas(100, 200);
+assert(success == true, "CAS success");
+assert(cas_val.load() == 200, "CAS updated value");
+
+// Failed CAS (expected doesn't match)
+let fail = cas_val.cas(100, 300);
+assert(fail == false, "CAS failure");
+assert(cas_val.load() == 200, "CAS unchanged on failure");
+
+print("PASS: AtomicI32 CAS");
+
+// ============================================================================
+// AtomicI32 - Exchange
+// ============================================================================
+
+let ex_val = AtomicI32(42);
+let old = ex_val.exchange(99);
+assert(old == 42, "exchange returns previous");
+assert(ex_val.load() == 99, "exchange sets new value");
+
+print("PASS: AtomicI32 exchange");
+
+// ============================================================================
+// AtomicI64 - Basic Operations
+// ============================================================================
+
+let big = AtomicI64(0);
+assert(big.load() == 0, "AtomicI64 initial value");
+
+big.store(1000000000);
+assert(big.load() == 1000000000, "AtomicI64 store/load");
+
+let prev64 = big.add(500000000);
+assert(prev64 == 1000000000, "AtomicI64 add returns previous");
+assert(big.load() == 1500000000, "AtomicI64 add result");
+
+prev64 = big.sub(500000000);
+assert(prev64 == 1500000000, "AtomicI64 sub returns previous");
+assert(big.load() == 1000000000, "AtomicI64 sub result");
+
+print("PASS: AtomicI64 basic operations");
+
+// ============================================================================
+// AtomicI64 - CAS and Exchange
+// ============================================================================
+
+let cas64 = AtomicI64(42);
+assert(cas64.cas(42, 100) == true, "AtomicI64 CAS success");
+assert(cas64.load() == 100, "AtomicI64 CAS updated");
+assert(cas64.cas(42, 200) == false, "AtomicI64 CAS failure");
+
+let old64 = cas64.exchange(999);
+assert(old64 == 100, "AtomicI64 exchange returns previous");
+assert(cas64.load() == 999, "AtomicI64 exchange result");
+
+print("PASS: AtomicI64 CAS and exchange");
+
+// ============================================================================
+// SpinLock
+// ============================================================================
+
+let lock = SpinLock();
+
+// Acquire and release
+lock.acquire();
+// We hold the lock now
+lock.release();
+
+// try_acquire should succeed when unlocked
+assert(lock.try_acquire() == true, "try_acquire succeeds when unlocked");
+// try_acquire should fail when already locked
+assert(lock.try_acquire() == false, "try_acquire fails when locked");
+lock.release();
+
+// Should be able to acquire again after release
+assert(lock.try_acquire() == true, "acquire after release");
+lock.release();
+
+print("PASS: SpinLock");
+
+// ============================================================================
+// Memory Fence (just verify it doesn't crash)
+// ============================================================================
+
+atomic_fence();
+
+print("PASS: atomic_fence");
+
+// ============================================================================
+// Cleanup
+// ============================================================================
+
+a.free();
+counter.free();
+cas_val.free();
+ex_val.free();
+big.free();
+cas64.free();
+lock.free();
+
+print("PASS: cleanup");
+
+print("All atomic tests passed!");

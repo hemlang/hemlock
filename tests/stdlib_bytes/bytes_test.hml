@@ -1,0 +1,172 @@
+// Test @stdlib/bytes - Byte order utilities, hex conversion, buffer operations
+
+import { bswap16, bswap32, bswap64 } from "@stdlib/bytes";
+import { htons, htonl, ntohs, ntohl } from "@stdlib/bytes";
+import { is_little_endian } from "@stdlib/bytes";
+import { read_u16_be, read_u16_le, read_u32_be, read_u32_le } from "@stdlib/bytes";
+import { write_u16_be, write_u16_le, write_u32_be, write_u32_le } from "@stdlib/bytes";
+import { to_hex, from_hex, compare, fill, copy } from "@stdlib/bytes";
+
+// ============================================================================
+// Byte Swap Functions
+// ============================================================================
+
+// bswap16: swap bytes of 16-bit value
+// 0x0102 -> 0x0201
+let swapped16: u16 = bswap16(0x0102);
+assert(swapped16 == 0x0201, "bswap16");
+
+// bswap32: swap bytes of 32-bit value
+// 0x01020304 -> 0x04030201
+let swapped32: u32 = bswap32(0x01020304);
+assert(swapped32 == 0x04030201, "bswap32");
+
+print("PASS: byte swap");
+
+// ============================================================================
+// Endianness Detection
+// ============================================================================
+
+let le = is_little_endian();
+assert(typeof(le) == "bool", "is_little_endian returns bool");
+// Most modern systems are little-endian
+print("System is " + (le ? "little" : "big") + "-endian");
+
+print("PASS: endianness detection");
+
+// ============================================================================
+// Host/Network Byte Order Round-Trip
+// ============================================================================
+
+// htons/ntohs should be inverse operations
+let port: u16 = 8080;
+let net_port = htons(port);
+let host_port = ntohs(net_port);
+assert(host_port == 8080, "htons/ntohs round-trip");
+
+// htonl/ntohl should be inverse operations
+let addr: u32 = 0x7F000001;  // 127.0.0.1
+let net_addr = htonl(addr);
+let host_addr = ntohl(net_addr);
+assert(host_addr == 0x7F000001, "htonl/ntohl round-trip");
+
+print("PASS: host/network byte order");
+
+// ============================================================================
+// Endian-Aware Buffer Read/Write
+// ============================================================================
+
+let buf = buffer(16);
+
+// Write big-endian u16 and read it back
+write_u16_be(buf, 0, 0x0102);
+let val16 = read_u16_be(buf, 0);
+assert(val16 == 0x0102, "u16 big-endian round-trip");
+
+// Write little-endian u16 and read it back
+write_u16_le(buf, 2, 0x0304);
+let val16le = read_u16_le(buf, 2);
+assert(val16le == 0x0304, "u16 little-endian round-trip");
+
+// Write big-endian u32 and read it back
+write_u32_be(buf, 4, 0x01020304);
+let val32 = read_u32_be(buf, 4);
+assert(val32 == 0x01020304, "u32 big-endian round-trip");
+
+// Write little-endian u32 and read it back
+write_u32_le(buf, 8, 0x05060708);
+let val32le = read_u32_le(buf, 8);
+assert(val32le == 0x05060708, "u32 little-endian round-trip");
+
+print("PASS: endian-aware buffer read/write");
+
+// ============================================================================
+// Hex Conversion
+// ============================================================================
+
+let hex_buf = buffer(5);
+hex_buf[0] = 0x48;  // H
+hex_buf[1] = 0x65;  // e
+hex_buf[2] = 0x6c;  // l
+hex_buf[3] = 0x6c;  // l
+hex_buf[4] = 0x6f;  // o
+
+let hex_str = to_hex(hex_buf, 5);
+assert(hex_str == "48656c6c6f", "to_hex");
+
+// from_hex round-trip
+let decoded = from_hex("48656c6c6f");
+assert(decoded[0] == 0x48, "from_hex byte 0");
+assert(decoded[4] == 0x6f, "from_hex byte 4");
+
+// from_hex with uppercase
+let upper = from_hex("DEADBEEF");
+assert(upper[0] == 0xDE, "from_hex uppercase byte 0");
+assert(upper[3] == 0xEF, "from_hex uppercase byte 3");
+
+print("PASS: hex conversion");
+
+// ============================================================================
+// Buffer Compare
+// ============================================================================
+
+let a = buffer(4);
+let b = buffer(4);
+a[0] = 1; a[1] = 2; a[2] = 3; a[3] = 4;
+b[0] = 1; b[1] = 2; b[2] = 3; b[3] = 4;
+
+assert(compare(a, b, 4) == 0, "compare equal buffers");
+
+b[3] = 5;
+assert(compare(a, b, 4) < 0, "compare a < b");
+assert(compare(b, a, 4) > 0, "compare b > a");
+
+// Compare only first 3 bytes (equal)
+assert(compare(a, b, 3) == 0, "compare partial equal");
+
+print("PASS: buffer compare");
+
+// ============================================================================
+// Buffer Fill and Copy (use alloc for raw pointers - memset/memcpy need ptr)
+// ============================================================================
+
+let fbuf = alloc(8);
+fill(fbuf, 0xFF, 8);
+assert(ptr_deref_u8(fbuf) == 0xFF, "fill byte 0");
+free(fbuf);
+
+let src_ptr = alloc(4);
+ptr_write_u8(src_ptr, 10);
+ptr_write_u8(ptr_offset(src_ptr, 1, 1), 20);
+ptr_write_u8(ptr_offset(src_ptr, 2, 1), 30);
+ptr_write_u8(ptr_offset(src_ptr, 3, 1), 40);
+let dst_ptr = alloc(4);
+copy(dst_ptr, src_ptr, 4);
+assert(ptr_deref_u8(dst_ptr) == 10, "copy byte 0");
+assert(ptr_deref_u8(ptr_offset(dst_ptr, 3, 1)) == 40, "copy byte 3");
+free(src_ptr);
+free(dst_ptr);
+
+print("PASS: fill and copy");
+
+// ============================================================================
+// Error Cases
+// ============================================================================
+
+try {
+	from_hex("123");  // odd length
+	assert(false, "should throw on odd hex");
+} catch (e) {
+	assert(e.contains("even-length"), "odd hex error message");
+}
+
+try {
+	from_hex("ZZZZ");  // invalid hex
+	assert(false, "should throw on invalid hex");
+} catch (e) {
+	assert(e.contains("invalid"), "invalid hex error message");
+}
+
+print("PASS: error cases");
+
+print("All bytes tests passed!");

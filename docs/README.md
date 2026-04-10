@@ -46,6 +46,7 @@ Welcome to the Hemlock programming language documentation!
 - [Profiling](advanced/profiling.md) - CPU time, memory tracking, and leak detection
 
 ### API Reference
+- [Standard Library Overview](reference/stdlib-overview.md) - All 53 stdlib modules by category
 - [Type System Reference](reference/type-system.md) - Complete type reference
 - [Operators Reference](reference/operators.md) - All operators and precedence
 - [Built-in Functions](reference/builtins.md) - Global functions and constants
