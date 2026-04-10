@@ -190,6 +190,10 @@ Value builtin_memset(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "memset() size cannot be negative"); return val_null();
     }
 
+    if (ptr == NULL) {
+        runtime_error(ctx, "memset() cannot write to null pointer"); return val_null();
+    }
+
     memset(ptr, byte, size);
     return val_null();
 }
@@ -214,6 +218,13 @@ Value builtin_memcpy(Value *args, int num_args, ExecutionContext *ctx) {
     // SECURITY: Validate size is non-negative to prevent undefined behavior
     if (size < 0) {
         runtime_error(ctx, "memcpy() size cannot be negative"); return val_null();
+    }
+
+    if (dest == NULL) {
+        runtime_error(ctx, "memcpy() cannot write to null pointer"); return val_null();
+    }
+    if (src == NULL) {
+        runtime_error(ctx, "memcpy() cannot read from null pointer"); return val_null();
     }
 
     memcpy(dest, src, size);

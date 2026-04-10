@@ -155,7 +155,11 @@ static void fn_pool_return(HmlFunction *fn) {
 static HmlFunction* fn_alloc(void) {
     HmlFunction *f = fn_pool_alloc();
     if (f) return f;
-    f = fn_alloc();
+    f = malloc(sizeof(HmlFunction));
+    if (!f) {
+        fprintf(stderr, "Fatal: out of memory allocating function\n");
+        abort();
+    }
     return f;
 }
 
@@ -1266,7 +1270,8 @@ HmlClosureEnv* hml_closure_env_new(int num_vars) {
     HmlClosureEnv *env = malloc(sizeof(HmlClosureEnv));
     env->captured = calloc(num_vars, sizeof(HmlValue));
     env->num_captured = num_vars;
-    env->ref_count = 1;
+    atomic_store(&env->ref_count, 1);
+    pthread_mutex_init(&env->mutex, NULL);
 
     // Initialize all captured values to null
     for (int i = 0; i < num_vars; i++) {
@@ -1282,6 +1287,7 @@ void hml_closure_env_free(HmlClosureEnv *env) {
         for (int i = 0; i < env->num_captured; i++) {
             hml_release(&env->captured[i]);
         }
+        pthread_mutex_destroy(&env->mutex);
         free(env->captured);
         free(env);
     }
@@ -1303,8 +1309,10 @@ void hml_closure_env_release(HmlClosureEnv *env) {
 
 HmlValue hml_closure_env_get(HmlClosureEnv *env, int index) {
     if (env && index >= 0 && index < env->num_captured) {
+        pthread_mutex_lock(&env->mutex);
         HmlValue val = env->captured[index];
         hml_retain(&val);
+        pthread_mutex_unlock(&env->mutex);
         return val;
     }
     return hml_val_null();
@@ -1312,8 +1320,10 @@ HmlValue hml_closure_env_get(HmlClosureEnv *env, int index) {
 
 void hml_closure_env_set(HmlClosureEnv *env, int index, HmlValue val) {
     if (env && index >= 0 && index < env->num_captured) {
+        pthread_mutex_lock(&env->mutex);
         hml_release(&env->captured[index]);
         env->captured[index] = val;
         hml_retain(&env->captured[index]);
+        pthread_mutex_unlock(&env->mutex);
     }
 }

@@ -127,9 +127,18 @@ HmlValue hml_realloc(HmlValue ptr, int32_t new_size) {
 }
 
 void hml_memset(HmlValue ptr, uint8_t byte_val, int32_t size) {
+    if (size < 0) {
+        hml_runtime_error("memset() size cannot be negative");
+    }
     if (ptr.type == HML_VAL_PTR) {
+        if (ptr.as.as_ptr == NULL) {
+            hml_runtime_error("memset() cannot write to null pointer");
+        }
         memset(ptr.as.as_ptr, byte_val, size);
     } else if (ptr.type == HML_VAL_BUFFER) {
+        if (!ptr.as.as_buffer || !ptr.as.as_buffer->data) {
+            hml_runtime_error("memset() cannot write to null buffer");
+        }
         memset(ptr.as.as_buffer->data, byte_val, size);
     } else {
         hml_runtime_error("memset() requires pointer or buffer");
@@ -137,13 +146,17 @@ void hml_memset(HmlValue ptr, uint8_t byte_val, int32_t size) {
 }
 
 void hml_memcpy(HmlValue dest, HmlValue src, int32_t size) {
+    if (size < 0) {
+        hml_runtime_error("memcpy() size cannot be negative");
+    }
+
     void *dest_ptr = NULL;
     void *src_ptr = NULL;
 
     if (dest.type == HML_VAL_PTR) {
         dest_ptr = dest.as.as_ptr;
     } else if (dest.type == HML_VAL_BUFFER) {
-        dest_ptr = dest.as.as_buffer->data;
+        if (dest.as.as_buffer) dest_ptr = dest.as.as_buffer->data;
     } else {
         hml_runtime_error("memcpy() dest requires pointer or buffer");
     }
@@ -151,9 +164,16 @@ void hml_memcpy(HmlValue dest, HmlValue src, int32_t size) {
     if (src.type == HML_VAL_PTR) {
         src_ptr = src.as.as_ptr;
     } else if (src.type == HML_VAL_BUFFER) {
-        src_ptr = src.as.as_buffer->data;
+        if (src.as.as_buffer) src_ptr = src.as.as_buffer->data;
     } else {
         hml_runtime_error("memcpy() src requires pointer or buffer");
+    }
+
+    if (!dest_ptr) {
+        hml_runtime_error("memcpy() cannot write to null pointer");
+    }
+    if (!src_ptr) {
+        hml_runtime_error("memcpy() cannot read from null pointer");
     }
 
     memcpy(dest_ptr, src_ptr, size);

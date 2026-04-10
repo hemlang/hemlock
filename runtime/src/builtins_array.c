@@ -363,13 +363,25 @@ HmlValue hml_array_concat(HmlValue arr1, HmlValue arr2) {
 
     HmlArray *a1 = arr1.as.as_array;
     HmlArray *a2 = arr2.as.as_array;
+
+    // Check for integer overflow in length sum
+    if (a1->length > INT_MAX - a2->length) {
+        hml_runtime_error("Array concat overflow: combined length exceeds maximum");
+    }
     int new_len = a1->length + a2->length;
 
     HmlArray *result = malloc(sizeof(HmlArray));
+    if (!result) {
+        hml_runtime_error("Out of memory in array concat");
+    }
     result->ref_count = 1;
     result->length = new_len;
     result->capacity = (new_len > 0) ? new_len : 1;
     result->elements = malloc(result->capacity * sizeof(HmlValue));
+    if (!result->elements) {
+        free(result);
+        hml_runtime_error("Out of memory in array concat");
+    }
     result->element_type = HML_VAL_NULL;
     atomic_store(&result->freed, 0);  // Not freed
 

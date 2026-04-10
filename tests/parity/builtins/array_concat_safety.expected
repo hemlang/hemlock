@@ -1,0 +1,8 @@
+concat length: 6
+concat first: 1
+concat last: 6
+empty concat: 0
+left only: 2
+right only: 2
+string concat: hello world
+done

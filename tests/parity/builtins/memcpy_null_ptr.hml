@@ -1,0 +1,37 @@
+// Test: memcpy with null pointers is caught (prevents segfault)
+
+let caught_dest = false;
+let caught_src = false;
+
+// Test 1: null dest
+try {
+    let src = alloc(16);
+    memcpy(null, src, 8);
+    print("ERROR: should have thrown");
+    free(src);
+} catch (e) {
+    caught_dest = true;
+}
+print("memcpy null dest caught: " + caught_dest);
+
+// Test 2: null src
+try {
+    let dest = alloc(16);
+    memcpy(dest, null, 8);
+    print("ERROR: should have thrown");
+    free(dest);
+} catch (e) {
+    caught_src = true;
+}
+print("memcpy null src caught: " + caught_src);
+
+// Test 3: normal memcpy still works
+let a = alloc(16);
+let b = alloc(16);
+memset(a, 42, 16);
+memcpy(b, a, 16);
+print("memcpy normal: ok");
+free(a);
+free(b);
+
+print("done");

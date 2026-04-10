@@ -1,0 +1,28 @@
+// Test: memcpy with null pointers throws error instead of segfaulting
+
+let caught_dest = false;
+let caught_src = false;
+
+// Null dest
+try {
+    let src = alloc(16);
+    memcpy(null, src, 8);
+    free(src);
+} catch (e) {
+    caught_dest = true;
+}
+
+// Null src
+try {
+    let dest = alloc(16);
+    memcpy(dest, null, 8);
+    free(dest);
+} catch (e) {
+    caught_src = true;
+}
+
+if (caught_dest && caught_src) {
+    print("PASS: memcpy null pointers caught");
+} else {
+    print("FAIL: memcpy null pointers not caught");
+}
