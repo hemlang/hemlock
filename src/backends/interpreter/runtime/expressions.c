@@ -45,12 +45,35 @@ Value value_add_one(Value val, ExecutionContext *ctx) {
         double v = value_to_float(val);
         return (val.type == VAL_F32) ? val_f32((float)(v + 1.0)) : val_f64(v + 1.0);
     } else if (is_integer(val)) {
-        int64_t v = value_to_int(val);
-        ValueType result_type = val.type;
-        return promote_value(val_i32((int32_t)(v + 1)), result_type);
+        // Overflow-checked increment for each integer type
+        switch (val.type) {
+            case VAL_I8:
+                if (val.as.as_i8 == INT8_MAX) { runtime_error(ctx, "Integer overflow: i8 increment"); return val_null(); }
+                return val_i8(val.as.as_i8 + 1);
+            case VAL_I16:
+                if (val.as.as_i16 == INT16_MAX) { runtime_error(ctx, "Integer overflow: i16 increment"); return val_null(); }
+                return val_i16(val.as.as_i16 + 1);
+            case VAL_I32: {
+                int32_t result;
+                if (__builtin_add_overflow(val.as.as_i32, 1, &result)) { runtime_error(ctx, "Integer overflow: i32 increment"); return val_null(); }
+                return val_i32(result);
+            }
+            case VAL_I64: {
+                int64_t result;
+                if (__builtin_add_overflow(val.as.as_i64, (int64_t)1, &result)) { runtime_error(ctx, "Integer overflow: i64 increment"); return val_null(); }
+                return val_i64(result);
+            }
+            case VAL_U8:  return val_u8(val.as.as_u8 + 1);   // unsigned wraps (well-defined)
+            case VAL_U16: return val_u16(val.as.as_u16 + 1);
+            case VAL_U32: return val_u32(val.as.as_u32 + 1);
+            case VAL_U64: return val_u64(val.as.as_u64 + 1);
+            default: break;
+        }
+        runtime_error(ctx, "Can only increment numeric values");
+        return val_null();
     } else {
         runtime_error(ctx, "Can only increment numeric values");
-        return val_null();  // Unreachable
+        return val_null();
     }
 }
 
@@ -60,12 +83,35 @@ Value value_sub_one(Value val, ExecutionContext *ctx) {
         double v = value_to_float(val);
         return (val.type == VAL_F32) ? val_f32((float)(v - 1.0)) : val_f64(v - 1.0);
     } else if (is_integer(val)) {
-        int64_t v = value_to_int(val);
-        ValueType result_type = val.type;
-        return promote_value(val_i32((int32_t)(v - 1)), result_type);
+        // Overflow-checked decrement for each integer type
+        switch (val.type) {
+            case VAL_I8:
+                if (val.as.as_i8 == INT8_MIN) { runtime_error(ctx, "Integer overflow: i8 decrement"); return val_null(); }
+                return val_i8(val.as.as_i8 - 1);
+            case VAL_I16:
+                if (val.as.as_i16 == INT16_MIN) { runtime_error(ctx, "Integer overflow: i16 decrement"); return val_null(); }
+                return val_i16(val.as.as_i16 - 1);
+            case VAL_I32: {
+                int32_t result;
+                if (__builtin_sub_overflow(val.as.as_i32, 1, &result)) { runtime_error(ctx, "Integer overflow: i32 decrement"); return val_null(); }
+                return val_i32(result);
+            }
+            case VAL_I64: {
+                int64_t result;
+                if (__builtin_sub_overflow(val.as.as_i64, (int64_t)1, &result)) { runtime_error(ctx, "Integer overflow: i64 decrement"); return val_null(); }
+                return val_i64(result);
+            }
+            case VAL_U8:  return val_u8(val.as.as_u8 - 1);   // unsigned wraps (well-defined)
+            case VAL_U16: return val_u16(val.as.as_u16 - 1);
+            case VAL_U32: return val_u32(val.as.as_u32 - 1);
+            case VAL_U64: return val_u64(val.as.as_u64 - 1);
+            default: break;
+        }
+        runtime_error(ctx, "Can only decrement numeric values");
+        return val_null();
     } else {
         runtime_error(ctx, "Can only decrement numeric values");
-        return val_null();  // Unreachable
+        return val_null();
     }
 }
 
@@ -116,12 +162,20 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     if (is_float(operand)) {
                         unary_result = val_f64(-value_to_float(operand));
                     } else if (is_integer(operand)) {
-                        // Preserve the original type when negating
+                        // Preserve the original type when negating (with overflow checks for INT_MIN)
                         switch (operand.type) {
-                            case VAL_I8: unary_result = val_i8(-operand.as.as_i8); break;
-                            case VAL_I16: unary_result = val_i16(-operand.as.as_i16); break;
-                            case VAL_I32: unary_result = val_i32(-operand.as.as_i32); break;
-                            case VAL_I64: unary_result = val_i64(-operand.as.as_i64); break;
+                            case VAL_I8:
+                                if (operand.as.as_i8 == INT8_MIN) { runtime_error(ctx, "Integer overflow: i8 negation"); break; }
+                                unary_result = val_i8(-operand.as.as_i8); break;
+                            case VAL_I16:
+                                if (operand.as.as_i16 == INT16_MIN) { runtime_error(ctx, "Integer overflow: i16 negation"); break; }
+                                unary_result = val_i16(-operand.as.as_i16); break;
+                            case VAL_I32:
+                                if (operand.as.as_i32 == INT32_MIN) { runtime_error(ctx, "Integer overflow: i32 negation"); break; }
+                                unary_result = val_i32(-operand.as.as_i32); break;
+                            case VAL_I64:
+                                if (operand.as.as_i64 == INT64_MIN) { runtime_error(ctx, "Integer overflow: i64 negation"); break; }
+                                unary_result = val_i64(-operand.as.as_i64); break;
                             case VAL_U8: unary_result = val_i16(-(int16_t)operand.as.as_u8); break;  // promote to i16
                             case VAL_U16: unary_result = val_i32(-(int32_t)operand.as.as_u16); break; // promote to i32
                             case VAL_U32: unary_result = val_i64(-(int64_t)operand.as.as_u32); break; // promote to i64

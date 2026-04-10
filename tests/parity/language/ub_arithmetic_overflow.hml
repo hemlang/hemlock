@@ -1,0 +1,89 @@
+// Test: arithmetic overflow detection for all signed integer types
+// Ensures C undefined behavior is caught as runtime errors
+
+// === i8 overflow ===
+try {
+    let a: i8 = 127;
+    let b: i8 = 1;
+    let c = a + b;
+    print("FAIL: i8 add overflow not caught");
+} catch (e) {
+    print("i8 add overflow: caught");
+}
+
+try {
+    let a: i8 = -128;
+    let b: i8 = 1;
+    let c = a - b;
+    print("FAIL: i8 sub overflow not caught");
+} catch (e) {
+    print("i8 sub overflow: caught");
+}
+
+try {
+    let a: i8 = 127;
+    let b: i8 = 2;
+    let c = a * b;
+    print("FAIL: i8 mul overflow not caught");
+} catch (e) {
+    print("i8 mul overflow: caught");
+}
+
+// i8 within range (should succeed)
+let x: i8 = 100;
+let y: i8 = 27;
+print("i8 add ok: " + (x + y));
+
+// === i16 overflow ===
+try {
+    let a: i16 = 32767;
+    let b: i16 = 1;
+    let c = a + b;
+    print("FAIL: i16 add overflow not caught");
+} catch (e) {
+    print("i16 add overflow: caught");
+}
+
+try {
+    let a: i16 = -32768;
+    let b: i16 = 1;
+    let c = a - b;
+    print("FAIL: i16 sub overflow not caught");
+} catch (e) {
+    print("i16 sub overflow: caught");
+}
+
+try {
+    let a: i16 = 32767;
+    let b: i16 = 2;
+    let c = a * b;
+    print("FAIL: i16 mul overflow not caught");
+} catch (e) {
+    print("i16 mul overflow: caught");
+}
+
+// i16 within range (should succeed)
+let p: i16 = 32000;
+let q: i16 = 767;
+print("i16 add ok: " + (p + q));
+
+// === i64 overflow ===
+try {
+    let a: i64 = 9223372036854775807;
+    let b: i64 = 1;
+    let c = a + b;
+    print("FAIL: i64 add overflow not caught");
+} catch (e) {
+    print("i64 add overflow: caught");
+}
+
+try {
+    let a: i64 = -9223372036854775807;
+    let b: i64 = a - 1;  // b = INT64_MIN
+    let c = b - 1;       // overflow
+    print("FAIL: i64 sub overflow not caught");
+} catch (e) {
+    print("i64 sub overflow: caught");
+}
+
+print("PASS");

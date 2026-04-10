@@ -617,16 +617,26 @@ static inline void hml_array_set_i32_fast(HmlArray *arr, int32_t index, HmlValue
     hml_runtime_error("Array index %d out of bounds (length %d)", index, arr->length);
 }
 
-// Fast path: Increment i32 variable in-place
+// Fast path: Increment i32 variable in-place (with overflow check)
 // Returns the new value
 static inline HmlValue hml_i32_inc(HmlValue val) {
-    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = val.as.as_i32 + 1 };
+    int32_t result;
+    if (__builtin_add_overflow(val.as.as_i32, 1, &result)) {
+        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
+        hml_runtime_error("Integer overflow: i32 increment");
+    }
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = result };
 }
 
-// Fast path: Decrement i32 variable in-place
+// Fast path: Decrement i32 variable in-place (with overflow check)
 // Returns the new value
 static inline HmlValue hml_i32_dec(HmlValue val) {
-    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = val.as.as_i32 - 1 };
+    int32_t result;
+    if (__builtin_sub_overflow(val.as.as_i32, 1, &result)) {
+        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
+        hml_runtime_error("Integer overflow: i32 decrement");
+    }
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = result };
 }
 
 #endif // HEMLOCK_VALUE_H
