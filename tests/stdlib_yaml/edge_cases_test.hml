@@ -1,0 +1,258 @@
+// Test @stdlib/yaml edge cases and advanced features
+
+import { parse, stringify, parse_all } from "@stdlib/yaml";
+
+// ============================================================================
+// Empty Values
+// ============================================================================
+
+assert(parse("") == null, "empty string");
+assert(parse("  \n  \n") == null, "whitespace only");
+assert(parse("# just a comment") == null, "comment only");
+
+print("PASS: empty values");
+
+// ============================================================================
+// Null Variations
+// ============================================================================
+
+assert(parse("null") == null, "null lowercase");
+assert(parse("Null") == null, "null capitalized");
+assert(parse("NULL") == null, "null uppercase");
+assert(parse("~") == null, "tilde null");
+
+let nullmap = parse("a:\nb:\n");
+assert(nullmap["a"] == null, "empty mapping value is null");
+assert(nullmap["b"] == null, "empty mapping value is null 2");
+
+print("PASS: null variations");
+
+// ============================================================================
+// Boolean Variations
+// ============================================================================
+
+assert(parse("true") == true, "true lowercase");
+assert(parse("True") == true, "true capitalized");
+assert(parse("TRUE") == true, "true uppercase");
+assert(parse("false") == false, "false lowercase");
+assert(parse("False") == false, "false capitalized");
+assert(parse("FALSE") == false, "false uppercase");
+
+print("PASS: boolean variations");
+
+// ============================================================================
+// Number Edge Cases
+// ============================================================================
+
+assert(parse("0") == 0, "zero");
+assert(parse("+42") == 42, "explicit positive");
+assert(parse("-0") == 0, "negative zero");
+assert(parse("1_000") == 1000, "underscore separator");
+assert(parse("3.14") == 3.14, "basic float");
+assert(parse("1e5") == 100000, "scientific notation");
+assert(parse("1.5e2") == 150, "float scientific");
+
+// Hex and octal
+assert(parse("0xFF") == 255, "hex");
+assert(parse("0o77") == 63, "octal");
+
+print("PASS: number edge cases");
+
+// ============================================================================
+// Quoted String Edge Cases
+// ============================================================================
+
+// Empty strings
+assert(parse("\"\"") == "", "empty double-quoted");
+assert(parse("''") == "", "empty single-quoted");
+
+// Strings that look like other types
+assert(parse("\"true\"") == "true", "quoted true is string");
+assert(parse("\"42\"") == "42", "quoted number is string");
+assert(parse("\"null\"") == "null", "quoted null is string");
+
+// Unicode escapes
+assert(parse("\"\\u0041\"") == "A", "unicode escape A");
+
+// Single quote escaping
+assert(parse("'it''s here'") == "it's here", "single quote escape");
+
+print("PASS: quoted string edge cases");
+
+// ============================================================================
+// Plain Scalar Edge Cases
+// ============================================================================
+
+// Colons in values (not followed by space)
+let colon = parse("url: http://example.com:8080");
+assert(colon["url"] == "http://example.com:8080", "colon in URL");
+
+// Hash in value (not preceded by space)
+let hash = parse("color: #ff0000");
+assert(hash["color"] == "#ff0000", "hash in color");
+
+print("PASS: plain scalar edge cases");
+
+// ============================================================================
+// Deeply Nested Structures
+// ============================================================================
+
+let deep = parse(`
+a:
+  b:
+    c:
+      d: value
+      e: 42
+`);
+assert(deep["a"]["b"]["c"]["d"] == "value", "4-level nesting string");
+assert(deep["a"]["b"]["c"]["e"] == 42, "4-level nesting int");
+
+print("PASS: deep nesting");
+
+// ============================================================================
+// Mixed Sequences and Mappings
+// ============================================================================
+
+let mixed = parse(`
+users:
+  - name: Alice
+    roles:
+      - admin
+      - user
+  - name: Bob
+    roles:
+      - user
+`);
+assert(mixed["users"].length == 2, "mixed: users count");
+assert(mixed["users"][0]["name"] == "Alice", "mixed: Alice");
+assert(mixed["users"][0]["roles"].length == 2, "mixed: Alice roles count");
+assert(mixed["users"][0]["roles"][0] == "admin", "mixed: Alice role 0");
+assert(mixed["users"][0]["roles"][1] == "user", "mixed: Alice role 1");
+assert(mixed["users"][1]["name"] == "Bob", "mixed: Bob");
+assert(mixed["users"][1]["roles"].length == 1, "mixed: Bob roles count");
+
+print("PASS: mixed sequences and mappings");
+
+// ============================================================================
+// Flow Collection Edge Cases
+// ============================================================================
+
+// Empty collections
+let empty_seq = parse("[]");
+assert(empty_seq.length == 0, "empty flow sequence");
+
+let empty_map = parse("{}");
+assert(empty_map.keys().length == 0, "empty flow mapping");
+
+// Nested flow collections
+let nested_flow = parse("[1, [2, 3], [4, [5]]]");
+assert(nested_flow.length == 3, "nested flow length");
+assert(nested_flow[1][0] == 2, "nested flow [1][0]");
+assert(nested_flow[1][1] == 3, "nested flow [1][1]");
+assert(nested_flow[2][1][0] == 5, "nested flow deep");
+
+// Flow mapping with quoted keys
+let qk = parse("{\"key with spaces\": value}");
+assert(qk["key with spaces"] == "value", "flow map quoted key");
+
+print("PASS: flow collection edge cases");
+
+// ============================================================================
+// Block Scalar Variations
+// ============================================================================
+
+// Literal with keep chomping
+let keep = parse("text: |+\n  line1\n  line2\n\n\n");
+assert(keep["text"].starts_with("line1\nline2\n"), "keep chomping content");
+assert(keep["text"].length > 13, "keep chomping preserves trailing newlines");
+
+// Literal strip
+let strip = parse("text: |-\n  no newline");
+assert(strip["text"] == "no newline", "strip chomping");
+
+// Folded basic
+let fold = parse("text: >\n  word1\n  word2\n  word3\n");
+assert(fold["text"] == "word1 word2 word3\n", "folded joins lines");
+
+// Folded strip
+let fold_strip = parse("text: >-\n  word1\n  word2\n");
+assert(fold_strip["text"] == "word1 word2", "folded strip");
+
+print("PASS: block scalar variations");
+
+// ============================================================================
+// Comments in Various Positions
+// ============================================================================
+
+let c = parse(`
+# Header comment
+name: Alice  # inline
+# Between keys
+age: 30
+list:
+  # Comment in list
+  - one
+  - two  # inline in list
+`);
+assert(c["name"] == "Alice", "comment: name");
+assert(c["age"] == 30, "comment: age");
+assert(c["list"].length == 2, "comment: list length");
+assert(c["list"][0] == "one", "comment: list item");
+
+print("PASS: comments in various positions");
+
+// ============================================================================
+// Multi-document with document end
+// ============================================================================
+
+let docs = parse_all("---\na: 1\n...\n---\nb: 2\n...\n");
+assert(docs.length == 2, "multi-doc with end markers");
+assert(docs[0]["a"] == 1, "multi-doc 0");
+assert(docs[1]["b"] == 2, "multi-doc 1");
+
+// Single document without marker
+let single = parse_all("key: value\n");
+assert(single.length == 1, "single doc without marker");
+assert(single[0]["key"] == "value", "single doc value");
+
+print("PASS: multi-document");
+
+// ============================================================================
+// Stringify Edge Cases
+// ============================================================================
+
+// Null in collections
+let null_yaml = stringify({ key: null });
+assert(null_yaml.contains("null"), "stringify null value");
+
+// Empty object and array
+assert(stringify({}) == "{}\n", "stringify empty object");
+assert(stringify([]) == "[]\n", "stringify empty array");
+
+// Nested stringify round-trip
+let complex = {
+	name: "test",
+	nested: { a: 1, b: 2 },
+	list: [10, 20, 30]
+};
+let yaml_str = stringify(complex);
+let reparsed = parse(yaml_str);
+assert(reparsed["name"] == "test", "complex roundtrip name");
+assert(reparsed["nested"]["a"] == 1, "complex roundtrip nested.a");
+assert(reparsed["list"][2] == 30, "complex roundtrip list[2]");
+
+print("PASS: stringify edge cases");
+
+// ============================================================================
+// Stringify special strings
+// ============================================================================
+
+assert(stringify("true") == "\"true\"\n", "stringify string that looks like bool");
+assert(stringify("null") == "\"null\"\n", "stringify string that looks like null");
+assert(stringify("42") == "\"42\"\n", "stringify string that looks like number");
+assert(stringify("") == "\"\"\n", "stringify empty string");
+assert(stringify("hello world") == "hello world\n", "stringify safe string");
+
+print("PASS: stringify special strings");
+
+print("All YAML edge case tests passed!");

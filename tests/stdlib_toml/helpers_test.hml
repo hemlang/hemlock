@@ -1,0 +1,70 @@
+// Test @stdlib/toml get() and set() helpers
+
+import { parse, stringify, get, set } from "@stdlib/toml";
+
+// ============================================================================
+// get() - Dotted Path Access
+// ============================================================================
+
+let config = parse("[database]\nhost = \"localhost\"\nport = 5432\n\n[database.connection]\ntimeout = 30\nretries = 3");
+
+assert(get(config, "database.host") == "localhost", "get database.host");
+assert(get(config, "database.port") == 5432, "get database.port");
+assert(get(config, "database.connection.timeout") == 30, "get nested timeout");
+assert(get(config, "database.connection.retries") == 3, "get nested retries");
+
+// Missing paths
+assert(get(config, "missing") == null, "get missing top-level");
+assert(get(config, "database.missing") == null, "get missing nested");
+assert(get(config, "a.b.c.d") == null, "get deeply missing");
+
+print("PASS: get()");
+
+// ============================================================================
+// set() - Dotted Path Assignment
+// ============================================================================
+
+let obj = {};
+set(obj, "database.host", "localhost");
+set(obj, "database.port", 5432);
+set(obj, "logging.level", "info");
+set(obj, "logging.file", "/var/log/app.log");
+
+assert(obj["database"]["host"] == "localhost", "set database.host");
+assert(obj["database"]["port"] == 5432, "set database.port");
+assert(obj["logging"]["level"] == "info", "set logging.level");
+assert(obj["logging"]["file"] == "/var/log/app.log", "set logging.file");
+
+print("PASS: set()");
+
+// ============================================================================
+// set() then stringify
+// ============================================================================
+
+let conf = {};
+set(conf, "app.name", "MyApp");
+set(conf, "app.version", "1.0.0");
+set(conf, "server.host", "0.0.0.0");
+set(conf, "server.port", 3000);
+
+let toml = stringify(conf);
+assert(toml.contains("[app]"), "set+stringify app section");
+assert(toml.contains("name = \"MyApp\""), "set+stringify app.name");
+assert(toml.contains("[server]"), "set+stringify server section");
+assert(toml.contains("port = 3000"), "set+stringify server.port");
+
+print("PASS: set() + stringify()");
+
+// ============================================================================
+// get() + set() round-trip
+// ============================================================================
+
+let data = {};
+set(data, "a.b.c", 42);
+assert(get(data, "a.b.c") == 42, "get after set deep");
+assert(get(data, "a.b") != null, "intermediate exists");
+assert(typeof(get(data, "a.b")) == "object", "intermediate is object");
+
+print("PASS: get/set round-trip");
+
+print("All TOML helper tests passed!");

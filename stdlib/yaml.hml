@@ -1,0 +1,1447 @@
+// @stdlib/yaml - YAML Parser and Serializer
+//
+// Provides parsing and serialization for YAML (YAML Ain't Markup Language),
+// a human-friendly data serialization format.
+//
+// Usage:
+// import { parse, stringify, parse_file, write_file } from "@stdlib/yaml";
+
+// ============================================================================
+// Character Utilities
+// ============================================================================
+
+fn is_ws(ch): bool {
+	return ch == ' ' || ch == '\t';
+}
+
+fn is_newline(ch): bool {
+	return ch == '\n' || ch == '\r';
+}
+
+fn is_digit(ch): bool {
+	let code: i32 = ch;
+	return code >= 48 && code <= 57;
+}
+
+fn is_hex_digit(ch): bool {
+	let code: i32 = ch;
+	return code >= 48 && code <= 57 || code >= 65 && code <= 70 ||
+		code >= 97 && code <= 102;
+}
+
+fn hex_to_value(ch: rune): i32 {
+	let code: i32 = ch;
+	if (code >= 48 && code <= 57) { return code - 48; }
+	if (code >= 65 && code <= 70) { return code - 65 + 10; }
+	if (code >= 97 && code <= 102) { return code - 97 + 10; }
+	return -1;
+}
+
+fn codepoint_to_utf8(cp: i32): string {
+	if (cp < 0) { return ""; }
+	if (cp < 128) {
+		let r: rune = cp;
+		return "" + r;
+	}
+	if (cp < 2048) {
+		let b1: i32 = 192 | cp >> 6 & 31;
+		let b2: i32 = 128 | cp & 63;
+		return __string_from_bytes([b1, b2]);
+	}
+	if (cp < 65536) {
+		let b1: i32 = 224 | cp >> 12 & 15;
+		let b2: i32 = 128 | cp >> 6 & 63;
+		let b3: i32 = 128 | cp & 63;
+		return __string_from_bytes([b1, b2, b3]);
+	}
+	if (cp < 1114112) {
+		let b1: i32 = 240 | cp >> 18 & 7;
+		let b2: i32 = 128 | cp >> 12 & 63;
+		let b3: i32 = 128 | cp >> 6 & 63;
+		let b4: i32 = 128 | cp & 63;
+		return __string_from_bytes([b1, b2, b3, b4]);
+	}
+	return "";
+}
+
+// ============================================================================
+// Scanner / Lexer Helpers
+// ============================================================================
+
+fn create_scanner(input: string): object {
+	return { input, pos: 0, line: 1, col: 1, length: input.length };
+}
+
+fn scan_peek(s): rune {
+	if (s["pos"] >= s["length"]) { return '\x00'; }
+	return s["input"].char_at(s["pos"]);
+}
+
+fn scan_peek_n(s, n: i32): rune {
+	let p = s["pos"] + n;
+	if (p >= s["length"]) { return '\x00'; }
+	return s["input"].char_at(p);
+}
+
+fn scan_advance(s): rune {
+	if (s["pos"] >= s["length"]) { return '\x00'; }
+	let ch = s["input"].char_at(s["pos"]);
+	s["pos"] = s["pos"] + 1;
+	if (ch == '\n') {
+		s["line"] = s["line"] + 1;
+		s["col"] = 1;
+	} else {
+		s["col"] = s["col"] + 1;
+	}
+	return ch;
+}
+
+fn scan_error(s, msg): string {
+	return "YAML parse error at line " + s["line"] + ", col " + s["col"] + ": " + msg;
+}
+
+fn scan_skip_spaces(s) {
+	while (scan_peek(s) == ' ' || scan_peek(s) == '\t') {
+		scan_advance(s);
+	}
+}
+
+fn scan_skip_comment(s) {
+	if (scan_peek(s) == '#') {
+		while (scan_peek(s) != '\x00' && !is_newline(scan_peek(s))) {
+			scan_advance(s);
+		}
+	}
+}
+
+fn scan_skip_blank_lines(s) {
+	while (true) {
+		let saved = s["pos"];
+		scan_skip_spaces(s);
+		scan_skip_comment(s);
+		if (is_newline(scan_peek(s))) {
+			scan_advance(s);
+			if (scan_peek(s) == '\n') {
+				// handle \r\n already consumed \r
+			}
+		} else {
+			s["pos"] = saved;
+			s["col"] = s["col"];  // approximate - reset not needed for correctness
+			break;
+		}
+	}
+}
+
+fn scan_consume_newline(s) {
+	if (scan_peek(s) == '\r') {
+		scan_advance(s);
+	}
+	if (scan_peek(s) == '\n') {
+		scan_advance(s);
+	}
+}
+
+fn scan_at_end(s): bool {
+	return s["pos"] >= s["length"];
+}
+
+// Skip trailing spaces, comments, and newline on the CURRENT line only.
+// Does nothing if the scanner has already moved past the content line
+// (i.e., is at the start of a new line with indentation).
+fn skip_rest_of_line(s) {
+	if (scan_at_end(s)) { return; }
+	// If we're looking at a newline, just consume it
+	if (is_newline(scan_peek(s))) {
+		scan_consume_newline(s);
+		return;
+	}
+	// If the current char is a space, we might be mid-line or at start of next line.
+	// Use a heuristic: save position, skip spaces. If we hit a newline or EOF,
+	// we were on the tail of the line. If we hit content, we've eaten into the
+	// next line - restore position.
+	let saved_pos = s["pos"];
+	let saved_line = s["line"];
+	let saved_col = s["col"];
+	scan_skip_spaces(s);
+	scan_skip_comment(s);
+	if (scan_at_end(s)) { return; }
+	if (is_newline(scan_peek(s))) {
+		scan_consume_newline(s);
+		return;
+	}
+	// We hit content - we may have eaten into the next line's indentation.
+	// Restore position.
+	s["pos"] = saved_pos;
+	s["line"] = saved_line;
+	s["col"] = saved_col;
+}
+
+// Count leading spaces at current position (does not advance)
+fn count_indent(s): i32 {
+	let count = 0;
+	let p = s["pos"];
+	while (p < s["length"]) {
+		let ch = s["input"].char_at(p);
+		if (ch == ' ') {
+			count = count + 1;
+			p = p + 1;
+		} else {
+			break;
+		}
+	}
+	return count;
+}
+
+// Consume exactly n spaces
+fn consume_indent(s, n: i32) {
+	let i = 0;
+	while (i < n && scan_peek(s) == ' ') {
+		scan_advance(s);
+		i = i + 1;
+	}
+}
+
+// ============================================================================
+// Double-Quoted String Parser
+// ============================================================================
+
+fn parse_double_quoted(s): string {
+	scan_advance(s);  // consume opening "
+	let result = "";
+
+	while (scan_peek(s) != '"' && scan_peek(s) != '\x00') {
+		let ch = scan_peek(s);
+		if (ch == '\\') {
+			scan_advance(s);
+			let esc = scan_peek(s);
+			if (esc == 'n') { result = result + "\n"; scan_advance(s); }
+			else if (esc == 't') { result = result + "\t"; scan_advance(s); }
+			else if (esc == 'r') { result = result + "\r"; scan_advance(s); }
+			else if (esc == '\\') { result = result + "\\"; scan_advance(s); }
+			else if (esc == '"') { result = result + "\""; scan_advance(s); }
+			else if (esc == '/') { result = result + "/"; scan_advance(s); }
+			else if (esc == '0') { result = result + "\x00"; scan_advance(s); }
+			else if (esc == 'a') {
+				let bell: rune = 7;
+				result = result + bell;
+				scan_advance(s);
+			}
+			else if (esc == 'b') {
+				let bs: rune = 8;
+				result = result + bs;
+				scan_advance(s);
+			}
+			else if (esc == 'f') {
+				let ff: rune = 12;
+				result = result + ff;
+				scan_advance(s);
+			}
+			else if (esc == 'v') {
+				let vt: rune = 11;
+				result = result + vt;
+				scan_advance(s);
+			}
+			else if (esc == 'e') {
+				let e: rune = 27;
+				result = result + e;
+				scan_advance(s);
+			}
+			else if (esc == 'x') {
+				// \xNN
+				scan_advance(s);
+				let val = 0;
+				let i = 0;
+				while (i < 2) {
+					let d = hex_to_value(scan_peek(s));
+					if (d == -1) { throw scan_error(s, "invalid hex escape"); }
+					val = val * 16 + d;
+					scan_advance(s);
+					i = i + 1;
+				}
+				result = result + codepoint_to_utf8(val);
+			}
+			else if (esc == 'u') {
+				// \uXXXX
+				scan_advance(s);
+				let val = 0;
+				let i = 0;
+				while (i < 4) {
+					let d = hex_to_value(scan_peek(s));
+					if (d == -1) { throw scan_error(s, "invalid unicode escape"); }
+					val = val * 16 + d;
+					scan_advance(s);
+					i = i + 1;
+				}
+				result = result + codepoint_to_utf8(val);
+			}
+			else if (esc == 'U') {
+				// \UXXXXXXXX
+				scan_advance(s);
+				let val = 0;
+				let i = 0;
+				while (i < 8) {
+					let d = hex_to_value(scan_peek(s));
+					if (d == -1) { throw scan_error(s, "invalid unicode escape"); }
+					val = val * 16 + d;
+					scan_advance(s);
+					i = i + 1;
+				}
+				result = result + codepoint_to_utf8(val);
+			}
+			else {
+				throw scan_error(s, "invalid escape sequence: \\" + esc);
+			}
+		} else {
+			result = result + ch;
+			scan_advance(s);
+		}
+	}
+
+	if (scan_peek(s) != '"') {
+		throw scan_error(s, "unterminated double-quoted string");
+	}
+	scan_advance(s);  // consume closing "
+	return result;
+}
+
+// ============================================================================
+// Single-Quoted String Parser
+// ============================================================================
+
+fn parse_single_quoted(s): string {
+	scan_advance(s);  // consume opening '
+	let result = "";
+
+	while (true) {
+		let ch = scan_peek(s);
+		if (ch == '\x00') {
+			throw scan_error(s, "unterminated single-quoted string");
+		}
+		if (ch == '\'') {
+			// Check for escaped quote ('')
+			if (scan_peek_n(s, 1) == '\'') {
+				result = result + "'";
+				scan_advance(s);
+				scan_advance(s);
+			} else {
+				break;
+			}
+		} else {
+			result = result + ch;
+			scan_advance(s);
+		}
+	}
+
+	scan_advance(s);  // consume closing '
+	return result;
+}
+
+// ============================================================================
+// Plain Scalar Parser
+// ============================================================================
+
+// Read a plain (unquoted) scalar value up to a flow indicator, comment, or newline
+fn read_plain_scalar(s, in_flow: bool): string {
+	let result = "";
+
+	while (true) {
+		let ch = scan_peek(s);
+		if (ch == '\x00' || is_newline(ch)) { break; }
+
+		// In flow context, stop at flow indicators
+		if (in_flow && (ch == ',' || ch == ']' || ch == '}')) { break; }
+
+		// Stop at comment preceded by space
+		if (ch == '#' && result.length > 0) {
+			let prev = result.char_at(result.length - 1);
+			if (prev == ' ' || prev == '\t') {
+				// Trim trailing whitespace before comment
+				while (result.length > 0) {
+					let last = result.char_at(result.length - 1);
+					if (last == ' ' || last == '\t') {
+						result = result.slice(0, result.length - 1);
+					} else {
+						break;
+					}
+				}
+				break;
+			}
+		}
+
+		// Stop at colon followed by space, newline, or end (key indicator)
+		if (ch == ':' && !in_flow) {
+			let next = scan_peek_n(s, 1);
+			if (next == ' ' || next == '\t' || is_newline(next) || next == '\x00') {
+				break;
+			}
+		}
+		if (ch == ':' && in_flow) {
+			let next = scan_peek_n(s, 1);
+			if (next == ' ' || next == '\t' || is_newline(next) || next == '\x00' ||
+				next == ',' || next == ']' || next == '}') {
+				break;
+			}
+		}
+
+		result = result + ch;
+		scan_advance(s);
+	}
+
+	// Trim trailing whitespace
+	while (result.length > 0) {
+		let last = result.char_at(result.length - 1);
+		if (last == ' ' || last == '\t') {
+			result = result.slice(0, result.length - 1);
+		} else {
+			break;
+		}
+	}
+
+	return result;
+}
+
+// Resolve a plain scalar to the appropriate type
+fn resolve_scalar(val: string) {
+	// Null
+	if (val == "null" || val == "Null" || val == "NULL" || val == "~" || val == "") {
+		return null;
+	}
+
+	// Boolean
+	if (val == "true" || val == "True" || val == "TRUE") { return true; }
+	if (val == "false" || val == "False" || val == "FALSE") { return false; }
+
+	// Special floats
+	if (val == ".inf" || val == ".Inf" || val == ".INF") { return 1.0 / 0; }
+	if (val == "-.inf" || val == "-.Inf" || val == "-.INF") { return -1.0 / 0; }
+	if (val == ".nan" || val == ".NaN" || val == ".NAN") { return 0.0 / 0; }
+
+	// Try integer (decimal)
+	if (val.length > 0) {
+		let first = val.char_at(0);
+		let is_num = is_digit(first) || ((first == '-' || first == '+') && val.length > 1 && is_digit(val.char_at(1)));
+
+		if (is_num) {
+			// Check for hex: 0x...
+			if (val.length > 2 && val.char_at(0) == '0' && (val.char_at(1) == 'x' || val.char_at(1) == 'X')) {
+				try { return parse_int_manual(val.slice(2, val.length), 16); } catch (e) { }
+			}
+			// Check for octal: 0o...
+			if (val.length > 2 && val.char_at(0) == '0' && (val.char_at(1) == 'o' || val.char_at(1) == 'O')) {
+				try { return parse_int_manual(val.slice(2, val.length), 8); } catch (e) { }
+			}
+
+			// Check for float (contains . or e/E)
+			let has_dot = false;
+			let has_exp = false;
+			let i = 0;
+			if (first == '-' || first == '+') { i = 1; }
+			while (i < val.length) {
+				let c = val.char_at(i);
+				if (c == '.') { has_dot = true; }
+				if (c == 'e' || c == 'E') { has_exp = true; }
+				i = i + 1;
+			}
+
+			if (has_dot || has_exp) {
+				try {
+					let clean = val.replace_all("_", "");
+					if (clean.char_at(0) == '+') { clean = clean.slice(1, clean.length); }
+					return clean.deserialize();
+				} catch (e) { }
+			} else {
+				try {
+					let clean = val.replace_all("_", "");
+					if (clean.char_at(0) == '+') { clean = clean.slice(1, clean.length); }
+					return clean.deserialize();
+				} catch (e) { }
+			}
+		}
+	}
+
+	// Return as string
+	return val;
+}
+
+fn parse_int_manual(s: string, base: i32): i64 {
+	let result: i64 = 0;
+	let clean = s.replace_all("_", "");
+	let i = 0;
+	while (i < clean.length) {
+		let d = hex_to_value(clean.char_at(i));
+		if (d == -1 || d >= base) {
+			throw "invalid digit";
+		}
+		result = result * base + d;
+		i = i + 1;
+	}
+	return result;
+}
+
+// ============================================================================
+// Block Scalar Parser (literal | and folded >)
+// ============================================================================
+
+fn parse_block_scalar(s, base_indent: i32): string {
+	let style = scan_peek(s);  // '|' or '>'
+	scan_advance(s);
+
+	// Parse optional chomping indicator and explicit indent
+	let chomp = "clip";  // clip (default), strip (-), keep (+)
+	let explicit_indent = -1;
+
+	// Check for chomping and indent indicators (can be in any order)
+	let i = 0;
+	while (i < 2) {
+		let ch = scan_peek(s);
+		if (ch == '-') {
+			chomp = "strip";
+			scan_advance(s);
+		} else if (ch == '+') {
+			chomp = "keep";
+			scan_advance(s);
+		} else if (is_digit(ch) && ch != '0') {
+			let code: i32 = ch;
+			explicit_indent = code - 48;
+			scan_advance(s);
+		} else {
+			break;
+		}
+		i = i + 1;
+	}
+
+	// Skip to end of line
+	scan_skip_spaces(s);
+	scan_skip_comment(s);
+	if (!scan_at_end(s) && !is_newline(scan_peek(s))) {
+		throw scan_error(s, "unexpected characters after block scalar indicator");
+	}
+	if (!scan_at_end(s)) {
+		scan_consume_newline(s);
+	}
+
+	// Determine absolute indent of content from first non-empty line
+	let abs_indent = -1;
+	if (explicit_indent != -1) {
+		abs_indent = base_indent + explicit_indent;
+	} else {
+		// Auto-detect from first content line
+		let saved_pos = s["pos"];
+		let saved_line = s["line"];
+		let saved_col = s["col"];
+		while (!scan_at_end(s)) {
+			let spaces = count_indent(s);
+			consume_indent(s, spaces);
+			if (!scan_at_end(s) && !is_newline(scan_peek(s))) {
+				abs_indent = spaces;
+				break;
+			}
+			if (!scan_at_end(s)) {
+				scan_consume_newline(s);
+			}
+		}
+		s["pos"] = saved_pos;
+		s["line"] = saved_line;
+		s["col"] = saved_col;
+		if (abs_indent == -1) {
+			abs_indent = base_indent + 1;
+		}
+		if (abs_indent <= base_indent) {
+			abs_indent = base_indent + 1;
+		}
+	}
+	let lines: array = [];
+	let trailing_newlines = 0;
+
+	while (!scan_at_end(s)) {
+		// Check indent of next line
+		let spaces = count_indent(s);
+
+		// Empty line
+		if (s["pos"] + spaces >= s["length"] || is_newline(s["input"].char_at(s["pos"] + spaces))) {
+			consume_indent(s, spaces);
+			if (!scan_at_end(s)) {
+				scan_consume_newline(s);
+			}
+			trailing_newlines = trailing_newlines + 1;
+			lines.push("");
+			continue;
+		}
+
+		// Less indent means end of block
+		if (spaces < abs_indent) {
+			break;
+		}
+
+		trailing_newlines = 0;
+		consume_indent(s, abs_indent);
+
+		// Read rest of line (including extra indent beyond abs_indent)
+		let line = "";
+		let extra = spaces - abs_indent;
+		let ei = 0;
+		while (ei < extra) {
+			line = line + " ";
+			ei = ei + 1;
+		}
+		while (!scan_at_end(s) && !is_newline(scan_peek(s))) {
+			line = line + scan_peek(s);
+			scan_advance(s);
+		}
+		lines.push(line);
+		if (!scan_at_end(s)) {
+			scan_consume_newline(s);
+		}
+	}
+
+	// Remove trailing empty lines for chomp processing
+	let content_end = lines.length;
+	if (chomp != "keep") {
+		while (content_end > 0 && lines[content_end - 1] == "") {
+			content_end = content_end - 1;
+		}
+	}
+
+	// Build result based on style
+	let result = "";
+	if (style == '|') {
+		// Literal: preserve newlines
+		let li = 0;
+		while (li < content_end) {
+			if (li > 0) {
+				result = result + "\n";
+			}
+			result = result + lines[li];
+			li = li + 1;
+		}
+	} else {
+		// Folded: replace single newlines with spaces
+		let li = 0;
+		while (li < content_end) {
+			if (li > 0) {
+				if (lines[li - 1] == "" || lines[li] == "") {
+					result = result + "\n";
+				} else if (lines[li].length > 0 && lines[li].char_at(0) == ' ') {
+					// More-indented lines keep their newline
+					result = result + "\n";
+				} else if (li >= 2 && lines[li - 1].length > 0 && lines[li - 1].char_at(0) == ' ') {
+					result = result + "\n";
+				} else {
+					result = result + " ";
+				}
+			}
+			result = result + lines[li];
+			li = li + 1;
+		}
+	}
+
+	// Apply chomping
+	if (chomp == "clip") {
+		result = result + "\n";
+	} else if (chomp == "keep") {
+		result = result + "\n";
+		let ti = 0;
+		while (ti < trailing_newlines) {
+			result = result + "\n";
+			ti = ti + 1;
+		}
+	}
+	// strip: no trailing newline
+
+	return result;
+}
+
+// ============================================================================
+// Flow Collection Parsers
+// ============================================================================
+
+fn parse_flow_sequence(s): array {
+	scan_advance(s);  // consume [
+	let result: array = [];
+
+	scan_skip_spaces(s);
+	while (!scan_at_end(s) && !is_newline(scan_peek(s))) {
+		scan_skip_spaces(s);
+		if (scan_peek(s) == ']') {
+			scan_advance(s);
+			return result;
+		}
+
+		let value = parse_flow_value(s);
+		result.push(value);
+
+		scan_skip_spaces(s);
+		if (scan_peek(s) == ',') {
+			scan_advance(s);
+			scan_skip_spaces(s);
+		}
+	}
+
+	throw scan_error(s, "unterminated flow sequence");
+}
+
+fn parse_flow_mapping(s): object {
+	scan_advance(s);  // consume {
+	let result = {};
+
+	scan_skip_spaces(s);
+	while (!scan_at_end(s)) {
+		scan_skip_spaces(s);
+		if (scan_peek(s) == '}') {
+			scan_advance(s);
+			return result;
+		}
+
+		// Read key
+		let key = "";
+		if (scan_peek(s) == '"') {
+			key = parse_double_quoted(s);
+		} else if (scan_peek(s) == '\'') {
+			key = parse_single_quoted(s);
+		} else {
+			key = read_plain_scalar(s, true);
+		}
+
+		scan_skip_spaces(s);
+		if (scan_peek(s) != ':') {
+			throw scan_error(s, "expected ':' in flow mapping");
+		}
+		scan_advance(s);  // consume :
+		scan_skip_spaces(s);
+
+		let value = parse_flow_value(s);
+		result[key] = value;
+
+		scan_skip_spaces(s);
+		if (scan_peek(s) == ',') {
+			scan_advance(s);
+			scan_skip_spaces(s);
+		}
+	}
+
+	throw scan_error(s, "unterminated flow mapping");
+}
+
+fn parse_flow_value(s) {
+	scan_skip_spaces(s);
+	let ch = scan_peek(s);
+
+	if (ch == '[') { return parse_flow_sequence(s); }
+	if (ch == '{') { return parse_flow_mapping(s); }
+	if (ch == '"') { return parse_double_quoted(s); }
+	if (ch == '\'') { return parse_single_quoted(s); }
+
+	let scalar = read_plain_scalar(s, true);
+	return resolve_scalar(scalar);
+}
+
+// ============================================================================
+// Block-Style Parser (indentation-based)
+// ============================================================================
+
+// Main entry: parse a YAML value at given indentation level
+fn parse_value(s, indent: i32) {
+	skip_blanks_and_comments(s);
+	if (scan_at_end(s)) { return null; }
+
+	let ch = scan_peek(s);
+
+	// Flow collections
+	if (ch == '[') { return parse_flow_sequence(s); }
+	if (ch == '{') { return parse_flow_mapping(s); }
+
+	// Block scalar
+	if (ch == '|' || ch == '>') {
+		return parse_block_scalar(s, indent);
+	}
+
+	// Quoted strings
+	if (ch == '"') { return parse_double_quoted(s); }
+	if (ch == '\'') { return parse_single_quoted(s); }
+
+	// Check for block sequence (- item)
+	if (ch == '-' && (scan_peek_n(s, 1) == ' ' || scan_peek_n(s, 1) == '\n' || scan_peek_n(s, 1) == '\x00')) {
+		return parse_block_sequence(s, indent);
+	}
+
+	// Try to read as plain scalar, then check if it's actually a mapping key
+	let saved_pos = s["pos"];
+	let saved_line = s["line"];
+	let saved_col = s["col"];
+
+	let scalar = read_plain_scalar(s, false);
+	scan_skip_spaces(s);
+
+	// Check if this is a mapping key (followed by ':')
+	if (scan_peek(s) == ':') {
+		let next = scan_peek_n(s, 1);
+		if (next == ' ' || next == '\t' || is_newline(next) || next == '\x00') {
+			// This is a mapping - restore and parse as mapping
+			s["pos"] = saved_pos;
+			s["line"] = saved_line;
+			s["col"] = saved_col;
+			return parse_block_mapping(s, indent);
+		}
+	}
+
+	return resolve_scalar(scalar);
+}
+
+fn skip_blanks_and_comments(s) {
+	// Only skip blank lines and comment-only lines.
+	// Does NOT skip a '#' at the current position unless we just crossed a newline.
+	let at_line_start = false;
+	while (!scan_at_end(s)) {
+		let ch = scan_peek(s);
+		if (ch == ' ' || ch == '\t') {
+			break;
+		}
+		if (is_newline(ch)) {
+			scan_consume_newline(s);
+			at_line_start = true;
+		} else if (ch == '#' && at_line_start) {
+			scan_skip_comment(s);
+		} else {
+			break;
+		}
+	}
+}
+
+// Helper: skip to next content line, returning true if a non-empty line was found.
+// Used between block items to skip blanks/comments.
+fn skip_to_content_line(s): bool {
+	while (!scan_at_end(s)) {
+		let spaces = count_indent(s);
+		if (s["pos"] + spaces >= s["length"]) {
+			consume_indent(s, spaces);
+			if (!scan_at_end(s)) { scan_consume_newline(s); }
+			continue;
+		}
+		let ch = s["input"].char_at(s["pos"] + spaces);
+		if (ch == '#') {
+			consume_indent(s, spaces);
+			scan_skip_comment(s);
+			if (!scan_at_end(s)) { scan_consume_newline(s); }
+			continue;
+		}
+		if (is_newline(ch)) {
+			consume_indent(s, spaces);
+			scan_consume_newline(s);
+			continue;
+		}
+		return true;
+	}
+	return false;
+}
+
+fn parse_block_sequence(s, abs_indent: i32): array {
+	let result: array = [];
+	// abs_indent is the column (0-based) where '-' should appear
+	let first = true;
+
+	while (true) {
+		if (!first) {
+			// For subsequent items, we need to find a line at the right indent
+			if (!skip_to_content_line(s)) { break; }
+			let spaces = count_indent(s);
+			if (spaces != abs_indent) { break; }
+			consume_indent(s, spaces);
+		}
+		first = false;
+
+		// We should be positioned at '-'
+		if (scan_peek(s) != '-') { break; }
+		let after_dash = scan_peek_n(s, 1);
+		if (after_dash != ' ' && after_dash != '\n' && after_dash != '\r' && after_dash != '\x00' && after_dash != '\t') { break; }
+
+		scan_advance(s);  // consume '-'
+		if (scan_peek(s) == ' ' || scan_peek(s) == '\t') {
+			scan_advance(s);  // consume space after -
+		}
+
+		// Check if the line is empty (value on next line)
+		scan_skip_spaces(s);
+		scan_skip_comment(s);
+
+		if (scan_at_end(s) || is_newline(scan_peek(s))) {
+			if (!scan_at_end(s)) { scan_consume_newline(s); }
+			// Value is indented on next line(s)
+			if (!skip_to_content_line(s)) {
+				result.push(null);
+				continue;
+			}
+			let child_indent = count_indent(s);
+			if (child_indent > abs_indent) {
+				consume_indent(s, child_indent);
+				let value = parse_value(s, child_indent);
+				result.push(value);
+				skip_rest_of_line(s);
+			} else {
+				result.push(null);
+			}
+		} else {
+			let item_col = s["col"] - 1;
+			let value = parse_value(s, item_col);
+			result.push(value);
+			skip_rest_of_line(s);
+		}
+	}
+
+	return result;
+}
+
+fn read_mapping_key(s): string {
+	if (scan_peek(s) == '"') {
+		return parse_double_quoted(s);
+	} else if (scan_peek(s) == '\'') {
+		return parse_single_quoted(s);
+	} else if (scan_peek(s) == '?') {
+		scan_advance(s);
+		scan_skip_spaces(s);
+		return read_plain_scalar(s, false);
+	} else {
+		return read_plain_scalar(s, false);
+	}
+}
+
+fn read_mapping_value(s, map_indent: i32) {
+	scan_skip_spaces(s);
+
+	// Only treat # as comment if nothing else on the line (no value)
+	// A value like #ff0000 starts with # but is not a comment
+	if (scan_peek(s) == '#') {
+		// Peek ahead: if this is a comment (preceded by the space we just skipped),
+		// we need to determine if there's content. In YAML, after ": ", a # starts
+		// a comment only if the entire rest-of-line is a comment (no value).
+		// Since we can't know without parsing, treat # at start of value as value.
+		// Actually in YAML spec, # after space is ALWAYS a comment.
+		// But "key: #value" should parse #value as the value.
+		// The rule: # is a comment only when preceded by whitespace AND is not the
+		// first non-space character after the value indicator.
+		// Simplification: just don't skip comment here, let parse_value handle it.
+	}
+
+	if (scan_at_end(s) || is_newline(scan_peek(s))) {
+		// Value on next line(s)
+		if (!scan_at_end(s)) { scan_consume_newline(s); }
+
+		if (!skip_to_content_line(s)) {
+			return null;
+		}
+
+		let child_indent = count_indent(s);
+		if (child_indent > map_indent) {
+			consume_indent(s, child_indent);
+			let value = parse_value(s, child_indent);
+			skip_rest_of_line(s);
+			return value;
+		} else {
+			return null;
+		}
+	} else {
+		// For inline values, use the mapping indent as base (important for block scalars)
+		let value = parse_value(s, map_indent);
+		// Only skip trailing content on the same line - never eat into next line's indent
+		skip_rest_of_line(s);
+		return value;
+	}
+}
+
+fn parse_block_mapping(s, abs_indent: i32): object {
+	let result = {};
+	// abs_indent is the column (0-based) where keys start
+	let first = true;
+
+	while (true) {
+		if (!first) {
+			// For subsequent keys, find a line at the right indent
+			if (!skip_to_content_line(s)) { break; }
+			let spaces = count_indent(s);
+			if (spaces != abs_indent) { break; }
+			consume_indent(s, spaces);
+		}
+		first = false;
+
+		// Check for document end markers
+		if (scan_peek(s) == '-' && scan_peek_n(s, 1) == '-' && scan_peek_n(s, 2) == '-') {
+			break;
+		}
+		if (scan_peek(s) == '.' && scan_peek_n(s, 1) == '.' && scan_peek_n(s, 2) == '.') {
+			break;
+		}
+
+		// Read key
+		let key = read_mapping_key(s);
+
+		scan_skip_spaces(s);
+
+		if (scan_peek(s) != ':') {
+			throw scan_error(s, "expected ':' after mapping key '" + key + "'");
+		}
+		scan_advance(s);  // consume ':'
+
+		result[key] = read_mapping_value(s, abs_indent);
+	}
+
+	return result;
+}
+
+// ============================================================================
+// Top-Level Document Parser
+// ============================================================================
+
+fn parse_document(s) {
+	// Skip leading blank lines and comments
+	while (!scan_at_end(s)) {
+		scan_skip_spaces(s);
+		if (scan_peek(s) == '#') {
+			scan_skip_comment(s);
+			if (!scan_at_end(s)) { scan_consume_newline(s); }
+			continue;
+		}
+		if (is_newline(scan_peek(s))) {
+			scan_consume_newline(s);
+			continue;
+		}
+		break;
+	}
+
+	if (scan_at_end(s)) { return null; }
+
+	// Skip document start marker ---
+	if (scan_peek(s) == '-' && scan_peek_n(s, 1) == '-' && scan_peek_n(s, 2) == '-') {
+		scan_advance(s);
+		scan_advance(s);
+		scan_advance(s);
+		scan_skip_spaces(s);
+		scan_skip_comment(s);
+		if (!scan_at_end(s) && is_newline(scan_peek(s))) {
+			scan_consume_newline(s);
+		}
+	}
+
+	// Skip blank lines after ---
+	while (!scan_at_end(s)) {
+		scan_skip_spaces(s);
+		if (scan_peek(s) == '#') {
+			scan_skip_comment(s);
+			if (!scan_at_end(s)) { scan_consume_newline(s); }
+			continue;
+		}
+		if (is_newline(scan_peek(s))) {
+			scan_consume_newline(s);
+			continue;
+		}
+		break;
+	}
+
+	if (scan_at_end(s)) { return null; }
+
+	// Determine the top-level indent
+	let indent = count_indent(s);
+	consume_indent(s, indent);
+
+	let value = parse_value(s, indent);
+
+	// Consume trailing content
+	scan_skip_spaces(s);
+	scan_skip_comment(s);
+	if (!scan_at_end(s) && is_newline(scan_peek(s))) {
+		scan_consume_newline(s);
+	}
+
+	return value;
+}
+
+// ============================================================================
+// Stringify
+// ============================================================================
+
+fn yaml_escape_string(str: string): string {
+	let needs_quote = false;
+
+	if (str.length == 0) { return "\"\""; }
+
+	// Check if it looks like a special value
+	if (str == "null" || str == "Null" || str == "NULL" || str == "~" ||
+		str == "true" || str == "True" || str == "TRUE" ||
+		str == "false" || str == "False" || str == "FALSE" ||
+		str == ".inf" || str == ".Inf" || str == ".INF" ||
+		str == "-.inf" || str == "-.Inf" || str == "-.INF" ||
+		str == ".nan" || str == ".NaN" || str == ".NAN") {
+		needs_quote = true;
+	}
+
+	// Check first char for special indicators
+	let first = str.char_at(0);
+	if (first == '&' || first == '*' || first == '!' || first == '|' ||
+		first == '>' || first == '%' || first == '@' || first == '`' ||
+		first == '{' || first == '}' || first == '[' || first == ']' ||
+		first == ',' || first == '?' || first == '-' || first == ':' ||
+		first == '#' || first == '\'' || first == '"') {
+		needs_quote = true;
+	}
+
+	// Check for special chars
+	let i = 0;
+	while (i < str.length) {
+		let ch = str.char_at(i);
+		if (ch == '\n' || ch == '\r' || ch == '\t') {
+			needs_quote = true;
+			break;
+		}
+		// Colon followed by space
+		if (ch == ':' && i + 1 < str.length && str.char_at(i + 1) == ' ') {
+			needs_quote = true;
+			break;
+		}
+		// Hash preceded by space
+		if (ch == '#' && i > 0 && str.char_at(i - 1) == ' ') {
+			needs_quote = true;
+			break;
+		}
+		i = i + 1;
+	}
+
+	// Check if it looks like a number
+	if (!needs_quote && str.length > 0) {
+		let f = str.char_at(0);
+		if (is_digit(f) || ((f == '-' || f == '+') && str.length > 1 && is_digit(str.char_at(1)))) {
+			// Could be interpreted as number
+			let all_num = true;
+			let j = 0;
+			if (f == '-' || f == '+') { j = 1; }
+			let has_dot = false;
+			while (j < str.length) {
+				let c = str.char_at(j);
+				if (c == '.') { has_dot = true; }
+				else if (c == 'e' || c == 'E' || c == '_') { }
+				else if (!is_digit(c)) { all_num = false; break; }
+				j = j + 1;
+			}
+			if (all_num) { needs_quote = true; }
+		}
+	}
+
+	if (!needs_quote) {
+		return str;
+	}
+
+	// Use double quotes with escaping
+	let result = "\"";
+	i = 0;
+	while (i < str.length) {
+		let ch = str.char_at(i);
+		if (ch == '"') { result = result + "\\\""; }
+		else if (ch == '\\') { result = result + "\\\\"; }
+		else if (ch == '\n') { result = result + "\\n"; }
+		else if (ch == '\r') { result = result + "\\r"; }
+		else if (ch == '\t') { result = result + "\\t"; }
+		else { result = result + ch; }
+		i = i + 1;
+	}
+	return result + "\"";
+}
+
+fn stringify_value(value, depth: i32, indent_str: string): string {
+	if (value == null) { return "null"; }
+
+	let t = typeof(value);
+
+	if (t == "bool") { return value ? "true" : "false"; }
+
+	if (t == "i8" || t == "i16" || t == "i32" || t == "i64" ||
+		t == "u8" || t == "u16" || t == "u32" || t == "u64" ||
+		t == "integer") {
+		return "" + value;
+	}
+
+	if (t == "f32" || t == "f64" || t == "number" || t == "float") {
+		return "" + value;
+	}
+
+	if (t == "string") {
+		return yaml_escape_string(value);
+	}
+
+	if (t == "array") {
+		return stringify_array(value, depth, indent_str);
+	}
+
+	if (t == "object") {
+		return stringify_mapping(value, depth, indent_str);
+	}
+
+	return yaml_escape_string("" + value);
+}
+
+fn stringify_array(arr, depth: i32, indent_str: string): string {
+	if (arr.length == 0) { return "[]"; }
+
+	// Check if all items are simple scalars for inline style
+	let all_simple = true;
+	let total_len = 0;
+	let i = 0;
+	while (i < arr.length) {
+		let t = typeof(arr[i]);
+		if (t == "array" || t == "object") {
+			all_simple = false;
+			break;
+		}
+		if (t == "string" && arr[i].length > 40) {
+			all_simple = false;
+			break;
+		}
+		total_len = total_len + 5;  // rough estimate
+		i = i + 1;
+	}
+
+	// Use flow style for small simple arrays
+	if (all_simple && arr.length <= 5 && total_len < 60) {
+		let result = "[";
+		i = 0;
+		while (i < arr.length) {
+			if (i > 0) { result = result + ", "; }
+			result = result + stringify_value(arr[i], depth + 1, indent_str);
+			i = i + 1;
+		}
+		return result + "]";
+	}
+
+	// Block style
+	let next_indent = "";
+	let di = 0;
+	while (di < depth) {
+		next_indent = next_indent + indent_str;
+		di = di + 1;
+	}
+
+	let result = "";
+	i = 0;
+	while (i < arr.length) {
+		if (i > 0 || depth > 0) {
+			result = result + "\n" + next_indent;
+		}
+		let item_type = typeof(arr[i]);
+		if (item_type == "object") {
+			let obj_str = stringify_mapping(arr[i], depth + 1, indent_str);
+			// For first key-value pair, put on same line as -
+			result = result + "- " + obj_str;
+		} else if (item_type == "array") {
+			result = result + "-";
+			let sub = stringify_array(arr[i], depth + 1, indent_str);
+			if (sub.char_at(0) == '[') {
+				result = result + " " + sub;
+			} else {
+				result = result + sub;
+			}
+		} else {
+			result = result + "- " + stringify_value(arr[i], depth + 1, indent_str);
+		}
+		i = i + 1;
+	}
+
+	return result;
+}
+
+fn stringify_mapping(obj, depth: i32, indent_str: string): string {
+	let obj_keys = obj.keys();
+	if (obj_keys.length == 0) { return "{}"; }
+
+	let next_indent = "";
+	let di = 0;
+	while (di < depth) {
+		next_indent = next_indent + indent_str;
+		di = di + 1;
+	}
+
+	let result = "";
+	let i = 0;
+	while (i < obj_keys.length) {
+		let key = obj_keys[i];
+		let value = obj[key];
+		let key_str = yaml_escape_string(key);
+
+		if (i > 0) {
+			result = result + "\n" + next_indent;
+		}
+
+		let val_type = typeof(value);
+		if (val_type == "object" && value != null && value.keys().length > 0) {
+			result = result + key_str + ":";
+			let child_indent = "";
+			let ci = 0;
+			while (ci < depth + 1) {
+				child_indent = child_indent + indent_str;
+				ci = ci + 1;
+			}
+			let sub = stringify_mapping(value, depth + 1, indent_str);
+			result = result + "\n" + child_indent + sub;
+		} else if (val_type == "array" && value.length > 0) {
+			// Check if array should be inline
+			let inline = true;
+			let j = 0;
+			while (j < value.length) {
+				let et = typeof(value[j]);
+				if (et == "array" || et == "object") {
+					inline = false;
+					break;
+				}
+				j = j + 1;
+			}
+			if (inline && value.length <= 5) {
+				result = result + key_str + ": " + stringify_value(value, depth + 1, indent_str);
+			} else {
+				result = result + key_str + ":";
+				let sub = stringify_array(value, depth + 1, indent_str);
+				result = result + sub;
+			}
+		} else {
+			result = result + key_str + ": " + stringify_value(value, depth + 1, indent_str);
+		}
+		i = i + 1;
+	}
+
+	return result;
+}
+
+// ============================================================================
+// Multi-Document Support
+// ============================================================================
+
+fn parse_all_documents(input: string): array {
+	let s = create_scanner(input);
+	let docs: array = [];
+
+	while (!scan_at_end(s)) {
+		// Skip blank lines
+		while (!scan_at_end(s) && (is_newline(scan_peek(s)) || scan_peek(s) == ' ' || scan_peek(s) == '\t')) {
+			if (scan_peek(s) == ' ' || scan_peek(s) == '\t') {
+				scan_skip_spaces(s);
+				if (scan_peek(s) == '#') {
+					scan_skip_comment(s);
+				}
+				if (!scan_at_end(s) && is_newline(scan_peek(s))) {
+					scan_consume_newline(s);
+				} else if (!scan_at_end(s)) {
+					break;
+				}
+			} else {
+				scan_consume_newline(s);
+			}
+		}
+
+		if (scan_at_end(s)) { break; }
+
+		// Check for document end marker
+		if (scan_peek(s) == '.' && scan_peek_n(s, 1) == '.' && scan_peek_n(s, 2) == '.') {
+			scan_advance(s);
+			scan_advance(s);
+			scan_advance(s);
+			scan_skip_spaces(s);
+			scan_skip_comment(s);
+			if (!scan_at_end(s) && is_newline(scan_peek(s))) {
+				scan_consume_newline(s);
+			}
+			continue;
+		}
+
+		let doc = parse_document(s);
+		docs.push(doc);
+	}
+
+	return docs;
+}
+
+// ============================================================================
+// Public API
+// ============================================================================
+
+// Parse a YAML string into a value (first document)
+export fn parse(input: string) {
+	if (typeof(input) != "string") {
+		throw "parse() requires string argument";
+	}
+	let s = create_scanner(input);
+	return parse_document(s);
+}
+
+// Parse all documents from a multi-document YAML string
+export fn parse_all(input: string): array {
+	if (typeof(input) != "string") {
+		throw "parse_all() requires string argument";
+	}
+	return parse_all_documents(input);
+}
+
+// Convert a value to a YAML string
+export fn stringify(value, indent?: 2): string {
+	let indent_str = "";
+	let i = 0;
+	while (i < indent) {
+		indent_str = indent_str + " ";
+		i = i + 1;
+	}
+	let result = stringify_value(value, 0, indent_str);
+	if (result.length > 0 && result.char_at(result.length - 1) != '\n') {
+		result = result + "\n";
+	}
+	return result;
+}
+
+// Parse a YAML file
+export fn parse_file(path: string) {
+	let file = __open(path, "r");
+	defer file.close();
+	let content = file.read();
+	return parse(content);
+}
+
+// Write value to a YAML file
+export fn write_file(path: string, value) {
+	let content = stringify(value);
+	let file = __open(path, "w");
+	defer file.close();
+	file.write(content);
+}
+
+// Get a value using a dotted key path
+export fn get(obj, path: string) {
+	let path_keys = path.split(".");
+	let current = obj;
+	let i = 0;
+	while (i < path_keys.length) {
+		if (current == null) { return null; }
+		let t = typeof(current);
+		if (t != "object" && t != "array") { return null; }
+		if (t == "array") {
+			// Try numeric index
+			try {
+				let idx: i32 = path_keys[i].deserialize();
+				current = current[idx];
+			} catch (e) {
+				return null;
+			}
+		} else {
+			current = current[path_keys[i]];
+		}
+		i = i + 1;
+	}
+	return current;
+}
+
+// Set a value using a dotted key path
+export fn set(obj, path: string, value) {
+	let path_keys = path.split(".");
+	let current = obj;
+	let i = 0;
+	while (i < path_keys.length - 1) {
+		let key = path_keys[i];
+		if (current[key] == null) {
+			current[key] = {};
+		}
+		current = current[key];
+		i = i + 1;
+	}
+	current[path_keys[path_keys.length - 1]] = value;
+}

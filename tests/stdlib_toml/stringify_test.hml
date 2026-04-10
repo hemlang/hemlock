@@ -1,0 +1,94 @@
+// Test @stdlib/toml stringify() and round-trip
+
+import { parse, stringify } from "@stdlib/toml";
+
+// ============================================================================
+// Stringify Simple Values
+// ============================================================================
+
+let simple = { title: "My App", version: 1, debug: true };
+let toml = stringify(simple);
+assert(toml.contains("title = \"My App\""), "stringify string value");
+assert(toml.contains("version = 1"), "stringify integer value");
+assert(toml.contains("debug = true"), "stringify bool value");
+
+print("PASS: stringify simple values");
+
+// ============================================================================
+// Stringify Nested Tables
+// ============================================================================
+
+let nested = { app: "test", database: { host: "localhost", port: 5432 } };
+let nested_toml = stringify(nested);
+assert(nested_toml.contains("app = \"test\""), "stringify top-level value");
+assert(nested_toml.contains("[database]"), "stringify table header");
+assert(nested_toml.contains("host = \"localhost\""), "stringify nested value");
+assert(nested_toml.contains("port = 5432"), "stringify nested int");
+
+print("PASS: stringify nested tables");
+
+// ============================================================================
+// Stringify Arrays
+// ============================================================================
+
+let with_arr = { ports: [8080, 8443, 9090] };
+let arr_toml = stringify(with_arr);
+assert(arr_toml.contains("ports"), "stringify array key");
+assert(arr_toml.contains("8080"), "stringify array item");
+
+print("PASS: stringify arrays");
+
+// ============================================================================
+// Stringify String Escaping
+// ============================================================================
+
+let esc = { msg: "hello\nworld", path: "C:\\Users" };
+let esc_toml = stringify(esc);
+assert(esc_toml.contains("\\n"), "stringify escapes newline");
+assert(esc_toml.contains("\\\\"), "stringify escapes backslash");
+
+print("PASS: stringify escaping");
+
+// ============================================================================
+// Round-trip: parse then stringify then parse again
+// ============================================================================
+
+let original = "[server]\nhost = \"localhost\"\nport = 8080\n\n[database]\nname = \"mydb\"\nenabled = true";
+let parsed = parse(original);
+let rewritten = stringify(parsed);
+let reparsed = parse(rewritten);
+
+assert(reparsed["server"]["host"] == "localhost", "roundtrip server.host");
+assert(reparsed["server"]["port"] == 8080, "roundtrip server.port");
+assert(reparsed["database"]["name"] == "mydb", "roundtrip database.name");
+assert(reparsed["database"]["enabled"] == true, "roundtrip database.enabled");
+
+print("PASS: round-trip");
+
+// ============================================================================
+// Round-trip with array of tables
+// ============================================================================
+
+let aot_input = "[[servers]]\nhost = \"alpha\"\ndc = \"east\"\n\n[[servers]]\nhost = \"beta\"\ndc = \"west\"";
+let aot_parsed = parse(aot_input);
+assert(aot_parsed["servers"].length == 2, "aot roundtrip length");
+assert(aot_parsed["servers"][0]["host"] == "alpha", "aot roundtrip 0.host");
+assert(aot_parsed["servers"][1]["dc"] == "west", "aot roundtrip 1.dc");
+
+print("PASS: array of tables round-trip");
+
+// ============================================================================
+// Round-trip with inline tables
+// ============================================================================
+
+let inline_input = "point = { x = 10, y = 20 }\nlabel = \"origin\"";
+let inline_parsed = parse(inline_input);
+let inline_str = stringify(inline_parsed);
+let inline_reparsed = parse(inline_str);
+assert(inline_reparsed["point"]["x"] == 10, "inline roundtrip x");
+assert(inline_reparsed["point"]["y"] == 20, "inline roundtrip y");
+assert(inline_reparsed["label"] == "origin", "inline roundtrip label");
+
+print("PASS: inline table round-trip");
+
+print("All TOML stringify tests passed!");

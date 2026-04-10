@@ -1,0 +1,216 @@
+// Test @stdlib/toml parse() - basic types and structures
+
+import { parse } from "@stdlib/toml";
+
+// ============================================================================
+// Basic String Values
+// ============================================================================
+
+let basic = parse("title = \"Hello World\"");
+assert(basic["title"] == "Hello World", "basic string");
+
+let escaped = parse("msg = \"line1\\nline2\"");
+assert(escaped["msg"] == "line1\nline2", "escaped newline");
+
+let tab_esc = parse("msg = \"col1\\tcol2\"");
+assert(tab_esc["msg"] == "col1\tcol2", "escaped tab");
+
+let bs_esc = parse("msg = \"back\\\\slash\"");
+assert(bs_esc["msg"] == "back\\slash", "escaped backslash");
+
+let quote_esc = parse("msg = \"say \\\"hi\\\"\"");
+assert(quote_esc["msg"] == "say \"hi\"", "escaped quote");
+
+print("PASS: basic strings");
+
+// ============================================================================
+// Multiline Strings
+// ============================================================================
+
+let ml_basic = parse("desc = \"\"\"\nHello\nWorld\n\"\"\"");
+assert(ml_basic["desc"] == "Hello\nWorld\n", "multiline basic string");
+
+print("PASS: multiline strings");
+
+// ============================================================================
+// Integer Values
+// ============================================================================
+
+let ints = parse("a = 42\nb = -17\nc = 0");
+assert(ints["a"] == 42, "positive integer");
+assert(ints["b"] == -17, "negative integer");
+assert(ints["c"] == 0, "zero");
+
+// Hex, octal, binary
+let bases = parse("hex = 0xDEAD\noct = 0o755\nbin = 0b11010110");
+assert(bases["hex"] == 0xDEAD, "hex integer");
+assert(bases["oct"] == 493, "octal integer");
+assert(bases["bin"] == 214, "binary integer");
+
+// Underscores in numbers
+let sep = parse("big = 1_000_000");
+assert(sep["big"] == 1000000, "underscored integer");
+
+print("PASS: integers");
+
+// ============================================================================
+// Float Values
+// ============================================================================
+
+let floats = parse("pi = 3.14159\nneg = -0.5\nexp = 1e10");
+assert(floats["pi"] == 3.14159, "float value");
+assert(floats["neg"] == -0.5, "negative float");
+assert(floats["exp"] == 1e10, "scientific notation");
+
+print("PASS: floats");
+
+// ============================================================================
+// Boolean Values
+// ============================================================================
+
+let bools = parse("on = true\noff = false");
+assert(bools["on"] == true, "true");
+assert(bools["off"] == false, "false");
+
+print("PASS: booleans");
+
+// ============================================================================
+// Comments
+// ============================================================================
+
+let commented = parse("# full line comment\nkey = \"value\" # inline comment\n# another comment\nnum = 42");
+assert(commented["key"] == "value", "comment: key");
+assert(commented["num"] == 42, "comment: num");
+
+print("PASS: comments");
+
+// ============================================================================
+// Tables (Sections)
+// ============================================================================
+
+let tables = parse("[server]\nhost = \"localhost\"\nport = 8080\n\n[database]\nname = \"mydb\"\nport = 5432");
+assert(tables["server"]["host"] == "localhost", "table server.host");
+assert(tables["server"]["port"] == 8080, "table server.port");
+assert(tables["database"]["name"] == "mydb", "table database.name");
+assert(tables["database"]["port"] == 5432, "table database.port");
+
+print("PASS: tables");
+
+// ============================================================================
+// Nested Tables
+// ============================================================================
+
+let nested = parse("[server]\nhost = \"localhost\"\n\n[server.ssl]\nenabled = true\ncert = \"/path/to/cert\"");
+assert(nested["server"]["host"] == "localhost", "nested: server.host");
+assert(nested["server"]["ssl"]["enabled"] == true, "nested: server.ssl.enabled");
+assert(nested["server"]["ssl"]["cert"] == "/path/to/cert", "nested: server.ssl.cert");
+
+print("PASS: nested tables");
+
+// ============================================================================
+// Dotted Keys
+// ============================================================================
+
+let dotted = parse("physical.color = \"orange\"\nphysical.shape = \"round\"");
+assert(dotted["physical"]["color"] == "orange", "dotted key color");
+assert(dotted["physical"]["shape"] == "round", "dotted key shape");
+
+print("PASS: dotted keys");
+
+// ============================================================================
+// Arrays
+// ============================================================================
+
+let arrays = parse("ports = [8001, 8002, 8003]\nnames = [\"alpha\", \"beta\"]");
+assert(arrays["ports"].length == 3, "array length");
+assert(arrays["ports"][0] == 8001, "array item 0");
+assert(arrays["ports"][1] == 8002, "array item 1");
+assert(arrays["ports"][2] == 8003, "array item 2");
+assert(arrays["names"][0] == "alpha", "string array item 0");
+assert(arrays["names"][1] == "beta", "string array item 1");
+
+// Multiline array
+let ml_arr = parse("colors = [\n  \"red\",\n  \"green\",\n  \"blue\"\n]");
+assert(ml_arr["colors"].length == 3, "multiline array length");
+assert(ml_arr["colors"][2] == "blue", "multiline array item");
+
+// Empty array
+let empty = parse("items = []");
+assert(empty["items"].length == 0, "empty array");
+
+print("PASS: arrays");
+
+// ============================================================================
+// Inline Tables
+// ============================================================================
+
+let inline = parse("point = { x = 1, y = 2 }");
+assert(inline["point"]["x"] == 1, "inline table x");
+assert(inline["point"]["y"] == 2, "inline table y");
+
+let inline2 = parse("person = { name = \"Alice\", age = 30 }");
+assert(inline2["person"]["name"] == "Alice", "inline table name");
+assert(inline2["person"]["age"] == 30, "inline table age");
+
+print("PASS: inline tables");
+
+// ============================================================================
+// Array of Tables
+// ============================================================================
+
+let aot = parse("[[products]]\nname = \"Hammer\"\nprice = 9.99\n\n[[products]]\nname = \"Nail\"\nprice = 0.05");
+assert(aot["products"].length == 2, "array of tables length");
+assert(aot["products"][0]["name"] == "Hammer", "aot item 0 name");
+assert(aot["products"][0]["price"] == 9.99, "aot item 0 price");
+assert(aot["products"][1]["name"] == "Nail", "aot item 1 name");
+assert(aot["products"][1]["price"] == 0.05, "aot item 1 price");
+
+print("PASS: array of tables");
+
+// ============================================================================
+// Mixed Types in Arrays
+// ============================================================================
+
+let mixed = parse("data = [1, \"two\", 3.0, true]");
+assert(mixed["data"][0] == 1, "mixed array int");
+assert(mixed["data"][1] == "two", "mixed array string");
+assert(mixed["data"][2] == 3.0, "mixed array float");
+assert(mixed["data"][3] == true, "mixed array bool");
+
+print("PASS: mixed types");
+
+// ============================================================================
+// Complex Real-World Config
+// ============================================================================
+
+let cargo = parse(`
+[package]
+name = "myproject"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = "1.0"
+tokio = { version = "1", features = ["full"] }
+
+[[bin]]
+name = "server"
+path = "src/server.rs"
+
+[[bin]]
+name = "client"
+path = "src/client.rs"
+`);
+
+assert(cargo["package"]["name"] == "myproject", "cargo package name");
+assert(cargo["package"]["version"] == "0.1.0", "cargo package version");
+assert(cargo["dependencies"]["serde"] == "1.0", "cargo dep serde");
+assert(cargo["dependencies"]["tokio"]["version"] == "1", "cargo dep tokio version");
+assert(cargo["dependencies"]["tokio"]["features"][0] == "full", "cargo dep tokio feature");
+assert(cargo["bin"].length == 2, "cargo bin count");
+assert(cargo["bin"][0]["name"] == "server", "cargo bin 0 name");
+assert(cargo["bin"][1]["path"] == "src/client.rs", "cargo bin 1 path");
+
+print("PASS: complex real-world config");
+
+print("All TOML parse tests passed!");

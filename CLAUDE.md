@@ -250,7 +250,7 @@ Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
 ---
 
-## Standard Library (52 modules)
+## Standard Library (53 modules)
 
 Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 
@@ -308,6 +308,7 @@ Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 | `uuid` | UUID generation |
 | `vector` | Vector similarity search (USearch ANN) |
 | `websocket` | WebSocket client |
+| `yaml` | YAML parsing and generation |
 
 See `stdlib/docs/` for detailed module documentation.
 
