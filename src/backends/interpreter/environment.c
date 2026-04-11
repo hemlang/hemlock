@@ -728,7 +728,6 @@ Value env_get(Environment *env, const char *name, ExecutionContext *ctx) {
     // Search current and parent scopes using hash table
     // Each environment is locked individually to prevent deadlock
     Environment *search_env = env;
-    int depth = 0;
     while (search_env != NULL) {
         // Lock this environment for thread-safe access
         pthread_mutex_t *mutex = (pthread_mutex_t*)search_env->mutex;
@@ -755,7 +754,6 @@ Value env_get(Environment *env, const char *name, ExecutionContext *ctx) {
         Environment *parent = search_env->parent;
         if (mutex) pthread_mutex_unlock(mutex);
         search_env = parent;
-        depth++;
     }
 
     // Variable not found - throw exception instead of exiting
