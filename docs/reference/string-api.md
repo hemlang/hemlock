@@ -1,6 +1,6 @@
 # String API Reference
 
-Complete reference for Hemlock's string type and all 20 string methods.
+Complete reference for Hemlock's string type and all 22 string methods.
 
 ---
 
@@ -12,7 +12,7 @@ Strings in Hemlock are **UTF-8 encoded, mutable, heap-allocated** sequences with
 - UTF-8 encoding (U+0000 to U+10FFFF)
 - Mutable (can modify characters in place)
 - Codepoint-based indexing
-- 20 built-in methods
+- 22 built-in methods
 - Automatic concatenation with `+` operator
 
 ---
@@ -298,6 +298,46 @@ let clean = s.trim();           // "hello"
 
 let text = "\n\t  world  \n";
 let clean2 = text.trim();       // "world"
+```
+
+#### trim_start
+
+Remove leading whitespace only.
+
+**Signature:**
+```hemlock
+string.trim_start(): string
+```
+
+**Returns:** New string with leading whitespace removed
+
+**Examples:**
+```hemlock
+let s = "  hello  ";
+let clean = s.trim_start();     // "hello  "
+
+let text = "\n\t  world  \n";
+let clean2 = text.trim_start(); // "world  \n"
+```
+
+#### trim_end
+
+Remove trailing whitespace only.
+
+**Signature:**
+```hemlock
+string.trim_end(): string
+```
+
+**Returns:** New string with trailing whitespace removed
+
+**Examples:**
+```hemlock
+let s = "  hello  ";
+let clean = s.trim_end();       // "  hello"
+
+let text = "\n\t  world  \n";
+let clean2 = text.trim_end();   // "\n\t  world"
 ```
 
 ---
@@ -732,6 +772,8 @@ let cleaned = "  HELLO  "
 | `contains`     | `(needle: string)`                           | `bool`    | Check if contains substring           |
 | `split`        | `(delimiter: string)`                        | `array`   | Split into array                      |
 | `trim`         | `()`                                         | `string`  | Remove whitespace                     |
+| `trim_start`   | `()`                                         | `string`  | Remove leading whitespace             |
+| `trim_end`     | `()`                                         | `string`  | Remove trailing whitespace            |
 | `to_upper`     | `()`                                         | `string`  | Convert to uppercase                  |
 | `to_lower`     | `()`                                         | `string`  | Convert to lowercase                  |
 | `starts_with`  | `(prefix: string)`                           | `bool`    | Check if starts with prefix           |

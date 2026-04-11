@@ -260,9 +260,9 @@ Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 | `args` | Command-line argument parsing |
 | `assert` | Assertion utilities |
 | `async` | ThreadPool, parallel_map |
+| `async_fs` | Async file I/O operations |
 | `atomic` | Atomic operations (load, store, add, CAS, fence) |
 | `bytes` | Byte order utils (bswap, hton/ntoh, endian-aware I/O) |
-| `async_fs` | Async file I/O operations |
 | `collections` | HashMap, Queue, Stack, Set, LinkedList, LRUCache |
 | `compression` | gzip, gunzip, deflate |
 | `crypto` | aes_encrypt, rsa_sign, random_bytes |
@@ -341,15 +341,23 @@ hemlock/
 │   ├── backends/
 │   │   ├── interpreter/  # hemlock: tree-walking interpreter
 │   │   └── compiler/     # hemlockc: C code generator
+│   ├── modules/          # Native module implementations
+│   ├── runtime/          # Runtime-related C code
+│   ├── shared/           # Shared utilities (type promotion, etc.)
 │   ├── tools/
 │   │   ├── lsp/          # Language Server Protocol
-│   │   └── bundler/      # Bundle/package tools
+│   │   ├── bundler/      # Bundle/package tools
+│   │   └── formatter/    # Code formatter
 ├── runtime/              # Compiled program runtime (libhemlock_runtime.a)
 ├── stdlib/               # Standard library
 │   └── docs/             # Module documentation
+├── include/              # C header files (hemlock_limits.h, etc.)
 ├── docs/                 # Full documentation
-├── tests/                # 897+ tests
-└── examples/             # Example programs
+├── tests/                # 978+ tests
+├── examples/             # Example programs
+├── benchmark/            # Benchmarks
+├── editors/              # Editor integrations
+└── wasm/                 # WebAssembly support
 ```
 
 ### Compiler/Interpreter Architecture
