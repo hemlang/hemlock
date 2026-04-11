@@ -1,6 +1,6 @@
 # Array API Reference
 
-Complete reference for Hemlock's array type and all 24 array methods.
+Complete reference for Hemlock's array type and all 28 array methods.
 
 ---
 
@@ -12,7 +12,7 @@ Arrays in Hemlock are **dynamic, heap-allocated** sequences that can hold mixed 
 - Dynamic sizing (automatic growth)
 - Zero-indexed
 - Mixed types allowed
-- 23 built-in methods
+- 28 built-in methods
 - Heap-allocated with capacity tracking
 
 ---
@@ -355,6 +355,83 @@ let idx3 = arr2.find(2);     // 1 (first occurrence)
 
 ---
 
+#### findIndex
+
+Find index of first element matching a predicate function.
+
+**Signature:**
+```hemlock
+array.findIndex(predicate: fn): i32
+```
+
+**Parameters:**
+- `predicate` - Function that takes an element and returns a truthy/falsy value
+
+**Returns:** Index of first matching element, or `-1` if no match
+
+**Examples:**
+```hemlock
+let arr = [1, 4, 9, 16, 25];
+let idx = arr.findIndex(fn(x) { return x > 10; });  // 3 (16 > 10)
+let idx2 = arr.findIndex(fn(x) { return x > 100; }); // -1 (none match)
+
+// Find first even number
+let nums = [1, 3, 4, 7, 8];
+let idx3 = nums.findIndex(fn(x) { return x % 2 == 0; }); // 2
+```
+
+**Note:** Unlike `find()` which searches by value equality, `findIndex()` uses a predicate function for custom matching logic.
+
+---
+
+#### indexOf
+
+Find first index of a value, or `-1` if not found.
+
+**Signature:**
+```hemlock
+array.indexOf(value: any): i32
+```
+
+**Parameters:**
+- `value` - Value to search for
+
+**Returns:** Index of first occurrence, or `-1` if not found
+
+**Examples:**
+```hemlock
+let arr = ["a", "b", "c", "b"];
+let idx = arr.indexOf("b");     // 1
+let idx2 = arr.indexOf("z");    // -1 (not found)
+```
+
+**Note:** Behaves identically to `find()` - both use value equality and return the first matching index.
+
+---
+
+#### lastIndexOf
+
+Find last index of a value, searching from the end.
+
+**Signature:**
+```hemlock
+array.lastIndexOf(value: any): i32
+```
+
+**Parameters:**
+- `value` - Value to search for
+
+**Returns:** Index of last occurrence, or `-1` if not found
+
+**Examples:**
+```hemlock
+let arr = ["a", "b", "c", "b", "d"];
+let idx = arr.lastIndexOf("b");  // 3 (last occurrence)
+let idx2 = arr.lastIndexOf("z"); // -1 (not found)
+```
+
+---
+
 #### contains
 
 Check if array contains value.
@@ -643,6 +720,193 @@ let max = arr.reduce(fn(acc, x) {
 print(max);  // 5
 ```
 
+#### every
+
+Check if all elements satisfy a predicate.
+
+**Signature:**
+```hemlock
+array.every(predicate: fn): bool
+```
+
+**Parameters:**
+- `predicate` - Function that takes an element and returns a truthy/falsy value
+
+**Returns:** `true` if all elements match, `false` otherwise. Empty arrays return `true` (vacuous truth).
+
+**Mutates:** No
+
+**Examples:**
+```hemlock
+let arr = [2, 4, 6, 8];
+let all_even = arr.every(fn(x) { return x % 2 == 0; });
+print(all_even);  // true
+
+let arr2 = [2, 3, 6, 8];
+let all_even2 = arr2.every(fn(x) { return x % 2 == 0; });
+print(all_even2);  // false
+```
+
+---
+
+#### some
+
+Check if any element satisfies a predicate.
+
+**Signature:**
+```hemlock
+array.some(predicate: fn): bool
+```
+
+**Parameters:**
+- `predicate` - Function that takes an element and returns a truthy/falsy value
+
+**Returns:** `true` if any element matches, `false` otherwise. Empty arrays return `false`.
+
+**Mutates:** No
+
+**Examples:**
+```hemlock
+let arr = [1, 3, 5, 6];
+let has_even = arr.some(fn(x) { return x % 2 == 0; });
+print(has_even);  // true
+
+let arr2 = [1, 3, 5, 7];
+let has_even2 = arr2.some(fn(x) { return x % 2 == 0; });
+print(has_even2);  // false
+```
+
+---
+
+#### sort
+
+Sort array in place with optional comparator.
+
+**Signature:**
+```hemlock
+array.sort(compare?: fn): null
+```
+
+**Parameters:**
+- `compare` (optional) - Comparator function taking (a, b), returning negative if a < b, 0 if equal, positive if a > b
+
+**Returns:** `null`
+
+**Mutates:** Yes
+
+**Examples:**
+```hemlock
+let arr = [3, 1, 4, 1, 5];
+arr.sort();
+print(arr);  // [1, 1, 3, 4, 5]
+
+// Custom comparator (descending)
+let arr2 = [3, 1, 4, 1, 5];
+arr2.sort(fn(a, b) { return b - a; });
+print(arr2);  // [5, 4, 3, 1, 1]
+
+// Sort strings
+let words = ["banana", "apple", "cherry"];
+words.sort();
+print(words);  // ["apple", "banana", "cherry"]
+```
+
+**Note:** Default comparison orders by value type, then by value within type. Uses stable insertion sort.
+
+---
+
+#### fill
+
+Fill array elements with a value, optionally within a range.
+
+**Signature:**
+```hemlock
+array.fill(value: any, start?: i32, end?: i32): null
+```
+
+**Parameters:**
+- `value` - Value to fill with
+- `start` (optional) - Start index (default: 0). Negative indices count from end.
+- `end` (optional) - End index, exclusive (default: array length). Negative indices count from end.
+
+**Returns:** `null`
+
+**Mutates:** Yes
+
+**Examples:**
+```hemlock
+let arr = [1, 2, 3, 4, 5];
+arr.fill(0);
+print(arr);  // [0, 0, 0, 0, 0]
+
+let arr2 = [1, 2, 3, 4, 5];
+arr2.fill(9, 1, 4);
+print(arr2);  // [1, 9, 9, 9, 5]
+
+// Negative indices
+let arr3 = [1, 2, 3, 4, 5];
+arr3.fill(0, -2);
+print(arr3);  // [1, 2, 3, 0, 0]
+```
+
+---
+
+#### flat
+
+Flatten one level of nested arrays.
+
+**Signature:**
+```hemlock
+array.flat(): array
+```
+
+**Returns:** New array with nested arrays flattened by one level
+
+**Mutates:** No
+
+**Examples:**
+```hemlock
+let arr = [[1, 2], [3, 4], [5]];
+let flat = arr.flat();
+print(flat);  // [1, 2, 3, 4, 5]
+
+// Non-array elements are kept as-is
+let mixed = [1, [2, 3], 4, [5]];
+let flat2 = mixed.flat();
+print(flat2);  // [1, 2, 3, 4, 5]
+
+// Only flattens one level
+let deep = [[1, [2, 3]], [4]];
+let flat3 = deep.flat();
+print(flat3);  // [1, [2, 3], 4]
+```
+
+---
+
+#### serialize
+
+Convert array to a JSON string representation.
+
+**Signature:**
+```hemlock
+array.serialize(): string
+```
+
+**Returns:** JSON string representation of the array
+
+**Mutates:** No
+
+**Examples:**
+```hemlock
+let arr = [1, 2, 3];
+let json = arr.serialize();
+print(json);  // [1,2,3]
+
+let mixed = ["hello", true, null, 42];
+let json2 = mixed.serialize();
+print(json2);  // ["hello",true,null,42]
+```
+
 ---
 
 ### String Conversion
@@ -725,39 +989,43 @@ let result2 = words
 
 Methods that modify the array in place:
 
-| Method     | Signature                  | Returns   | Description                    |
-|------------|----------------------------|-----------|--------------------------------|
-| `push`     | `(value: any)`             | `null`    | Add to end                     |
-| `pop`      | `()`                       | `any`     | Remove from end                |
-| `shift`    | `()`                       | `any`     | Remove from start              |
-| `unshift`  | `(value: any)`             | `null`    | Add to start                   |
-| `insert`   | `(index: i32, value: any)` | `null`    | Insert at index                |
-| `remove`   | `(index: i32)`             | `any`     | Remove at index                |
-| `reverse`  | `()`                       | `null`    | Reverse in place               |
-| `clear`    | `()`                       | `null`    | Remove all elements            |
-| `reserve`  | `(n: i32)`                 | `null`    | Pre-allocate capacity          |
+| Method     | Signature                          | Returns   | Description                    |
+|------------|------------------------------------|-----------|--------------------------------|
+| `push`     | `(value: any)`                     | `null`    | Add to end                     |
+| `pop`      | `()`                               | `any`     | Remove from end                |
+| `shift`    | `()`                               | `any`     | Remove from start              |
+| `unshift`  | `(value: any)`                     | `null`    | Add to start                   |
+| `insert`   | `(index: i32, value: any)`         | `null`    | Insert at index                |
+| `remove`   | `(index: i32)`                     | `any`     | Remove at index                |
+| `reverse`  | `()`                               | `null`    | Reverse in place               |
+| `clear`    | `()`                               | `null`    | Remove all elements            |
+| `reserve`  | `(n: i32)`                         | `null`    | Pre-allocate capacity          |
+| `sort`     | `(compare?: fn)`                   | `null`    | Sort in place (optional comparator) |
+| `fill`     | `(value: any, start?: i32, end?: i32)` | `null` | Fill elements with value       |
 
 ### Non-Mutating Methods
 
 Methods that return new values without modifying the original:
 
-| Method     | Signature                  | Returns   | Description                    |
-|------------|----------------------------|-----------|--------------------------------|
-| `find`     | `(value: any)`             | `i32`     | Find first occurrence          |
-| `contains` | `(value: any)`             | `bool`    | Check if contains value        |
-| `slice`    | `(start: i32, end: i32)`   | `array`   | Extract subarray               |
-| `first`    | `()`                       | `any`     | Get first element              |
-| `last`     | `()`                       | `any`     | Get last element               |
-| `concat`   | `(other: array)`           | `array`   | Concatenate arrays             |
-| `join`     | `(delimiter: string)`      | `string`  | Join elements into string      |
-| `map`      | `(callback: fn)`           | `array`   | Transform each element         |
-| `filter`   | `(predicate: fn)`          | `array`   | Select matching elements       |
-| `reduce`   | `(callback: fn, initial: any)` | `any` | Reduce to single value         |
-| `every`    | `(predicate: fn)`          | `bool`    | Check if all elements match    |
-| `some`     | `(predicate: fn)`          | `bool`    | Check if any element matches   |
-| `indexOf`  | `(value: any)`             | `i32`     | Find index of value (-1 if not found) |
-| `sort`     | `(compare?: fn)`           | `null`    | Sort in place (optional comparator) |
-| `fill`     | `(value: any)`             | `null`    | Fill all elements with value   |
+| Method       | Signature                      | Returns   | Description                          |
+|--------------|--------------------------------|-----------|--------------------------------------|
+| `find`       | `(value: any)`                 | `i32`     | Find first occurrence                |
+| `findIndex`  | `(predicate: fn)`              | `i32`     | Find index by predicate              |
+| `indexOf`    | `(value: any)`                 | `i32`     | Find index of value (-1 if not found)|
+| `lastIndexOf`| `(value: any)`                 | `i32`     | Find last index of value             |
+| `contains`   | `(value: any)`                 | `bool`    | Check if contains value              |
+| `slice`      | `(start: i32, end: i32)`      | `array`   | Extract subarray                     |
+| `first`      | `()`                           | `any`     | Get first element                    |
+| `last`       | `()`                           | `any`     | Get last element                     |
+| `concat`     | `(other: array)`               | `array`   | Concatenate arrays                   |
+| `flat`       | `()`                           | `array`   | Flatten one level of nesting         |
+| `join`       | `(delimiter: string)`          | `string`  | Join elements into string            |
+| `map`        | `(callback: fn)`               | `array`   | Transform each element               |
+| `filter`     | `(predicate: fn)`              | `array`   | Select matching elements             |
+| `reduce`     | `(callback: fn, initial: any)` | `any`     | Reduce to single value               |
+| `every`      | `(predicate: fn)`              | `bool`    | Check if all elements match          |
+| `some`       | `(predicate: fn)`              | `bool`    | Check if any element matches         |
+| `serialize`  | `()`                           | `string`  | Convert to JSON string               |
 
 ---
 

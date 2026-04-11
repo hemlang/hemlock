@@ -137,9 +137,8 @@ These are global because they're low-level primitives used with `alloc`/`free`.
 | `ptr_null()` | Get a null pointer |
 | `ptr_to_buffer(ptr, size)` | Wrap a pointer in a bounds-checked buffer |
 | `buffer_ptr(buffer)` | Get the raw pointer from a buffer |
-| `ffi_sizeof(type_name)` | Get FFI type size |
 
-**Pointer read/write/deref** for all numeric types:
+**Pointer read/write/deref** for all numeric types and `ptr`:
 
 ```
 ptr_read_i8, ptr_read_i16, ptr_read_i32, ptr_read_i64

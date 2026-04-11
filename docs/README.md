@@ -69,6 +69,13 @@ Welcome to the Hemlock programming language documentation!
 - [Contributing Guidelines](contributing/guidelines.md) - How to contribute
 - [Testing Guide](contributing/testing.md) - Writing and running tests
 
+### Plans & Proposals
+- [HemlockScript WASM](plans/hemlockscript-wasm.md) - WebAssembly compilation plans
+- [Memory Leak Prevention Plan](plans/MEMORY_LEAK_PREVENTION_PLAN.md) - Memory leak detection and prevention strategy
+- [Compiler Helper Annotations](proposals/compiler-helper-annotations.md) - Compiler optimization annotations proposal
+- [Vector DB Stdlib](proposals/vector-db-stdlib.md) - Vector database stdlib module proposal
+- [Annotations Implementation Summary](annotations-implementation-summary.md) - Annotations implementation overview
+
 ## Quick Reference
 
 ### Hello World
