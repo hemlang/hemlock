@@ -1243,6 +1243,23 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         }
     }
 
+    // Clean up static global variables before runtime cleanup.
+    // Build an array of pointers to all statics, then break circular
+    // references (self-referential closures) before releasing them.
+    codegen_blank_line(ctx);
+    codegen_writeln(ctx, "// Release top-level static variables");
+    codegen_writeln(ctx, "{");
+    codegen_indent_inc(ctx);
+    codegen_writeln(ctx, "HmlValue *_statics[] = {");
+    for (int i = 0; i < ctx->num_main_vars; i++) {
+        codegen_writeln(ctx, "    &_main_%s,", ctx->main_vars[i]);
+    }
+    codegen_writeln(ctx, "};");
+    codegen_writeln(ctx, "hml_break_cycles(_statics, %d);", ctx->num_main_vars);
+    codegen_writeln(ctx, "hml_release_statics(_statics, %d);", ctx->num_main_vars);
+    codegen_indent_dec(ctx);
+    codegen_writeln(ctx, "}");
+
     codegen_blank_line(ctx);
     codegen_writeln(ctx, "hml_runtime_cleanup();");
     codegen_writeln(ctx, "return 0;");

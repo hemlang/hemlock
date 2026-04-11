@@ -296,6 +296,16 @@ HmlValue hml_val_socket(HmlSocket *sock);
 void hml_retain(HmlValue *val);
 void hml_release(HmlValue *val);
 
+// ========== STATIC VARIABLE CLEANUP (for compiled binaries) ==========
+
+// Break circular references in a set of static global variables.
+// Must be called before hml_release_statics() to prevent use-after-free
+// in self-referential closures (e.g., objects containing closures that capture self).
+void hml_break_cycles(HmlValue *statics[], int count);
+
+// Release all static global variables, setting them to null.
+void hml_release_statics(HmlValue *statics[], int count);
+
 // ========== VALUE DEEP COPY (for thread isolation) ==========
 
 // Deep copy a value for passing to spawned tasks.

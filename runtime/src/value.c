@@ -829,6 +829,87 @@ void hml_release(HmlValue *val) {
     }
 }
 
+// ========== STATIC VARIABLE CLEANUP (for compiled binaries) ==========
+
+// Simple visited set for cycle detection during cleanup
+typedef struct {
+    void **items;
+    int count;
+    int capacity;
+} HmlCleanupVisited;
+
+static int cleanup_visited_contains(HmlCleanupVisited *v, void *ptr) {
+    for (int i = 0; i < v->count; i++) {
+        if (v->items[i] == ptr) return 1;
+    }
+    return 0;
+}
+
+static void cleanup_visited_add(HmlCleanupVisited *v, void *ptr) {
+    if (v->count >= v->capacity) {
+        int new_cap = v->capacity == 0 ? 32 : v->capacity * 2;
+        v->items = realloc(v->items, new_cap * sizeof(void *));
+        v->capacity = new_cap;
+    }
+    v->items[v->count++] = ptr;
+}
+
+// Recursively break circular references by detaching closure environments
+static void break_cycles_walk(HmlValue val, HmlCleanupVisited *visited) {
+    switch (val.type) {
+        case HML_VAL_FUNCTION:
+            if (val.as.as_function) {
+                HmlFunction *fn = val.as.as_function;
+                if (fn->closure_env) {
+                    hml_closure_env_release((HmlClosureEnv *)fn->closure_env);
+                    fn->closure_env = NULL;
+                }
+            }
+            break;
+
+        case HML_VAL_OBJECT:
+            if (val.as.as_object) {
+                HmlObject *obj = val.as.as_object;
+                if (atomic_load(&obj->freed)) return;
+                if (cleanup_visited_contains(visited, obj)) return;
+                cleanup_visited_add(visited, obj);
+                for (int i = 0; i < obj->num_fields; i++) {
+                    break_cycles_walk(obj->fields[i].value, visited);
+                }
+            }
+            break;
+
+        case HML_VAL_ARRAY:
+            if (val.as.as_array) {
+                HmlArray *arr = val.as.as_array;
+                if (atomic_load(&arr->freed)) return;
+                if (cleanup_visited_contains(visited, arr)) return;
+                cleanup_visited_add(visited, arr);
+                for (int i = 0; i < arr->length; i++) {
+                    break_cycles_walk(arr->elements[i], visited);
+                }
+            }
+            break;
+
+        default:
+            break;
+    }
+}
+
+void hml_break_cycles(HmlValue *statics[], int count) {
+    HmlCleanupVisited visited = {0};
+    for (int i = 0; i < count; i++) {
+        break_cycles_walk(*statics[i], &visited);
+    }
+    free(visited.items);
+}
+
+void hml_release_statics(HmlValue *statics[], int count) {
+    for (int i = count - 1; i >= 0; i--) {
+        hml_release(statics[i]);
+    }
+}
+
 // ========== VALUE DEEP COPY (for thread isolation) ==========
 
 // Forward declarations for helper functions

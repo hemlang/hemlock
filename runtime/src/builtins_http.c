@@ -2123,6 +2123,11 @@ HmlValue hml_lws_ws_server_accept(HmlValue server_val, HmlValue timeout_val) {
     int iterations = timeout_ms > 0 ? (timeout_ms / 10) : -1;
 
     while (iterations != 0) {
+        // Check if server was closed before accessing its mutex
+        if (server->closed) {
+            return hml_val_null();
+        }
+
         pthread_mutex_lock(&server->pending_mutex);
         hml_ws_connection_t *conn = NULL;
         if (server->pending_wsi) {
@@ -2154,8 +2159,11 @@ HmlValue hml_lws_ws_server_close(HmlValue server_val) {
         // Signal shutdown - accept() checks this flag before each iteration
         server->closed = 1;
         server->shutdown = 1;
-        // Wait for any in-flight accept() call to finish its current iteration
-        usleep(50000);
+        // Wait for any in-flight accept() or recv() calls to notice the
+        // shutdown flag and exit.  recv() polls with 10ms sleeps and may
+        // be in the middle of a 100ms timeout, so 200ms gives plenty of
+        // margin.
+        usleep(200000);
         pthread_join(server->service_thread, NULL);
         pthread_mutex_destroy(&server->pending_mutex);
         if (server->context) {
