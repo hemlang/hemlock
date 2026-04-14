@@ -144,6 +144,8 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIRS)
 
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET) stdlib/c/*.so
+	$(MAKE) -C runtime clean
+	rm -f $(RUNTIME_LIB) $(RUNTIME_SHARED)
 
 run: $(TARGET)
 	./$(TARGET)
