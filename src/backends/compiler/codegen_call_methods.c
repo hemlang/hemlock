@@ -107,11 +107,27 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         codegen_writeln(ctx, "HmlValue %s = hml_string_ends_with(%s, %s);",
                       result, obj_val, arg_temps[0]);
     } else if (strcmp(method, "replace") == 0 && num_args == 2) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_replace(%s, %s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_replace(%s, %s, %s);",
                       result, obj_val, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _replace_args__%s[2] = { %s, %s };",
+                      result, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"replace\", _replace_args__%s, 2);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "replace_all") == 0 && num_args == 2) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_replace_all(%s, %s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_replace_all(%s, %s, %s);",
                       result, obj_val, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _replace_all_args__%s[2] = { %s, %s };",
+                      result, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"replace_all\", _replace_all_args__%s, 2);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "repeat") == 0 && num_args == 1) {
         codegen_writeln(ctx, "HmlValue %s = hml_string_repeat(%s, %s);",
                       result, obj_val, arg_temps[0]);

@@ -1,0 +1,26 @@
+=== compile (default flags) ===
+compiled: true
+=== compile (null flags) ===
+compiled: true
+=== compile (explicit flags) ===
+case match: true
+=== method: test ===
+match digits: true
+no digits: false
+=== method: find ===
+find in string: true
+=== method: find_all ===
+matches length: 1
+=== method: replace ===
+first: abcXdef456
+=== method: replace_all ===
+all: abcXdefX
+=== one-shot: replace ===
+one-shot: abcYdef456
+=== one-shot: replace_all ===
+one-shot all: abcYdefY
+=== one-shot: test ===
+digits?: true
+=== replace_all with no match ===
+no match: abcdef
+=== Done ===

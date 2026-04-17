@@ -195,7 +195,8 @@ HmlValue hml_regex_replace(HmlValue preg, HmlValue text, HmlValue replacement) {
 
     int result = regexec(regex, text_data, 1, pmatch, 0);
     if (result != 0) {
-        // No match, return original string
+        // No match, return a retained copy of the original string
+        hml_retain(&text);
         return text;
     }
 
@@ -264,7 +265,9 @@ HmlValue hml_regex_replace_all(HmlValue preg, HmlValue text, HmlValue replacemen
     result_size += strlen(p);  // Remaining suffix
 
     if (match_count == 0) {
-        return text;  // No matches
+        // No matches - return a retained copy of the original string
+        hml_retain(&text);
+        return text;
     }
 
     // Second pass: build result

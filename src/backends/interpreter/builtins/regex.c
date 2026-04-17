@@ -273,7 +273,8 @@ Value builtin_regex_replace(Value *args, int num_args, ExecutionContext *ctx) {
 
     int result = regexec(regex, text_data, 1, pmatch, 0);
     if (result != 0) {
-        // No match, return original string
+        // No match, return a retained copy of the original string
+        value_retain(text);
         return text;
     }
 
@@ -351,7 +352,9 @@ Value builtin_regex_replace_all(Value *args, int num_args, ExecutionContext *ctx
     result_size += strlen(p);  // Remaining suffix
 
     if (match_count == 0) {
-        return text;  // No matches
+        // No matches - return a retained copy of the original string
+        value_retain(text);
+        return text;
     }
 
     // Second pass: build result
