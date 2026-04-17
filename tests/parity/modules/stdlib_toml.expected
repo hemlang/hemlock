@@ -1,0 +1,18 @@
+=== Integer arrays preserve values (i64 not boxed) ===
+vals joined: 1,2,3
+big joined: 5000000000,6000000000
+vals[0]: 1
+vals[1]: 2
+big[0]: 5000000000
+=== String arrays ===
+names joined: a|b|c
+=== Mixed scalars ===
+data[0]: 1
+data[1]: two
+data[2]: 3
+data[3]: true
+=== Array of tables ===
+items len: 2
+items[0].name: one
+items[1].name: two
+=== Done ===
