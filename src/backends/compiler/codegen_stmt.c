@@ -520,11 +520,30 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
                 // Get initial value
                 Stmt *init = stmt->as.for_loop.initializer;
-                int32_t init_val = (int32_t)init->as.let.value->as.number.int_value;
+                Expr *init_expr = init->as.let.value;
                 char *safe_name = codegen_sanitize_ident(counter_name);
 
                 // Declare native counter
-                codegen_writeln(ctx, "int32_t %s = %d;", safe_name, init_val);
+                if (init_expr && init_expr->type == EXPR_NUMBER &&
+                    !init_expr->as.number.is_float && !init_expr->as.number.is_u64) {
+                    // Constant integer initializer - fully optimized
+                    int32_t init_val = (int32_t)init_expr->as.number.int_value;
+                    codegen_writeln(ctx, "int32_t %s = %d;", safe_name, init_val);
+                } else {
+                    // Dynamic initializer (e.g. `count - 1`) - evaluate at runtime.
+                    // This path is reachable when a stale unboxable mark from an
+                    // earlier same-named loop counter causes the optimized path
+                    // to be selected even though analyze_for_loop declined to
+                    // mark this loop's counter.
+                    char *init_val_str = init_expr ? codegen_expr(ctx, init_expr) : NULL;
+                    if (init_val_str) {
+                        codegen_writeln(ctx, "int32_t %s = hml_to_i32(%s);", safe_name, init_val_str);
+                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", init_val_str);
+                        free(init_val_str);
+                    } else {
+                        codegen_writeln(ctx, "int32_t %s = 0;", safe_name);
+                    }
+                }
                 codegen_add_local(ctx, counter_name);
                 codegen_mark_local_no_cleanup(ctx, counter_name);
                 if (ctx->current_scope) {
