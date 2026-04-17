@@ -706,7 +706,10 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
             if (arr->length == 0) {
                 return val_null();
             }
-            return arr->elements[0];
+            // Retain: array still owns the element; caller takes its own reference
+            Value first = arr->elements[0];
+            VALUE_RETAIN(first);
+            return first;
         }
         break;
 
@@ -769,15 +772,21 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
                 return val_string("");
             }
 
-            // Calculate total size needed
+            // Convert each element to string via value_to_string, which handles
+            // every value type (including i64/u64, objects, arrays, nested).
+            char **parts = malloc(sizeof(char*) * arr->length);
+            size_t *part_lens = malloc(sizeof(size_t) * arr->length);
+            if (!parts || !part_lens) {
+                free(parts);
+                free(part_lens);
+                return throw_runtime_error(ctx, "Memory allocation failed in join()");
+            }
+
             size_t total_len = 0;
             for (int i = 0; i < arr->length; i++) {
-                if (arr->elements[i].type == VAL_STRING) {
-                    total_len += arr->elements[i].as.as_string->length;
-                } else {
-                    // For non-strings, estimate size (we'll use sprintf later)
-                    total_len += 32;  // Generous estimate for numbers
-                }
+                parts[i] = value_to_string(arr->elements[i]);
+                part_lens[i] = parts[i] ? strlen(parts[i]) : 0;
+                total_len += part_lens[i];
                 if (i < arr->length - 1) {
                     total_len += delim->length;
                 }
@@ -785,67 +794,25 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
 
             char *result = malloc(total_len + 1);
             if (!result) {
+                for (int i = 0; i < arr->length; i++) free(parts[i]);
+                free(parts);
+                free(part_lens);
                 return throw_runtime_error(ctx, "Memory allocation failed in join()");
             }
+
             size_t pos = 0;
-
             for (int i = 0; i < arr->length; i++) {
-                // Convert element to string
-                size_t remaining = total_len + 1 - pos;
-
-                if (arr->elements[i].type == VAL_STRING) {
-                    String *s = arr->elements[i].as.as_string;
-                    memcpy(result + pos, s->data, s->length);
-                    pos += s->length;
-                } else if (arr->elements[i].type == VAL_I8) {
-                    int written = snprintf(result + pos, remaining, "%d", arr->elements[i].as.as_i8);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_I16) {
-                    int written = snprintf(result + pos, remaining, "%d", arr->elements[i].as.as_i16);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_I32) {
-                    int written = snprintf(result + pos, remaining, "%d", arr->elements[i].as.as_i32);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_U8) {
-                    int written = snprintf(result + pos, remaining, "%u", arr->elements[i].as.as_u8);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_U16) {
-                    int written = snprintf(result + pos, remaining, "%u", arr->elements[i].as.as_u16);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_U32) {
-                    int written = snprintf(result + pos, remaining, "%u", arr->elements[i].as.as_u32);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_F32) {
-                    int written = snprintf(result + pos, remaining, "%g", arr->elements[i].as.as_f32);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_F64) {
-                    int written = snprintf(result + pos, remaining, "%g", arr->elements[i].as.as_f64);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_BOOL) {
-                    const char *s = arr->elements[i].as.as_bool ? "true" : "false";
-                    size_t len = strlen(s);
-                    memcpy(result + pos, s, len);
-                    pos += len;
-                } else if (arr->elements[i].type == VAL_RUNE) {
-                    char rune_buf[4];
-                    int rune_len = utf8_encode(arr->elements[i].as.as_rune, rune_buf);
-                    memcpy(result + pos, rune_buf, rune_len);
-                    pos += rune_len;
-                } else if (arr->elements[i].type == VAL_NULL) {
-                    memcpy(result + pos, "null", 4);
-                    pos += 4;
-                } else {
-                    memcpy(result + pos, "[object]", 8);
-                    pos += 8;
-                }
-
-                // Add delimiter between elements
+                memcpy(result + pos, parts[i], part_lens[i]);
+                pos += part_lens[i];
+                free(parts[i]);
                 if (i < arr->length - 1) {
                     memcpy(result + pos, delim->data, delim->length);
                     pos += delim->length;
                 }
             }
             result[pos] = '\0';
+            free(parts);
+            free(part_lens);
 
             return val_string_take(result, pos, total_len + 1);
         }
@@ -872,7 +839,10 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
             if (arr->length == 0) {
                 return val_null();
             }
-            return arr->elements[arr->length - 1];
+            // Retain: array still owns the element; caller takes its own reference
+            Value last = arr->elements[arr->length - 1];
+            VALUE_RETAIN(last);
+            return last;
         }
         break;
 
