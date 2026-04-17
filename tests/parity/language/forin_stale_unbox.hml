@@ -1,0 +1,41 @@
+// Regression: a prior for-loop counter with the same name left an
+// unboxable mark in the type-check context. The subsequent for-in loop
+// still emitted a boxed `HmlValue` for its loop variable, but
+// codegen_expr_ident treated references to it as native C primitives and
+// produced `hml_val_i32(x)` on an HmlValue. The C compile then failed
+// (or, with different prior types, silently miscompiled) whenever the
+// for-in loop variable was passed to a function.
+
+import { sha256 } from "@stdlib/hash";
+
+for (let i = 0; i < 3; i++) {
+    print(i);
+}
+
+let arr = ["hello", "world", "foo"];
+for (i in arr) {
+    print(sha256(i));
+}
+
+// Same pattern with the key variable of an (index, value) for-in
+for (let j = 0; j < 2; j++) {
+    print(j);
+}
+
+let arr2 = ["x", "y"];
+for (j, v in arr2) {
+    print(j);
+    print(v);
+}
+
+// Nested: inner for-counter followed by outer for-in reuse
+fn run() {
+    for (let k = 0; k < 2; k++) {
+        print(k);
+    }
+    let strs = ["alpha", "beta"];
+    for (k in strs) {
+        print(sha256(k));
+    }
+}
+run();

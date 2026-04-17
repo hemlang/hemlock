@@ -793,6 +793,18 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             char *safe_key_var = stmt->as.for_in.key_var ? codegen_sanitize_ident(stmt->as.for_in.key_var) : NULL;
             char *safe_value_var = codegen_sanitize_ident(stmt->as.for_in.value_var);
 
+            // For-in loop variables are always emitted as boxed HmlValue.
+            // Clear any stale unboxable mark left by a prior same-named variable
+            // (e.g. a previous `for (let i = 0; ...)` counter), otherwise
+            // codegen_expr_ident would treat this variable as a native C
+            // primitive and emit hml_val_i32(x) on an HmlValue.
+            if (ctx->type_ctx) {
+                if (stmt->as.for_in.key_var) {
+                    type_check_clear_unboxable(ctx->type_ctx, stmt->as.for_in.key_var);
+                }
+                type_check_clear_unboxable(ctx->type_ctx, stmt->as.for_in.value_var);
+            }
+
             if (stmt->as.for_in.key_var) {
                 codegen_writeln(ctx, "HmlValue %s;", safe_key_var);
                 codegen_add_local(ctx, stmt->as.for_in.key_var);
