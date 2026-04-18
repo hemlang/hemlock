@@ -1,0 +1,18 @@
+// LinkedList parity test - ensures interpreter and compiler dispatch methods identically
+import { LinkedList } from "@stdlib/collections";
+
+let l = LinkedList();
+l.append("a");
+l.append("b");
+l.append("c");
+print(l.to_array().join(","));
+
+l.reverse();
+print(l.to_array().join(","));
+
+l.prepend("z");
+print(l.to_array().join(","));
+
+print(l.size);
+print(l.contains("b"));
+print(l.index_of("a"));
