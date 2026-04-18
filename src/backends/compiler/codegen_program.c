@@ -1278,12 +1278,14 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         codegen_write(ctx, "#define __HEMLOCK_WASM__ 1\n");
         codegen_write(ctx, "#include \"hemlock_runtime.h\"\n");
         codegen_write(ctx, "#include <setjmp.h>\n");
+        codegen_write(ctx, "#include <string.h>\n");
         codegen_write(ctx, "#include <emscripten.h>\n\n");
         // Signal constants still needed for enum values, but signals are stubbed
         codegen_write(ctx, "// Signal constants (stubbed in WASM)\n");
     } else {
         codegen_write(ctx, "#include \"hemlock_runtime.h\"\n");
         codegen_write(ctx, "#include <setjmp.h>\n");
+        codegen_write(ctx, "#include <string.h>\n");
         codegen_write(ctx, "#include <signal.h>\n");
         codegen_write(ctx, "#include <sys/socket.h>\n");
         codegen_write(ctx, "#include <sys/un.h>\n");

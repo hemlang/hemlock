@@ -67,6 +67,13 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
         case PATTERN_BINDING: {
             // Bind the value to a local variable
             // Use the actual variable name so identifier lookup works
+            // Clear any stale unboxable mark left by a prior same-named variable
+            // (e.g. a previous `for (let name = 0; ...)` counter), otherwise
+            // codegen_expr_ident would treat this binding as a native C
+            // primitive and emit hml_val_i32(x) on an HmlValue.
+            if (ctx->type_ctx) {
+                type_check_clear_unboxable(ctx->type_ctx, pattern->as.binding.name);
+            }
             codegen_add_local(ctx, pattern->as.binding.name);
             if (ctx->current_scope) {
                 scope_add_var(ctx->current_scope, pattern->as.binding.name);
@@ -90,6 +97,11 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
             }
             // Bind if name is provided
             if (pattern->as.typed.name) {
+                // Clear stale unboxable mark so codegen_expr_ident doesn't
+                // treat this HmlValue binding as a native C primitive.
+                if (ctx->type_ctx) {
+                    type_check_clear_unboxable(ctx->type_ctx, pattern->as.typed.name);
+                }
                 codegen_add_local(ctx, pattern->as.typed.name);
                 if (ctx->current_scope) {
                     scope_add_var(ctx->current_scope, pattern->as.typed.name);
@@ -150,6 +162,11 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
                     codegen_pattern_match(ctx, field->pattern, field_val, fail_label);
                 } else {
                     // Shorthand: bind field value to field name
+                    // Clear stale unboxable mark so codegen_expr_ident doesn't
+                    // treat this HmlValue binding as a native C primitive.
+                    if (ctx->type_ctx) {
+                        type_check_clear_unboxable(ctx->type_ctx, field->name);
+                    }
                     codegen_add_local(ctx, field->name);
                     if (ctx->current_scope) {
                         scope_add_var(ctx->current_scope, field->name);
@@ -164,6 +181,11 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
             // Handle rest pattern if present
             if (pattern->as.object.has_rest && pattern->as.object.rest_name) {
                 const char *rest_name = pattern->as.object.rest_name;
+                // Clear stale unboxable mark so codegen_expr_ident doesn't
+                // treat this HmlValue binding as a native C primitive.
+                if (ctx->type_ctx) {
+                    type_check_clear_unboxable(ctx->type_ctx, rest_name);
+                }
                 codegen_add_local(ctx, rest_name);
                 if (ctx->current_scope) {
                     scope_add_var(ctx->current_scope, rest_name);
@@ -241,6 +263,11 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
             if (rest_index >= 0) {
                 ArrayElementPattern *rest_pat = &pattern->as.array.elements[rest_index];
                 const char *rest_name = rest_pat->rest_name;
+                // Clear stale unboxable mark so codegen_expr_ident doesn't
+                // treat this HmlValue binding as a native C primitive.
+                if (ctx->type_ctx) {
+                    type_check_clear_unboxable(ctx->type_ctx, rest_name);
+                }
                 codegen_add_local(ctx, rest_name);
                 if (ctx->current_scope) {
                     scope_add_var(ctx->current_scope, rest_name);
