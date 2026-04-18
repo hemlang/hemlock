@@ -38,6 +38,18 @@ static const char* type_kind_to_hml_type_enum(TypeKind kind) {
     }
 }
 
+// Clear any stale unboxable mark for a name that a match-pattern is about
+// to bind as a boxed HmlValue. Without this, a prior same-named unboxable
+// binding (e.g. `for (let n = 0; ...)`) leaves a mark in the type-check
+// context, and codegen_expr_ident emits `hml_val_i32(n)` on an HmlValue —
+// producing a C compile error, or silent miscompilation when the prior
+// native type happens to match.
+static void clear_unbox_for_pattern_bind(CodegenContext *ctx, const char *name) {
+    if (ctx && ctx->type_ctx && name) {
+        type_check_clear_unboxable(ctx->type_ctx, name);
+    }
+}
+
 // Generate code to match a pattern against a value
 void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *scrutinee, const char *fail_label) {
     if (!pattern) {
@@ -67,6 +79,7 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
         case PATTERN_BINDING: {
             // Bind the value to a local variable
             // Use the actual variable name so identifier lookup works
+            clear_unbox_for_pattern_bind(ctx, pattern->as.binding.name);
             codegen_add_local(ctx, pattern->as.binding.name);
             if (ctx->current_scope) {
                 scope_add_var(ctx->current_scope, pattern->as.binding.name);
@@ -90,6 +103,7 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
             }
             // Bind if name is provided
             if (pattern->as.typed.name) {
+                clear_unbox_for_pattern_bind(ctx, pattern->as.typed.name);
                 codegen_add_local(ctx, pattern->as.typed.name);
                 if (ctx->current_scope) {
                     scope_add_var(ctx->current_scope, pattern->as.typed.name);
@@ -150,6 +164,7 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
                     codegen_pattern_match(ctx, field->pattern, field_val, fail_label);
                 } else {
                     // Shorthand: bind field value to field name
+                    clear_unbox_for_pattern_bind(ctx, field->name);
                     codegen_add_local(ctx, field->name);
                     if (ctx->current_scope) {
                         scope_add_var(ctx->current_scope, field->name);
@@ -164,6 +179,7 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
             // Handle rest pattern if present
             if (pattern->as.object.has_rest && pattern->as.object.rest_name) {
                 const char *rest_name = pattern->as.object.rest_name;
+                clear_unbox_for_pattern_bind(ctx, rest_name);
                 codegen_add_local(ctx, rest_name);
                 if (ctx->current_scope) {
                     scope_add_var(ctx->current_scope, rest_name);
@@ -241,6 +257,7 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
             if (rest_index >= 0) {
                 ArrayElementPattern *rest_pat = &pattern->as.array.elements[rest_index];
                 const char *rest_name = rest_pat->rest_name;
+                clear_unbox_for_pattern_bind(ctx, rest_name);
                 codegen_add_local(ctx, rest_name);
                 if (ctx->current_scope) {
                     scope_add_var(ctx->current_scope, rest_name);

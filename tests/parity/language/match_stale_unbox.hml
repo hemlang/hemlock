@@ -1,0 +1,57 @@
+// Regression: a prior same-named binding marked as unboxable in the
+// type-check context (e.g. a previous `for (let i = 0; ...)` counter or
+// inferred `let i = 0;`) left a stale unboxable mark. The subsequent
+// match-pattern binding declared the variable as a boxed `HmlValue`, but
+// codegen_expr_ident still treated references to it as a native C
+// primitive and emitted `hml_val_i32(x)` on an HmlValue — failing C
+// compilation, or (with a matching prior native type) silently
+// miscompiling.
+//
+// Covers simple binding, typed binding, object destructuring with
+// shorthand and rest, and array destructuring with rest.
+
+for (let i = 0; i < 3; i++) {
+    print(i);
+}
+
+let simple = match (42) {
+    i => i + 1
+};
+print(simple);
+
+for (let n = 0; n < 2; n++) {
+    print(n);
+}
+
+let typed = match (100) {
+    n: i32 => n * 2,
+    _ => 0
+};
+print(typed);
+
+for (let x = 0; x < 2; x++) {
+    print(x);
+}
+for (let y = 0; y < 2; y++) {
+    print(y);
+}
+
+let p = { x: 10, y: 20, z: 30 };
+let obj = match (p) {
+    { x, y, ...rest } => x + y + rest.z
+};
+print(obj);
+
+for (let a = 0; a < 2; a++) {
+    print(a);
+}
+for (let b = 0; b < 2; b++) {
+    print(b);
+}
+
+let arr = [10, 20, 30, 40, 50];
+let got = match (arr) {
+    [a, b, ...tail] => a + b + tail.length,
+    _ => 0
+};
+print(got);
