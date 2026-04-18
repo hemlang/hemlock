@@ -189,23 +189,6 @@ static int is_likely_string_expr(Expr *expr) {
     return expr->type == EXPR_STRING;
 }
 
-// OPTIMIZATION: Check if a value is a power of 2 and return the exponent
-// Returns -1 if not a power of 2, otherwise returns the exponent (0-63)
-// Proof: A positive integer n is a power of 2 iff (n & (n-1)) == 0
-// Example: 8 = 0b1000, 8-1 = 0b0111, 8 & 7 = 0 → power of 2
-static int get_power_of_2_exponent(int64_t value) {
-    if (value <= 0) return -1;
-    if ((value & (value - 1)) != 0) return -1;  // Not a power of 2
-
-    // Count trailing zeros to get exponent
-    int exp = 0;
-    while ((value & 1) == 0) {
-        value >>= 1;
-        exp++;
-    }
-    return exp;
-}
-
 // OPTIMIZATION: Check if an expression is a compile-time integer constant
 // Returns 1 if constant, 0 otherwise. Sets *value to the constant value.
 static int is_const_integer(Expr *expr, int64_t *value) {
@@ -223,6 +206,53 @@ static int is_const_integer(Expr *expr, int64_t *value) {
         }
     }
     return 0;
+}
+
+// Helper: safely evaluate int64 binary arithmetic for constant folding.
+// Returns 1 on success, 0 if the operation would overflow.
+static int fold_int64_arith(BinaryOp op, int64_t left, int64_t right, int64_t *out) {
+    switch (op) {
+        case OP_ADD:
+#if defined(__GNUC__) || defined(__clang__)
+            return !__builtin_add_overflow(left, right, out);
+#else
+            if ((right > 0 && left > INT64_MAX - right) ||
+                (right < 0 && left < INT64_MIN - right)) {
+                return 0;
+            }
+            *out = left + right;
+            return 1;
+#endif
+        case OP_SUB:
+#if defined(__GNUC__) || defined(__clang__)
+            return !__builtin_sub_overflow(left, right, out);
+#else
+            if ((right < 0 && left > INT64_MAX + right) ||
+                (right > 0 && left < INT64_MIN + right)) {
+                return 0;
+            }
+            *out = left - right;
+            return 1;
+#endif
+        case OP_MUL:
+#if defined(__GNUC__) || defined(__clang__)
+            return !__builtin_mul_overflow(left, right, out);
+#else
+            if (left == 0 || right == 0) {
+                *out = 0;
+                return 1;
+            }
+            if (left == INT64_MIN && right == -1) return 0;
+            if (right == INT64_MIN && left == -1) return 0;
+            int64_t abs_left = left < 0 ? -left : left;
+            int64_t abs_right = right < 0 ? -right : right;
+            if (abs_left > INT64_MAX / abs_right) return 0;
+            *out = left * right;
+            return 1;
+#endif
+        default:
+            return 0;
+    }
 }
 
 // Helper: Check if a variable is captured by the current closure
@@ -737,9 +767,11 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
                 }
 
                 switch (expr->as.binary.op) {
-                    case OP_ADD: const_result = l + r; break;
-                    case OP_SUB: const_result = l - r; break;
-                    case OP_MUL: const_result = l * r; break;
+                    case OP_ADD:
+                    case OP_SUB:
+                    case OP_MUL:
+                        can_fold = fold_int64_arith(expr->as.binary.op, l, r, &const_result);
+                        break;
                     case OP_DIV: can_fold = 0; break;  // Handled above
                     case OP_MOD:
                         if (r != 0) { const_result = l % r; } else { can_fold = 0; }
@@ -783,7 +815,6 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
             // - x + 0 = x, 0 + x = x (additive identity)
             // - x - 0 = x (subtraction identity)
             // - x * 1 = x, 1 * x = x (multiplicative identity)
-            // - x * 0 = 0, 0 * x = 0 (zero multiplication)
             // - x | 0 = x, 0 | x = x (bitwise OR identity)
             // - x ^ 0 = x, 0 ^ x = x (XOR identity)
             // - x << 0 -> x (shifting by 0 does nothing)
@@ -817,7 +848,6 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
                 }
 
                 // x * 1 or 1 * x -> x
-                // x * 0 or 0 * x -> 0
                 if (expr->as.binary.op == OP_MUL) {
                     if (is_const_integer(expr->as.binary.right, &const_val)) {
                         if (const_val == 1) {
@@ -826,20 +856,12 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
                             free(left_val);
                             return result;
                         }
-                        if (const_val == 0) {
-                            codegen_writeln(ctx, "HmlValue %s = hml_val_i32(0);", result);
-                            return result;
-                        }
                     }
                     if (is_const_integer(expr->as.binary.left, &const_val)) {
                         if (const_val == 1) {
                             char *right_val = codegen_expr(ctx, expr->as.binary.right);
                             codegen_writeln(ctx, "HmlValue %s = %s;", result, right_val);
                             free(right_val);
-                            return result;
-                        }
-                        if (const_val == 0) {
-                            codegen_writeln(ctx, "HmlValue %s = hml_val_i32(0);", result);
                             return result;
                         }
                     }
@@ -885,65 +907,6 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
                         free(left_val);
                         return result;
                     }
-                }
-            }
-
-            // OPTIMIZATION: Strength reduction for power-of-2 operations
-            // These optimizations are mathematically proven:
-            // - x * 2^n = x << n (left shift by n bits)
-            // - x / 2^n = x >> n (right shift for positive integers)
-            // - x % 2^n = x & (2^n - 1) (bitwise AND with mask)
-            // NOTE: Only apply when BOTH operands are constant integers to avoid
-            // applying integer operations to float variables.
-            if (ctx->optimize) {
-                int64_t const_val, const_val2;
-                int power;
-
-                // Check for (int const) * (power of 2) or (power of 2) * (int const)
-                // Only apply when both are known to be integers at compile time
-                if (expr->as.binary.op == OP_MUL) {
-                    if (is_const_integer(expr->as.binary.left, &const_val2) &&
-                        is_const_integer(expr->as.binary.right, &const_val) &&
-                        (power = get_power_of_2_exponent(const_val)) >= 0) {
-                        // const * 2^n -> const << n
-                        char *left_val = codegen_expr(ctx, expr->as.binary.left);
-                        // Use runtime shift (type-agnostic)
-                        codegen_writeln(ctx, "HmlValue %s = hml_i32_lshift(%s, hml_val_i32(%d));",
-                                      result, left_val, power);
-                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", left_val);
-                        free(left_val);
-                        return result;
-                    }
-                    if (is_const_integer(expr->as.binary.left, &const_val) &&
-                        is_const_integer(expr->as.binary.right, &const_val2) &&
-                        (power = get_power_of_2_exponent(const_val)) >= 0) {
-                        // 2^n * const -> const << n
-                        char *right_val = codegen_expr(ctx, expr->as.binary.right);
-                        // Use runtime shift (type-agnostic)
-                        codegen_writeln(ctx, "HmlValue %s = hml_i32_lshift(%s, hml_val_i32(%d));",
-                                      result, right_val, power);
-                        codegen_writeln(ctx, "hml_release_if_needed(&%s);", right_val);
-                        free(right_val);
-                        return result;
-                    }
-                }
-
-                // Check for (int const) % (power of 2)
-                // Proof: For any n = 2^k, x % n = x & (n-1)
-                // Example: x % 8 = x & 7 (keeps only the lower 3 bits)
-                // Only apply when left operand is known to be an integer
-                if (expr->as.binary.op == OP_MOD &&
-                    is_const_integer(expr->as.binary.left, &const_val2) &&
-                    is_const_integer(expr->as.binary.right, &const_val) &&
-                    get_power_of_2_exponent(const_val) >= 0) {
-                    int64_t mask = const_val - 1;
-                    char *left_val = codegen_expr(ctx, expr->as.binary.left);
-                    // Use runtime bit-and (type-agnostic)
-                    codegen_writeln(ctx, "HmlValue %s = hml_i32_bit_and(%s, hml_val_i32(%d));",
-                                  result, left_val, (int32_t)mask);
-                    codegen_writeln(ctx, "hml_release_if_needed(&%s);", left_val);
-                    free(left_val);
-                    return result;
                 }
             }
 
