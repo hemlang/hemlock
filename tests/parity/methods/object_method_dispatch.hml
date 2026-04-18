@@ -1,0 +1,89 @@
+// Object-method dispatch parity test
+// Verifies the compiler routes user-defined methods that share names with
+// array builtins (join, concat, first, last, map, filter, reduce, every, some,
+// indexOf, lastIndexOf, findIndex, flat, sort, reserve, fill) to the user
+// method rather than the array builtin, matching interpreter behavior.
+
+define Custom {
+    tag: string,
+    fn join(sep: string): string,
+    fn concat(other: string): string,
+    fn first(): string,
+    fn last(): string,
+    fn map(f: string): string,
+    fn filter(pred: string): string,
+    fn reduce(f: string, init: i32): i32,
+    fn every(pred: string): bool,
+    fn some(pred: string): bool,
+    fn indexOf(needle: string): i32,
+    fn lastIndexOf(needle: string): i32,
+    fn findIndex(pred: string): i32,
+    fn flat(): string,
+    fn sort(): string,
+    fn reserve(n: i32): string,
+    fn fill(value: string): string
+}
+
+let c: Custom = {
+    tag: "obj",
+    join: fn(sep: string): string { return self.tag + sep + "joined"; },
+    concat: fn(other: string): string { return self.tag + "-concat-" + other; },
+    first: fn(): string { return self.tag + "-first"; },
+    last: fn(): string { return self.tag + "-last"; },
+    map: fn(f: string): string { return self.tag + "-map-" + f; },
+    filter: fn(pred: string): string { return self.tag + "-filter-" + pred; },
+    reduce: fn(f: string, init: i32): i32 { return init + 100; },
+    every: fn(pred: string): bool { return true; },
+    some: fn(pred: string): bool { return false; },
+    indexOf: fn(needle: string): i32 { return 42; },
+    lastIndexOf: fn(needle: string): i32 { return 43; },
+    findIndex: fn(pred: string): i32 { return 44; },
+    flat: fn(): string { return self.tag + "-flat"; },
+    sort: fn(): string { return self.tag + "-sort"; },
+    reserve: fn(n: i32): string { return self.tag + "-reserve-" + n; },
+    fill: fn(value: string): string { return self.tag + "-fill-" + value; }
+};
+
+// Value-returning queries
+print(c.join(","));
+print(c.concat("x"));
+print(c.first());
+print(c.last());
+print(c.map("fn"));
+print(c.filter("pred"));
+print(c.reduce("fn", 5));
+print(c.every("pred"));
+print(c.some("pred"));
+print(c.indexOf("x"));
+print(c.lastIndexOf("x"));
+print(c.findIndex("pred"));
+print(c.flat());
+
+// Methods that return null on arrays (sort/reserve/fill) - user versions return strings
+print(c.sort());
+print(c.reserve(10));
+print(c.fill("v"));
+
+// Sanity: real arrays still work correctly
+let arr = [3, 1, 2];
+arr.sort();
+print(arr.join("-"));
+print(arr.first());
+print(arr.last());
+print(arr.indexOf(2));
+print(arr.findIndex(fn(x) { return x == 3; }));
+print(arr.map(fn(x) { return x * 2; }).join(","));
+print(arr.filter(fn(x) { return x > 1; }).join(","));
+print(arr.reduce(fn(acc, x) { return acc + x; }, 0));
+print(arr.every(fn(x) { return x > 0; }));
+print(arr.some(fn(x) { return x > 2; }));
+print([[1, 2], [3]].flat().join(","));
+let filled = [0, 0, 0];
+filled.fill(7);
+print(filled.join(","));
+let reserved: array = [];
+reserved.reserve(4);
+reserved.push(1);
+print(reserved.length);
+print([1, 2, 3].concat([4, 5]).join(","));
+print([9, 8, 7].lastIndexOf(9));

@@ -56,8 +56,7 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
                           result, obj_val, arg_temps[0], arg_temps[1]);
             codegen_writeln(ctx, "}");
         }
-    } else if ((strcmp(method, "find") == 0 || strcmp(method, "indexOf") == 0)
-               && num_args == 1) {
+    } else if (strcmp(method, "find") == 0 && num_args == 1) {
         codegen_writeln(ctx, "HmlValue %s;", result);
         codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
         codegen_writeln(ctx, "    %s = hml_string_find(%s, %s);",
@@ -220,11 +219,29 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         codegen_writeln(ctx, "}");
     // Note: find, contains, slice are handled above with runtime type checks
     } else if (strcmp(method, "join") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_join(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_join(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _join_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"join\", _join_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "concat") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_concat(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_concat(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _concat_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"concat\", _concat_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "reverse") == 0 && num_args == 0) {
         codegen_writeln(ctx, "HmlValue %s;", result);
         codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
@@ -238,9 +255,27 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         codegen_indent_dec(ctx);
         codegen_writeln(ctx, "}");
     } else if (strcmp(method, "first") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_first(%s);", result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_first(%s);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"first\", NULL, 0);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "last") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_last(%s);", result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_last(%s);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"last\", NULL, 0);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "clear") == 0 && num_args == 0) {
         codegen_writeln(ctx, "HmlValue %s;", result);
         codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
@@ -298,48 +333,162 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         codegen_writeln(ctx, "}");
         codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
     } else if (strcmp(method, "map") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_map(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_map(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _map_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"map\", _map_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "filter") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_filter(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_filter(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _filter_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"filter\", _filter_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "reduce") == 0 && (num_args == 1 || num_args == 2)) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
         if (num_args == 2) {
-            codegen_writeln(ctx, "HmlValue %s = hml_array_reduce(%s, %s, %s);",
+            codegen_writeln(ctx, "%s = hml_array_reduce(%s, %s, %s);",
                           result, obj_val, arg_temps[0], arg_temps[1]);
         } else {
             // No initial value - use first element
-            codegen_writeln(ctx, "HmlValue %s = hml_array_reduce(%s, %s, hml_val_null());",
+            codegen_writeln(ctx, "%s = hml_array_reduce(%s, %s, hml_val_null());",
                           result, obj_val, arg_temps[0]);
         }
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        if (num_args == 2) {
+            codegen_writeln(ctx, "HmlValue _reduce_args[2] = {%s, %s};", arg_temps[0], arg_temps[1]);
+            codegen_writeln(ctx, "%s = hml_call_method(%s, \"reduce\", _reduce_args, 2);", result, obj_val);
+        } else {
+            codegen_writeln(ctx, "HmlValue _reduce_args[1] = {%s};", arg_temps[0]);
+            codegen_writeln(ctx, "%s = hml_call_method(%s, \"reduce\", _reduce_args, 1);", result, obj_val);
+        }
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "every") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_every(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_every(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _every_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"every\", _every_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "some") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_some(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_some(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _some_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"some\", _some_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "indexOf") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_index_of(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_index_of(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _indexOf_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"indexOf\", _indexOf_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "lastIndexOf") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_last_index_of(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_last_index_of(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _lastIndexOf_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"lastIndexOf\", _lastIndexOf_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "findIndex") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_find_index(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_find_index(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _findIndex_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"findIndex\", _findIndex_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "flat") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_flat(%s);", result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_flat(%s);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"flat\", NULL, 0);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "sort") == 0 && (num_args == 0 || num_args == 1)) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
         if (num_args == 1) {
             codegen_writeln(ctx, "hml_array_sort(%s, %s);", obj_val, arg_temps[0]);
         } else {
             codegen_writeln(ctx, "hml_array_sort(%s, hml_val_null());", obj_val);
         }
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "%s = hml_val_null();", result);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        if (num_args == 1) {
+            codegen_writeln(ctx, "HmlValue _sort_args[1] = {%s};", arg_temps[0]);
+            codegen_writeln(ctx, "%s = hml_call_method(%s, \"sort\", _sort_args, 1);", result, obj_val);
+        } else {
+            codegen_writeln(ctx, "%s = hml_call_method(%s, \"sort\", NULL, 0);", result, obj_val);
+        }
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "reserve") == 0 && num_args == 1) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
         codegen_writeln(ctx, "hml_array_reserve(%s, %s);", obj_val, arg_temps[0]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "%s = hml_val_null();", result);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _reserve_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"reserve\", _reserve_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "fill") == 0 && (num_args >= 1 && num_args <= 3)) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
         if (num_args == 3) {
             codegen_writeln(ctx, "hml_array_fill(%s, %s, %s, %s);",
                           obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
@@ -350,7 +499,24 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
             codegen_writeln(ctx, "hml_array_fill(%s, %s, hml_val_null(), hml_val_null());",
                           obj_val, arg_temps[0]);
         }
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "%s = hml_val_null();", result);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        if (num_args == 3) {
+            codegen_writeln(ctx, "HmlValue _fill_args[3] = {%s, %s, %s};",
+                          arg_temps[0], arg_temps[1], arg_temps[2]);
+            codegen_writeln(ctx, "%s = hml_call_method(%s, \"fill\", _fill_args, 3);", result, obj_val);
+        } else if (num_args == 2) {
+            codegen_writeln(ctx, "HmlValue _fill_args[2] = {%s, %s};",
+                          arg_temps[0], arg_temps[1]);
+            codegen_writeln(ctx, "%s = hml_call_method(%s, \"fill\", _fill_args, 2);", result, obj_val);
+        } else {
+            codegen_writeln(ctx, "HmlValue _fill_args[1] = {%s};", arg_temps[0]);
+            codegen_writeln(ctx, "%s = hml_call_method(%s, \"fill\", _fill_args, 1);", result, obj_val);
+        }
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     // Channel methods (also handle socket variants)
     } else if (strcmp(method, "send") == 0 && num_args == 1) {
         // Channel send, socket send, or generic object send
