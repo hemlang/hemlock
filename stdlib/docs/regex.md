@@ -13,6 +13,8 @@ The regex module provides pattern matching functionality through POSIX Extended 
 - One-shot convenience functions
 - Manual memory management (explicit free required)
 
+> **Note on flags:** Every function in this module that accepts a `flags` argument (`compile`, `test`, `matches`, `find`, `replace`, `replace_all`) requires it to be passed explicitly. Pass `null` to select the default (`REG_EXTENDED`), or a bitwise OR of the `REG_*` constants. Omitting the argument is not supported in all call contexts — always pass `null` when you want the default behavior.
+
 ## Usage
 
 ```hemlock
@@ -23,7 +25,7 @@ Or import all:
 
 ```hemlock
 import * as regex from "@stdlib/regex";
-let pattern = regex.compile("hello.*world");
+let pattern = regex.compile("hello.*world", null);
 ```
 
 ---
@@ -35,8 +37,8 @@ let pattern = regex.compile("hello.*world");
 ```hemlock
 import { test } from "@stdlib/regex";
 
-// Test if string matches pattern
-if (test("^hello", "hello world")) {
+// Test if string matches pattern (pass null for default REG_EXTENDED flags)
+if (test("^hello", "hello world", null)) {
     print("Match found!");
 }
 
@@ -52,8 +54,8 @@ if (test("HELLO", "hello world", REG_ICASE)) {
 ```hemlock
 import { compile } from "@stdlib/regex";
 
-// Compile pattern once
-let email_pattern = compile("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+// Compile pattern once (pass null for default REG_EXTENDED flags)
+let email_pattern = compile("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", null);
 
 // Reuse for multiple tests
 print(email_pattern.test("user@example.com"));    // true
@@ -70,13 +72,13 @@ email_pattern.free();
 
 ### Functions
 
-#### `compile(pattern, flags?)`
+#### `compile(pattern, flags)`
 
 Compile a regex pattern into a reusable regex object.
 
 **Parameters:**
 - `pattern: string` - The regex pattern to compile
-- `flags?: i32` - Optional compilation flags (default: `REG_EXTENDED`)
+- `flags: i32 | null` - Compilation flags. Pass `null` to use the default (`REG_EXTENDED`), or a bitwise OR of the `REG_*` constants. The argument is **required** and must be passed explicitly (an integer value or `null`).
 
 **Returns:** Regex object with methods `test()`, `matches()`, `find()`, `free()`
 
@@ -86,8 +88,8 @@ Compile a regex pattern into a reusable regex object.
 ```hemlock
 import { compile, REG_EXTENDED, REG_ICASE } from "@stdlib/regex";
 
-// Basic pattern
-let pattern = compile("^hello");
+// Basic pattern (null selects the default REG_EXTENDED)
+let pattern = compile("^hello", null);
 
 // Case-insensitive pattern
 let pattern2 = compile("WORLD", REG_EXTENDED | REG_ICASE);
@@ -99,14 +101,14 @@ pattern2.free();
 
 ---
 
-#### `test(pattern, text, flags?)`
+#### `test(pattern, text, flags)`
 
 Test if text matches pattern (one-shot, compiles and frees automatically).
 
 **Parameters:**
 - `pattern: string` - The regex pattern
 - `text: string` - The text to test
-- `flags?: i32` - Optional compilation flags
+- `flags: i32 | null` - Compilation flags. Pass `null` for the default (`REG_EXTENDED`) or a bitwise OR of `REG_*` constants. The argument must be passed explicitly.
 
 **Returns:** `bool` - True if text matches pattern
 
@@ -114,43 +116,43 @@ Test if text matches pattern (one-shot, compiles and frees automatically).
 ```hemlock
 import { test } from "@stdlib/regex";
 
-if (test("^[0-9]+$", "12345")) {
+if (test("^[0-9]+$", "12345", null)) {
     print("String contains only digits");
 }
 ```
 
 ---
 
-#### `matches(pattern, text, flags?)`
+#### `matches(pattern, text, flags)`
 
-Alias for `test()`. Tests if text matches pattern.
+Alias for `test()`. Tests if text matches pattern. The `flags` argument must be passed explicitly (pass `null` for default `REG_EXTENDED`).
 
 **Example:**
 ```hemlock
 import { matches } from "@stdlib/regex";
 
-let is_valid = matches("^[A-Z][a-z]+$", "Hello");
+let is_valid = matches("^[A-Z][a-z]+$", "Hello", null);
 print(is_valid);  // true
 ```
 
 ---
 
-#### `find(pattern, text, flags?)`
+#### `find(pattern, text, flags)`
 
-Alias for `test()`. Finds if pattern exists in text.
+Alias for `test()`. Finds if pattern exists in text. The `flags` argument must be passed explicitly (pass `null` for default `REG_EXTENDED`).
 
 **Example:**
 ```hemlock
 import { find } from "@stdlib/regex";
 
-if (find("error", "This is an error message")) {
+if (find("error", "This is an error message", null)) {
     print("Found error in message");
 }
 ```
 
 ---
 
-#### `replace(pattern, text, replacement, flags?)`
+#### `replace(pattern, text, replacement, flags)`
 
 Replace the first match of pattern in text (one-shot, compiles and frees automatically).
 
@@ -158,7 +160,7 @@ Replace the first match of pattern in text (one-shot, compiles and frees automat
 - `pattern: string` - The regex pattern
 - `text: string` - The text to search
 - `replacement: string` - The replacement string
-- `flags?: i32` - Optional compilation flags
+- `flags: i32 | null` - Compilation flags. Pass `null` for default (`REG_EXTENDED`). Must be passed explicitly.
 
 **Returns:** `string` - Text with first match replaced
 
@@ -172,7 +174,7 @@ print(result);  // "abc NUM def 456"
 
 ---
 
-#### `replace_all(pattern, text, replacement, flags?)`
+#### `replace_all(pattern, text, replacement, flags)`
 
 Replace all matches of pattern in text (one-shot, compiles and frees automatically).
 
@@ -180,7 +182,7 @@ Replace all matches of pattern in text (one-shot, compiles and frees automatical
 - `pattern: string` - The regex pattern
 - `text: string` - The text to search
 - `replacement: string` - The replacement string
-- `flags?: i32` - Optional compilation flags
+- `flags: i32 | null` - Compilation flags. Pass `null` for default (`REG_EXTENDED`). Must be passed explicitly.
 
 **Returns:** `string` - Text with all matches replaced
 
@@ -232,7 +234,7 @@ Test if text matches the compiled pattern.
 
 **Example:**
 ```hemlock
-let pattern = compile("^[a-z]+$");
+let pattern = compile("^[a-z]+$", null);
 print(pattern.test("hello"));   // true
 print(pattern.test("Hello"));   // false (capital H)
 print(pattern.test("hello123")); // false (has digits)
@@ -253,20 +255,20 @@ Alias for `regex.test(text)`.
 
 ---
 
-#### `regex.find_all(text, max_matches?)`
+#### `regex.find_all(text, max_matches)`
 
 Find all matches in the text and return an array of match objects.
 
 **Parameters:**
 - `text: string` - The text to search
-- `max_matches: i32` (optional) - Maximum number of matches to return
+- `max_matches: i32 | null` - Maximum number of matches to return. Pass `null` for no limit. Must be passed explicitly.
 
 **Returns:** `array` - Array of match objects with `{ start: i32, end: i32, text: string }`
 
 **Example:**
 ```hemlock
-let pattern = compile("[0-9]+");
-let matches = pattern.find_all("abc 123 def 456 ghi 789");
+let pattern = compile("[0-9]+", null);
+let matches = pattern.find_all("abc 123 def 456 ghi 789", null);
 for (m in matches) {
     print(m.text);  // "123", "456", "789"
 }
@@ -287,7 +289,7 @@ Replace the first match in the text with the replacement string.
 
 **Example:**
 ```hemlock
-let pattern = compile("[0-9]+");
+let pattern = compile("[0-9]+", null);
 let result = pattern.replace("abc 123 def 456", "NUM");
 print(result);  // "abc NUM def 456"
 pattern.free();
@@ -307,7 +309,7 @@ Replace all matches in the text with the replacement string.
 
 **Example:**
 ```hemlock
-let pattern = compile("[0-9]+");
+let pattern = compile("[0-9]+", null);
 let result = pattern.replace_all("abc 123 def 456", "NUM");
 print(result);  // "abc NUM def NUM"
 pattern.free();
@@ -323,7 +325,7 @@ Free the compiled regex. **Must be called manually** to avoid memory leaks.
 
 **Example:**
 ```hemlock
-let pattern = compile("test");
+let pattern = compile("test", null);
 pattern.test("testing");
 pattern.free();  // Required!
 ```
@@ -336,9 +338,9 @@ pattern.free();  // Required!
 
 ### Compilation Flags
 
-Flags for `compile()` and one-shot functions:
+Flags for `compile()` and one-shot functions. The flags argument must always be passed explicitly — pass `null` to select the default (`REG_EXTENDED`), or a bitwise OR of the `REG_*` constants below.
 
-- **`REG_EXTENDED`** (1) - Use extended regex syntax (default)
+- **`REG_EXTENDED`** (1) - Use extended regex syntax (applied when `null` is passed)
 - **`REG_ICASE`** (2) - Case-insensitive matching
 - **`REG_NOSUB`** (4) - Don't report match positions (not used in basic API)
 - **`REG_NEWLINE`** (8) - Treat newline as special character
@@ -422,19 +424,19 @@ Error codes returned by regex functions:
 import { test } from "@stdlib/regex";
 
 // Email validation (simplified)
-test("^[a-zA-Z0-9]+@[a-zA-Z0-9]+\\.[a-z]+$", "user@example.com");  // true
+test("^[a-zA-Z0-9]+@[a-zA-Z0-9]+\\.[a-z]+$", "user@example.com", null);  // true
 
 // Phone number (US format)
-test("^[0-9]{3}-[0-9]{3}-[0-9]{4}$", "555-123-4567");  // true
+test("^[0-9]{3}-[0-9]{3}-[0-9]{4}$", "555-123-4567", null);  // true
 
 // Hexadecimal color code
-test("^#[0-9a-fA-F]{6}$", "#FF5733");  // true
+test("^#[0-9a-fA-F]{6}$", "#FF5733", null);  // true
 
 // URL protocol
-test("^(http|https)://", "https://example.com");  // true
+test("^(http|https)://", "https://example.com", null);  // true
 
 // Whitespace
-test("^[[:space:]]+$", "   \t\n");  // true
+test("^[[:space:]]+$", "   \t\n", null);  // true
 ```
 
 ---
@@ -447,8 +449,8 @@ test("^[[:space:]]+$", "   \t\n");  // true
 import { compile, REG_EXTENDED } from "@stdlib/regex";
 
 fn is_valid_email(email: string): bool {
-    // Simplified email regex
-    let pattern = compile("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    // Simplified email regex (null selects default REG_EXTENDED flags)
+    let pattern = compile("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", null);
     let valid = pattern.test(email);
     pattern.free();
     return valid;
@@ -480,7 +482,7 @@ import { compile } from "@stdlib/regex";
 
 fn validate_phone(phone: string): bool {
     // Match formats: 555-123-4567 or (555) 123-4567
-    let pattern = compile("^(\\([0-9]{3}\\) |[0-9]{3}-)[0-9]{3}-[0-9]{4}$");
+    let pattern = compile("^(\\([0-9]{3}\\) |[0-9]{3}-)[0-9]{3}-[0-9]{4}$", null);
     let valid = pattern.test(phone);
     pattern.free();
     return valid;
@@ -530,11 +532,11 @@ import { test } from "@stdlib/regex";
 
 fn is_strong_password(password: string): bool {
     // At least 8 chars, contains uppercase, lowercase, digit, special char
-    let has_length = test("^.{8,}$", password);
-    let has_upper = test("[A-Z]", password);
-    let has_lower = test("[a-z]", password);
-    let has_digit = test("[0-9]", password);
-    let has_special = test("[[:punct:]]", password);
+    let has_length = test("^.{8,}$", password, null);
+    let has_upper = test("[A-Z]", password, null);
+    let has_lower = test("[a-z]", password, null);
+    let has_digit = test("[0-9]", password, null);
+    let has_special = test("[[:punct:]]", password, null);
 
     return has_length && has_upper && has_lower && has_digit && has_special;
 }
@@ -553,7 +555,7 @@ print(is_strong_password("NoSpecial1"));   // false
 ### Pattern: Always Free
 
 ```hemlock
-let pattern = compile("test");
+let pattern = compile("test", null);
 defer pattern.free();  // Guaranteed to free
 
 // Use pattern...
@@ -563,7 +565,7 @@ pattern.test("testing");
 ### Pattern: Try/Finally
 
 ```hemlock
-let pattern = compile("test");
+let pattern = compile("test", null);
 try {
     let result = pattern.test("testing");
     // ... process result
@@ -575,8 +577,9 @@ try {
 ### Pattern: One-Shot Functions (No Free Needed)
 
 ```hemlock
-// One-shot functions handle memory automatically
-if (test("pattern", "text")) {
+// One-shot functions handle memory automatically.
+// Remember to pass flags explicitly (null for default REG_EXTENDED).
+if (test("pattern", "text", null)) {
     // No need to free - handled internally
 }
 ```
@@ -591,7 +594,7 @@ Pattern compilation errors throw exceptions:
 import { compile } from "@stdlib/regex";
 
 try {
-    let pattern = compile("[invalid");  // Unbalanced bracket
+    let pattern = compile("[invalid", null);  // Unbalanced bracket
 } catch (e) {
     print("Regex error: " + e);
     // "Regex compilation failed: error code 7" (REG_EBRACK)
@@ -601,7 +604,7 @@ try {
 Using a freed regex throws an exception:
 
 ```hemlock
-let pattern = compile("test");
+let pattern = compile("test", null);
 pattern.free();
 
 try {
@@ -637,14 +640,14 @@ Planned additions:
 1. **Reuse compiled patterns:** If testing the same pattern multiple times, compile once and reuse:
    ```hemlock
    // Good: Compile once
-   let pattern = compile("test");
+   let pattern = compile("test", null);
    pattern.test(text1);
    pattern.test(text2);
    pattern.free();
 
    // Bad: Compile every time
-   test("test", text1);
-   test("test", text2);
+   test("test", text1, null);
+   test("test", text2, null);
    ```
 
 2. **Use simple patterns when possible:** Complex patterns with many alternations or nested groups are slower.
