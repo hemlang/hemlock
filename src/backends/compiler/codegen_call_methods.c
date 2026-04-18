@@ -226,8 +226,17 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         codegen_writeln(ctx, "HmlValue %s = hml_array_concat(%s, %s);",
                       result, obj_val, arg_temps[0]);
     } else if (strcmp(method, "reverse") == 0 && num_args == 0) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
         codegen_writeln(ctx, "hml_array_reverse(%s);", obj_val);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "%s = hml_val_null();", result);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"reverse\", NULL, 0);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "first") == 0 && num_args == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_array_first(%s);", result, obj_val);
     } else if (strcmp(method, "last") == 0 && num_args == 0) {
