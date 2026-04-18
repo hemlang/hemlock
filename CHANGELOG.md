@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-04-18
+
 ### Added
 
 - **`@stdlib/decimal` module** - Number formatting (`to_fixed`, `to_hex`), parsing (`parse_int`, `parse_float`), and `StringBuilder` utility

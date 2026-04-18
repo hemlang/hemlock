@@ -30,9 +30,9 @@ The version is defined in `include/version.h`:
 ```c
 #define HEMLOCK_VERSION_MAJOR 2
 #define HEMLOCK_VERSION_MINOR 0
-#define HEMLOCK_VERSION_PATCH 0
+#define HEMLOCK_VERSION_PATCH 1
 
-#define HEMLOCK_VERSION "2.0.0"
+#define HEMLOCK_VERSION "2.0.1"
 ```
 
 ### Checking Versions
@@ -93,6 +93,8 @@ import { sin, cos } from "@stdlib/math";
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **2.0.1** | 2026-04-18 | Patch release with bug fixes and stability improvements since v2.0.0 |
+| **2.0.0** | 2026-04-05 | Breaking release: 63 builtins moved to stdlib modules |
 | **1.8.7** | 2026 | Fix multi-argument print/eprint in compiler codegen |
 | **1.8.6** | 2026 | Fix segfault in hml_string_append_inplace for SSO strings |
 | **1.8.5** | 2026 | 5 new array methods (every, some, indexOf, sort, fill), major performance optimizations, memory leak fixes |

@@ -190,7 +190,7 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v2.0.0 is released with:
+Hemlock v2.0.1 is released with bugfixes since v2.0.0:
 
 - **BREAKING: Reduced builtin conflicts** - Moved 63 builtins to `@stdlib` modules (math, signal, net, process, fs, atomic, debug, ffi) to reduce global namespace pollution
 - **New stdlib modules** - `@stdlib/signal`, `@stdlib/atomic`, `@stdlib/debug`, `@stdlib/ffi`
