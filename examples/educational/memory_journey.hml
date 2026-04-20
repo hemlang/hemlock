@@ -1,0 +1,326 @@
+// ============================================================================
+// HEMLOCK EDUCATIONAL EXAMPLE: A Journey Through Memory
+// ============================================================================
+//
+// This program teaches fundamental memory management concepts by building
+// a simple dynamic array from scratch. Each section introduces a new concept.
+//
+// Run with: ./hemlock examples/educational/memory_journey.hml
+// ============================================================================
+
+print("=== HEMLOCK MEMORY JOURNEY ===");
+print("");
+
+// ============================================================================
+// LESSON 1: What is Memory?
+// ============================================================================
+//
+// Your computer's memory (RAM) is like a giant array of numbered mailboxes.
+// Each mailbox holds one byte (8 bits, values 0-255).
+// The mailbox number is called an "address".
+//
+// When you allocate memory, you're requesting some contiguous mailboxes.
+
+print("--- LESSON 1: Basic Allocation ---");
+
+// alloc(n) requests n bytes of memory and returns the address of the first byte
+let p = alloc(4);  // Request 4 bytes (enough for one 32-bit integer)
+
+print("Allocated 4 bytes at address: " + p);
+print("  This is our 'mailbox number' - where our data will live");
+
+// We must ALWAYS free what we allocate
+free(p);
+print("Freed the memory - returned our mailboxes to the system");
+print("");
+
+// ============================================================================
+// LESSON 2: Writing and Reading Data
+// ============================================================================
+//
+// Memory is just bytes. To store meaningful data, we need to:
+// 1. Allocate enough bytes for our data type
+// 2. Write the data (encoding it as bytes)
+// 3. Read it back (decoding the bytes)
+
+print("--- LESSON 2: Writing and Reading ---");
+
+// An i32 (32-bit integer) needs 4 bytes
+let size_of_int = sizeof(i32);
+print("Size of i32: " + size_of_int + " bytes");
+
+let ptr = alloc(size_of_int);
+print("Allocated " + size_of_int + " bytes for one integer");
+
+// Write an integer value
+ptr_write_i32(ptr, 42);
+print("Wrote value 42 to memory");
+
+// Read it back
+let value = ptr_read_i32(ptr);
+print("Read back: " + value);
+
+// What's actually in those 4 bytes?
+print("The 4 bytes (little-endian):");
+for (let i = 0; i < 4; i++) {
+    let byte = ptr_read_u8(ptr + i);
+    print("  Byte " + i + ": " + byte);
+}
+// 42 in binary is 00101010, which is just byte 0 = 42, bytes 1-3 = 0
+
+free(ptr);
+print("");
+
+// ============================================================================
+// LESSON 3: Pointer Arithmetic
+// ============================================================================
+//
+// A pointer is just a number (the address). Adding to it moves to a later
+// address. This lets us store multiple values sequentially.
+
+print("--- LESSON 3: Pointer Arithmetic (Building an Array) ---");
+
+let count = 5;
+let elem_size = sizeof(i32);
+let total_bytes = count * elem_size;
+
+print("Creating space for " + count + " integers:");
+print("  Each integer: " + elem_size + " bytes");
+print("  Total needed: " + total_bytes + " bytes");
+
+let arr_ptr = alloc(total_bytes);
+print("Allocated at: " + arr_ptr);
+
+// Write values: 10, 20, 30, 40, 50
+print("Writing values...");
+for (let i = 0; i < count; i++) {
+    let offset = i * elem_size;  // How many bytes from start
+    let addr = arr_ptr + offset;  // The actual address
+    let value = (i + 1) * 10;     // Values: 10, 20, 30, 40, 50
+
+    ptr_write_i32(addr, value);
+    print("  arr[" + i + "] at offset " + offset + " = " + value);
+}
+
+// Read them back
+print("Reading values...");
+let sum = 0;
+for (let i = 0; i < count; i++) {
+    let value = ptr_read_i32(arr_ptr + i * elem_size);
+    sum = sum + value;
+    print("  arr[" + i + "] = " + value);
+}
+print("Sum: " + sum);
+
+free(arr_ptr);
+print("");
+
+// ============================================================================
+// LESSON 4: The Danger of Manual Memory
+// ============================================================================
+//
+// Manual memory management is powerful but dangerous. Here are patterns
+// that cause bugs. (We'll demonstrate safe versions.)
+
+print("--- LESSON 4: Memory Dangers (and How to Avoid Them) ---");
+
+// DANGER 1: Use-after-free
+// Once you free memory, it may be reused by the next allocation!
+print("");
+print("Danger 1: Use-after-free");
+let danger1 = alloc(4);
+ptr_write_i32(danger1, 999);
+print("  Before free: " + ptr_read_i32(danger1));
+free(danger1);
+// DON'T DO: print(ptr_read_i32(danger1)); // Would read freed memory!
+print("  After free: memory is invalid, we must not read it");
+print("  SOLUTION: Set pointer to null after freeing");
+danger1 = ptr_null();
+print("  Pointer is now: " + danger1);
+
+// DANGER 2: Memory leak
+// If you lose track of a pointer, the memory can never be freed
+print("");
+print("Danger 2: Memory leaks");
+fn leaky_function() {
+    let leak = alloc(100);
+    // Forgot to free!
+    // When this function returns, we lose the pointer
+    // The 100 bytes are leaked forever
+}
+print("  A leaky function allocates but doesn't free");
+print("  SOLUTION: Use 'defer' for guaranteed cleanup");
+
+fn safe_function() {
+    let safe = alloc(100);
+    defer free(safe);  // Will run when function exits, no matter how
+
+    // Even if we return early or throw an error, defer runs
+    print("  Inside safe_function: allocated and deferred free");
+}
+safe_function();
+print("  After safe_function: memory was freed by defer");
+
+// DANGER 3: Double-free
+// Freeing the same memory twice corrupts the allocator
+print("");
+print("Danger 3: Double-free");
+let danger3 = alloc(4);
+free(danger3);
+// DON'T DO: free(danger3); // Would crash or corrupt memory!
+print("  After first free, we must not free again");
+print("  SOLUTION: Set to null, check before free");
+danger3 = ptr_null();
+if (danger3 != ptr_null()) {
+    free(danger3);
+}
+print("  With null check, accidental double-free is prevented");
+print("");
+
+// ============================================================================
+// LESSON 5: Building a Dynamic Array
+// ============================================================================
+//
+// Now let's apply what we learned to build a growable array!
+
+print("--- LESSON 5: Building a Dynamic Array ---");
+
+// Our "object" is just organized memory:
+// - bytes 0-3: capacity (how many elements we can hold)
+// - bytes 4-7: length (how many elements we have)
+// - bytes 8+: the actual data
+
+fn dynarray_create(initial_capacity: i32): ptr {
+    // Allocate: 8 bytes for header + capacity * 4 bytes for data
+    let header_size = 8;
+    let data_size = initial_capacity * sizeof(i32);
+    let total = header_size + data_size;
+
+    let arr = alloc(total);
+
+    // Initialize header
+    ptr_write_i32(arr, initial_capacity);  // capacity at offset 0
+    ptr_write_i32(arr + 4, 0);             // length at offset 4
+
+    print("Created dynamic array:");
+    print("  Capacity: " + initial_capacity);
+    print("  Length: 0");
+    print("  Total bytes: " + total);
+
+    return arr;
+}
+
+fn dynarray_capacity(arr: ptr): i32 {
+    return ptr_read_i32(arr);
+}
+
+fn dynarray_length(arr: ptr): i32 {
+    return ptr_read_i32(arr + 4);
+}
+
+fn dynarray_get(arr: ptr, index: i32): i32 {
+    let len = dynarray_length(arr);
+    if (index < 0 || index >= len) {
+        panic("Index out of bounds: " + index + " (length: " + len + ")");
+    }
+    // Data starts at offset 8
+    return ptr_read_i32(arr + 8 + index * sizeof(i32));
+}
+
+fn dynarray_push(ref arr: ptr, value: i32) {
+    let cap = dynarray_capacity(arr);
+    let len = dynarray_length(arr);
+
+    // Need to grow?
+    if (len >= cap) {
+        let new_cap = cap * 2;
+        let new_size = 8 + new_cap * sizeof(i32);
+
+        print("  Growing array: " + cap + " -> " + new_cap);
+
+        let new_arr = alloc(new_size);
+
+        // Copy header
+        ptr_write_i32(new_arr, new_cap);
+        ptr_write_i32(new_arr + 4, len);
+
+        // Copy data
+        memcpy(new_arr + 8, arr + 8, len * sizeof(i32));
+
+        // Free old, use new
+        free(arr);
+        arr = new_arr;
+    }
+
+    // Write the new value
+    ptr_write_i32(arr + 8 + len * sizeof(i32), value);
+
+    // Increment length
+    ptr_write_i32(arr + 4, len + 1);
+}
+
+fn dynarray_print(arr: ptr) {
+    let len = dynarray_length(arr);
+    let cap = dynarray_capacity(arr);
+
+    print("DynArray (length=" + len + ", capacity=" + cap + "):");
+    let str = "  [";
+    for (let i = 0; i < len; i++) {
+        if (i > 0) {
+            str = str + ", ";
+        }
+        str = str + dynarray_get(arr, i);
+    }
+    str = str + "]";
+    print(str);
+}
+
+fn dynarray_free(arr: ptr) {
+    free(arr);
+    print("Freed dynamic array");
+}
+
+// Let's use our dynamic array!
+print("");
+print("Using our dynamic array:");
+
+let my_arr = dynarray_create(4);  // Start with capacity 4
+
+// Push some values (this will trigger growth)
+for (let i = 1; i <= 10; i++) {
+    print("Pushing " + i + "...");
+    dynarray_push(my_arr, i * 100);
+}
+
+dynarray_print(my_arr);
+
+// Access specific elements
+print("");
+print("Accessing elements:");
+print("  my_arr[0] = " + dynarray_get(my_arr, 0));
+print("  my_arr[4] = " + dynarray_get(my_arr, 4));
+print("  my_arr[9] = " + dynarray_get(my_arr, 9));
+
+dynarray_free(my_arr);
+print("");
+
+// ============================================================================
+// LESSON 6: What You've Learned
+// ============================================================================
+
+print("--- LESSON 6: Summary ---");
+print("");
+print("You've learned:");
+print("  1. Memory is bytes at numbered addresses");
+print("  2. alloc() gets memory, free() returns it");
+print("  3. Pointer arithmetic lets you access sequential data");
+print("  4. Common bugs: use-after-free, leaks, double-free");
+print("  5. 'defer' provides automatic cleanup");
+print("  6. You can build data structures from raw memory!");
+print("");
+print("Next steps:");
+print("  - Try the exercises in docs/education/exercises/");
+print("  - Read docs/education/common-mistakes.md");
+print("  - Build something yourself!");
+print("");
+print("=== END OF MEMORY JOURNEY ===");
