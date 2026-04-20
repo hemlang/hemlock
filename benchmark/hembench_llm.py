@@ -137,17 +137,20 @@ def load_tasks(level_filter: str = "", task_filter: str = "") :
 
 # ─── Prompt Construction ─────────────────────────────────────────────────────
 
-def build_system_prompt(variant: str, docs: str, compact_docs: str) -> str:
-    """Build the system prompt based on variant."""
-    base = (
-        "You are a code generation assistant. You write programs in the Hemlock programming language.\n"
-        "IMPORTANT: Respond ONLY with the Hemlock source code. No markdown fences, no explanations, "
-        "no comments about the code — just the raw .hml program that can be run directly.\n"
-        "Do NOT wrap your code in ```hemlock``` or ``` blocks.\n"
-    )
+def build_system_prompt(variant: str, docs: str, compact_docs: str, base_override: str = None) -> str:
+    """Build the system prompt based on variant. If base_override is provided, use it instead of the default base."""
+    if base_override is not None:
+        base = base_override.rstrip() + "\n"
+    else:
+        base = (
+            "You are a code generation assistant. You write programs in the Hemlock programming language.\n"
+            "IMPORTANT: Respond ONLY with the Hemlock source code. No markdown fences, no explanations, "
+            "no comments about the code — just the raw .hml program that can be run directly.\n"
+            "Do NOT wrap your code in ```hemlock``` or ``` blocks.\n"
+        )
 
     if variant == "zero-shot":
-        return base
+        return base.rstrip() + "\n"
 
     if variant == "compact-doc":
         return base + (
@@ -189,6 +192,29 @@ def _get_few_shot_examples() -> str:
         code = sol_file.read_text()
         examples.append(f"// Example: {sol_file.stem}\n{code}")
     return "\n\n".join(examples) if examples else "(no examples available)"
+
+
+def build_retry_feedback(status: str, exit_code: int, actual: str, expected: str, validator: str) -> str:
+    """Build a feedback message for retry-with-feedback mode after a failed attempt."""
+    actual = (actual or "").strip()
+    expected = (expected or "").strip()
+
+    if status == "parse_error":
+        err = actual.split("\n")[0] if actual else "(no output)"
+        return (f"That code did not parse. The Hemlock interpreter reported:\n\n{actual[:1500]}\n\n"
+                "Please fix the syntax and produce a corrected program. Respond ONLY with the corrected Hemlock code.")
+    if status == "runtime_error" or status == "segfault":
+        return (f"That code compiled but failed at runtime (exit code {exit_code}). Interpreter output:\n\n{actual[:1500]}\n\n"
+                "Please fix the bug and produce a corrected program. Respond ONLY with the corrected Hemlock code.")
+    if status == "timeout":
+        return ("That code timed out. It likely has an infinite loop or is too slow. "
+                "Please fix it and produce a corrected program. Respond ONLY with the corrected Hemlock code.")
+    if status == "wrong_output":
+        return (f"The code ran successfully but produced the wrong output.\n\n"
+                f"Expected output:\n{expected[:800]}\n\n"
+                f"Your program's output:\n{actual[:800]}\n\n"
+                "Please fix the logic so the output matches exactly. Respond ONLY with the corrected Hemlock code.")
+    return ("That attempt was incorrect. Please try again. Respond ONLY with the corrected Hemlock code.")
 
 
 def build_user_prompt(task: dict) -> str:
@@ -293,12 +319,21 @@ class LlamaServer:
                  max_tokens: int = MAX_TOKENS, temperature: float = TEMPERATURE,
                  verbose: bool = False):
         """Send a chat completion request and return (extracted_code, raw_response)."""
-        payload = {
-            "model": "local",
-            "messages": [
+        return self.generate_messages(
+            [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
+            max_tokens=max_tokens, temperature=temperature, verbose=verbose,
+        )
+
+    def generate_messages(self, messages: list,
+                          max_tokens: int = MAX_TOKENS, temperature: float = TEMPERATURE,
+                          verbose: bool = False):
+        """Send a chat completion request with a full messages array."""
+        payload = {
+            "model": "local",
+            "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
@@ -508,10 +543,13 @@ def run_benchmark(
     max_tokens: int = MAX_TOKENS,
     temperature: float = TEMPERATURE,
     verbose: bool = False,
+    system_prompt_override: str = None,
+    n_samples: int = 1,
+    retry_with_feedback: int = 0,
 ) -> dict:
     """Run the full benchmark for one model."""
     model_name = model_short_name(model_path)
-    system_prompt = build_system_prompt(variant, docs, compact_docs)
+    system_prompt = build_system_prompt(variant, docs, compact_docs, base_override=system_prompt_override)
     solutions_dir = output_dir / "solutions"
     solutions_dir.mkdir(parents=True, exist_ok=True)
 
@@ -539,101 +577,159 @@ def run_benchmark(
             })
             continue
 
-        # Generate code via LLM
+        # Generate samples via LLM, stopping early if one passes.
+        # Two modes:
+        #   n_samples: independent fresh attempts (pass@K metric)
+        #   retry_with_feedback: multi-turn conversation; feed back errors
         user_prompt = build_user_prompt(task)
-        gen_start = time.time()
-        code, raw_response = server.generate(system_prompt, user_prompt,
-                                              max_tokens=max_tokens, temperature=temperature,
-                                              verbose=verbose)
-        gen_time = time.time() - gen_start
+        samples = []
+        any_correct = False
 
-        if code is None:
-            print(f"  {C.RED}✗ generation failed{C.NC}  {C.DIM}{gen_time:.1f}s{C.NC}")
-            results.append({
-                "id": tid, "level": task["level"], "title": title,
-                "difficulty": difficulty, "status": "generation_failed",
-                "correct": False, "parses": False, "runs": False,
+        use_retry = retry_with_feedback > 0
+        total_attempts = retry_with_feedback if use_retry else n_samples
+        sample_temp = temperature if total_attempts == 1 or use_retry else max(temperature, 0.7)
+
+        # Conversation state for retry mode
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        for sample_idx in range(total_attempts):
+            gen_start = time.time()
+            if use_retry:
+                code, raw_response = server.generate_messages(
+                    messages, max_tokens=max_tokens, temperature=sample_temp, verbose=verbose)
+            else:
+                code, raw_response = server.generate(system_prompt, user_prompt,
+                                                      max_tokens=max_tokens, temperature=sample_temp,
+                                                      verbose=verbose)
+            gen_time = time.time() - gen_start
+
+            if code is None:
+                samples.append({
+                    "sample_idx": sample_idx,
+                    "status": "generation_failed",
+                    "correct": False, "parses": False, "runs": False,
+                    "gen_time_s": round(gen_time, 2),
+                    "exit_code": -1, "error_category": "generation_failed",
+                    "lines": 0,
+                })
+                break  # No point retrying if the request itself failed
+
+            # Save generated solution + raw response (suffix with sample idx if multi-attempt)
+            suffix = f"_s{sample_idx}" if total_attempts > 1 else ""
+            sol_file = solutions_dir / f"{tid}_{title.lower().replace(' ', '_')}{suffix}.hml"
+            sol_file.write_text(code)
+            raw_file = solutions_dir / f"{tid}_raw{suffix}.txt"
+            raw_file.write_text(raw_response or "")
+
+            # Run through interpreter
+            actual, exit_code, error_cat = run_hemlock(code, timeout=task_timeout_sec)
+
+            parses = error_cat != "parse_error"
+            runs = error_cat in ("ok", "runtime_error") and exit_code != 139
+            correct = False
+            if exit_code == 0:
+                correct = validate_output(actual, expected, validator, task)
+
+            if correct:
+                status = "pass"
+            elif error_cat == "timeout":
+                status = "timeout"
+            elif error_cat == "parse_error":
+                status = "parse_error"
+            elif exit_code == 139:
+                status = "segfault"
+            elif exit_code != 0:
+                status = "runtime_error"
+            else:
+                status = "wrong_output"
+
+            samples.append({
+                "sample_idx": sample_idx,
+                "status": status,
+                "correct": correct,
+                "parses": parses,
+                "runs": runs,
+                "exit_code": exit_code,
+                "error_category": error_cat,
                 "gen_time_s": round(gen_time, 2),
+                "lines": len(code.strip().split("\n")),
+                "actual_output_head": (actual.strip()[:500] if not correct else ""),
             })
-            continue
 
-        # Save generated solution + raw response
-        sol_file = solutions_dir / f"{tid}_{title.lower().replace(' ', '_')}.hml"
-        sol_file.write_text(code)
-        raw_file = solutions_dir / f"{tid}_raw.txt"
-        raw_file.write_text(raw_response or "")
+            if correct:
+                any_correct = True
+                break  # Early exit on first pass
 
-        if verbose and code:
-            log(f"\n    ── extracted code ({len(code)} chars) ──", C.CYAN)
-            for line in code.split("\n")[:20]:
-                log(f"    │ {line}", C.CYAN)
-            if len(code.split("\n")) > 20:
-                log(f"    │ ... ({len(code.split(chr(10))) - 20} more lines)", C.CYAN)
-            log(f"    ── end extracted ──", C.CYAN)
-        elif verbose:
-            log(f"\n    ── WARNING: extracted code is empty! ──", C.YELLOW)
+            # Retry mode: append feedback to conversation for next turn
+            if use_retry and sample_idx + 1 < total_attempts:
+                feedback = build_retry_feedback(status, exit_code, actual, expected, validator)
+                messages.append({"role": "assistant", "content": raw_response or ""})
+                messages.append({"role": "user", "content": feedback})
 
-        # Run through interpreter
-        actual, exit_code, error_cat = run_hemlock(code, timeout=task_timeout_sec)
+        # Aggregate across samples
+        first_sample = samples[0]
+        total_gen_time = sum(s.get("gen_time_s", 0) for s in samples)
+        num_tried = len(samples)
 
-        parses = error_cat != "parse_error"
-        runs = error_cat in ("ok", "runtime_error") and exit_code != 139
-        correct = False
+        # pass@1 = first sample correct; pass@K = any correct
+        pass_at_1 = first_sample.get("correct", False)
+        pass_at_k = any_correct
 
-        if exit_code == 0:
-            correct = validate_output(actual, expected, validator, task)
+        # Report using the pass@K result for display
+        final_status = "pass" if pass_at_k else (samples[-1]["status"] if samples else "generation_failed")
+        final_correct = pass_at_k
 
-        # Determine status
-        if correct:
-            status = "pass"
+        # Choose color/icon
+        if pass_at_k:
             icon, color = "✓", C.GREEN
-        elif error_cat == "timeout":
-            status = "timeout"
+            if n_samples > 1 and not pass_at_1:
+                # Passed on retry
+                icon = f"✓@{num_tried}"
+                color = C.CYAN
+        elif final_status == "timeout":
             icon, color = "⏱", C.YELLOW
-        elif error_cat == "parse_error":
-            status = "parse_error"
-            icon, color = "✗", C.RED
-        elif exit_code == 139:
-            status = "segfault"
-            icon, color = "✗", C.RED
-        elif exit_code != 0:
-            status = "runtime_error"
+        elif final_status in ("parse_error", "segfault", "runtime_error"):
             icon, color = "✗", C.RED
         else:
-            status = "wrong_output"
             icon, color = "✗", C.YELLOW
 
-        print(f"  {color}{icon} {status}{C.NC}  {C.DIM}{gen_time:.1f}s gen{C.NC}")
+        progress_note = f" (×{num_tried})" if n_samples > 1 else ""
+        print(f"  {color}{icon} {final_status}{C.NC}{progress_note}  {C.DIM}{total_gen_time:.1f}s gen{C.NC}")
 
-        # Show mismatch details
-        if not correct and runs and exit_code == 0:
-            exp_first = expected.strip().split("\n")[0] if expected else "(empty)"
-            act_first = actual.strip().split("\n")[0] if actual else "(empty)"
-            print(f"           {C.DIM}expected: {exp_first}{C.NC}")
-            print(f"           {C.DIM}got:      {act_first}{C.NC}")
-        elif not correct and not parses:
-            err_line = actual.strip().split("\n")[0] if actual else "(no output)"
-            print(f"           {C.DIM}error: {err_line}{C.NC}")
+        # Show details from the LAST sample for context
+        if not final_correct:
+            last = samples[-1]
+            if last.get("runs") and last.get("exit_code") == 0:
+                exp_first = expected.strip().split("\n")[0] if expected else "(empty)"
+                act_first = last.get("actual_output_head", "").split("\n")[0] if last.get("actual_output_head") else "(empty)"
+                print(f"           {C.DIM}expected: {exp_first}{C.NC}")
+                print(f"           {C.DIM}got:      {act_first}{C.NC}")
+            elif not last.get("parses"):
+                err_line = last.get("actual_output_head", "").split("\n")[0] if last.get("actual_output_head") else "(no output)"
+                print(f"           {C.DIM}error: {err_line}{C.NC}")
 
         result = {
             "id": tid,
             "level": task["level"],
             "title": title,
             "difficulty": difficulty,
-            "status": status,
-            "correct": correct,
-            "parses": parses,
-            "runs": runs,
-            "exit_code": exit_code,
-            "error_category": error_cat,
-            "gen_time_s": round(gen_time, 2),
-            "lines": len(code.strip().split("\n")),
-            "solution_file": str(sol_file.name),
+            "status": final_status,
+            "correct": final_correct,
+            "pass_at_1": pass_at_1,
+            "pass_at_k": pass_at_k,
+            "n_samples_tried": num_tried,
+            "n_samples_requested": total_attempts,
+            "parses": samples[-1].get("parses", False),
+            "runs": samples[-1].get("runs", False),
+            "exit_code": samples[-1].get("exit_code", -1),
+            "error_category": samples[-1].get("error_category", "unknown"),
+            "gen_time_s": round(total_gen_time, 2),
+            "samples": samples,
+            "lines": samples[-1].get("lines", 0),
         }
-
-        # Include output diff for debugging
-        if not correct and actual:
-            result["actual_output_head"] = actual.strip()[:500]
 
         results.append(result)
 
@@ -641,6 +737,7 @@ def run_benchmark(
         "model": model_name,
         "model_path": model_path,
         "variant": variant,
+        "mode": "retry" if retry_with_feedback > 0 else ("samples" if n_samples > 1 else "single"),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "results": results,
         "scores": compute_scores(results),
@@ -689,6 +786,32 @@ def print_summary(report: dict):
     overall_pct = scores["overall"] * 100
     color = C.GREEN if overall_pct >= 70 else C.YELLOW if overall_pct >= 40 else C.RED
     print(f"  {C.BOLD}Weighted Overall: {color}{overall_pct:.1f}%{C.NC}")
+
+    # If multi-sample run, also show pass@1 vs pass@K comparison
+    rows = report.get("results", [])
+    if rows and any(r.get("n_samples_requested", 1) > 1 for r in rows):
+        k = max(r.get("n_samples_requested", 1) for r in rows)
+        pass1 = sum(1 for r in rows if r.get("pass_at_1")) / len(rows)
+        passk = sum(1 for r in rows if r.get("pass_at_k")) / len(rows)
+        gap = passk - pass1
+        mode = report.get("mode", "samples")
+        label = f"retry@{k}" if mode == "retry" else f"pass@{k}"
+        print(f"  {C.BOLD}pass@1:{C.NC} {pass1*100:5.1f}%  {C.BOLD}{label}:{C.NC} {passk*100:5.1f}%  {C.DIM}(gap: +{gap*100:.1f} pts){C.NC}")
+        # Per-attempt breakdown: at which attempt did tasks pass?
+        if mode == "retry":
+            turn_dist = {}
+            for r in rows:
+                if r.get("pass_at_k"):
+                    samples = r.get("samples", [])
+                    for s in samples:
+                        if s.get("correct"):
+                            t = s.get("sample_idx", 0) + 1
+                            turn_dist[t] = turn_dist.get(t, 0) + 1
+                            break
+            if turn_dist:
+                parts = [f"turn {t}: {n}" for t, n in sorted(turn_dist.items())]
+                print(f"  {C.DIM}Passes by turn: {', '.join(parts)}{C.NC}")
+
     print(f"{C.BOLD}{'═' * 60}{C.NC}")
 
 
@@ -772,6 +895,16 @@ Examples:
     parser.add_argument("--variant", type=str, default="zero-shot",
                         choices=["zero-shot", "doc-guided", "few-shot", "compact-doc"],
                         help="Prompt variant (default: zero-shot, evaluates raw model knowledge)")
+    parser.add_argument("--system-prompt-file", type=str, default=None,
+                        help="Path to a file containing a custom system prompt. Overrides --variant's base prompt "
+                             "but still appends doc/compact-doc/few-shot content if variant is set.")
+    parser.add_argument("--n-samples", type=int, default=1,
+                        help="Number of attempts per task. Pass@K eval: task passes if any attempt succeeds. "
+                             "Temperature auto-bumped to 0.7+ when >1 for diversity. (default: 1)")
+    parser.add_argument("--retry-with-feedback", type=int, default=0, metavar="K",
+                        help="Agent retry mode: if the first attempt fails, feed back the error and give the "
+                             "model up to K-1 more turns to fix its code. Measures self-correction ability. "
+                             "Mutually exclusive with --n-samples. (default: 0, disabled)")
 
     # Generation config
     parser.add_argument("--max-tokens", type=int, default=MAX_TOKENS,
@@ -825,6 +958,16 @@ Examples:
 
     # Load docs
     docs, compact_docs = load_hemlock_docs()
+
+    # Load custom system prompt if provided
+    system_prompt_override = None
+    if args.system_prompt_file:
+        sp_path = Path(args.system_prompt_file)
+        if not sp_path.exists():
+            log(f"System prompt file not found: {sp_path}", C.RED)
+            sys.exit(1)
+        system_prompt_override = sp_path.read_text(encoding="utf-8")
+        log(f"Using custom system prompt from {sp_path} ({len(system_prompt_override)} chars)", C.CYAN)
 
     # Banner
     print()
@@ -887,6 +1030,9 @@ Examples:
                 max_tokens=max_tokens,
                 temperature=temperature,
                 verbose=args.verbose,
+                system_prompt_override=system_prompt_override,
+                n_samples=args.n_samples,
+                retry_with_feedback=args.retry_with_feedback,
             )
 
             all_reports.append(report)
