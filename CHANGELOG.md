@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-04-21
+
+### Fixed
+
+- **Parser no longer hangs on malformed `match` expressions** — when a match arm's body started with `{ <keyword> ... }` (e.g. `1 => { return "x"; }`), the block was parsed as an object-literal expression, which failed because `return` can't be a field name. The pattern/arm parser then looped forever on the problematic token, and the interpreter never returned. Hembench's `L1-M-03 Token Classifier` task triggered this because the model idiomatically writes `_ => { return "x"; }` from other languages. Added forward-progress guards to both the `match` arm loop and `parse_program`: if an iteration finishes still pointing at the same token it started on, force-advance so the parser makes progress toward EOF.
+
 ## [2.1.0] - 2026-04-21
 
 ### Fixed

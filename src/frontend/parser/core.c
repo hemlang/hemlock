@@ -271,6 +271,11 @@ Stmt** parse_program(Parser *parser, int *stmt_count) {
     *stmt_count = 0;
 
     while (!match(parser, TOK_EOF)) {
+        // Snapshot the current token so we can detect no-progress iterations.
+        // A statement that errors without advancing (and without setting
+        // panic mode) would otherwise spin this loop forever.
+        Token before = parser->current;
+
         if (parser->panic_mode) {
             synchronize(parser);
         }
@@ -284,6 +289,15 @@ Stmt** parse_program(Parser *parser, int *stmt_count) {
             statements = new_statements;
         }
         statements[(*stmt_count)++] = statement(parser);
+
+        // Guarantee forward progress: if the iteration left us on the same
+        // token we started on, eat a token so the next loop can't repeat
+        // the same failure.
+        if (parser->current.type != TOK_EOF
+            && parser->current.start == before.start
+            && parser->current.length == before.length) {
+            advance(parser);
+        }
     }
 
     return statements;

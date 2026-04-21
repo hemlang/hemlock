@@ -513,6 +513,11 @@ Expr* primary(Parser *p) {
         int num_arms = 0;
 
         while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+            // Snapshot the current token so we can detect no-progress
+            // iterations (e.g. when an arm body is malformed and its
+            // parser returns without consuming the problem token).
+            Token arm_before = p->current;
+
             // Grow array if needed
             if (num_arms >= arm_capacity) {
                 arm_capacity *= 2;
@@ -548,6 +553,15 @@ Expr* primary(Parser *p) {
 
             // Optional comma between arms
             match(p, TOK_COMMA);
+
+            // Guarantee forward progress: if the arm body errored and its
+            // parser returned without consuming the offending token, force
+            // a token advance so we can escape this arm and try the next.
+            if (p->current.type != TOK_EOF
+                && p->current.start == arm_before.start
+                && p->current.length == arm_before.length) {
+                advance(p);
+            }
         }
 
         consume(p, TOK_RBRACE, "Expect '}' after match arms");
