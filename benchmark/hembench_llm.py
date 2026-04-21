@@ -546,6 +546,7 @@ def run_benchmark(
     system_prompt_override: str = None,
     n_samples: int = 1,
     retry_with_feedback: int = 0,
+    hybrid_retry: int = 0,
 ) -> dict:
     """Run the full benchmark for one model."""
     model_name = model_short_name(model_path)
@@ -578,28 +579,64 @@ def run_benchmark(
             continue
 
         # Generate samples via LLM, stopping early if one passes.
-        # Two modes:
-        #   n_samples: independent fresh attempts (pass@K metric)
-        #   retry_with_feedback: multi-turn conversation; feed back errors
+        # Three modes:
+        #   n_samples           — independent fresh attempts (pass@K)
+        #   retry_with_feedback — multi-turn conversation; feed back errors
+        #   hybrid_retry        — attempt 1 cold, attempt 2 feedback,
+        #                         attempts 3+ cold resample at higher temp
         user_prompt = build_user_prompt(task)
         samples = []
         any_correct = False
 
-        use_retry = retry_with_feedback > 0
-        total_attempts = retry_with_feedback if use_retry else n_samples
-        sample_temp = temperature if total_attempts == 1 or use_retry else max(temperature, 0.7)
+        use_hybrid = hybrid_retry > 0
+        use_retry = retry_with_feedback > 0 and not use_hybrid
+        if use_hybrid:
+            total_attempts = hybrid_retry
+        elif use_retry:
+            total_attempts = retry_with_feedback
+        else:
+            total_attempts = n_samples
+        if use_hybrid or use_retry:
+            sample_temp_default = temperature
+        elif total_attempts == 1:
+            sample_temp_default = temperature
+        else:
+            sample_temp_default = max(temperature, 0.7)
 
-        # Conversation state for retry mode
+        # Conversation state (only used in retry / hybrid-feedback turns)
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
 
+        def hybrid_strategy(idx):
+            """Match hembot's src/strategy.hml:
+            idx=0 -> cold (initial), idx=1 -> feedback, idx>=2 -> cold resample."""
+            if idx == 1:
+                return ("feedback", temperature)
+            return ("cold", temperature if idx == 0 else max(temperature, 0.7))
+
         for sample_idx in range(total_attempts):
+            sample_temp = sample_temp_default
+            hybrid_mode = None
+
             gen_start = time.time()
             if use_retry:
                 code, raw_response = server.generate_messages(
                     messages, max_tokens=max_tokens, temperature=sample_temp, verbose=verbose)
+            elif use_hybrid:
+                hybrid_mode, sample_temp = hybrid_strategy(sample_idx)
+                if hybrid_mode == "feedback":
+                    code, raw_response = server.generate_messages(
+                        messages, max_tokens=max_tokens, temperature=sample_temp, verbose=verbose)
+                else:
+                    # Cold resample: fresh [system, user], don't pollute `messages`.
+                    fresh = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ]
+                    code, raw_response = server.generate_messages(
+                        fresh, max_tokens=max_tokens, temperature=sample_temp, verbose=verbose)
             else:
                 code, raw_response = server.generate(system_prompt, user_prompt,
                                                       max_tokens=max_tokens, temperature=sample_temp,
@@ -663,11 +700,16 @@ def run_benchmark(
                 any_correct = True
                 break  # Early exit on first pass
 
-            # Retry mode: append feedback to conversation for next turn
-            if use_retry and sample_idx + 1 < total_attempts:
-                feedback = build_retry_feedback(status, exit_code, actual, expected, validator)
-                messages.append({"role": "assistant", "content": raw_response or ""})
-                messages.append({"role": "user", "content": feedback})
+            # Feedback bookkeeping: append the failing code + error to the
+            # conversation so the NEXT turn (if it's a feedback turn) sees it.
+            if sample_idx + 1 < total_attempts:
+                next_is_feedback = use_retry or (
+                    use_hybrid and hybrid_strategy(sample_idx + 1)[0] == "feedback"
+                )
+                if next_is_feedback:
+                    feedback = build_retry_feedback(status, exit_code, actual, expected, validator)
+                    messages.append({"role": "assistant", "content": raw_response or ""})
+                    messages.append({"role": "user", "content": feedback})
 
         # Aggregate across samples
         first_sample = samples[0]
@@ -722,6 +764,7 @@ def run_benchmark(
             "pass_at_k": pass_at_k,
             "n_samples_tried": num_tried,
             "n_samples_requested": total_attempts,
+            "mode": "hybrid" if use_hybrid else ("retry" if use_retry else "samples" if n_samples > 1 else "single"),
             "parses": samples[-1].get("parses", False),
             "runs": samples[-1].get("runs", False),
             "exit_code": samples[-1].get("exit_code", -1),
@@ -737,7 +780,12 @@ def run_benchmark(
         "model": model_name,
         "model_path": model_path,
         "variant": variant,
-        "mode": "retry" if retry_with_feedback > 0 else ("samples" if n_samples > 1 else "single"),
+        "mode": (
+            "hybrid" if hybrid_retry > 0
+            else "retry" if retry_with_feedback > 0
+            else "samples" if n_samples > 1
+            else "single"
+        ),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "results": results,
         "scores": compute_scores(results),
@@ -795,7 +843,12 @@ def print_summary(report: dict):
         passk = sum(1 for r in rows if r.get("pass_at_k")) / len(rows)
         gap = passk - pass1
         mode = report.get("mode", "samples")
-        label = f"retry@{k}" if mode == "retry" else f"pass@{k}"
+        if mode == "retry":
+            label = f"retry@{k}"
+        elif mode == "hybrid":
+            label = f"hybrid@{k}"
+        else:
+            label = f"pass@{k}"
         print(f"  {C.BOLD}pass@1:{C.NC} {pass1*100:5.1f}%  {C.BOLD}{label}:{C.NC} {passk*100:5.1f}%  {C.DIM}(gap: +{gap*100:.1f} pts){C.NC}")
         # Per-attempt breakdown: at which attempt did tasks pass?
         if mode == "retry":
@@ -905,6 +958,11 @@ Examples:
                         help="Agent retry mode: if the first attempt fails, feed back the error and give the "
                              "model up to K-1 more turns to fix its code. Measures self-correction ability. "
                              "Mutually exclusive with --n-samples. (default: 0, disabled)")
+    parser.add_argument("--hybrid-retry", type=int, default=0, metavar="K",
+                        help="Hybrid retry mode: attempt 1 = cold (temp=base), attempt 2 = feedback (temp=base), "
+                             "attempt 3+ = cold resample (temp=0.7, fresh conversation). Empirically between "
+                             "pure retry and pure pass@K on Apothecary. Mutually exclusive with the others. "
+                             "(default: 0, disabled)")
 
     # Generation config
     parser.add_argument("--max-tokens", type=int, default=MAX_TOKENS,
@@ -1033,6 +1091,7 @@ Examples:
                 system_prompt_override=system_prompt_override,
                 n_samples=args.n_samples,
                 retry_with_feedback=args.retry_with_feedback,
+                hybrid_retry=args.hybrid_retry,
             )
 
             all_reports.append(report)
