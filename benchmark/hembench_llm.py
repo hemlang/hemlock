@@ -547,6 +547,7 @@ def run_benchmark(
     n_samples: int = 1,
     retry_with_feedback: int = 0,
     hybrid_retry: int = 0,
+    adaptive_retry: int = 0,
 ) -> dict:
     """Run the full benchmark for one model."""
     model_name = model_short_name(model_path)
@@ -588,15 +589,18 @@ def run_benchmark(
         samples = []
         any_correct = False
 
-        use_hybrid = hybrid_retry > 0
-        use_retry = retry_with_feedback > 0 and not use_hybrid
-        if use_hybrid:
+        use_adaptive = adaptive_retry > 0
+        use_hybrid = hybrid_retry > 0 and not use_adaptive
+        use_retry = retry_with_feedback > 0 and not use_hybrid and not use_adaptive
+        if use_adaptive:
+            total_attempts = adaptive_retry
+        elif use_hybrid:
             total_attempts = hybrid_retry
         elif use_retry:
             total_attempts = retry_with_feedback
         else:
             total_attempts = n_samples
-        if use_hybrid or use_retry:
+        if use_adaptive or use_hybrid or use_retry:
             sample_temp_default = temperature
         elif total_attempts == 1:
             sample_temp_default = temperature
@@ -616,6 +620,19 @@ def run_benchmark(
                 return ("feedback", temperature)
             return ("cold", temperature if idx == 0 else max(temperature, 0.7))
 
+        def adaptive_strategy(idx, prev_samples):
+            """Pick per-attempt strategy from the last failure's category.
+            Attempt 0 is always cold at base temp. Thereafter, last status:
+              wrong_output → feedback (retry helps on close-to-right bugs)
+              anything else → cold resample at higher temp
+            """
+            if idx == 0 or not prev_samples:
+                return ("cold", temperature)
+            last_status = prev_samples[-1].get("status", "")
+            if last_status == "wrong_output":
+                return ("feedback", temperature)
+            return ("cold", max(temperature, 0.7))
+
         for sample_idx in range(total_attempts):
             sample_temp = sample_temp_default
             hybrid_mode = None
@@ -624,8 +641,11 @@ def run_benchmark(
             if use_retry:
                 code, raw_response = server.generate_messages(
                     messages, max_tokens=max_tokens, temperature=sample_temp, verbose=verbose)
-            elif use_hybrid:
-                hybrid_mode, sample_temp = hybrid_strategy(sample_idx)
+            elif use_hybrid or use_adaptive:
+                if use_adaptive:
+                    hybrid_mode, sample_temp = adaptive_strategy(sample_idx, samples)
+                else:
+                    hybrid_mode, sample_temp = hybrid_strategy(sample_idx)
                 if hybrid_mode == "feedback":
                     code, raw_response = server.generate_messages(
                         messages, max_tokens=max_tokens, temperature=sample_temp, verbose=verbose)
@@ -703,9 +723,15 @@ def run_benchmark(
             # Feedback bookkeeping: append the failing code + error to the
             # conversation so the NEXT turn (if it's a feedback turn) sees it.
             if sample_idx + 1 < total_attempts:
-                next_is_feedback = use_retry or (
-                    use_hybrid and hybrid_strategy(sample_idx + 1)[0] == "feedback"
-                )
+                if use_retry:
+                    next_is_feedback = True
+                elif use_hybrid:
+                    next_is_feedback = hybrid_strategy(sample_idx + 1)[0] == "feedback"
+                elif use_adaptive:
+                    # Adaptive looks at the just-recorded sample to decide.
+                    next_is_feedback = adaptive_strategy(sample_idx + 1, samples)[0] == "feedback"
+                else:
+                    next_is_feedback = False
                 if next_is_feedback:
                     feedback = build_retry_feedback(status, exit_code, actual, expected, validator)
                     messages.append({"role": "assistant", "content": raw_response or ""})
@@ -764,7 +790,13 @@ def run_benchmark(
             "pass_at_k": pass_at_k,
             "n_samples_tried": num_tried,
             "n_samples_requested": total_attempts,
-            "mode": "hybrid" if use_hybrid else ("retry" if use_retry else "samples" if n_samples > 1 else "single"),
+            "mode": (
+                "adaptive" if use_adaptive
+                else "hybrid" if use_hybrid
+                else "retry" if use_retry
+                else "samples" if n_samples > 1
+                else "single"
+            ),
             "parses": samples[-1].get("parses", False),
             "runs": samples[-1].get("runs", False),
             "exit_code": samples[-1].get("exit_code", -1),
@@ -781,7 +813,8 @@ def run_benchmark(
         "model_path": model_path,
         "variant": variant,
         "mode": (
-            "hybrid" if hybrid_retry > 0
+            "adaptive" if adaptive_retry > 0
+            else "hybrid" if hybrid_retry > 0
             else "retry" if retry_with_feedback > 0
             else "samples" if n_samples > 1
             else "single"
@@ -847,6 +880,8 @@ def print_summary(report: dict):
             label = f"retry@{k}"
         elif mode == "hybrid":
             label = f"hybrid@{k}"
+        elif mode == "adaptive":
+            label = f"adaptive@{k}"
         else:
             label = f"pass@{k}"
         print(f"  {C.BOLD}pass@1:{C.NC} {pass1*100:5.1f}%  {C.BOLD}{label}:{C.NC} {passk*100:5.1f}%  {C.DIM}(gap: +{gap*100:.1f} pts){C.NC}")
@@ -963,6 +998,11 @@ Examples:
                              "attempt 3+ = cold resample (temp=0.7, fresh conversation). Empirically between "
                              "pure retry and pure pass@K on Apothecary. Mutually exclusive with the others. "
                              "(default: 0, disabled)")
+    parser.add_argument("--adaptive-retry", type=int, default=0, metavar="K",
+                        help="Adaptive retry: branch on the last failure's error category. "
+                             "wrong_output → feedback (close-to-right, feedback fixes it). "
+                             "parse/runtime/segfault/timeout → cold resample (structural, new try). "
+                             "Mutually exclusive with the other retry modes. (default: 0, disabled)")
 
     # Generation config
     parser.add_argument("--max-tokens", type=int, default=MAX_TOKENS,
@@ -1092,6 +1132,7 @@ Examples:
                 n_samples=args.n_samples,
                 retry_with_feedback=args.retry_with_feedback,
                 hybrid_retry=args.hybrid_retry,
+                adaptive_retry=args.adaptive_retry,
             )
 
             all_reports.append(report)
