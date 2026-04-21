@@ -10,13 +10,14 @@
 
 #define HEMLOCK_VERSION_MAJOR 2
 #define HEMLOCK_VERSION_MINOR 0
-#define HEMLOCK_VERSION_PATCH 2
+#define HEMLOCK_VERSION_PATCH 3
 
-#define HEMLOCK_VERSION "2.0.2"
+#define HEMLOCK_VERSION "2.0.3"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   2.0.3 - Fix compiler symbol collision when a module exports `init` (or any name shared with the module initializer)
  *   2.0.2 - Fix i32 overflow in HashMap djb2 string hash; accumulate in i64 + mask
  *   2.0.1 - Bugfix release since v2.0.0 (runtime/compiler correctness, stability, docs)
  *   2.0.0 - BREAKING: Move 63 builtins to stdlib modules, reducing global namespace conflicts

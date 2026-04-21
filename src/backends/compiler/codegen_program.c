@@ -384,14 +384,19 @@ void codegen_closure_wrapper(CodegenContext *ctx, ClosureInfo *closure) {
     codegen_write(ctx, "}\n\n");
 }
 
-// Helper to generate init function for a module
+// Helper to generate init function for a module.
+// The suffix `_hml_init` is intentionally in the compiler's internal namespace:
+// the user namespace is `_mod<N>_<exported_name>`, so naming the module init
+// `_mod<N>_init` collides with any module that exports a function named `init`.
+// Users who export an identifier literally named `_hml_init` will still collide,
+// but that's a reserved convention and unusual.
 void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
     codegen_write(ctx, "// Module init: %s\n", module->absolute_path);
-    codegen_write(ctx, "static int %sinit_done = 0;\n", module->module_prefix);
-    codegen_write(ctx, "static void %sinit(void) {\n", module->module_prefix);
+    codegen_write(ctx, "static int %s_hml_init_done = 0;\n", module->module_prefix);
+    codegen_write(ctx, "static void %s_hml_init(void) {\n", module->module_prefix);
     codegen_indent_inc(ctx);
-    codegen_writeln(ctx, "if (%sinit_done) return;", module->module_prefix);
-    codegen_writeln(ctx, "%sinit_done = 1;", module->module_prefix);
+    codegen_writeln(ctx, "if (%s_hml_init_done) return;", module->module_prefix);
+    codegen_writeln(ctx, "%s_hml_init_done = 1;", module->module_prefix);
     codegen_blank_line(ctx);
 
     // Save current module context
@@ -407,7 +412,7 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
             if (resolved) {
                 CompiledModule *imported = module_get_cached(ctx->module_cache, resolved);
                 if (imported) {
-                    codegen_writeln(ctx, "%sinit();", imported->module_prefix);
+                    codegen_writeln(ctx, "%s_hml_init();", imported->module_prefix);
                 }
                 free(resolved);
             }
@@ -417,7 +422,7 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
             if (resolved) {
                 CompiledModule *reexported = module_get_cached(ctx->module_cache, resolved);
                 if (reexported) {
-                    codegen_writeln(ctx, "%sinit();", reexported->module_prefix);
+                    codegen_writeln(ctx, "%s_hml_init();", reexported->module_prefix);
                 }
                 free(resolved);
             }
@@ -1006,7 +1011,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                 if (resolved) {
                     CompiledModule *mod = module_get_cached(ctx->module_cache, resolved);
                     if (mod) {
-                        codegen_writeln(ctx, "%sinit();", mod->module_prefix);
+                        codegen_writeln(ctx, "%s_hml_init();", mod->module_prefix);
                     }
                     free(resolved);
                 }
@@ -1612,7 +1617,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         codegen_write(ctx, "// Module init function declarations\n");
         mod = ctx->module_cache->modules;
         while (mod) {
-            codegen_write(ctx, "static void %sinit(void);\n", mod->module_prefix);
+            codegen_write(ctx, "static void %s_hml_init(void);\n", mod->module_prefix);
             mod = mod->next;
         }
         codegen_write(ctx, "\n");

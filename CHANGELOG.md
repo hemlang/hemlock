@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-04-21
+
+### Fixed
+
+- **Compiler** - Modules that exported a function named `init` produced a C symbol collision with the auto-generated module initializer. The symbol was `_mod<N>_init` in both cases, causing "redeclared as different kind of symbol" errors at C-compile time. The generated initializer now lives in a reserved `_hml_init` compiler namespace (`_mod<N>__hml_init`) so user-exported symbols can't collide. Noticed while releasing hpm 1.2.0.
+
 ## [2.0.2] - 2026-04-21
 
 ### Fixed

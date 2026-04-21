@@ -1,0 +1,11 @@
+// Helper for module_init_name_collision parity test.
+// Exports a function literally named `init` which used to collide with
+// the compiler's `_mod<N>_init` module-initializer symbol.
+
+export fn init(version) {
+    print(`helper init with ${version}`);
+}
+
+export fn add(a, b) {
+    return a + b;
+}

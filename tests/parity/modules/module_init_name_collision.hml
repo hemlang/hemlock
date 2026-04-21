@@ -1,0 +1,10 @@
+// Regression: exporting a function named `init` from a module collided with
+// the compiler's own per-module initializer symbol (`_mod<N>_init`). This
+// tripped on real-world code (hpm 1.2.0 has github.init) and failed only in
+// the compiler backend. Both backends must accept this now.
+
+import * as mod_with_init from "./module_init_name_collision_helper.hml";
+
+mod_with_init.init("v1.0.0");
+print(mod_with_init.add(2, 3));
+print("done");
