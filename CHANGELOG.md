@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-04-21
+
+### Fixed
+
+- **`@stdlib/collections` HashMap** - `HashMap.keys()` and related operations crashed with `Integer overflow: i32 addition` for many string keys. The djb2 hash loop accumulated in a checked i32 and threw mid-loop once the running value passed `INT32_MAX`. The accumulator is now an i64 masked to 31 bits each iteration; intermediate overflow is impossible and bucket indices remain positive. Hashes are stable within a run but not identical to 2.0.1.
+
 ## [2.0.1] - 2026-04-18
 
 ### Added

@@ -104,4 +104,16 @@ assert(map.get("abc") == 1, "Should handle potential collisions");
 assert(map.get("bca") == 2, "Should handle potential collisions");
 assert(map.get("cab") == 3, "Should handle potential collisions");
 
+// Regression: djb2 hashing used to overflow i32 for many string keys and
+// throw on HashMap.keys(). Accumulator is now widened to i64 + masked.
+map.clear();
+map.set("a/test-lib", 1);
+map.set("a/one-two-three-four-five", 2);
+map.set("hemlang/some-really-long-package-name-with-dashes", 3);
+let long_keys = map.keys();
+assert(long_keys.length == 3, "keys() should return 3 keys with long/overflow-prone names");
+assert(map.get("a/test-lib") == 1, "Should retrieve long-string key 1");
+assert(map.get("a/one-two-three-four-five") == 2, "Should retrieve long-string key 2");
+assert(map.get("hemlang/some-really-long-package-name-with-dashes") == 3, "Should retrieve long-string key 3");
+
 print("All HashMap tests passed!");
