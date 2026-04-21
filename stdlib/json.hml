@@ -11,7 +11,7 @@
 // ============================================================================
 
 // Parse JSON string to value (wrapper around built-in .deserialize())
-fn parse(json_str: string) {
+export fn parse(json_str: string) {
 	if (typeof(json_str) != "string") {
 		throw "parse() requires string argument";
 	}
@@ -20,7 +20,7 @@ fn parse(json_str: string) {
 }
 
 // Serialize value to JSON string
-fn stringify(value) {
+export fn stringify(value) {
 	let t = typeof(value);
 
 	// Primitives - handle directly
@@ -69,7 +69,7 @@ fn format_number(value) {
 }
 
 // Parse JSON from file
-fn parse_file(path: string) {
+export fn parse_file(path: string) {
 	let f = __open(path, "r");
 	defer f.close();
 
@@ -78,7 +78,7 @@ fn parse_file(path: string) {
 }
 
 // Write JSON to file (compact format)
-fn stringify_file(path: string, value) {
+export fn stringify_file(path: string, value) {
 	let json = stringify(value);
 
 	let f = __open(path, "w");
@@ -237,7 +237,7 @@ fn object_keys(obj) {
 
 // Pretty print JSON with indentation
 // indent can be: number of spaces (i32) or string (e.g., "\t")
-fn pretty(value, indent?: null) {
+export fn pretty(value, indent?: null) {
 	let indent_str = "  ";  // Default: 2 spaces
 
 	if (indent != null) {
@@ -256,7 +256,7 @@ fn pretty(value, indent?: null) {
 }
 
 // Pretty print JSON to file
-fn pretty_file(path: string, value, indent?: null) {
+export fn pretty_file(path: string, value, indent?: null) {
 	let formatted = pretty(value, indent);
 
 	let f = __open(path, "w");
@@ -294,7 +294,7 @@ fn parse_int(s: string): i32 {
 // Get value by path (dot notation)
 // Example: get(obj, "user.address.city")
 // Example: get(obj, "items.0") for array index
-fn get(obj, path: string, default_val?: null) {
+export fn get(obj, path: string, default_val?: null) {
 	if (path.length == 0) {
 		return obj;
 	}
@@ -336,7 +336,7 @@ fn get(obj, path: string, default_val?: null) {
 
 // Set value by path (dot notation)
 // Modifies object in-place
-fn set(obj, path: string, value) {
+export fn set(obj, path: string, value) {
 	if (path.length == 0) {
 		throw "Cannot set empty path";
 	}
@@ -374,7 +374,7 @@ fn set(obj, path: string, value) {
 }
 
 // Check if path exists
-fn has(obj, path: string): bool {
+export fn has(obj, path: string): bool {
 	let sentinel = {};  // Unique object as sentinel
 	let result = get(obj, path, sentinel);
 	return result != sentinel;
@@ -383,7 +383,7 @@ fn has(obj, path: string): bool {
 // Delete value by path (dot notation)
 // Example: delete(obj, "user.address.city")
 // Returns true if the property was deleted, false if not found
-fn delete(obj, path: string): bool {
+export fn delete(obj, path: string): bool {
 	if (path.length == 0) {
 		return false;
 	}
@@ -444,7 +444,7 @@ fn delete(obj, path: string): bool {
 // ============================================================================
 
 // Check if string is valid JSON (lightweight check)
-fn is_valid(json_str: string): bool {
+export fn is_valid(json_str: string): bool {
 	try {
 		parse(json_str);
 		return true;
@@ -454,7 +454,7 @@ fn is_valid(json_str: string): bool {
 }
 
 // Validate JSON and return detailed result
-fn validate(json_str: string) {
+export fn validate(json_str: string) {
 	try {
 		parse(json_str);
 		return { valid: true, message: "Valid JSON", line: 0 };
@@ -467,20 +467,20 @@ fn validate(json_str: string) {
 // Type Checking Utilities
 // ============================================================================
 
-fn is_object(value): bool {
+export fn is_object(value): bool {
 	let t = typeof(value);
 	return t == "object";
 }
 
-fn is_array(value): bool {
+export fn is_array(value): bool {
 	return typeof(value) == "array";
 }
 
-fn is_string(value): bool {
+export fn is_string(value): bool {
 	return typeof(value) == "string";
 }
 
-fn is_number(value): bool {
+export fn is_number(value): bool {
 	let t = typeof(value);
 	return t == "i8" || t == "i16" || t == "i32" || t == "i64" || t == "u8" || t == "u16" || t ==
 		"u32" ||
@@ -491,16 +491,16 @@ fn is_number(value): bool {
 		t == "number";
 }
 
-fn is_bool(value): bool {
+export fn is_bool(value): bool {
 	return typeof(value) == "bool";
 }
 
-fn is_null(value): bool {
+export fn is_null(value): bool {
 	return typeof(value) == "null";
 }
 
 // Get JSON type as string
-fn type_of(value): string {
+export fn type_of(value): string {
 	let t = typeof(value);
 
 	if (is_number(value)) {
@@ -515,13 +515,13 @@ fn type_of(value): string {
 // ============================================================================
 
 // Deep clone value (creates independent copy)
-fn clone(value) {
+export fn clone(value) {
 	// Use serialize/deserialize for deep copy
 	return parse(stringify(value));
 }
 
 // Deep merge objects (combines nested objects)
-fn merge(base, update) {
+export fn merge(base, update) {
 	if (!is_object(base) || !is_object(update)) {
 		return update;
 	}

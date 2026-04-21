@@ -39,6 +39,11 @@ typedef struct {
     http_stream_chunk_t *chunk_tail;
     pthread_mutex_t chunk_mutex;
     pthread_cond_t chunk_cond;
+    // Outgoing request body (for POST/PUT/PATCH/etc.)
+    char *post_body;
+    size_t post_body_len;
+    char *content_type;
+    int body_sent;
 } http_stream_t;
 
 static void http_stream_enqueue(http_stream_t *stream, const char *data, size_t len) {
@@ -83,8 +88,54 @@ static int http_stream_callback(struct lws *wsi, enum lws_callback_reasons reaso
                 memcpy(*p, accept, accept_len);
                 *p += accept_len;
             }
+
+            // If we have a request body, emit Content-Type / Content-Length
+            // and request a writable callback so we can send the body bytes.
+            if (stream && stream->post_body && stream->post_body_len > 0) {
+                const char *ct = (stream->content_type && stream->content_type[0])
+                                     ? stream->content_type
+                                     : "application/octet-stream";
+                char ct_line[256];
+                int ctn = snprintf(ct_line, sizeof(ct_line),
+                                   "Content-Type: %s\r\n", ct);
+                if (ctn > 0 && (end - *p) >= ctn) {
+                    memcpy(*p, ct_line, (size_t)ctn);
+                    *p += ctn;
+                }
+                char cl_line[64];
+                int cln = snprintf(cl_line, sizeof(cl_line),
+                                   "Content-Length: %zu\r\n",
+                                   stream->post_body_len);
+                if (cln > 0 && (end - *p) >= cln) {
+                    memcpy(*p, cl_line, (size_t)cln);
+                    *p += cln;
+                }
+                lws_client_http_body_pending(wsi, 1);
+                lws_callback_on_writable(wsi);
+            }
             break;
         }
+
+        case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+            if (stream && stream->post_body && stream->post_body_len > 0 && !stream->body_sent) {
+                size_t body_len = stream->post_body_len;
+                unsigned char *buf = malloc(LWS_PRE + body_len);
+                if (!buf) {
+                    stream->failed = 1;
+                    stream->complete = 1;
+                    pthread_mutex_lock(&stream->chunk_mutex);
+                    pthread_cond_signal(&stream->chunk_cond);
+                    pthread_mutex_unlock(&stream->chunk_mutex);
+                    return -1;
+                }
+                memcpy(buf + LWS_PRE, stream->post_body, body_len);
+                int n = lws_write(wsi, buf + LWS_PRE, body_len, LWS_WRITE_HTTP);
+                free(buf);
+                lws_client_http_body_pending(wsi, 0);
+                stream->body_sent = 1;
+                return n < 0 ? -1 : 0;
+            }
+            break;
 
         case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
             if (stream) {
@@ -213,9 +264,6 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
     if (args[4].type == VAL_I32) timeout_ms = args[4].as.as_i32;
     else if (args[4].type == VAL_I64) timeout_ms = (int)args[4].as.as_i64;
 
-    (void)post_body;
-    (void)content_type;
-
     char host[256], path[512];
     int port, ssl;
     if (parse_url(url, host, &port, path, &ssl) < 0) {
@@ -233,6 +281,35 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
     pthread_mutex_init(&stream->chunk_mutex, NULL);
     pthread_cond_init(&stream->chunk_cond, NULL);
 
+    // Attach outgoing request body (if any) so the callback can send it.
+    if (post_body && post_body[0] != '\0') {
+        size_t blen = strlen(post_body);
+        stream->post_body = malloc(blen + 1);
+        if (!stream->post_body) {
+            pthread_mutex_destroy(&stream->chunk_mutex);
+            pthread_cond_destroy(&stream->chunk_cond);
+            free(stream);
+            ctx->exception_state.is_throwing = 1;
+            ctx->exception_state.exception_value = val_string("Failed to allocate request body");
+            return val_null();
+        }
+        memcpy(stream->post_body, post_body, blen);
+        stream->post_body[blen] = '\0';
+        stream->post_body_len = blen;
+        if (content_type && content_type[0] != '\0') {
+            stream->content_type = strdup(content_type);
+            if (!stream->content_type) {
+                free(stream->post_body);
+                pthread_mutex_destroy(&stream->chunk_mutex);
+                pthread_cond_destroy(&stream->chunk_cond);
+                free(stream);
+                ctx->exception_state.is_throwing = 1;
+                ctx->exception_state.exception_value = val_string("Failed to allocate content_type");
+                return val_null();
+            }
+        }
+    }
+
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
     info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -247,6 +324,8 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
 
     stream->context = lws_create_context(&info);
     if (!stream->context) {
+        if (stream->post_body) free(stream->post_body);
+        if (stream->content_type) free(stream->content_type);
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
@@ -275,6 +354,8 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
 
     if (!lws_client_connect_via_info(&connect_info)) {
         lws_context_destroy(stream->context);
+        if (stream->post_body) free(stream->post_body);
+        if (stream->content_type) free(stream->content_type);
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
@@ -293,6 +374,8 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
     if (stream->failed || (!stream->established && wait_iters <= 0)) {
         lws_context_destroy(stream->context);
         if (stream->headers) free(stream->headers);
+        if (stream->post_body) free(stream->post_body);
+        if (stream->content_type) free(stream->content_type);
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
@@ -311,6 +394,8 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
     if (stream_rc != 0) {
         lws_context_destroy(stream->context);
         if (stream->headers) free(stream->headers);
+        if (stream->post_body) free(stream->post_body);
+        if (stream->content_type) free(stream->content_type);
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
@@ -423,6 +508,8 @@ Value builtin_lws_http_stream_close(Value *args, int num_args, ExecutionContext 
 
     if (stream->context) lws_context_destroy(stream->context);
     if (stream->headers) free(stream->headers);
+    if (stream->post_body) free(stream->post_body);
+    if (stream->content_type) free(stream->content_type);
     free(stream);
 
     return val_null();

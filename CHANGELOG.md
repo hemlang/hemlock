@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-04-21
+
+### Fixed
+
+- **`@stdlib/http` POST body sent on the wire** — every request path (`post`, `post_json`, `post_json_timeout`, `post_json_stream`, `request`, and friends) accepted a body, serialized it, and then the libwebsockets runtime dropped it on the floor with a `(void)post_body;` comment. Servers received empty bodies and replied with 500s like `"attempting to parse an empty input"`. Both the one-shot (`websockets_http.c`) and streaming (`websockets_stream.c`) clients now:
+  - store the body + content-type on the response/stream struct,
+  - add `Content-Type` (unless the caller supplied one) and `Content-Length` headers in the handshake callback,
+  - signal `lws_client_http_body_pending()` and request a writable callback,
+  - write the body in `LWS_CALLBACK_CLIENT_HTTP_WRITEABLE` with `lws_write(..., LWS_WRITE_HTTP)`,
+  - free the body on every success and failure path.
+- **`@stdlib/json` public API is now actually exported** — `parse`, `stringify`, `pretty`, `get`, `set`, `has`, `delete`, `parse_file`, `stringify_file`, `pretty_file`, `is_valid`, `validate`, `is_object`, `is_array`, `is_string`, `is_number`, `is_bool`, `is_null`, `type_of`, `clone`, `merge` now use `export fn`. Named imports (`import { parse } from "@stdlib/json"`) continued to work through stdlib magic, but namespace imports (`import * as json from "@stdlib/json"; json.parse(...)`) threw `Object has no method 'parse'`. That's fixed.
+
 ## [2.0.3] - 2026-04-21
 
 ### Fixed
