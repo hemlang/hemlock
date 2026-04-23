@@ -1,0 +1,9 @@
+let s = "hello world";
+let upper = s.to_upper();
+let sub = s.substr(0, 5);
+let parts = s.split(" ");
+let trimmed = "  test  ".trim();
+let found = s.find("world");
+let has = s.contains("ell");
+let name = "world";
+let template = `hello ${name}!`;

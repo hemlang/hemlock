@@ -1,0 +1,7 @@
+try {
+    throw "error";
+} catch (e) {
+    let msg = e;
+} finally {
+    let cleanup = true;
+}

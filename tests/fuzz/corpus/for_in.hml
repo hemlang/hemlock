@@ -1,0 +1,10 @@
+let arr = [1, 2, 3];
+for (item in arr) {
+    let x = item;
+}
+
+let obj = { a: 1, b: 2 };
+for (key, val in obj) {
+    let k = key;
+    let v = val;
+}

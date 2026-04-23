@@ -1,0 +1,7 @@
+let arr = [1, 2, 3, 4, 5];
+let first = arr[0];
+arr[0] = 10;
+let len = arr.length;
+arr.push(6);
+let last = arr.pop();
+let slice = arr.slice(1, 3);

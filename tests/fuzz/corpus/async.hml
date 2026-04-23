@@ -1,0 +1,8 @@
+async fn compute(n: i32): i32 {
+    return n * n;
+}
+
+fn test() {
+    let task = spawn(compute, 5);
+    let result = await task;
+}

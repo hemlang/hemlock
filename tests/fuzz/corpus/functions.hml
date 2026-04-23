@@ -1,0 +1,10 @@
+fn add(a, b) {
+    return a + b;
+}
+
+fn greet(name: string, msg?: "Hello"): string {
+    return msg + " " + name;
+}
+
+let f = fn(x) { return x * 2; };
+let result = add(1, 2);

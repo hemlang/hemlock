@@ -1,0 +1,13 @@
+let a = 1 + 2 * 3 - 4 / 2;
+let b = 10 % 3;
+let c = a == b;
+let d = a != b;
+let e = a < b && b > 0;
+let f = a <= 10 || b >= 5;
+let g = !true;
+let h = 0xFF & 0x0F;
+let i = 1 << 4;
+let j = 16 >> 2;
+let k = ~0;
+let l = 5 | 3;
+let m = 5 ^ 3;
