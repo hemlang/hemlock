@@ -1,0 +1,7 @@
+// Test: Use after move detection
+// This should report a TRIC003 error
+
+let p: ptr = alloc(64);
+let q = p;       // Ownership moves to q
+ptr_write_i32(p, 42);  // ERROR: use after move
+free(q);

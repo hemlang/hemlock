@@ -1,0 +1,6 @@
+// Test: Double free detection
+// This should report a TRIC001 error
+
+let p = alloc(64);
+free(p);
+free(p);  // ERROR: double free

@@ -1,0 +1,8 @@
+// Test: Valid allocation and free
+// This should NOT report any errors
+
+let p = alloc(64);
+ptr_write_i32(p, 42);
+let val = ptr_read_i32(p);
+print(val);
+free(p);

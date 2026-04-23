@@ -1,0 +1,7 @@
+// Test: Freeing a moved value
+// This should report a TRIC003 error
+
+let p: ptr = alloc(64);
+let q = p;       // Ownership moves to q
+free(p);         // ERROR: p was moved
+free(q);         // This is the correct free
