@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-05-10
+
+### Added
+
+- **`@stdlib/process` `posix_spawn(argv, opts?)`** — detached child-process primitive backed by `posix_spawn(3)`. Returns immediately with `{ pid }`; caller reaps via `waitpid()`. Fills the gap between the racy `fork()`/`exec()` pair and the blocking `exec_argv()`. Options support `env` (`KEY=value` array), `stdin`/`stdout`/`stderr` fd redirections, `cwd` (chdir before exec, glibc 2.29+ / macOS 10.15+), and `setsid` (detach from controlling terminal). Exported as `posix_spawn` rather than `spawn` to avoid shadowing the language-level task `spawn(fn, ...)` builtin in the compiler. Documented in `stdlib/docs/process.md`.
+- **`@stdlib/fs` `open_fd(path, mode?)` and `fileno(file)`** — raw POSIX file-descriptor access. `open_fd` returns an `i32` fd directly (no buffered `File` wrapper), and `fileno` extracts the fd backing an existing `File`. Together they let `posix_spawn` callers redirect a child's stdio into a log file without round-tripping through `["sh", "-c", "exec ... > log 2>&1"]`. `fileno` preserves `File` ownership of the fd; closing the file closes the fd. Sandbox policy mirrors `open()`. Documented in `stdlib/docs/fs.md`.
+- **String-literal object keys** — object literals may now use string literals as field names: `let m = { "chat-mahou": 1, "user-id": 42 };`. Required when the key contains characters that aren't valid in a bare identifier (hyphens, spaces, leading digits). Shorthand is not permitted for string keys; a colon is mandatory. The formatter quotes such keys on output to keep round-trips lossless.
+- **`obj?[key]` safe-index operator** — short form of the existing `obj?.[key]`, parallel to `obj?.field` safe-navigation. Returns `null` when the receiver is `null`; otherwise behaves like `obj[key]`. The lexer only emits the safe-index token when `[` immediately follows `?` (no whitespace), so `a ? [1] : [2]` ternaries are unaffected.
+
+### Fixed
+
+- **FFI two-library import collision** — the compiler used to emit a single shared `_ffi_lib` global plus per-symbol pointer slots, so the second `import "..."` clobbered the first library handle and lazy-resolution of any symbol from the first library failed at runtime. Most common collision: `@stdlib/sqlite` (`libsqlite3.so.0`) plus `@stdlib/uuid` (`libcrypto.so.3`). Codegen now stamps every `extern fn` with the path of its preceding `import_ffi` and emits one `_ffi_lib_<sanitized>` global per unique library path; each wrapper resolves against its own handle.
+- **Compiler/interpreter parity gaps**:
+  - `let xs: array<T> = [...]` now auto-fills optional fields per element when `T` is a registered object type (compiler matches interpreter behavior).
+  - `export let X = X;` is now treated as `export { X };` instead of trying to redefine `X`.
+  - `substr()` is type-checked for arity at compile time, mirroring the interpreter's runtime check; previously single-arg `substr` produced a confusing "String has no method 'substr'" error.
+- **WASM interpreter build** — the new `posix_spawn` primitive is stubbed out under emscripten (which has no `posix_spawn(3)`); calling it in-browser throws a clear runtime error rather than failing to link. `_GNU_SOURCE` define guards prevent redefinition warnings under WASM CI.
+
+### Build / Infrastructure
+
+- **Incremental builds now track header dependencies** — top-level `Makefile` and `runtime/Makefile` add `-MMD -MP` to `CFLAGS` and `-include` the resulting `.d` files. Touching a header (e.g. `include/frontend/ast.h`) now correctly rebuilds the 86 transitively dependent objects instead of leaving them stale; previous behavior produced binaries linked from objects compiled against different versions of the same header.
+- **emsdk bumped 3.1.51 → 4.0.7** — the older zlib port's hardcoded SHA-256 went stale after GitHub re-rolled the upstream tarball, breaking `make wasm-interpreter`.
+
 ## [2.1.1] - 2026-04-21
 
 ### Fixed

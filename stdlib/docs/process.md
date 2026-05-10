@@ -272,6 +272,63 @@ let result3 = exec_argv(["cat", user_input]);
 
 **Exceptions:** Throws if command cannot be found or executed.
 
+### `posix_spawn(argv: array<string>, opts?: object): object`
+
+Detached process spawn backed by `posix_spawn(3)`. Unlike `exec_argv()` (which forks, captures stdout/stderr through pipes, and waits for the child), `posix_spawn()` returns immediately after the child is created. The caller owns the pid and is responsible for reaping it via `waitpid()` or arranging `SIGCHLD` handling.
+
+The export is named `posix_spawn` (not `spawn`) to avoid colliding with the language-level task `spawn(fn, args...)` builtin in the compiler backend.
+
+**Parameters:**
+- `argv` - Array of strings; `argv[0]` is the program name. PATH is searched unless the name contains `/`.
+- `opts` (optional object):
+  - `env`: array of `"KEY=value"` strings (default: inherit parent environ)
+  - `stdin`: i32 fd to dup2 onto `STDIN_FILENO` in child (default: inherit)
+  - `stdout`: i32 fd to dup2 onto `STDOUT_FILENO` in child (default: inherit)
+  - `stderr`: i32 fd to dup2 onto `STDERR_FILENO` in child (default: inherit)
+  - `cwd`: string; chdir before exec. Requires glibc 2.29+ / macOS 10.15+; older systems throw at runtime.
+  - `setsid`: bool; child becomes a session leader, detaching from the controlling terminal. Requires `POSIX_SPAWN_SETSID`.
+
+**Returns:** Object with field:
+- `pid` (i32) - Child process id
+
+```hemlock
+import { posix_spawn, waitpid } from "@stdlib/process";
+import { open_fd } from "@stdlib/fs";
+
+// Fire-and-forget
+let { pid } = posix_spawn(["./worker", "--once"]);
+
+// Redirect stdout/stderr into a log file (no `sh -c` wrapper needed)
+let log_fd = open_fd("/tmp/worker.log", "a");
+let child = posix_spawn(
+    ["./worker"],
+    { stdout: log_fd, stderr: log_fd }
+);
+
+// Daemonize: run in a new session, no controlling terminal
+let daemon = posix_spawn(
+    ["./long-running"],
+    { setsid: true, cwd: "/" }
+);
+
+// Reap when the parent is ready
+let status = waitpid(pid, 0);
+```
+
+**Comparison with other process primitives:**
+| Primitive | Behavior | Stdio | Use when |
+|-----------|----------|-------|----------|
+| `fork()` | Manual fork, racy under threads | Inherited | Need control over both child and parent halves |
+| `exec()` | Shell-interpreted, blocks until exit | Captures stdout only | Quick shell one-liners |
+| `exec_argv()` | Forks, blocks until exit | Captures stdout + stderr | Capturing output of a finite command |
+| `posix_spawn()` | Returns pid immediately, caller reaps | Inherited or fd-redirected | "Launch and walk away" |
+
+**Platform notes:**
+- WASM builds throw at call time — emscripten libc has no `posix_spawn(3)`.
+- `cwd` and `setsid` are gated behind their respective glibc / macOS / `POSIX_SPAWN_SETSID` checks; on older systems calling with these options throws a clear runtime error rather than silently ignoring them.
+
+**Exceptions:** Throws if `argv` is empty, the executable cannot be found, or an option requires a feature missing on the host libc.
+
 ## Usage Patterns
 
 ### Check if process exists

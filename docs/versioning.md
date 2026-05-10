@@ -29,10 +29,10 @@ The version is defined in `include/version.h`:
 
 ```c
 #define HEMLOCK_VERSION_MAJOR 2
-#define HEMLOCK_VERSION_MINOR 0
-#define HEMLOCK_VERSION_PATCH 1
+#define HEMLOCK_VERSION_MINOR 2
+#define HEMLOCK_VERSION_PATCH 0
 
-#define HEMLOCK_VERSION "2.0.1"
+#define HEMLOCK_VERSION "2.2.0"
 ```
 
 ### Checking Versions
@@ -93,6 +93,11 @@ import { sin, cos } from "@stdlib/math";
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **2.2.0** | 2026-05-10 | `posix_spawn()` primitive in `@stdlib/process`; `fs.open_fd()`/`fileno()` for raw fd access; string-literal object keys and `obj?[key]` safe-index; FFI two-library import fix; incremental builds track header deps |
+| **2.1.1** | 2026-04-21 | Parser no longer hangs on malformed `match` arms parsed as object literals |
+| **2.1.0** | 2026-04-21 | HTTP client actually sends POST/PUT/PATCH bodies; `@stdlib/json` exports its public API for namespace imports |
+| **2.0.3** | 2026-04-21 | Fix compiler symbol collision when a module exports `init` |
+| **2.0.2** | 2026-04-21 | Fix i32 overflow in HashMap djb2 string hash |
 | **2.0.1** | 2026-04-18 | Patch release with bug fixes and stability improvements since v2.0.0 |
 | **2.0.0** | 2026-04-05 | Breaking release: 63 builtins moved to stdlib modules |
 | **1.8.7** | 2026 | Fix multi-argument print/eprint in compiler codegen |

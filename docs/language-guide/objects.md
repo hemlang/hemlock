@@ -39,6 +39,28 @@ let person = {
 - Keys are identifiers (no quotes needed)
 - Values can be any type
 
+### String-Literal Keys
+
+When a key contains characters that aren't valid in a bare identifier (hyphens, spaces, leading digits), wrap it in a string literal:
+
+```hemlock
+let m = {
+    "chat-mahou": 1,
+    "user-id": 42,
+    "2fa-enabled": true
+};
+
+print(m["chat-mahou"]);   // 1
+print(m["user-id"]);      // 42
+```
+
+Use the same string literal with bracket notation to read the value back. A bare identifier (`m.chat`) cannot reach a hyphenated key — the parser would read it as `m.chat - mahou`.
+
+**Rules:**
+- A colon is required — shorthand (`{ "foo" }`) is not permitted for string keys.
+- The literal is the literal key; no escape processing beyond the usual string-literal rules.
+- Mixing bare-identifier and string-literal keys in the same object is fine: `{ name: "Alice", "first-seen": now() }`.
+
 ### Empty Objects
 
 ```hemlock
@@ -223,6 +245,22 @@ print(person["age"]);         // 30
 person["city"] = "NYC";
 print(person.city);           // "NYC"
 ```
+
+### Safe Indexing (`obj?[key]`)
+
+The safe-index operator returns `null` instead of throwing when the receiver itself is `null`, parallel to the `obj?.field` safe-navigation form:
+
+```hemlock
+let user = lookup("alice");        // may return null
+let role = user?["role"];          // null if user is null
+let perm = user?[role]?["read"];   // chains across nullable receivers
+```
+
+When the receiver is non-null, `obj?[key]` behaves like `obj[key]`: it returns the value at `key`, or `null` if the key is absent.
+
+**Lexer note:** The `?[` token is only recognised when `[` immediately follows `?` with no whitespace, so existing ternaries like `cond ? [1] : [2]` are unaffected.
+
+The longer `obj?.[key]` form is also accepted and means the same thing.
 
 ### Key Coercion
 
