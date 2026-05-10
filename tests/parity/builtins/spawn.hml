@@ -1,0 +1,20 @@
+// Test: process.posix_spawn() detached spawn primitive backed by posix_spawn(3).
+import { posix_spawn, waitpid } from "@stdlib/process";
+
+// Case 1: spawn `true`, expect a positive pid and exit code 0.
+let r1 = posix_spawn(["true"]);
+print(r1.pid > 0);
+let w1 = waitpid(r1.pid, 0);
+print(w1.status == 0);
+
+// Case 2: spawn `false`, expect non-zero exit status.
+let r2 = posix_spawn(["false"]);
+let w2 = waitpid(r2.pid, 0);
+print(w2.status != 0);
+
+// Case 3: spawn with custom env (verify it runs; shell/stdout capture not exercised).
+let r3 = posix_spawn(["true"], { env: ["FOO=bar", "PATH=/usr/bin:/bin"] });
+let w3 = waitpid(r3.pid, 0);
+print(w3.status == 0);
+
+print("done");

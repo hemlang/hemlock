@@ -26,6 +26,7 @@
 #include <signal.h>
 #include <fcntl.h>  // For O_NOFOLLOW symlink protection
 #include <poll.h>   // For poll() in exec functions
+#include <spawn.h>  // For posix_spawn() / posix_spawnp()
 
 // Define math constants if not available
 #ifndef M_PI
@@ -121,6 +122,7 @@ Value builtin_kill(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_fork(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_abort(Value *args, int num_args, ExecutionContext *ctx);
 
 // Pipe builtins (env.c)

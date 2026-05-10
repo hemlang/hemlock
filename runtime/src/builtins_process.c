@@ -691,6 +691,134 @@ HmlValue hml_waitpid(HmlValue pid, HmlValue options) {
     return obj;
 }
 
+// posix_spawn(argv, opts?) -> { pid }
+// Detached spawn primitive backed by posix_spawnp(3).
+// argv: array of strings (argv[0] PATH-resolved unless it contains '/').
+// opts (optional object):
+//   env:    array of "KEY=value" strings (default: inherit parent environ)
+//   stdin:  i32 fd to dup2 onto STDIN_FILENO  in child (default: inherit)
+//   stdout: i32 fd to dup2 onto STDOUT_FILENO in child (default: inherit)
+//   stderr: i32 fd to dup2 onto STDERR_FILENO in child (default: inherit)
+extern char **environ;
+
+HmlValue hml_posix_spawn(HmlValue argv_val, HmlValue opts_val) {
+    if (hml_sandbox_check(HML_SANDBOX_RESTRICT_PROCESS)) {
+        hml_sandbox_error("process spawning");
+    }
+
+    if (argv_val.type != HML_VAL_ARRAY || !argv_val.as.as_array) {
+        hml_runtime_error("spawn() argv must be an array of strings");
+    }
+    HmlArray *arr = argv_val.as.as_array;
+    if (arr->length == 0) {
+        hml_runtime_error("spawn() argv must not be empty");
+    }
+
+    int has_opts = (opts_val.type == HML_VAL_OBJECT && opts_val.as.as_object);
+
+    char **cargv = malloc((arr->length + 1) * sizeof(char*));
+    if (!cargv) {
+        hml_runtime_error("spawn() memory allocation failed");
+    }
+    for (int64_t i = 0; i < arr->length; i++) {
+        HmlValue elem = arr->elements[i];
+        if (elem.type != HML_VAL_STRING || !elem.as.as_string) {
+            for (int64_t j = 0; j < i; j++) free(cargv[j]);
+            free(cargv);
+            hml_runtime_error("spawn() argv elements must be strings");
+        }
+        HmlString *s = elem.as.as_string;
+        cargv[i] = malloc(s->length + 1);
+        if (!cargv[i]) {
+            for (int64_t j = 0; j < i; j++) free(cargv[j]);
+            free(cargv);
+            hml_runtime_error("spawn() memory allocation failed");
+        }
+        memcpy(cargv[i], s->data, s->length);
+        cargv[i][s->length] = '\0';
+    }
+    cargv[arr->length] = NULL;
+
+    char **cenv = NULL;
+    int64_t cenv_count = 0;
+    if (has_opts && hml_object_has_field(opts_val, "env")) {
+        HmlValue env_val = hml_object_get_field(opts_val, "env");
+        if (env_val.type != HML_VAL_NULL) {
+            if (env_val.type != HML_VAL_ARRAY || !env_val.as.as_array) {
+                for (int64_t i = 0; i < arr->length; i++) free(cargv[i]);
+                free(cargv);
+                hml_runtime_error("spawn() opts.env must be an array of strings");
+            }
+            HmlArray *envarr = env_val.as.as_array;
+            cenv = malloc((envarr->length + 1) * sizeof(char*));
+            if (!cenv) {
+                for (int64_t i = 0; i < arr->length; i++) free(cargv[i]);
+                free(cargv);
+                hml_runtime_error("spawn() memory allocation failed");
+            }
+            for (int64_t i = 0; i < envarr->length; i++) {
+                HmlValue ev = envarr->elements[i];
+                if (ev.type != HML_VAL_STRING || !ev.as.as_string) {
+                    for (int64_t j = 0; j < i; j++) free(cenv[j]);
+                    free(cenv);
+                    for (int64_t j = 0; j < arr->length; j++) free(cargv[j]);
+                    free(cargv);
+                    hml_runtime_error("spawn() opts.env elements must be strings");
+                }
+                HmlString *s = ev.as.as_string;
+                cenv[i] = malloc(s->length + 1);
+                if (!cenv[i]) {
+                    for (int64_t j = 0; j < i; j++) free(cenv[j]);
+                    free(cenv);
+                    for (int64_t j = 0; j < arr->length; j++) free(cargv[j]);
+                    free(cargv);
+                    hml_runtime_error("spawn() memory allocation failed");
+                }
+                memcpy(cenv[i], s->data, s->length);
+                cenv[i][s->length] = '\0';
+                cenv_count = i + 1;
+            }
+            cenv[envarr->length] = NULL;
+        }
+    }
+
+    posix_spawn_file_actions_t fa;
+    int fa_inited = (posix_spawn_file_actions_init(&fa) == 0);
+
+    if (fa_inited && has_opts) {
+        const char *names[3] = {"stdin", "stdout", "stderr"};
+        int targets[3] = {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO};
+        for (int i = 0; i < 3; i++) {
+            if (hml_object_has_field(opts_val, names[i])) {
+                HmlValue fdv = hml_object_get_field(opts_val, names[i]);
+                if (fdv.type != HML_VAL_NULL) {
+                    posix_spawn_file_actions_adddup2(&fa, hml_to_i32(fdv), targets[i]);
+                }
+            }
+        }
+    }
+
+    pid_t pid = -1;
+    int rc = posix_spawnp(&pid, cargv[0], fa_inited ? &fa : NULL, NULL,
+                          cargv, cenv ? cenv : environ);
+
+    if (fa_inited) posix_spawn_file_actions_destroy(&fa);
+    for (int64_t i = 0; i < arr->length; i++) free(cargv[i]);
+    free(cargv);
+    if (cenv) {
+        for (int64_t i = 0; i < cenv_count; i++) free(cenv[i]);
+        free(cenv);
+    }
+
+    if (rc != 0) {
+        hml_runtime_error("spawn() failed: %s", strerror(rc));
+    }
+
+    HmlValue obj = hml_val_object();
+    hml_object_set_field(obj, "pid", hml_val_i32((int32_t)pid));
+    return obj;
+}
+
 void hml_abort(void) {
     abort();
 }
@@ -744,6 +872,12 @@ HmlValue hml_builtin_wait(HmlClosureEnv *env) {
 HmlValue hml_builtin_waitpid(HmlClosureEnv *env, HmlValue pid, HmlValue options) {
     (void)env;
     return hml_waitpid(pid, options);
+}
+
+// posix_spawn(argv, opts?) wrapper. opts defaults to null.
+HmlValue hml_builtin_posix_spawn(HmlClosureEnv *env, HmlValue argv_val, HmlValue opts_val) {
+    (void)env;
+    return hml_posix_spawn(argv_val, opts_val);
 }
 
 HmlValue hml_builtin_abort(HmlClosureEnv *env) {

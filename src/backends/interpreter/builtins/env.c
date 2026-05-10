@@ -1038,6 +1038,187 @@ Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx) {
     return val_object(result);
 }
 
+// ========== POSIX_SPAWN PRIMITIVE ==========
+//
+// posix_spawn(argv, opts?) -> { pid }
+//
+// Detached spawn primitive backed by posix_spawnp(3). Unlike exec_argv()
+// which forks, redirects stdout/stderr through pipes, and waits for the
+// child, this primitive returns immediately after the child is created.
+// The caller owns the pid and must waitpid() (or arrange SIGCHLD/SA_NOCLDWAIT)
+// to reap it.
+//
+// argv: array of strings; argv[0] is the program (PATH-resolved via
+//   posix_spawnp unless it contains '/').
+// opts (optional object):
+//   env:    array of "KEY=value" strings (default: inherit parent environ)
+//   stdin:  i32 fd to dup2 onto STDIN_FILENO  in the child (default: inherit)
+//   stdout: i32 fd to dup2 onto STDOUT_FILENO in the child (default: inherit)
+//   stderr: i32 fd to dup2 onto STDERR_FILENO in the child (default: inherit)
+extern char **environ;
+
+static int posix_spawn_lookup_field(Object *obj, const char *name) {
+    return obj ? object_lookup_field(obj, name) : -1;
+}
+
+Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_PROCESS)) {
+        sandbox_error(ctx, "process spawning");
+        return val_null();
+    }
+
+    if (num_args < 1 || num_args > 2) {
+        runtime_error(ctx, "spawn() expects 1-2 arguments (argv, [opts]), got %d", num_args);
+        return val_null();
+    }
+    if (args[0].type != VAL_ARRAY) {
+        runtime_error(ctx, "spawn() argv must be an array of strings, got %s", value_type_name(args[0].type));
+        return val_null();
+    }
+    Array *arr = args[0].as.as_array;
+    if (arr->length == 0) {
+        runtime_error(ctx, "spawn() argv must not be empty");
+        return val_null();
+    }
+
+    Object *opts = NULL;
+    if (num_args == 2 && args[1].type != VAL_NULL) {
+        if (args[1].type != VAL_OBJECT) {
+            runtime_error(ctx, "spawn() opts must be an object or null, got %s", value_type_name(args[1].type));
+            return val_null();
+        }
+        opts = args[1].as.as_object;
+    }
+
+    char **cargv = malloc((arr->length + 1) * sizeof(char*));
+    if (!cargv) {
+        runtime_error(ctx, "spawn() memory allocation failed");
+        return val_null();
+    }
+    for (int i = 0; i < arr->length; i++) {
+        if (arr->elements[i].type != VAL_STRING) {
+            for (int j = 0; j < i; j++) free(cargv[j]);
+            free(cargv);
+            runtime_error(ctx, "spawn() argv[%d] must be a string, got %s", i, value_type_name(arr->elements[i].type));
+            return val_null();
+        }
+        String *s = arr->elements[i].as.as_string;
+        cargv[i] = malloc(s->length + 1);
+        if (!cargv[i]) {
+            for (int j = 0; j < i; j++) free(cargv[j]);
+            free(cargv);
+            runtime_error(ctx, "spawn() memory allocation failed");
+            return val_null();
+        }
+        memcpy(cargv[i], s->data, s->length);
+        cargv[i][s->length] = '\0';
+    }
+    cargv[arr->length] = NULL;
+
+    char **cenv = NULL;
+    int cenv_count = 0;
+    int env_idx = posix_spawn_lookup_field(opts, "env");
+    if (env_idx >= 0 && opts->fields[env_idx].value.type != VAL_NULL) {
+        Value env_val = opts->fields[env_idx].value;
+        if (env_val.type != VAL_ARRAY) {
+            for (int i = 0; i < arr->length; i++) free(cargv[i]);
+            free(cargv);
+            runtime_error(ctx, "spawn() opts.env must be an array of strings, got %s", value_type_name(env_val.type));
+            return val_null();
+        }
+        Array *envarr = env_val.as.as_array;
+        cenv = malloc((envarr->length + 1) * sizeof(char*));
+        if (!cenv) {
+            for (int i = 0; i < arr->length; i++) free(cargv[i]);
+            free(cargv);
+            runtime_error(ctx, "spawn() memory allocation failed");
+            return val_null();
+        }
+        for (int i = 0; i < envarr->length; i++) {
+            if (envarr->elements[i].type != VAL_STRING) {
+                for (int j = 0; j < i; j++) free(cenv[j]);
+                free(cenv);
+                for (int j = 0; j < arr->length; j++) free(cargv[j]);
+                free(cargv);
+                runtime_error(ctx, "spawn() opts.env[%d] must be a string, got %s", i, value_type_name(envarr->elements[i].type));
+                return val_null();
+            }
+            String *s = envarr->elements[i].as.as_string;
+            cenv[i] = malloc(s->length + 1);
+            if (!cenv[i]) {
+                for (int j = 0; j < i; j++) free(cenv[j]);
+                free(cenv);
+                for (int j = 0; j < arr->length; j++) free(cargv[j]);
+                free(cargv);
+                runtime_error(ctx, "spawn() memory allocation failed");
+                return val_null();
+            }
+            memcpy(cenv[i], s->data, s->length);
+            cenv[i][s->length] = '\0';
+            cenv_count = i + 1;
+        }
+        cenv[envarr->length] = NULL;
+    }
+
+    posix_spawn_file_actions_t fa;
+    int fa_inited = (posix_spawn_file_actions_init(&fa) == 0);
+
+    if (fa_inited && opts) {
+        const char *names[3] = {"stdin", "stdout", "stderr"};
+        int targets[3] = {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO};
+        for (int i = 0; i < 3; i++) {
+            int fi = object_lookup_field(opts, names[i]);
+            if (fi >= 0 && opts->fields[fi].value.type != VAL_NULL) {
+                if (!is_integer(opts->fields[fi].value)) {
+                    if (cenv) { for (int j = 0; j < cenv_count; j++) free(cenv[j]); free(cenv); }
+                    for (int j = 0; j < arr->length; j++) free(cargv[j]);
+                    free(cargv);
+                    posix_spawn_file_actions_destroy(&fa);
+                    runtime_error(ctx, "spawn() opts.%s must be an integer fd, got %s", names[i], value_type_name(opts->fields[fi].value.type));
+                    return val_null();
+                }
+                int fd = value_to_int(opts->fields[fi].value);
+                posix_spawn_file_actions_adddup2(&fa, fd, targets[i]);
+            }
+        }
+    }
+
+    pid_t pid = -1;
+    int rc = posix_spawnp(&pid, cargv[0], fa_inited ? &fa : NULL, NULL, cargv, cenv ? cenv : environ);
+
+    if (fa_inited) posix_spawn_file_actions_destroy(&fa);
+    for (int i = 0; i < arr->length; i++) free(cargv[i]);
+    free(cargv);
+    if (cenv) {
+        for (int i = 0; i < cenv_count; i++) free(cenv[i]);
+        free(cenv);
+    }
+
+    if (rc != 0) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "spawn() failed: %s", strerror(rc));
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    Object *result = object_new(NULL, 1);
+    if (!result) {
+        runtime_error(ctx, "spawn() memory allocation failed");
+        return val_null();
+    }
+    result->fields[0].name = strdup("pid");
+    if (!result->fields[0].name) {
+        object_free(result);
+        runtime_error(ctx, "spawn() memory allocation failed");
+        return val_null();
+    }
+    result->fields[0].value = val_i32((int32_t)pid);
+    result->num_fields++;
+
+    return val_object(result);
+}
+
 Value builtin_abort(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
 

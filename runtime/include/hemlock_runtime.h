@@ -254,6 +254,7 @@ HmlValue hml_kill(HmlValue pid, HmlValue sig);
 HmlValue hml_fork(void);
 HmlValue hml_wait(void);
 HmlValue hml_waitpid(HmlValue pid, HmlValue options);
+HmlValue hml_posix_spawn(HmlValue argv, HmlValue opts);
 __attribute__((noreturn)) void hml_abort(void);
 
 // Pipe operations
@@ -273,6 +274,7 @@ HmlValue hml_builtin_kill(HmlClosureEnv *env, HmlValue pid, HmlValue sig);
 HmlValue hml_builtin_fork(HmlClosureEnv *env);
 HmlValue hml_builtin_wait(HmlClosureEnv *env);
 HmlValue hml_builtin_waitpid(HmlClosureEnv *env, HmlValue pid, HmlValue options);
+HmlValue hml_builtin_posix_spawn(HmlClosureEnv *env, HmlValue argv, HmlValue opts);
 HmlValue hml_builtin_abort(HmlClosureEnv *env);
 
 // Pipe builtin wrappers

@@ -103,6 +103,11 @@ HmlValue hml_waitpid(HmlValue pid, HmlValue options) {
     WASM_STUB_PANIC_RETURN("waitpid");
 }
 
+HmlValue hml_posix_spawn(HmlValue argv, HmlValue opts) {
+    (void)argv; (void)opts;
+    WASM_STUB_PANIC_RETURN("spawn");
+}
+
 void hml_abort(void) {
     fprintf(stderr, "abort() called in WASM\n");
     exit(134);  // SIGABRT exit code
