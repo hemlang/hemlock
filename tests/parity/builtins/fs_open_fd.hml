@@ -1,0 +1,54 @@
+// Test fs.open_fd() and fs.fileno() — raw fd access for posix_spawn redirection.
+import { open, open_fd, fileno, read_file, remove_file } from "@stdlib/fs";
+import { fd_write, fd_close } from "@stdlib/ipc";
+
+let path = "/tmp/hemlock_open_fd_test.txt";
+
+// open_fd(write) returns a usable raw fd
+print("=== open_fd ===");
+let wfd = open_fd(path, "w");
+print("fd >= 0: " + (wfd >= 0));
+let n = fd_write(wfd, "from open_fd\n");
+print("wrote: " + n);
+fd_close(wfd);
+print("content: " + read_file(path));
+
+// open_fd(append) creates and appends
+print("=== open_fd append ===");
+let afd = open_fd(path, "a");
+fd_write(afd, "appended\n");
+fd_close(afd);
+print("content: " + read_file(path));
+
+// fileno() extracts fd from a File handle without consuming the file
+print("=== fileno ===");
+let f = open(path, "a");
+let fd = fileno(f);
+print("fd >= 0: " + (fd >= 0));
+let n2 = fd_write(fd, "via fileno\n");
+print("wrote: " + n2);
+f.close();  // closes underlying fd; do not fd_close(fd)
+print("content: " + read_file(path));
+
+// fileno() on a closed file throws
+print("=== fileno closed ===");
+let f2 = open(path, "r");
+f2.close();
+try {
+    fileno(f2);
+    print("no error");
+} catch (e) {
+    print("threw");
+}
+
+// open_fd() with bad mode throws
+print("=== open_fd bad mode ===");
+try {
+    open_fd(path, "z");
+    print("no error");
+} catch (e) {
+    print("threw");
+}
+
+remove_file(path);
+print("=== Done ===");

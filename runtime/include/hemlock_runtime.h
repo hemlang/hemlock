@@ -537,6 +537,8 @@ HmlValue hml_poll(HmlValue fds, HmlValue timeout);
 // ========== FILE I/O ==========
 
 HmlValue hml_open(HmlValue path, HmlValue mode);
+HmlValue hml_open_fd(HmlValue path, HmlValue mode);
+HmlValue hml_fileno(HmlValue file);
 HmlValue hml_file_read(HmlValue file, HmlValue size);
 HmlValue hml_file_read_all(HmlValue file);
 HmlValue hml_file_write(HmlValue file, HmlValue data);
@@ -545,6 +547,10 @@ HmlValue hml_file_tell(HmlValue file);
 void hml_file_close(HmlValue file);
 HmlValue hml_file_read_bytes(HmlValue file, HmlValue size);
 HmlValue hml_file_write_bytes(HmlValue file, HmlValue data);
+
+// File I/O builtin wrappers
+HmlValue hml_builtin_open_fd(HmlClosureEnv *env, HmlValue path, HmlValue mode);
+HmlValue hml_builtin_fileno(HmlClosureEnv *env, HmlValue file);
 
 // ========== FILESYSTEM OPERATIONS ==========
 

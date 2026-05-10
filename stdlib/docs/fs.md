@@ -81,6 +81,52 @@ f3.close();
 
 See [File I/O documentation](../../docs/advanced/file-io.md) for detailed usage.
 
+### open_fd(path, mode?)
+Opens a file and returns a raw POSIX file descriptor (`i32`). Useful for plumbing
+fds into `posix_spawn()` for stdio redirection without going through the buffered
+`FILE*` layer or shelling out to `sh -c "exec ... > log"`.
+
+**Parameters:**
+- `path: string` - Path to the file
+- `mode: string` (optional) - Open mode (default: `"r"`). Same set as `open()`.
+
+**Returns:** `i32` - A raw file descriptor. The caller owns the fd and must
+close it with `fd_close()` (or by `dup2`-ing it onto a fd whose owner closes
+it). Sandbox restrictions on file read/write apply just like `open()`.
+
+**Throws:** Exception if the file cannot be opened.
+
+```hemlock
+import { open_fd } from "@stdlib/fs";
+import { posix_spawn } from "@stdlib/process";
+import { fd_close } from "@stdlib/ipc";
+
+let log_fd = open_fd("/tmp/worker.log", "a");
+let { pid } = posix_spawn(["./worker"], { stdout: log_fd, stderr: log_fd });
+fd_close(log_fd);  // child holds its own dup'd copy
+```
+
+### fileno(file)
+Returns the raw POSIX file descriptor backing an open File handle.
+
+**Parameters:**
+- `file: file` - A File object returned by `open()`
+
+**Returns:** `i32` - The underlying fd. The File retains ownership: closing
+the file via `file.close()` closes the fd. Do not call `fd_close()` on it
+yourself.
+
+**Throws:** Exception if the file is closed or the underlying stream has no
+fd (e.g. `fmemopen`-style streams).
+
+```hemlock
+import { open, fileno } from "@stdlib/fs";
+
+let f = open("/tmp/out.log", "w");
+let fd = fileno(f);
+// pass fd to posix_spawn, dup2, etc.; f.close() will close fd
+```
+
 ### exists(path)
 Checks if a file or directory exists at the given path.
 
