@@ -642,8 +642,28 @@ Expr* primary(Parser *p) {
                 field_names[num_fields] = NULL;  // NULL marks spread
                 field_values[num_fields] = expression(p);
                 num_fields++;
+            } else if (match(p, TOK_STRING)) {
+                // Quoted field name: { "chat-mahou": value }
+                // Required when the key contains characters that aren't valid
+                // in a bare identifier (hyphens, spaces, leading digits, etc.).
+                // Shorthand is not allowed for string keys - a colon is required.
+                field_names[num_fields] = p->previous.string_value;
+                p->previous.string_value = NULL;  // ownership transferred
+                consume(p, TOK_COLON, "Expect ':' after string field name");
+                field_values[num_fields] = expression(p);
+                num_fields++;
             } else {
                 // Normal field or shorthand
+                if (!check_identifier_or_type_keyword(p)) {
+                    error_at_current(p,
+                        "Expect field name (use a bare identifier, or quote keys "
+                        "with non-identifier characters: { \"my-key\": value })");
+                    // Skip the offending token to avoid an infinite loop
+                    if (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+                        advance(p);
+                    }
+                    break;
+                }
                 field_names[num_fields] = consume_identifier_or_type_keyword(p, "Expect field name");
 
                 // Check for shorthand: { name } vs { name: value }
@@ -879,6 +899,13 @@ Expr* postfix(Parser *p) {
 
     // Handle chained property access, indexing, method calls, and postfix operators
     for (;;) {
+        if (match(p, TOK_QUESTION_LBRACKET)) {
+            // Safe indexing: obj?[index] - returns null if obj is null or key missing
+            Expr *index = expression(p);
+            consume(p, TOK_RBRACKET, "Expect ']' after optional chaining index");
+            expr = expr_optional_chain_index(expr, index);
+            continue;
+        }
         if (match(p, TOK_QUESTION_DOT)) {
             // Optional chaining: obj?.property, obj?.[index], or obj?.method()
             if (match(p, TOK_LBRACKET)) {

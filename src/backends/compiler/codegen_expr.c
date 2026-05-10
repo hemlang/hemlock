@@ -1414,9 +1414,17 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
                 free(arg_temps);
             } else {
-                // obj?.[index]
+                // obj?.[index] or obj?[index]
                 char *idx = codegen_expr(ctx, expr->as.optional_chain.index);
-                codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj);
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_OBJECT && %s.type == HML_VAL_STRING) {", obj, idx);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_object_get_field(%s, %s.as.as_string->data);", result, obj, idx);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_object_get_field_coerce(%s, %s);", result, obj, idx);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_ARRAY) {", obj);
                 codegen_indent_inc(ctx);
                 codegen_writeln(ctx, "%s = hml_array_get(%s, %s);", result, obj, idx);
                 codegen_indent_dec(ctx);
