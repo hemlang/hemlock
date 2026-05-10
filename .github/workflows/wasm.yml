@@ -22,7 +22,11 @@ jobs:
     - name: Setup Emscripten
       uses: mymindstorm/setup-emsdk@v14
       with:
-        version: 3.1.51
+        # Bumped from 3.1.51 — that release's bundled zlib port had a
+        # hardcoded SHA-256 for github.com/madler/zlib v1.2.13.tar.gz that
+        # GitHub silently re-rolled, breaking `make wasm-interpreter` with
+        # `emcc: error: Unexpected hash:`. 4.0.7's port has the current hash.
+        version: 4.0.7
 
     - name: Verify Emscripten
       run: emcc --version
@@ -110,7 +114,11 @@ jobs:
     - name: Setup Emscripten
       uses: mymindstorm/setup-emsdk@v14
       with:
-        version: 3.1.51
+        # Bumped from 3.1.51 — that release's bundled zlib port had a
+        # hardcoded SHA-256 for github.com/madler/zlib v1.2.13.tar.gz that
+        # GitHub silently re-rolled, breaking `make wasm-interpreter` with
+        # `emcc: error: Unexpected hash:`. 4.0.7's port has the current hash.
+        version: 4.0.7
 
     - name: Verify Emscripten
       run: emcc --version
