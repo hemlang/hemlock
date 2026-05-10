@@ -525,6 +525,10 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     // File I/O builtins
     } else if (strcmp(expr->as.ident.name, "__open") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_open, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__open_fd") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_open_fd, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__fileno") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_fileno, 1, 1, 0);", result);
     // Debug builtins
     } else if (strcmp(expr->as.ident.name, "__task_debug_info") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_task_debug_info, 1, 1, 0);", result);

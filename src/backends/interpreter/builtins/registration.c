@@ -135,6 +135,8 @@ static BuiltinInfo builtins[] = {
     {"__remove_file", builtin_remove_file},
     {"__rename", builtin_rename},
     {"__copy_file", builtin_copy_file},
+    {"__open_fd", builtin_open_fd},
+    {"__fileno", builtin_fileno},
     // Internal file info (use stdlib/fs.hml module for public API)
     {"__is_file", builtin_is_file},
     {"__is_dir", builtin_is_dir},

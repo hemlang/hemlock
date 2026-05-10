@@ -1,0 +1,21 @@
+=== open_fd ===
+fd >= 0: true
+wrote: 13
+content: from open_fd
+
+=== open_fd append ===
+content: from open_fd
+appended
+
+=== fileno ===
+fd >= 0: true
+wrote: 11
+content: from open_fd
+appended
+via fileno
+
+=== fileno closed ===
+threw
+=== open_fd bad mode ===
+threw
+=== Done ===

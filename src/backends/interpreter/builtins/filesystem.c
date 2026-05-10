@@ -569,3 +569,108 @@ Value builtin_file_stat(Value *args, int num_args, ExecutionContext *ctx) {
 
     return val_object(stat_obj);
 }
+
+// Translate a Hemlock fopen-style mode string to open(2) flags.
+// Returns -1 on unrecognized mode.
+static int hml_mode_to_open_flags(const char *mode) {
+    if (!mode || !*mode) return -1;
+    int has_plus = strchr(mode, '+') != NULL;
+    int flags;
+    switch (mode[0]) {
+        case 'r': flags = has_plus ? O_RDWR : O_RDONLY; break;
+        case 'w': flags = (has_plus ? O_RDWR : O_WRONLY) | O_CREAT | O_TRUNC; break;
+        case 'a': flags = (has_plus ? O_RDWR : O_WRONLY) | O_CREAT | O_APPEND; break;
+        default: return -1;
+    }
+    return flags;
+}
+
+// open_fd(path: string, mode?: string): i32
+// Open a file and return its raw POSIX file descriptor. Useful for plumbing
+// fds into posix_spawn() for redirection without going through fopen()/fileno().
+Value builtin_open_fd(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args < 1 || num_args > 2) {
+        runtime_error(ctx, "open_fd() expects 1-2 arguments (path, [mode]), got %d", num_args);
+        return val_null();
+    }
+
+    if (args[0].type != VAL_STRING) {
+        runtime_error(ctx, "open_fd() path must be a string, got %s", value_type_name(args[0].type));
+        return val_null();
+    }
+
+    const char *mode = "r";
+    if (num_args == 2) {
+        if (args[1].type != VAL_STRING) {
+            runtime_error(ctx, "open_fd() mode must be a string, got %s", value_type_name(args[1].type));
+            return val_null();
+        }
+        mode = args[1].as.as_string->data;
+    }
+
+    int flags = hml_mode_to_open_flags(mode);
+    if (flags < 0) {
+        runtime_error(ctx, "open_fd() unsupported mode '%s' (use r, w, a, r+, w+, a+)", mode);
+        return val_null();
+    }
+
+    const char *path = args[0].as.as_string->data;
+
+    // SANDBOX: same policy as open()
+    int is_write = (strchr(mode, 'w') != NULL || strchr(mode, 'a') != NULL ||
+                    strstr(mode, "r+") != NULL);
+    if (!sandbox_path_allowed(ctx, path, is_write)) {
+        if (is_write) {
+            sandbox_error(ctx, "file write operations");
+        } else {
+            sandbox_error(ctx, "file read outside sandbox root");
+        }
+        return val_null();
+    }
+
+    int fd = open(path, flags, 0666);
+    if (fd < 0) {
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg), "Failed to open '%s' with mode '%s': %s",
+                 path, mode, strerror(errno));
+        ctx->exception_state.exception_value = val_string(error_msg);
+        value_retain(ctx->exception_state.exception_value);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    return val_i32(fd);
+}
+
+// fileno(file: file): i32
+// Extract the raw POSIX file descriptor backing a File handle. The File
+// retains ownership of the fd; closing the file closes the fd.
+Value builtin_fileno(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "fileno() expects 1 argument (file), got %d", num_args);
+        return val_null();
+    }
+
+    if (args[0].type != VAL_FILE || !args[0].as.as_file) {
+        runtime_error(ctx, "fileno() expects a file argument, got %s", value_type_name(args[0].type));
+        return val_null();
+    }
+
+    FileHandle *fh = args[0].as.as_file;
+    if (fh->closed || !fh->fp) {
+        runtime_error(ctx, "fileno() called on closed file '%s'", fh->path ? fh->path : "<unknown>");
+        return val_null();
+    }
+
+    int fd = fileno(fh->fp);
+    if (fd < 0) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "fileno() failed: %s", strerror(errno));
+        ctx->exception_state.exception_value = val_string(error_msg);
+        value_retain(ctx->exception_state.exception_value);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    return val_i32(fd);
+}
