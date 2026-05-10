@@ -678,71 +678,115 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, MemBuffer
     ctx->current_module = saved_module;
 }
 
-// Helper to collect all extern fn statements recursively (including from block scopes)
+// Helper to collect all extern fn statements recursively (including from block scopes).
+// Each extern_fn is also stamped with the most-recent `import "lib.so"` library path
+// in the same lexical module — this lets the wrapper bind against a per-library
+// `_ffi_lib_<sanitized>` handle instead of one shared global (which used to clobber
+// across libraries: load libsqlite3 then libcrypto, then sqlite3_open lookup goes
+// to libcrypto, fails).
 typedef struct ExternFnList {
     Stmt **stmts;
+    char **lib_paths;       // Parallel to stmts. NULL if no preceding import_ffi.
     int count;
     int capacity;
 } ExternFnList;
 
-static void collect_extern_fn_from_stmt(Stmt *stmt, ExternFnList *list);
+static void collect_extern_fn_from_stmt(Stmt *stmt, const char **current_lib, ExternFnList *list);
 
 static void collect_extern_fn_from_stmts(Stmt **stmts, int count, ExternFnList *list) {
+    // Per-module scope: each module file resets its own current_lib so an
+    // `import "x.so"` in module A doesn't influence extern_fn bindings in module B.
+    const char *current_lib = NULL;
     for (int i = 0; i < count; i++) {
-        collect_extern_fn_from_stmt(stmts[i], list);
+        collect_extern_fn_from_stmt(stmts[i], &current_lib, list);
     }
 }
 
-static void collect_extern_fn_from_stmt(Stmt *stmt, ExternFnList *list) {
+static void collect_extern_fn_from_stmt(Stmt *stmt, const char **current_lib, ExternFnList *list) {
     if (!stmt) return;
 
+    if (stmt->type == STMT_IMPORT_FFI) {
+        *current_lib = stmt->as.import_ffi.library_path;
+        return;
+    }
+
     if (stmt->type == STMT_EXTERN_FN) {
-        // Check if already in list (avoid duplicates)
+        // Check if already in list (avoid duplicates). Keep the first lib_path seen
+        // — same name re-declared in another module shouldn't change which lib it binds.
         for (int i = 0; i < list->count; i++) {
             if (strcmp(list->stmts[i]->as.extern_fn.function_name,
                       stmt->as.extern_fn.function_name) == 0) {
-                return;  // Already collected
+                return;
             }
         }
         // Add to list
         if (list->count >= list->capacity) {
             int new_cap = list->capacity == 0 ? 16 : list->capacity * 2;
             Stmt **new_stmts = realloc(list->stmts, new_cap * sizeof(Stmt*));
-            if (!new_stmts) {
+            char **new_libs = realloc(list->lib_paths, new_cap * sizeof(char*));
+            if (!new_stmts || !new_libs) {
                 fprintf(stderr, "error: Failed to expand extern fn list\n");
                 exit(1);
             }
             list->stmts = new_stmts;
+            list->lib_paths = new_libs;
             list->capacity = new_cap;
         }
-        list->stmts[list->count++] = stmt;
+        list->stmts[list->count] = stmt;
+        list->lib_paths[list->count] = (*current_lib) ? strdup(*current_lib) : NULL;
+        list->count++;
         return;
     }
 
     // Recursively check block statements
     if (stmt->type == STMT_BLOCK) {
-        collect_extern_fn_from_stmts(stmt->as.block.statements, stmt->as.block.count, list);
+        for (int i = 0; i < stmt->as.block.count; i++) {
+            collect_extern_fn_from_stmt(stmt->as.block.statements[i], current_lib, list);
+        }
     } else if (stmt->type == STMT_IF) {
-        collect_extern_fn_from_stmt(stmt->as.if_stmt.then_branch, list);
-        collect_extern_fn_from_stmt(stmt->as.if_stmt.else_branch, list);
+        collect_extern_fn_from_stmt(stmt->as.if_stmt.then_branch, current_lib, list);
+        collect_extern_fn_from_stmt(stmt->as.if_stmt.else_branch, current_lib, list);
     } else if (stmt->type == STMT_WHILE) {
-        collect_extern_fn_from_stmt(stmt->as.while_stmt.body, list);
+        collect_extern_fn_from_stmt(stmt->as.while_stmt.body, current_lib, list);
     } else if (stmt->type == STMT_FOR) {
-        collect_extern_fn_from_stmt(stmt->as.for_loop.body, list);
+        collect_extern_fn_from_stmt(stmt->as.for_loop.body, current_lib, list);
     } else if (stmt->type == STMT_FOR_IN) {
-        collect_extern_fn_from_stmt(stmt->as.for_in.body, list);
+        collect_extern_fn_from_stmt(stmt->as.for_in.body, current_lib, list);
     } else if (stmt->type == STMT_TRY) {
-        collect_extern_fn_from_stmt(stmt->as.try_stmt.try_block, list);
-        collect_extern_fn_from_stmt(stmt->as.try_stmt.catch_block, list);
-        collect_extern_fn_from_stmt(stmt->as.try_stmt.finally_block, list);
+        collect_extern_fn_from_stmt(stmt->as.try_stmt.try_block, current_lib, list);
+        collect_extern_fn_from_stmt(stmt->as.try_stmt.catch_block, current_lib, list);
+        collect_extern_fn_from_stmt(stmt->as.try_stmt.finally_block, current_lib, list);
     } else if (stmt->type == STMT_SWITCH) {
         for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
-            collect_extern_fn_from_stmt(stmt->as.switch_stmt.case_bodies[i], list);
+            collect_extern_fn_from_stmt(stmt->as.switch_stmt.case_bodies[i], current_lib, list);
         }
     } else if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_declaration) {
         // Handle export extern fn
-        collect_extern_fn_from_stmt(stmt->as.export_stmt.declaration, list);
+        collect_extern_fn_from_stmt(stmt->as.export_stmt.declaration, current_lib, list);
     }
+}
+
+// Sanitize a library path into a C identifier suffix.
+// "libsqlite3.so.0" -> "libsqlite3_so_0" ; "lib/foo-bar.so" -> "lib_foo_bar_so".
+// Shared with codegen_stmt.c so the IMPORT_FFI emission and the wrapper agree.
+void codegen_ffi_sanitize_libname(const char *path, char *out, size_t out_size) {
+    if (out_size == 0) return;
+    size_t j = 0;
+    for (size_t i = 0; path[i] && j + 1 < out_size; i++) {
+        char c = path[i];
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '_') {
+            out[j++] = c;
+        } else {
+            // Collapse runs of non-identifier chars into a single underscore
+            if (j > 0 && out[j-1] != '_') {
+                out[j++] = '_';
+            }
+        }
+    }
+    // Trim trailing underscore for cleaner output (purely cosmetic)
+    while (j > 0 && out[j-1] == '_') j--;
+    out[j] = '\0';
 }
 
 // Helper to collect struct definitions used in FFI
@@ -947,7 +991,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     }
 
     // Pre-pass: Collect extern functions for FFI (need this before main() generation for struct registration)
-    ExternFnList all_extern_fns = {NULL, 0, 0};
+    ExternFnList all_extern_fns = {NULL, NULL, 0, 0};
     collect_extern_fn_from_stmts(stmts, stmt_count, &all_extern_fns);
     if (ctx->module_cache) {
         CompiledModule *mod = ctx->module_cache->modules;
@@ -1363,8 +1407,38 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             codegen_write(ctx, "// WARNING: FFI is not available in WASM target.\n");
             codegen_write(ctx, "// extern fn declarations will panic at runtime.\n\n");
         }
-        codegen_write(ctx, "// FFI globals\n");
-        codegen_write(ctx, "static HmlValue _ffi_lib = {0};\n");
+        codegen_write(ctx, "// FFI globals (one handle per imported library — never share)\n");
+
+        // Emit one `_ffi_lib_<sanitized>` per unique library path (deduped).
+        // Also keep a fallback `_ffi_lib_default` for any extern_fn that
+        // somehow has no preceding import_ffi (preserves prior behavior of
+        // failing-at-call rather than failing-at-codegen).
+        char sanitized[256];
+        char **emitted = NULL;
+        int num_emitted = 0;
+        int has_default = 0;
+        for (int i = 0; i < all_extern_fns.count; i++) {
+            const char *lib = all_extern_fns.lib_paths[i];
+            if (!lib) {
+                if (!has_default) {
+                    codegen_write(ctx, "static HmlValue _ffi_lib_default = {0};\n");
+                    has_default = 1;
+                }
+                continue;
+            }
+            codegen_ffi_sanitize_libname(lib, sanitized, sizeof(sanitized));
+            int dup = 0;
+            for (int k = 0; k < num_emitted; k++) {
+                if (strcmp(emitted[k], sanitized) == 0) { dup = 1; break; }
+            }
+            if (dup) continue;
+            emitted = realloc(emitted, (num_emitted + 1) * sizeof(char*));
+            emitted[num_emitted++] = strdup(sanitized);
+            codegen_write(ctx, "static HmlValue _ffi_lib_%s = {0};\n", sanitized);
+        }
+        for (int k = 0; k < num_emitted; k++) free(emitted[k]);
+        free(emitted);
+
         for (int i = 0; i < all_extern_fns.count; i++) {
             codegen_write(ctx, "static void *_ffi_ptr_%s = NULL;\n",
                         all_extern_fns.stmts[i]->as.extern_fn.function_name);
@@ -1698,7 +1772,19 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         Type *return_type = stmt->as.extern_fn.return_type;
         int uses_structs = extern_fn_uses_structs(stmt);
 
-        codegen_write(ctx, "// FFI wrapper for %s\n", fn_name);
+        // Pick the per-library handle this fn was declared against. Falls
+        // back to `_ffi_lib_default` for the (degenerate) extern_fn-with-no-import
+        // case so we keep the legacy "fail at first call" diagnostic.
+        const char *fn_lib = all_extern_fns.lib_paths[i];
+        char fn_lib_sanitized[256];
+        if (fn_lib) {
+            codegen_ffi_sanitize_libname(fn_lib, fn_lib_sanitized, sizeof(fn_lib_sanitized));
+        } else {
+            snprintf(fn_lib_sanitized, sizeof(fn_lib_sanitized), "default");
+        }
+
+        codegen_write(ctx, "// FFI wrapper for %s (lib: %s)\n", fn_name,
+                      fn_lib ? fn_lib : "<none>");
         codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_env", fn_name);
         for (int j = 0; j < num_params; j++) {
             codegen_write(ctx, ", HmlValue _arg%d", j);
@@ -1706,7 +1792,8 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         codegen_write(ctx, ") {\n");
         codegen_write(ctx, "    (void)_env;\n");
         codegen_write(ctx, "    if (!_ffi_ptr_%s) {\n", fn_name);
-        codegen_write(ctx, "        _ffi_ptr_%s = hml_ffi_sym(_ffi_lib, \"%s\");\n", fn_name, fn_name);
+        codegen_write(ctx, "        _ffi_ptr_%s = hml_ffi_sym(_ffi_lib_%s, \"%s\");\n",
+                      fn_name, fn_lib_sanitized, fn_name);
         codegen_write(ctx, "        if (!_ffi_ptr_%s) {\n", fn_name);
         codegen_write(ctx, "            hml_runtime_error(\"FFI function '%%s' not found in library\", \"%s\");\n", fn_name);
         codegen_write(ctx, "        }\n");
