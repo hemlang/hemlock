@@ -1,9 +1,15 @@
 CC = gcc
+# -MMD -MP: emit a .d file alongside each .o that lists every (non-system)
+# header the .c file pulled in. Without these, `make` only rebuilds .o files
+# when their .c source changes — touching a header silently produces a
+# binary linked from objects compiled against different versions of the same
+# header, which surfaces as cryptic runtime breakage (e.g. parser objects
+# expecting one AST struct layout, builtin objects expecting another).
 # Use _DARWIN_C_SOURCE on macOS for BSD types, _POSIX_C_SOURCE on Linux
 ifeq ($(shell uname),Darwin)
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
 else
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
 endif
 SRC_DIR = src
 BUILD_DIR = build
@@ -724,9 +730,9 @@ test-all: test test-compiler parity test-bundler test-lsp test-memory test-forma
 
 # Release flags: optimize for performance, no debug symbols
 ifeq ($(shell uname),Darwin)
-    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -O3 -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared
+    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -O3 -MMD -MP -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared
 else
-    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -O3 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared
+    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -O3 -MMD -MP -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared
 endif
 
 # Add the same conditional flags as regular build
@@ -978,3 +984,10 @@ uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(COMPILER_TARGET)
 	rm -rf $(DESTDIR)$(LIBDIR)
 	@echo "✓ Hemlock uninstalled"
+
+# ========== AUTO HEADER DEPS ==========
+# Pull in the per-object .d files emitted by `gcc -MMD -MP`. The leading `-`
+# on `include` makes a missing .d non-fatal (first build, fresh checkout, etc).
+# Globbing across the build tree picks up debug, release, static, and runtime
+# objects without having to enumerate the OBJS lists explicitly.
+-include $(shell find $(BUILD_DIR) $(RELEASE_BUILD_DIR) $(STATIC_BUILD_DIR) -name '*.d' 2>/dev/null)
