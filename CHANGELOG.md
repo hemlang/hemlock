@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-05-10
+
+### Fixed
+
+- **HTTP POST/PUT/PATCH/DELETE bodies in compiled binaries** — the runtime's `hml_lws_http_post` / `hml_lws_http_request` / their `_timeout` variants used to `(void)body_val; (void)content_type_val;` with a "Not fully implemented yet" comment, so compiled binaries silently sent every body-bearing request as method+URL with NO `Content-Type`, NO `Content-Length`, and NO body bytes on the wire. The interpreter went through a separate code path that handled the body via `lws_callback_on_writable`, masking the bug from anyone testing only via `hemlock`. The runtime callback now matches the interpreter: `LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER` emits `Content-Type` (unless caller-supplied) and `Content-Length`; `LWS_CALLBACK_CLIENT_HTTP_WRITEABLE` writes the body bytes once. Regression test at `tests/parity/builtins/http_post_body.hml`.
+- **libwebsockets startup banner in compiled binaries** — every `lws_create_context` call printed a NOTICE-level line (`[ts] N: lws_create_context: LWS: 4.3.3-... NET CLI SRV H1 H2 WS ConMon IPV6-on...`) to stderr from compiled binaries. The interpreter has silenced this since 1.x via `lws_init_logging()` in `src/backends/interpreter/builtins/websockets.c`; the runtime never had an equivalent. Added a static-guarded `hml_lws_init_logging()` to the runtime that drops the log level to `LLL_ERR` by default; set `LWS_VERBOSE=1` to opt back in.
+
 ## [2.2.0] - 2026-05-10
 
 ### Added
