@@ -39,3 +39,30 @@ export fn exec(cmd, args?: null) {
 // Takes array of strings: ["command", "arg1", "arg2", ...]
 // Returns: { output: string, stderr: string, exit_code: i32 }
 export let exec_argv = __exec_argv;
+
+// Detached spawn primitive backed by posix_spawn(3).
+// Unlike exec_argv() which forks, captures stdout/stderr, and waits for the
+// child, spawn() returns immediately after the child is created. The caller
+// owns the pid and must reap it via waitpid() (or arrange SIGCHLD handling).
+//
+// argv: array of strings; argv[0] is the program (PATH-resolved unless it
+//       contains '/').
+// opts (optional object):
+//   env:    array of "KEY=value" strings (default: inherit parent environ)
+//   stdin:  i32 fd to dup2 onto STDIN_FILENO  in child (default: inherit)
+//   stdout: i32 fd to dup2 onto STDOUT_FILENO in child (default: inherit)
+//   stderr: i32 fd to dup2 onto STDERR_FILENO in child (default: inherit)
+//   cwd:    string; chdir before exec (requires glibc 2.29+ / macOS 10.15+)
+//   setsid: bool; child becomes session leader, detaching from the
+//           controlling terminal. Requires POSIX_SPAWN_SETSID.
+//
+// Returns: { pid: i32 }
+//
+// Exported as `posix_spawn` (not `spawn`) so it does not collide with the
+// language-level task `spawn(fn, args...)` builtin in the compiler backend.
+export fn posix_spawn(argv, opts?: null) {
+    if (opts == null) {
+        return __posix_spawn(argv);
+    }
+    return __posix_spawn(argv, opts);
+}

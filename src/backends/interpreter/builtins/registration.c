@@ -105,6 +105,7 @@ static BuiltinInfo builtins[] = {
     {"__fork", builtin_fork},
     {"__wait", builtin_wait},
     {"__waitpid", builtin_waitpid},
+    {"__posix_spawn", builtin_posix_spawn},
     {"__abort", builtin_abort},
     // Pipe operations (use @stdlib/ipc for public API)
     {"__pipe", builtin_pipe},

@@ -51,6 +51,7 @@
 #include <netdb.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <spawn.h>
 #endif // __EMSCRIPTEN__
 
 #ifndef __EMSCRIPTEN__

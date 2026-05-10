@@ -1,3 +1,10 @@
+// _GNU_SOURCE exposes posix_spawn_file_actions_addchdir_np (glibc 2.29+) and
+// POSIX_SPAWN_SETSID (glibc 2.26+). Must be defined before any system header
+// inclusion, including the chain pulled in by internal.h. Guarded so it does
+// not collide with a -D_GNU_SOURCE on the build command line (e.g. WASM).
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "internal.h"
 
 Value builtin_getenv(Value *args, int num_args, ExecutionContext *ctx) {
@@ -1037,6 +1044,290 @@ Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx) {
 
     return val_object(result);
 }
+
+// ========== POSIX_SPAWN PRIMITIVE ==========
+//
+// posix_spawn(argv, opts?) -> { pid }
+//
+// Detached spawn primitive backed by posix_spawnp(3). Unlike exec_argv()
+// which forks, redirects stdout/stderr through pipes, and waits for the
+// child, this primitive returns immediately after the child is created.
+// The caller owns the pid and must waitpid() (or arrange SIGCHLD/SA_NOCLDWAIT)
+// to reap it.
+//
+// argv: array of strings; argv[0] is the program (PATH-resolved via
+//   posix_spawnp unless it contains '/').
+// opts (optional object):
+//   env:    array of "KEY=value" strings (default: inherit parent environ)
+//   stdin:  i32 fd to dup2 onto STDIN_FILENO  in the child (default: inherit)
+//   stdout: i32 fd to dup2 onto STDOUT_FILENO in the child (default: inherit)
+//   stderr: i32 fd to dup2 onto STDERR_FILENO in the child (default: inherit)
+//   cwd:    string; chdir before exec (requires glibc 2.29+ / macOS 10.15+)
+//   setsid: bool; if true, child becomes session leader (detaches from
+//           controlling terminal). Requires POSIX_SPAWN_SETSID.
+extern char **environ;
+
+// Feature detection for posix_spawn extensions. Hemlock targets modern
+// systems, but we still gate so a build on an older libc fails cleanly
+// at runtime (when the option is requested) rather than at link time.
+#if defined(__GLIBC__) && defined(__GLIBC_PREREQ)
+#  if __GLIBC_PREREQ(2, 29)
+#    define HML_SPAWN_HAS_CHDIR 1
+#  endif
+#endif
+#if defined(__APPLE__)
+#  include <Availability.h>
+#  if defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
+#    define HML_SPAWN_HAS_CHDIR 1
+#  endif
+#endif
+
+#ifdef __EMSCRIPTEN__
+// WASM has no posix_spawn family. Provide a stub that throws at runtime so
+// the interpreter still links — process spawning is meaningless in-browser.
+Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "spawn() not supported in WASM build");
+    return val_null();
+}
+#else
+
+static int posix_spawn_lookup_field(Object *obj, const char *name) {
+    return obj ? object_lookup_field(obj, name) : -1;
+}
+
+Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_PROCESS)) {
+        sandbox_error(ctx, "process spawning");
+        return val_null();
+    }
+
+    if (num_args < 1 || num_args > 2) {
+        runtime_error(ctx, "spawn() expects 1-2 arguments (argv, [opts]), got %d", num_args);
+        return val_null();
+    }
+    if (args[0].type != VAL_ARRAY) {
+        runtime_error(ctx, "spawn() argv must be an array of strings, got %s", value_type_name(args[0].type));
+        return val_null();
+    }
+    Array *arr = args[0].as.as_array;
+    if (arr->length == 0) {
+        runtime_error(ctx, "spawn() argv must not be empty");
+        return val_null();
+    }
+
+    Object *opts = NULL;
+    if (num_args == 2 && args[1].type != VAL_NULL) {
+        if (args[1].type != VAL_OBJECT) {
+            runtime_error(ctx, "spawn() opts must be an object or null, got %s", value_type_name(args[1].type));
+            return val_null();
+        }
+        opts = args[1].as.as_object;
+    }
+
+    char **cargv = malloc((arr->length + 1) * sizeof(char*));
+    if (!cargv) {
+        runtime_error(ctx, "spawn() memory allocation failed");
+        return val_null();
+    }
+    for (int i = 0; i < arr->length; i++) {
+        if (arr->elements[i].type != VAL_STRING) {
+            for (int j = 0; j < i; j++) free(cargv[j]);
+            free(cargv);
+            runtime_error(ctx, "spawn() argv[%d] must be a string, got %s", i, value_type_name(arr->elements[i].type));
+            return val_null();
+        }
+        String *s = arr->elements[i].as.as_string;
+        cargv[i] = malloc(s->length + 1);
+        if (!cargv[i]) {
+            for (int j = 0; j < i; j++) free(cargv[j]);
+            free(cargv);
+            runtime_error(ctx, "spawn() memory allocation failed");
+            return val_null();
+        }
+        memcpy(cargv[i], s->data, s->length);
+        cargv[i][s->length] = '\0';
+    }
+    cargv[arr->length] = NULL;
+
+    char **cenv = NULL;
+    int cenv_count = 0;
+    int env_idx = posix_spawn_lookup_field(opts, "env");
+    if (env_idx >= 0 && opts->fields[env_idx].value.type != VAL_NULL) {
+        Value env_val = opts->fields[env_idx].value;
+        if (env_val.type != VAL_ARRAY) {
+            for (int i = 0; i < arr->length; i++) free(cargv[i]);
+            free(cargv);
+            runtime_error(ctx, "spawn() opts.env must be an array of strings, got %s", value_type_name(env_val.type));
+            return val_null();
+        }
+        Array *envarr = env_val.as.as_array;
+        cenv = malloc((envarr->length + 1) * sizeof(char*));
+        if (!cenv) {
+            for (int i = 0; i < arr->length; i++) free(cargv[i]);
+            free(cargv);
+            runtime_error(ctx, "spawn() memory allocation failed");
+            return val_null();
+        }
+        for (int i = 0; i < envarr->length; i++) {
+            if (envarr->elements[i].type != VAL_STRING) {
+                for (int j = 0; j < i; j++) free(cenv[j]);
+                free(cenv);
+                for (int j = 0; j < arr->length; j++) free(cargv[j]);
+                free(cargv);
+                runtime_error(ctx, "spawn() opts.env[%d] must be a string, got %s", i, value_type_name(envarr->elements[i].type));
+                return val_null();
+            }
+            String *s = envarr->elements[i].as.as_string;
+            cenv[i] = malloc(s->length + 1);
+            if (!cenv[i]) {
+                for (int j = 0; j < i; j++) free(cenv[j]);
+                free(cenv);
+                for (int j = 0; j < arr->length; j++) free(cargv[j]);
+                free(cargv);
+                runtime_error(ctx, "spawn() memory allocation failed");
+                return val_null();
+            }
+            memcpy(cenv[i], s->data, s->length);
+            cenv[i][s->length] = '\0';
+            cenv_count = i + 1;
+        }
+        cenv[envarr->length] = NULL;
+    }
+
+    posix_spawn_file_actions_t fa;
+    int fa_inited = (posix_spawn_file_actions_init(&fa) == 0);
+    posix_spawnattr_t sa;
+    int sa_inited = (posix_spawnattr_init(&sa) == 0);
+    int attr_flags = 0;
+
+    #define HML_SPAWN_CLEANUP() do { \
+        if (cenv) { for (int j = 0; j < cenv_count; j++) free(cenv[j]); free(cenv); } \
+        for (int j = 0; j < arr->length; j++) free(cargv[j]); \
+        free(cargv); \
+        if (fa_inited) posix_spawn_file_actions_destroy(&fa); \
+        if (sa_inited) posix_spawnattr_destroy(&sa); \
+    } while (0)
+
+    if (fa_inited && opts) {
+        const char *names[3] = {"stdin", "stdout", "stderr"};
+        int targets[3] = {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO};
+        for (int i = 0; i < 3; i++) {
+            int fi = object_lookup_field(opts, names[i]);
+            if (fi >= 0 && opts->fields[fi].value.type != VAL_NULL) {
+                if (!is_integer(opts->fields[fi].value)) {
+                    HML_SPAWN_CLEANUP();
+                    runtime_error(ctx, "spawn() opts.%s must be an integer fd, got %s", names[i], value_type_name(opts->fields[fi].value.type));
+                    return val_null();
+                }
+                int fd = value_to_int(opts->fields[fi].value);
+                posix_spawn_file_actions_adddup2(&fa, fd, targets[i]);
+            }
+        }
+    }
+
+    if (fa_inited && opts) {
+        int cwd_idx = object_lookup_field(opts, "cwd");
+        if (cwd_idx >= 0 && opts->fields[cwd_idx].value.type != VAL_NULL) {
+            Value cwd_val = opts->fields[cwd_idx].value;
+            if (cwd_val.type != VAL_STRING) {
+                HML_SPAWN_CLEANUP();
+                runtime_error(ctx, "spawn() opts.cwd must be a string, got %s", value_type_name(cwd_val.type));
+                return val_null();
+            }
+            #ifdef HML_SPAWN_HAS_CHDIR
+            String *cwd_str = cwd_val.as.as_string;
+            char *ccwd = malloc(cwd_str->length + 1);
+            if (!ccwd) {
+                HML_SPAWN_CLEANUP();
+                runtime_error(ctx, "spawn() memory allocation failed");
+                return val_null();
+            }
+            memcpy(ccwd, cwd_str->data, cwd_str->length);
+            ccwd[cwd_str->length] = '\0';
+            int chdir_rc = posix_spawn_file_actions_addchdir_np(&fa, ccwd);
+            free(ccwd);
+            if (chdir_rc != 0) {
+                HML_SPAWN_CLEANUP();
+                char error_msg[256];
+                snprintf(error_msg, sizeof(error_msg), "spawn() addchdir failed: %s", strerror(chdir_rc));
+                ctx->exception_state.exception_value = val_string(error_msg);
+                ctx->exception_state.is_throwing = 1;
+                return val_null();
+            }
+            #else
+            HML_SPAWN_CLEANUP();
+            runtime_error(ctx, "spawn() opts.cwd not supported on this platform (requires glibc 2.29+ or macOS 10.15+)");
+            return val_null();
+            #endif
+        }
+    }
+
+    if (sa_inited && opts) {
+        int sid_idx = object_lookup_field(opts, "setsid");
+        if (sid_idx >= 0 && opts->fields[sid_idx].value.type != VAL_NULL) {
+            Value sid_val = opts->fields[sid_idx].value;
+            if (sid_val.type != VAL_BOOL) {
+                HML_SPAWN_CLEANUP();
+                runtime_error(ctx, "spawn() opts.setsid must be a bool, got %s", value_type_name(sid_val.type));
+                return val_null();
+            }
+            if (sid_val.as.as_bool) {
+                #ifdef POSIX_SPAWN_SETSID
+                attr_flags |= POSIX_SPAWN_SETSID;
+                #else
+                HML_SPAWN_CLEANUP();
+                runtime_error(ctx, "spawn() opts.setsid not supported on this platform (POSIX_SPAWN_SETSID unavailable)");
+                return val_null();
+                #endif
+            }
+        }
+        if (attr_flags) {
+            posix_spawnattr_setflags(&sa, attr_flags);
+        }
+    }
+
+    pid_t pid = -1;
+    int rc = posix_spawnp(&pid, cargv[0],
+                          fa_inited ? &fa : NULL,
+                          (sa_inited && attr_flags) ? &sa : NULL,
+                          cargv, cenv ? cenv : environ);
+
+    if (fa_inited) posix_spawn_file_actions_destroy(&fa);
+    if (sa_inited) posix_spawnattr_destroy(&sa);
+    for (int i = 0; i < arr->length; i++) free(cargv[i]);
+    free(cargv);
+    if (cenv) {
+        for (int i = 0; i < cenv_count; i++) free(cenv[i]);
+        free(cenv);
+    }
+    #undef HML_SPAWN_CLEANUP
+
+    if (rc != 0) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "spawn() failed: %s", strerror(rc));
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    Object *result = object_new(NULL, 1);
+    if (!result) {
+        runtime_error(ctx, "spawn() memory allocation failed");
+        return val_null();
+    }
+    result->fields[0].name = strdup("pid");
+    if (!result->fields[0].name) {
+        object_free(result);
+        runtime_error(ctx, "spawn() memory allocation failed");
+        return val_null();
+    }
+    result->fields[0].value = val_i32((int32_t)pid);
+    result->num_fields++;
+
+    return val_object(result);
+}
+#endif // !__EMSCRIPTEN__
 
 Value builtin_abort(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;

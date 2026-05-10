@@ -327,6 +327,8 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_wait, 0, 0, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__waitpid") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_waitpid, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__posix_spawn") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_posix_spawn, 2, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__abort") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_abort, 0, 0, 0);", result);
     // Handle pipe functions (builtins)

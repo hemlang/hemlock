@@ -1790,6 +1790,27 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // posix_spawn(argv) and posix_spawn(argv, opts)
+        if (strcmp(fn_name, "__posix_spawn") == 0 &&
+            (expr->as.call.num_args == 1 || expr->as.call.num_args == 2)) {
+            char *argv = codegen_expr(ctx, expr->as.call.args[0]);
+            char *opts;
+            int has_opts = (expr->as.call.num_args == 2);
+            if (has_opts) {
+                opts = codegen_expr(ctx, expr->as.call.args[1]);
+            } else {
+                opts = strdup("hml_val_null()");
+            }
+            codegen_writeln(ctx, "HmlValue %s = hml_posix_spawn(%s, %s);", result, argv, opts);
+            codegen_writeln(ctx, "hml_release(&%s);", argv);
+            if (has_opts) {
+                codegen_writeln(ctx, "hml_release(&%s);", opts);
+            }
+            free(argv);
+            free(opts);
+            return result;
+        }
+
         // kill(pid, sig)
         if (strcmp(fn_name, "__kill") == 0 && expr->as.call.num_args == 2) {
             char *pid = codegen_expr(ctx, expr->as.call.args[0]);
