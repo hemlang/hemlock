@@ -540,6 +540,22 @@ HmlValue hml_validate_typed_array(HmlValue arr, HmlValueType element_type) {
     return arr;
 }
 
+// Validate each element of an array against a registered object/enum type.
+// Mirrors interpreter behavior for `let arr: array<CustomType> = [...]`,
+// in particular auto-filling optional fields with their default (or null).
+HmlValue hml_validate_typed_array_object(HmlValue arr, const char *type_name) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        hml_runtime_error("Expected array");
+    }
+    if (!type_name) return arr;
+
+    HmlArray *a = arr.as.as_array;
+    for (int i = 0; i < a->length; i++) {
+        a->elements[i] = hml_validate_object_type(a->elements[i], type_name);
+    }
+    return arr;
+}
+
 // ========== HIGHER-ORDER ARRAY FUNCTIONS ==========
 
 HmlValue hml_array_map(HmlValue arr, HmlValue callback) {

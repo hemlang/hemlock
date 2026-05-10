@@ -1,0 +1,21 @@
+// Verify that `let users: array<User> = [...]` auto-fills optional
+// fields with null/default in both backends. Previously the compiler
+// emitted hml_validate_typed_array() with element_type=HML_VAL_NULL,
+// which skipped per-element validation, so accessing an optional field
+// that wasn't provided in the literal threw at runtime.
+
+define User {
+    name: string,
+    nickname?: string,
+    score?: 0
+}
+
+let users: array<User> = [
+    { name: "Alice", nickname: "Al", score: 100 },
+    { name: "Bob" }
+];
+
+for (u in users) {
+    let nick = u.nickname == null ? "<none>" : u.nickname;
+    print(u.name + " | " + nick + " | " + u.score);
+}
