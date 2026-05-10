@@ -28,9 +28,11 @@ let out4 = fd_read(p4.read_fd, 4096);
 fd_close(p4.read_fd);
 print(out4);
 
-// Case 5: cwd — spawn `pwd` from /tmp and verify the output.
+// Case 5: cwd — spawn `pwd` from "/" and verify the output. Use "/" rather
+// than "/tmp" because macOS resolves /tmp -> /private/tmp via symlink, while
+// "/" is canonical on both Linux and macOS.
 let p5 = pipe_create();
-let r5 = posix_spawn(["pwd"], { cwd: "/tmp", stdout: p5.write_fd });
+let r5 = posix_spawn(["pwd"], { cwd: "/", stdout: p5.write_fd });
 fd_close(p5.write_fd);
 let w5 = waitpid(r5.pid, 0);
 print(w5.status == 0);
