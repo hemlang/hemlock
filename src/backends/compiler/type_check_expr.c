@@ -157,8 +157,26 @@ int type_check_method_call(TypeCheckContext *ctx, CheckedType *receiver_type,
 
     // String methods
     if (receiver_type->kind == CHECKED_STRING) {
+        // substr requires exactly 2 integer arguments (start, length)
+        if (strcmp(method_name, "substr") == 0) {
+            if (num_args != 2) {
+                type_error(ctx, line,
+                    "string.substr() expects 2 arguments (start, length), got %d",
+                    num_args);
+            }
+            for (int i = 0; i < num_args && i < 2; i++) {
+                CheckedType *arg_type = type_check_infer_expr(ctx, args[i]);
+                if (!type_is_integer(arg_type) && arg_type->kind != CHECKED_ANY) {
+                    type_error(ctx, line, "string.substr(): argument %d must be integer, got '%s'",
+                        i + 1, checked_type_name(arg_type));
+                }
+                checked_type_free(arg_type);
+            }
+            return 1;
+        }
+
         // Methods that take integer indices
-        if (strcmp(method_name, "substr") == 0 || strcmp(method_name, "slice") == 0 ||
+        if (strcmp(method_name, "slice") == 0 ||
             strcmp(method_name, "char_at") == 0 || strcmp(method_name, "byte_at") == 0) {
             for (int i = 0; i < num_args && i < 2; i++) {
                 CheckedType *arg_type = type_check_infer_expr(ctx, args[i]);

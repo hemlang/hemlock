@@ -357,6 +357,7 @@ void hml_array_set(HmlValue arr, HmlValue index, HmlValue val);
 // Typed array support
 void hml_array_set_element_type(HmlValue arr, HmlValueType element_type);
 HmlValue hml_validate_typed_array(HmlValue arr, HmlValueType element_type);
+HmlValue hml_validate_typed_array_object(HmlValue arr, const char *type_name);
 
 // Higher-order array operations
 HmlValue hml_array_map(HmlValue arr, HmlValue callback);

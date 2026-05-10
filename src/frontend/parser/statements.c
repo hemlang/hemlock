@@ -770,6 +770,29 @@ static Stmt* export_statement(Parser *p) {
 
     if (match(p, TOK_LET)) {
         Stmt *decl = let_statement(p);
+        // Self-rebind shortcut: `export let X = X;` is equivalent to `export { X };`.
+        // Without this, the let binding tries to define X again in a scope where X
+        // already exists (e.g. local fn or imported name), triggering a redefinition
+        // error. Treat it as a pure re-export of the existing name.
+        if (decl && decl->type == STMT_LET &&
+            decl->as.let.value && decl->as.let.value->type == EXPR_IDENT &&
+            decl->as.let.value->as.ident.name &&
+            decl->as.let.name &&
+            strcmp(decl->as.let.value->as.ident.name, decl->as.let.name) == 0 &&
+            decl->as.let.type_annotation == NULL) {
+            char **names = malloc(sizeof(char*));
+            char **aliases = malloc(sizeof(char*));
+            if (!names || !aliases) {
+                free(names);
+                free(aliases);
+                error(p, "Memory allocation failed for export list");
+                return decl;
+            }
+            names[0] = strdup(decl->as.let.name);
+            aliases[0] = NULL;
+            stmt_free(decl);
+            return stmt_export_list(names, aliases, 1);
+        }
         return stmt_export_declaration(decl);
     }
 

@@ -174,10 +174,17 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                            stmt->as.let.type_annotation->kind == TYPE_ARRAY) {
                     // Typed array: let arr: array<type> = [...]
                     Type *elem_type = stmt->as.let.type_annotation->element_type;
-                    const char *hml_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
-                    if (!hml_type) hml_type = "HML_VAL_NULL";
-                    codegen_writeln(ctx, "HmlValue %s = hml_validate_typed_array(%s, %s);",
-                                  safe_name, value, hml_type);
+                    if (elem_type && elem_type->kind == TYPE_CUSTOM_OBJECT && elem_type->type_name) {
+                        // Validate each element against the registered object type so
+                        // optional fields get auto-filled (parity with interpreter).
+                        codegen_writeln(ctx, "HmlValue %s = hml_validate_typed_array_object(%s, \"%s\");",
+                                      safe_name, value, elem_type->type_name);
+                    } else {
+                        const char *hml_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
+                        if (!hml_type) hml_type = "HML_VAL_NULL";
+                        codegen_writeln(ctx, "HmlValue %s = hml_validate_typed_array(%s, %s);",
+                                      safe_name, value, hml_type);
+                    }
                 } else if (stmt->as.let.type_annotation) {
                     // Primitive type annotation: let x: i64 = 0;
                     // Convert value to the annotated type with range checking
