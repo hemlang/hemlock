@@ -1,7 +1,10 @@
 // _GNU_SOURCE exposes posix_spawn_file_actions_addchdir_np (glibc 2.29+) and
 // POSIX_SPAWN_SETSID (glibc 2.26+). Must be defined before any system header
-// inclusion, including the chain pulled in by internal.h.
+// inclusion, including the chain pulled in by internal.h. Guarded so it does
+// not collide with a -D_GNU_SOURCE on the build command line (e.g. WASM).
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include "internal.h"
 
 Value builtin_getenv(Value *args, int num_args, ExecutionContext *ctx) {
@@ -1079,6 +1082,16 @@ extern char **environ;
 #  endif
 #endif
 
+#ifdef __EMSCRIPTEN__
+// WASM has no posix_spawn family. Provide a stub that throws at runtime so
+// the interpreter still links — process spawning is meaningless in-browser.
+Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "spawn() not supported in WASM build");
+    return val_null();
+}
+#else
+
 static int posix_spawn_lookup_field(Object *obj, const char *name) {
     return obj ? object_lookup_field(obj, name) : -1;
 }
@@ -1314,6 +1327,7 @@ Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx) {
 
     return val_object(result);
 }
+#endif // !__EMSCRIPTEN__
 
 Value builtin_abort(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;

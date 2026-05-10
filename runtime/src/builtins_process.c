@@ -15,8 +15,11 @@
 
 // _GNU_SOURCE exposes posix_spawn_file_actions_addchdir_np (glibc 2.29+) and
 // POSIX_SPAWN_SETSID (glibc 2.26+). Must be defined before any system header
-// inclusion.
+// inclusion. Guarded so it does not collide with -D_GNU_SOURCE on the build
+// command line.
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include "builtins_internal.h"
 
 // ========== COMMAND EXECUTION ==========
