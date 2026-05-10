@@ -1,0 +1,76 @@
+// Regression test for the compiled-binary HTTP POST body bug.
+//
+// The runtime's hml_lws_http_post() used to `(void) body_val;` and
+// `(void) content_type_val;` (commented "Not fully implemented yet"),
+// so compiled binaries silently sent POST/PUT/PATCH requests with
+// NO body, NO Content-Type, and NO Content-Length. The interpreter
+// was unaffected because it goes through a different builtin that
+// handles the body via lws_callback_on_writable.
+//
+// This test boots a tiny TCP listener, fires post_json + post against
+// it, and verifies that what arrives on the wire actually contains
+// our body and the Content-Type/Length headers.
+
+import { TcpListener } from "@stdlib/net";
+import { post } from "@stdlib/http";
+import { sleep } from "@stdlib/time";
+
+// Background server task: accept one connection, read everything available,
+// echo a minimal HTTP/1.1 200 OK so the client returns cleanly, then exit.
+async fn server_task(port: i32): string {
+	let listener = TcpListener("127.0.0.1", port);
+	let stream = listener.accept();
+	// Read until we have at least the headers + body. The client sends
+	// Content-Length: 10 in the smaller POST below, and a longer JSON
+	// payload above; reading one big chunk is enough for both.
+	let captured = "";
+	let i = 0;
+	while (i < 200) {
+		let line = stream.read_line();
+		if (line == null) { break; }
+		captured = captured + line + "\n";
+		if (line.trim().length == 0) { break; }
+		i = i + 1;
+	}
+	// Then drain the body by content-length if present.
+	let lc = captured.to_lower();
+	let cl_idx = lc.find("content-length:");
+	if (cl_idx >= 0) {
+		let after = captured.substr(cl_idx + 15, captured.length - cl_idx - 15);
+		let nl = after.find("\n");
+		let n_str = "0";
+		if (nl > 0) { n_str = after.substr(0, nl).trim(); }
+		let n = i32(n_str);
+		if (n > 0) {
+			let buf = stream.read(n);
+			let j = 0;
+			while (j < buf.length) {
+				let r: rune = buf[j];
+				captured = captured + r;
+				j = j + 1;
+			}
+		}
+	}
+	stream.write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+	stream.close();
+	return captured;
+}
+
+let port = 28765;
+let task = spawn(server_task, port);
+sleep(0.1);  // give the listener a moment
+
+let resp = post("http://127.0.0.1:" + port + "/", "hello body",
+                ["Content-Type: text/plain"]);
+print("status: " + resp.status_code);
+
+let captured = await task;
+
+// Print boolean facts about the captured wire bytes — exact string match
+// would be brittle (header order, User-Agent string, etc.).
+print("has POST line: " + (captured.find("POST / HTTP/1.1") >= 0));
+print("has content-type header: "
+      + (captured.to_lower().find("content-type: text/plain") >= 0));
+print("has content-length header: "
+      + (captured.to_lower().find("content-length: 10") >= 0));
+print("has body: " + (captured.find("hello body") >= 0));

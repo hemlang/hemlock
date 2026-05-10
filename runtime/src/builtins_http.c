@@ -34,6 +34,13 @@ typedef struct {
     char *headers;
     char **custom_headers;   // Custom request headers
     int num_custom_headers;
+    // Outgoing request body for POST/PUT/PATCH/DELETE-with-body. Owned by
+    // this struct; freed via hml_free_request_body() once the LWS event
+    // loop completes (or fails) so callers don't have to worry about it.
+    char *post_body;
+    size_t post_body_len;
+    char *content_type;
+    int body_sent;
 } hml_http_response_t;
 
 static void hml_free_custom_headers(hml_http_response_t *resp) {
@@ -45,6 +52,67 @@ static void hml_free_custom_headers(hml_http_response_t *resp) {
         resp->custom_headers = NULL;
         resp->num_custom_headers = 0;
     }
+}
+
+static void hml_free_request_body(hml_http_response_t *resp) {
+    if (!resp) return;
+    if (resp->post_body) {
+        free(resp->post_body);
+        resp->post_body = NULL;
+    }
+    if (resp->content_type) {
+        free(resp->content_type);
+        resp->content_type = NULL;
+    }
+    resp->post_body_len = 0;
+}
+
+// Stash the body + content-type on `resp` so the LWS callback can emit
+// Content-Type / Content-Length headers and stream the bytes when the
+// socket becomes writable. Returns 0 on success, -1 on alloc failure.
+// Empty bodies are valid (some methods send Content-Length: 0).
+static int hml_attach_request_body(hml_http_response_t *resp,
+                                   const char *body, const char *content_type) {
+    if (!resp || !body) return -1;
+    size_t blen = strlen(body);
+    resp->post_body = malloc(blen + 1);
+    if (!resp->post_body) return -1;
+    memcpy(resp->post_body, body, blen);
+    resp->post_body[blen] = '\0';
+    resp->post_body_len = blen;
+
+    if (content_type && content_type[0]) {
+        resp->content_type = strdup(content_type);
+        if (!resp->content_type) {
+            free(resp->post_body);
+            resp->post_body = NULL;
+            resp->post_body_len = 0;
+            return -1;
+        }
+    }
+    return 0;
+}
+
+// Detect whether the caller already supplied Content-Type so we don't
+// double-emit it from the default path.
+static int hml_custom_headers_have_content_type(hml_http_response_t *resp) {
+    if (!resp || !resp->custom_headers) return 0;
+    for (int i = 0; i < resp->num_custom_headers; i++) {
+        const char *h = resp->custom_headers[i];
+        if (!h) continue;
+        // ASCII case-insensitive prefix compare against "content-type:"
+        const char *needle = "content-type:";
+        size_t nlen = strlen(needle);
+        if (strlen(h) < nlen) continue;
+        int matches = 1;
+        for (size_t k = 0; k < nlen; k++) {
+            char a = h[k]; if (a >= 'A' && a <= 'Z') a = (char)(a - 'A' + 'a');
+            char b = needle[k];
+            if (a != b) { matches = 0; break; }
+        }
+        if (matches) return 1;
+    }
+    return 0;
 }
 
 static void hml_lws_response_destroy(hml_http_response_t *resp) {
@@ -61,6 +129,7 @@ static void hml_lws_response_destroy(hml_http_response_t *resp) {
         free(resp->headers);
     }
     hml_free_custom_headers(resp);
+    hml_free_request_body(resp);
     free(resp);
 }
 
@@ -108,6 +177,56 @@ static int hml_http_callback(struct lws *wsi, enum lws_callback_reasons reason,
                         *p += accept_len;
                     }
                 }
+
+                // If the caller attached a request body, emit Content-Type
+                // (unless they supplied one) + Content-Length, and arm a
+                // writable callback so we can stream the body bytes once
+                // the socket is ready. Without this, POST/PUT/PATCH bodies
+                // never make it onto the wire — which is exactly the bug
+                // this branch is fixing.
+                if (resp && resp->post_body && resp->post_body_len > 0) {
+                    int caller_set_ct = hml_custom_headers_have_content_type(resp);
+                    if (!caller_set_ct) {
+                        const char *ct = (resp->content_type && resp->content_type[0])
+                                             ? resp->content_type
+                                             : "application/octet-stream";
+                        char ct_line[256];
+                        int ctn = snprintf(ct_line, sizeof(ct_line),
+                                           "Content-Type: %s\r\n", ct);
+                        if (ctn > 0 && (end - *p) >= ctn) {
+                            memcpy(*p, ct_line, (size_t)ctn);
+                            *p += ctn;
+                        }
+                    }
+                    char cl_line[64];
+                    int cln = snprintf(cl_line, sizeof(cl_line),
+                                       "Content-Length: %zu\r\n",
+                                       resp->post_body_len);
+                    if (cln > 0 && (end - *p) >= cln) {
+                        memcpy(*p, cl_line, (size_t)cln);
+                        *p += cln;
+                    }
+                    lws_client_http_body_pending(wsi, 1);
+                    lws_callback_on_writable(wsi);
+                }
+            }
+            break;
+
+        case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+            if (resp && resp->post_body && resp->post_body_len > 0 && !resp->body_sent) {
+                size_t body_len = resp->post_body_len;
+                unsigned char *buf = malloc(LWS_PRE + body_len);
+                if (!buf) {
+                    resp->failed = 1;
+                    resp->complete = 1;
+                    return -1;
+                }
+                memcpy(buf + LWS_PRE, resp->post_body, body_len);
+                int n = lws_write(wsi, buf + LWS_PRE, body_len, LWS_WRITE_HTTP);
+                free(buf);
+                lws_client_http_body_pending(wsi, 0);
+                resp->body_sent = 1;
+                return n < 0 ? -1 : 0;
             }
             break;
 
@@ -502,9 +621,9 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
     }
 
     const char *url = url_val.as.as_string->data;
-    (void)body_val;  // Not fully implemented yet
-    (void)content_type_val;
-    
+    const char *post_body = body_val.as.as_string->data;
+    const char *content_type = content_type_val.as.as_string->data;
+
     char host[256], path[512];
     int port, ssl;
 
@@ -524,6 +643,11 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
         hml_runtime_error("Failed to allocate body buffer");
     }
     resp->body[0] = '\0';
+
+    if (hml_attach_request_body(resp, post_body, content_type) < 0) {
+        hml_lws_response_destroy(resp);
+        hml_runtime_error("Failed to attach request body");
+    }
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
@@ -579,6 +703,7 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
     }
 
     lws_context_destroy(context);
+    hml_free_request_body(resp);
 
     if (resp->failed || timeout <= 0) {
         hml_lws_response_destroy(resp);
@@ -597,8 +722,8 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
 
     const char *method = method_val.as.as_string->data;
     const char *url = url_val.as.as_string->data;
-    (void)body_val;  // Not fully implemented yet
-    (void)content_type_val;
+    const char *post_body = body_val.as.as_string->data;
+    const char *content_type = content_type_val.as.as_string->data;
 
     char host[256], path[512];
     int port, ssl;
@@ -619,6 +744,13 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
         hml_runtime_error("Failed to allocate body buffer");
     }
     resp->body[0] = '\0';
+
+    if (post_body && strlen(post_body) > 0) {
+        if (hml_attach_request_body(resp, post_body, content_type) < 0) {
+            hml_lws_response_destroy(resp);
+            hml_runtime_error("Failed to attach request body");
+        }
+    }
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
@@ -671,6 +803,7 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
     }
 
     lws_context_destroy(context);
+    hml_free_request_body(resp);
 
     if (resp->failed || timeout <= 0) {
         hml_lws_response_destroy(resp);
@@ -797,8 +930,8 @@ HmlValue hml_lws_http_post_timeout(HmlValue url_val, HmlValue body_val, HmlValue
     int timeout_iterations = hml_extract_timeout_ms(timeout_val);
 
     const char *url = url_val.as.as_string->data;
-    (void)body_val;
-    (void)content_type_val;
+    const char *post_body = body_val.as.as_string->data;
+    const char *content_type = content_type_val.as.as_string->data;
 
     char host[256], path[512];
     int port, ssl;
@@ -819,6 +952,11 @@ HmlValue hml_lws_http_post_timeout(HmlValue url_val, HmlValue body_val, HmlValue
         hml_runtime_error("Failed to allocate body buffer");
     }
     resp->body[0] = '\0';
+
+    if (hml_attach_request_body(resp, post_body, content_type) < 0) {
+        hml_lws_response_destroy(resp);
+        hml_runtime_error("Failed to attach request body");
+    }
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
@@ -871,6 +1009,7 @@ HmlValue hml_lws_http_post_timeout(HmlValue url_val, HmlValue body_val, HmlValue
     }
 
     lws_context_destroy(context);
+    hml_free_request_body(resp);
 
     if (resp->failed || timeout <= 0) {
         hml_lws_response_destroy(resp);
@@ -891,8 +1030,8 @@ HmlValue hml_lws_http_request_timeout(HmlValue method_val, HmlValue url_val, Hml
 
     const char *method = method_val.as.as_string->data;
     const char *url = url_val.as.as_string->data;
-    (void)body_val;
-    (void)content_type_val;
+    const char *post_body = body_val.as.as_string->data;
+    const char *content_type = content_type_val.as.as_string->data;
 
     char host[256], path[512];
     int port, ssl;
@@ -913,6 +1052,13 @@ HmlValue hml_lws_http_request_timeout(HmlValue method_val, HmlValue url_val, Hml
         hml_runtime_error("Failed to allocate body buffer");
     }
     resp->body[0] = '\0';
+
+    if (post_body && strlen(post_body) > 0) {
+        if (hml_attach_request_body(resp, post_body, content_type) < 0) {
+            hml_lws_response_destroy(resp);
+            hml_runtime_error("Failed to attach request body");
+        }
+    }
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
@@ -965,6 +1111,7 @@ HmlValue hml_lws_http_request_timeout(HmlValue method_val, HmlValue url_val, Hml
     }
 
     lws_context_destroy(context);
+    hml_free_request_body(resp);
 
     if (resp->failed || timeout <= 0) {
         hml_lws_response_destroy(resp);
