@@ -1,4 +1,5 @@
 #include "formatter_internal.h"
+#include <ctype.h>
 
 // ========== EXPRESSION FORMATTING ==========
 
@@ -516,7 +517,27 @@ void fmt_expr(FmtCtx *ctx, Expr *expr) {
                     if (is_shorthand) {
                         buf_append(&ctx->buf, expr->as.object_literal.field_names[i]);
                     } else {
-                        buf_append(&ctx->buf, expr->as.object_literal.field_names[i]);
+                        const char *name = expr->as.object_literal.field_names[i];
+                        // Quote keys that aren't valid bare identifiers
+                        // (e.g. "chat-mahou", "1st-place", "with space").
+                        int needs_quoting = 0;
+                        if (!name || !*name) {
+                            needs_quoting = 1;
+                        } else {
+                            unsigned char first = (unsigned char)name[0];
+                            if (!(isalpha(first) || first == '_')) needs_quoting = 1;
+                            for (const char *p = name + 1; *p && !needs_quoting; p++) {
+                                unsigned char c = (unsigned char)*p;
+                                if (!(isalnum(c) || c == '_')) needs_quoting = 1;
+                            }
+                        }
+                        if (needs_quoting) {
+                            buf_append_char(&ctx->buf, '"');
+                            buf_append(&ctx->buf, name);
+                            buf_append_char(&ctx->buf, '"');
+                        } else {
+                            buf_append(&ctx->buf, name);
+                        }
                         buf_append(&ctx->buf, ": ");
                         fmt_expr(ctx, expr->as.object_literal.field_values[i]);
                     }

@@ -1750,8 +1750,32 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 VALUE_RELEASE(object_val);
                 return result;
             } else {
-                // Optional indexing: obj?.[index]
+                // Optional indexing: obj?.[index] or obj?[index]
                 Value index_val = eval_expr(expr->as.optional_chain.index, env, ctx);
+                Value result;
+
+                // Object: string or coerced string-key lookup, returns null on miss
+                if (object_val.type == VAL_OBJECT) {
+                    Object *obj = object_val.as.as_object;
+                    int idx = -1;
+                    if (index_val.type == VAL_STRING) {
+                        idx = object_lookup_field(obj, index_val.as.as_string->data);
+                    } else {
+                        char key_buf[64];
+                        if (value_coerce_to_key(index_val, key_buf, sizeof(key_buf))) {
+                            idx = object_lookup_field(obj, key_buf);
+                        }
+                    }
+                    if (idx >= 0) {
+                        result = obj->fields[idx].value;
+                        VALUE_RETAIN(result);
+                    } else {
+                        result = val_null();
+                    }
+                    VALUE_RELEASE(object_val);
+                    VALUE_RELEASE(index_val);
+                    return result;
+                }
 
                 if (!is_integer(index_val)) {
                     VALUE_RELEASE(object_val);
@@ -1761,7 +1785,6 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
 
                 int32_t index = value_to_int(index_val);
-                Value result;
 
                 if (object_val.type == VAL_ARRAY) {
                     result = array_get(object_val.as.as_array, index, ctx);
