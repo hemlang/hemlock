@@ -36,8 +36,29 @@ let person = {
 **Syntax:**
 - Curly braces `{}` enclose the object
 - Key-value pairs separated by commas
-- Keys are identifiers (no quotes needed)
+- Keys are identifiers when they are valid bare names
+- Keys can also be string literals when they contain hyphens, spaces, leading digits, or other characters that are not valid in bare identifiers
 - Values can be any type
+
+### String-Literal Keys
+
+Use quoted keys when a field name cannot be written as a bare identifier. These fields are accessed with bracket notation.
+
+```hemlock
+let headers = {
+    "content-type": "application/json",
+    "x-request-id": "abc123",
+    "1st-hop": true,
+    "with space": "ok",
+    plain_id: 42
+};
+
+print(headers["content-type"]);  // "application/json"
+print(headers["1st-hop"]);      // true
+print(headers.plain_id);         // 42
+```
+
+String-literal keys must include a colon; shorthand only applies to bare identifier keys.
 
 ### Empty Objects
 
@@ -222,6 +243,12 @@ print(person["age"]);         // 30
 // Write with bracket notation
 person["city"] = "NYC";
 print(person.city);           // "NYC"
+
+// Safe index short-circuits on null and returns null for missing fields
+let maybe = person?["city"];       // "NYC"
+let missing = person?["missing"];  // null
+let none = null;
+print(none?["anything"]);          // null
 ```
 
 ### Key Coercion

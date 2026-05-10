@@ -10,7 +10,7 @@ The `@stdlib/process` module provides POSIX-compliant process management capabil
 
 ```hemlock
 // Import specific functions
-import { get_pid, getppid, exec, kill } from "@stdlib/process";
+import { get_pid, getppid, exec, kill, posix_spawn } from "@stdlib/process";
 
 // Import all as namespace
 import * as process from "@stdlib/process";
@@ -271,6 +271,66 @@ let result3 = exec_argv(["cat", user_input]);
 - Running commands with arguments containing special characters
 
 **Exceptions:** Throws if command cannot be found or executed.
+
+### `posix_spawn(argv: array<string>, opts?: object): object`
+
+Launch a program using `posix_spawnp(3)` and return immediately after the child is created. Unlike `exec_argv()`, this function does **not** capture output and does **not** wait for the process to exit. The caller receives the child PID and is responsible for calling `waitpid()` when appropriate.
+
+**Parameters:**
+- `argv` - Array of strings such as `["command", "arg1", "arg2", ...]`. `argv[0]` is resolved through `PATH` unless it contains `/`.
+- `opts` - Optional object with these fields:
+  - `env` - Array of `"KEY=value"` strings. Defaults to inheriting the parent environment.
+  - `stdin` - Raw fd to duplicate to the child's standard input. Defaults to inherited stdin.
+  - `stdout` - Raw fd to duplicate to the child's standard output. Defaults to inherited stdout.
+  - `stderr` - Raw fd to duplicate to the child's standard error. Defaults to inherited stderr.
+  - `cwd` - Working directory to switch to before `exec`. Requires platform support for `posix_spawn_file_actions_addchdir_np`.
+  - `setsid` - Boolean. If true, create a new session for the child when `POSIX_SPAWN_SETSID` is available.
+
+**Returns:** Object with fields:
+- `pid` (i32) - Process ID of the spawned child.
+
+```hemlock
+import { posix_spawn, waitpid } from "@stdlib/process";
+import { pipe_create, fd_read, fd_close } from "@stdlib/ipc";
+
+// Launch and wait explicitly
+let child = posix_spawn(["true"]);
+let status = waitpid(child.pid, 0);
+print(status.status == 0);
+
+// Capture stdout by redirecting it to a pipe
+let pipe = pipe_create();
+let echo = posix_spawn(["echo", "hello"], { stdout: pipe.write_fd });
+fd_close(pipe.write_fd);
+waitpid(echo.pid, 0);
+let output = fd_read(pipe.read_fd, 4096);
+fd_close(pipe.read_fd);
+print(output);
+
+// Run with a custom environment and working directory
+let pwd = posix_spawn(["pwd"], {
+    env: ["PATH=/usr/bin:/bin"],
+    cwd: "/"
+});
+waitpid(pwd.pid, 0);
+
+// Start a detached session when the platform supports it
+let daemon = posix_spawn(["sleep", "60"], { setsid: true });
+print("spawned pid: " + daemon.pid);
+```
+
+**When to use `posix_spawn()`:**
+- Launching a child process without shell interpretation
+- Redirecting child stdio with raw file descriptors from `@stdlib/ipc` or `@stdlib/fs.open_fd()`
+- Starting a long-running child and managing its PID yourself
+- Avoiding `fork()` in threaded programs
+
+**Notes:**
+- Exported as `posix_spawn` instead of `spawn` so it does not collide with Hemlock's task-spawning builtin.
+- On WebAssembly builds, this native POSIX primitive is unavailable and throws a runtime error.
+- If you need captured stdout/stderr and automatic waiting, prefer `exec_argv()`.
+
+**Exceptions:** Throws if the argv array is invalid, fd redirection fails, the platform does not support a requested option, or the child cannot be spawned.
 
 ## Usage Patterns
 

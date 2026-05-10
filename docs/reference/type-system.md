@@ -341,12 +341,20 @@ let mixed = [1, "hello", true, null];
 
 **Description:** JavaScript-style object with dynamic fields
 
-**Literal Syntax:** `{ field: value, ... }`
+**Literal Syntax:** `{ field: value, ... }` or `{ "field-name": value, ... }`
 
 **Examples:**
 ```hemlock
 let person = { name: "Alice", age: 30 };
 print(person.name);  // "Alice"
+
+// Use string-literal keys when the field name is not a valid identifier
+let headers = {
+    "content-type": "application/json",
+    "x-request-id": "abc123",
+    "1st-hop": true
+};
+print(headers["content-type"]);
 
 // Add field dynamically
 person.email = "alice@example.com";

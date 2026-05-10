@@ -374,6 +374,7 @@ Safely access properties or call methods on potentially null values.
 |----------|-------------------|----------------|----------------------------------|
 | `?.`     | Optional chaining | `a?.b`         | Return a.b if a not null, else null |
 | `?.[`    | Optional index    | `a?.[0]`       | Return a[0] if a not null, else null |
+| `?[`     | Safe index        | `a?[0]`        | Concise optional index form |
 | `?.(`    | Optional call     | `a?.()`        | Call a() if a not null, else null |
 
 **Examples:**
@@ -390,6 +391,12 @@ let first = arr?.[0];               // null
 
 let items = [1, 2, 3];
 let second = items?.[1];            // 2
+let also_second = items?[1];        // 2 (concise safe-index form)
+
+// With object string keys
+let user = { "user-id": 42 };
+let id = user?["user-id"];         // 42
+let missing = user?["missing"];    // null
 
 // With method calls
 let obj = { greet: fn() { return "Hello"; } };
@@ -402,6 +409,8 @@ let result = empty?.method?.();     // null
 **Behavior:**
 - If the left operand is null, the entire expression short-circuits to null
 - If the left operand is not null, the access proceeds normally
+- `a?[key]` is equivalent to `a?.[key]`; the `[` must immediately follow `?`
+- Optional/safe index works with arrays, strings, and object bracket lookups
 - Can be chained for deep property access
 
 ---
@@ -491,7 +500,7 @@ Operators are listed from highest to lowest precedence:
 
 | Precedence | Operators                  | Description                    | Associativity |
 |------------|----------------------------|--------------------------------|---------------|
-| 1          | `()` `[]` `.` `?.`         | Call, index, member access, optional chain | Left-to-right |
+| 1          | `()` `[]` `.` `?.` `?[`      | Call, index, member access, optional chain | Left-to-right |
 | 2          | `++` `--`                  | Postfix increment/decrement    | Left-to-right |
 | 3          | `!` `~` `-` (unary) `+` (unary) | Logical NOT, bitwise NOT, negation | Right-to-left |
 | 4          | `*` `/` `%`                | Multiplication, division, modulo | Left-to-right |

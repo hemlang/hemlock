@@ -9,14 +9,15 @@
 #define HEMLOCK_VERSION_H
 
 #define HEMLOCK_VERSION_MAJOR 2
-#define HEMLOCK_VERSION_MINOR 1
-#define HEMLOCK_VERSION_PATCH 1
+#define HEMLOCK_VERSION_MINOR 2
+#define HEMLOCK_VERSION_PATCH 0
 
-#define HEMLOCK_VERSION "2.1.1"
+#define HEMLOCK_VERSION "2.2.0"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   2.2.0 - posix_spawn process primitive, raw fd filesystem access, string object keys, obj?[key], compiler/build fixes
  *   2.1.1 - Parser no longer hangs on malformed `match { arm => { ... } }` when block arm is parsed as object literal and fails
  *   2.1.0 - HTTP client actually sends POST/PUT/PATCH bodies; @stdlib/json exports its public API for `import * as`
  *   2.0.3 - Fix compiler symbol collision when a module exports `init` (or any name shared with the module initializer)

@@ -190,11 +190,12 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v2.0.1 is released with bugfixes since v2.0.0:
+Hemlock v2.2.0 is released with new process, filesystem, and object-literal ergonomics:
 
-- **BREAKING: Reduced builtin conflicts** - Moved 63 builtins to `@stdlib` modules (math, signal, net, process, fs, atomic, debug, ffi) to reduce global namespace pollution
-- **New stdlib modules** - `@stdlib/signal`, `@stdlib/atomic`, `@stdlib/debug`, `@stdlib/ffi`
-- **C macro conflict prevention** - Compiler sanitizes imported names that conflict with C system macros
+- **Process spawning** - `@stdlib/process.posix_spawn()` launches argv-based child processes with optional env, stdio fd redirection, cwd, and setsid settings
+- **Raw fd filesystem access** - `@stdlib/fs.open_fd()` and `@stdlib/fs.fileno()` integrate file handles with fd-based IPC and process redirection
+- **Object literal improvements** - String-literal keys such as `{ "user-id": 42 }` and concise safe indexing with `obj?[key]`
+- **Compiler/build fixes** - FFI library handles no longer collide across imports, strict parity gaps are fixed, and incremental C builds now track header dependencies
 - Full type system with 64-bit integers and Unicode support
 - Pattern matching with destructuring, guards, and rest syntax
 - Expression-bodied functions, type aliases, named arguments, null coalescing

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-05-10
+
+### Added
+
+- **`@stdlib/process.posix_spawn()`** — launch external programs through `posix_spawnp(3)` and return immediately with `{ pid }`. The new primitive accepts argv arrays plus optional `env`, `stdin`, `stdout`, `stderr`, `cwd`, and `setsid` settings for shell-free process creation, fd redirection, working-directory selection, and session detachment.
+- **Raw file descriptor access in `@stdlib/fs`** — `open_fd(path, mode?)` opens a path and returns the underlying POSIX fd directly, while `fileno(file)` exposes the fd backing an open Hemlock File handle. These pair with `@stdlib/ipc` fd helpers and `posix_spawn()` redirection.
+- **String-literal object keys** — object literals now accept quoted keys such as `{ "user-id": 42 }`, enabling fields with hyphens, spaces, leading digits, or other names that are not valid bare identifiers.
+- **`obj?[key]` safe indexing** — bracket safe-indexing can now use the concise `?[` form in addition to the existing `?.[` optional-index spelling. Object string-key lookups return `null` on missing keys and null receivers still short-circuit.
+
+### Fixed
+
+- **Compiler parity for strict language cases** — typed arrays of custom object types now auto-fill optional fields per element, `export let X = X;` is treated as an export self-rebind instead of a duplicate definition, and invalid `substr()` arity is reported by the compiler consistently.
+- **FFI library handle collisions** — compiled programs that import multiple FFI-backed libraries now keep one runtime handle per library instead of clobbering a shared `_ffi_lib` global.
+- **Formatter round-tripping for quoted object keys** — the formatter now preserves quotes for object field names that are not valid bare identifiers.
+- **Incremental C builds after header changes** — the top-level and runtime Makefiles now emit and include `.d` dependency files via `-MMD -MP`, so touching a header rebuilds dependent objects instead of linking stale artifacts.
+- **WASM interpreter build compatibility** for native-only `posix_spawn()` support.
+
+### Changed
+
+- **WASM CI toolchain** — Emscripten was updated from 3.1.51 to 4.0.7 to pick up the current zlib port hash.
+
 ## [2.1.1] - 2026-04-21
 
 ### Fixed

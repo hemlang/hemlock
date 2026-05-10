@@ -238,6 +238,8 @@ See [Arrays](arrays.md) for full details.
 ```hemlock
 let obj: object = { x: 10, y: 20 };
 let person = { name: "Alice", age: 30 };
+let headers = { "content-type": "application/json" };
+print(headers["content-type"]);
 ```
 
 See [Objects](objects.md) for full details.

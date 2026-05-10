@@ -29,10 +29,10 @@ The version is defined in `include/version.h`:
 
 ```c
 #define HEMLOCK_VERSION_MAJOR 2
-#define HEMLOCK_VERSION_MINOR 0
-#define HEMLOCK_VERSION_PATCH 1
+#define HEMLOCK_VERSION_MINOR 2
+#define HEMLOCK_VERSION_PATCH 0
 
-#define HEMLOCK_VERSION "2.0.1"
+#define HEMLOCK_VERSION "2.2.0"
 ```
 
 ### Checking Versions
@@ -93,6 +93,11 @@ import { sin, cos } from "@stdlib/math";
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **2.2.0** | 2026-05-10 | Process `posix_spawn`, raw fd filesystem access, string object keys, safe index syntax, FFI/build/compiler fixes |
+| **2.1.1** | 2026-04-21 | Parser no longer hangs on malformed match arms |
+| **2.1.0** | 2026-04-21 | HTTP request bodies are sent correctly; `@stdlib/json` namespace exports fixed |
+| **2.0.3** | 2026-04-21 | Compiler module initializer symbol collision fix |
+| **2.0.2** | 2026-04-21 | HashMap string-key overflow fix |
 | **2.0.1** | 2026-04-18 | Patch release with bug fixes and stability improvements since v2.0.0 |
 | **2.0.0** | 2026-04-05 | Breaking release: 63 builtins moved to stdlib modules |
 | **1.8.7** | 2026 | Fix multi-argument print/eprint in compiler codegen |
