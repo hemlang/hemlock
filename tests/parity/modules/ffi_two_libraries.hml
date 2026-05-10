@@ -1,0 +1,28 @@
+// Regression test for the FFI _ffi_lib collision.
+//
+// Before the fix, codegen emitted ONE shared `_ffi_lib` global and
+// resolved extern_fn symbols lazily on first call. Loading two libraries
+// in sequence meant the second one clobbered the handle, and any extern_fn
+// originally declared against the first library failed to resolve.
+//
+// Concretely: importing libc + libm (or libsqlite3 + libcrypto via the
+// stdlib) would call libm.ceil successfully but then fail libc.strlen
+// with "FFI function 'strlen' not found in library", because `_ffi_lib`
+// pointed at libm by the time strlen was first invoked.
+//
+// Linux-only (uses libc.so.6 / libm.so.6).
+
+import "libc.so.6";
+extern fn strlen(s: string): i32;
+
+import "libm.so.6";
+extern fn ceil(x: f64): f64;
+
+// Call libm function first so it would have been the most-recently-loaded
+// `_ffi_lib` at the time strlen lazily resolves — this is the exact
+// ordering that triggered the bug.
+let c = ceil(3.2);
+print(c);
+
+let n = strlen("hello");
+print(n);

@@ -1807,10 +1807,19 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             break;
         }
 
-        case STMT_IMPORT_FFI:
-            // Load the FFI library - assigns to global _ffi_lib
-            codegen_writeln(ctx, "_ffi_lib = hml_ffi_load(\"%s\");", stmt->as.import_ffi.library_path);
+        case STMT_IMPORT_FFI: {
+            // Load the FFI library into a per-library global so two imports
+            // (e.g. libsqlite3 + libcrypto via @stdlib/sqlite + @stdlib/uuid)
+            // don't clobber each other. The matching wrapper for each extern_fn
+            // looks up against the same `_ffi_lib_<sanitized>` name, computed
+            // from the same library path string.
+            char sanitized[256];
+            codegen_ffi_sanitize_libname(stmt->as.import_ffi.library_path,
+                                         sanitized, sizeof(sanitized));
+            codegen_writeln(ctx, "_ffi_lib_%s = hml_ffi_load(\"%s\");",
+                            sanitized, stmt->as.import_ffi.library_path);
             break;
+        }
 
         case STMT_EXTERN_FN:
             // Wrapper function is generated in codegen_program, nothing to do here

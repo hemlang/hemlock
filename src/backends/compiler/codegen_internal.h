@@ -263,4 +263,12 @@ int checked_kind_is_integer(CheckedTypeKind kind);
 // Check if CheckedTypeKind is a floating point type
 int checked_kind_is_float(CheckedTypeKind kind);
 
+// ========== FFI HELPERS ==========
+
+// Sanitize a library path (e.g. "libsqlite3.so.0") into a C identifier suffix
+// (e.g. "libsqlite3_so_0"). Writes at most `out_size` bytes including the NUL.
+// Used by both the IMPORT_FFI codegen and the extern-fn wrapper codegen so they
+// agree on which `_ffi_lib_<name>` global to read/write.
+void codegen_ffi_sanitize_libname(const char *path, char *out, size_t out_size);
+
 #endif // HEMLOCK_CODEGEN_INTERNAL_H
