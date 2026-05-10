@@ -274,7 +274,7 @@ Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 | `env` | getenv, setenv, exit, get_pid |
 | `ffi` | FFI callback management |
 | `fmt` | String formatting utilities |
-| `fs` | open, read_file, write_file, list_dir, exists |
+| `fs` | open, open_fd, fileno, read_file, write_file, list_dir, exists |
 | `glob` | File pattern matching |
 | `hash` | sha1, sha256, sha512, md5, djb2, crc32, adler32 |
 | `http` | http_get, http_post, http_request |
@@ -289,7 +289,7 @@ Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 | `net` | TcpListener, TcpStream, UdpSocket |
 | `os` | platform, arch, cpu_count, hostname |
 | `path` | File path manipulation |
-| `process` | fork, exec, wait, kill |
+| `process` | fork, exec, wait, kill, posix_spawn |
 | `random` | Random number generation |
 | `regex` | compile, test (POSIX ERE) |
 | `retry` | Retry logic with backoff |
