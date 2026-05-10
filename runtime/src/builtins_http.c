@@ -22,6 +22,24 @@
 
 #include <libwebsockets.h>
 
+// Suppress libwebsockets startup banner. Without this, every lws_create_context
+// emits a NOTICE-level line ("LWS: 4.3.3-... NET CLI SRV H1 H2 WS ...") to
+// stderr — which the parity test runner captures, breaking expected-output
+// comparison between interpreter (which silences via lws_init_logging in
+// websockets.c) and compiled binary (which never did, until now).
+//
+// Set LWS_VERBOSE=1 to opt back in.
+static void hml_lws_init_logging(void) {
+    static int initialized = 0;
+    if (!initialized) {
+        initialized = 1;
+        const char *verbose = getenv("LWS_VERBOSE");
+        if (!verbose || strcmp(verbose, "1") != 0) {
+            lws_set_log_level(LLL_ERR, NULL);
+        }
+    }
+}
+
 // HTTP response structure
 typedef struct {
     char *body;
@@ -435,6 +453,7 @@ static void hml_parse_headers_into_resp(hml_http_response_t *resp, HmlValue head
 
 // HTTP GET
 HmlValue hml_lws_http_get(HmlValue url_val) {
+    hml_lws_init_logging();
     if (url_val.type != HML_VAL_STRING || !url_val.as.as_string) {
         hml_runtime_error("__lws_http_get() expects string URL");
     }
@@ -526,6 +545,7 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
 
 // HTTP GET with custom headers
 HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
+    hml_lws_init_logging();
     if (url_val.type != HML_VAL_STRING || !url_val.as.as_string) {
         hml_runtime_error("__lws_http_get() expects string URL");
     }
@@ -616,6 +636,7 @@ HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
 
 // HTTP POST
 HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content_type_val) {
+    hml_lws_init_logging();
     if (url_val.type != HML_VAL_STRING || body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
         hml_runtime_error("__lws_http_post() expects string arguments");
     }
@@ -715,6 +736,7 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
 
 // Generic HTTP request with configurable method
 HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val) {
+    hml_lws_init_logging();
     if (method_val.type != HML_VAL_STRING || url_val.type != HML_VAL_STRING ||
         body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
         hml_runtime_error("__lws_http_request() expects string arguments");
@@ -834,6 +856,7 @@ static int hml_extract_timeout_ms(HmlValue timeout_val) {
 
 // HTTP GET with configurable timeout
 HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
+    hml_lws_init_logging();
     if (url_val.type != HML_VAL_STRING) {
         hml_runtime_error("__lws_http_get_timeout() expects string URL");
     }
@@ -923,6 +946,7 @@ HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
 
 // HTTP POST with configurable timeout
 HmlValue hml_lws_http_post_timeout(HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue timeout_val) {
+    hml_lws_init_logging();
     if (url_val.type != HML_VAL_STRING || body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
         hml_runtime_error("__lws_http_post_timeout() expects string arguments");
     }
@@ -1021,6 +1045,7 @@ HmlValue hml_lws_http_post_timeout(HmlValue url_val, HmlValue body_val, HmlValue
 
 // Generic HTTP request with configurable timeout
 HmlValue hml_lws_http_request_timeout(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue timeout_val) {
+    hml_lws_init_logging();
     if (method_val.type != HML_VAL_STRING || url_val.type != HML_VAL_STRING ||
         body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
         hml_runtime_error("__lws_http_request_timeout() expects string arguments");
@@ -1901,6 +1926,7 @@ static int hml_parse_ws_url(const char *url, char *host, int *port, char *path, 
 
 // __lws_ws_connect(url: string): ptr
 HmlValue hml_lws_ws_connect(HmlValue url_val) {
+    hml_lws_init_logging();
     if (url_val.type != HML_VAL_STRING) {
         hml_runtime_error("__lws_ws_connect() expects string URL");
     }
@@ -2209,6 +2235,7 @@ HmlValue hml_lws_ws_is_closed(HmlValue conn_val) {
 
 // __lws_ws_server_create(host: string, port: i32): ptr
 HmlValue hml_lws_ws_server_create(HmlValue host_val, HmlValue port_val) {
+    hml_lws_init_logging();
     if (host_val.type != HML_VAL_STRING) {
         hml_runtime_error("__lws_ws_server_create() expects string host");
     }
