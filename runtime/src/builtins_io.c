@@ -81,6 +81,87 @@ HmlValue hml_open(HmlValue path, HmlValue mode) {
     return result;
 }
 
+// Translate a fopen-style mode string to open(2) flags. Returns -1 on
+// unrecognized mode.
+static int hml_mode_to_open_flags(const char *mode) {
+    if (!mode || !*mode) return -1;
+    int has_plus = strchr(mode, '+') != NULL;
+    int flags;
+    switch (mode[0]) {
+        case 'r': flags = has_plus ? O_RDWR : O_RDONLY; break;
+        case 'w': flags = (has_plus ? O_RDWR : O_WRONLY) | O_CREAT | O_TRUNC; break;
+        case 'a': flags = (has_plus ? O_RDWR : O_WRONLY) | O_CREAT | O_APPEND; break;
+        default: return -1;
+    }
+    return flags;
+}
+
+// open_fd(path, mode?) -> i32: open a file and return its raw POSIX fd.
+HmlValue hml_open_fd(HmlValue path, HmlValue mode) {
+    if (path.type != HML_VAL_STRING) {
+        hml_throw(hml_val_string("open_fd() expects string path"));
+    }
+
+    const char *path_str = path.as.as_string->data;
+    const char *mode_str = "r";
+    if (mode.type == HML_VAL_STRING) {
+        mode_str = mode.as.as_string->data;
+    }
+
+    int flags = hml_mode_to_open_flags(mode_str);
+    if (flags < 0) {
+        char err_buf[256];
+        snprintf(err_buf, sizeof(err_buf),
+                 "open_fd() unsupported mode '%s' (use r, w, a, r+, w+, a+)", mode_str);
+        hml_throw(hml_val_string(err_buf));
+    }
+
+    int is_write = (strchr(mode_str, 'w') != NULL || strchr(mode_str, 'a') != NULL ||
+                    strstr(mode_str, "r+") != NULL);
+    if (!hml_sandbox_path_allowed(path_str, is_write)) {
+        if (is_write) {
+            hml_sandbox_error("file write operations");
+        } else {
+            hml_sandbox_error("file read outside sandbox root");
+        }
+    }
+
+    int fd = open(path_str, flags, 0666);
+    if (fd < 0) {
+        char err_buf[512];
+        snprintf(err_buf, sizeof(err_buf), "Failed to open '%s' with mode '%s': %s",
+                 path_str, mode_str, strerror(errno));
+        hml_throw(hml_val_string(err_buf));
+    }
+
+    return hml_val_i32(fd);
+}
+
+// fileno(file) -> i32: extract the raw POSIX fd from a File handle. The
+// file retains ownership of the fd; closing the file closes the fd.
+HmlValue hml_fileno(HmlValue file) {
+    if (file.type != HML_VAL_FILE || !file.as.as_file) {
+        hml_throw(hml_val_string("fileno() expects file object"));
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed || !fh->fp) {
+        char err_buf[512];
+        snprintf(err_buf, sizeof(err_buf), "fileno() called on closed file '%s'",
+                 fh->path ? fh->path : "<unknown>");
+        hml_throw(hml_val_string(err_buf));
+    }
+
+    int fd = fileno((FILE*)fh->fp);
+    if (fd < 0) {
+        char err_buf[256];
+        snprintf(err_buf, sizeof(err_buf), "fileno() failed: %s", strerror(errno));
+        hml_throw(hml_val_string(err_buf));
+    }
+
+    return hml_val_i32(fd);
+}
+
 HmlValue hml_file_read(HmlValue file, HmlValue size) {
     if (file.type != HML_VAL_FILE) {
         hml_throw(hml_val_string("read() expects file object"));
@@ -618,6 +699,17 @@ HmlValue hml_uptime(void) {
     fprintf(stderr, "Error: uptime() not supported on this platform\n");
     exit(1);
 #endif
+}
+
+// File I/O builtin wrappers (for indirect calls through HmlValue function refs)
+HmlValue hml_builtin_open_fd(HmlClosureEnv *env, HmlValue path, HmlValue mode) {
+    (void)env;
+    return hml_open_fd(path, mode);
+}
+
+HmlValue hml_builtin_fileno(HmlClosureEnv *env, HmlValue file) {
+    (void)env;
+    return hml_fileno(file);
 }
 
 // System info builtin wrappers

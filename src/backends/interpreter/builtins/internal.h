@@ -158,6 +158,8 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_is_file(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_is_dir(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_file_stat(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_open_fd(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_fileno(Value *args, int num_args, ExecutionContext *ctx);
 
 // Directory builtins (directories.c)
 Value builtin_make_dir(Value *args, int num_args, ExecutionContext *ctx);

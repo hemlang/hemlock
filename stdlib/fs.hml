@@ -3,6 +3,8 @@
 
 // ========== FILE OPERATIONS ==========
 export let open = __open;
+export let open_fd = __open_fd;
+export let fileno = __fileno;
 export let exists = __exists;
 export let read_file = __read_file;
 export let write_file = __write_file;
