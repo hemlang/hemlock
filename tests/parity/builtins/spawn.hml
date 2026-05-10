@@ -1,5 +1,6 @@
 // Test: process.posix_spawn() detached spawn primitive backed by posix_spawn(3).
 import { posix_spawn, waitpid } from "@stdlib/process";
+import { pipe_create, fd_read, fd_close } from "@stdlib/ipc";
 
 // Case 1: spawn `true`, expect a positive pid and exit code 0.
 let r1 = posix_spawn(["true"]);
@@ -12,9 +13,34 @@ let r2 = posix_spawn(["false"]);
 let w2 = waitpid(r2.pid, 0);
 print(w2.status != 0);
 
-// Case 3: spawn with custom env (verify it runs; shell/stdout capture not exercised).
+// Case 3: spawn with custom env.
 let r3 = posix_spawn(["true"], { env: ["FOO=bar", "PATH=/usr/bin:/bin"] });
 let w3 = waitpid(r3.pid, 0);
 print(w3.status == 0);
+
+// Case 4: stdout redirection — pipe `echo hello` and read the output.
+let p4 = pipe_create();
+let r4 = posix_spawn(["echo", "hello"], { stdout: p4.write_fd });
+fd_close(p4.write_fd);
+let w4 = waitpid(r4.pid, 0);
+print(w4.status == 0);
+let out4 = fd_read(p4.read_fd, 4096);
+fd_close(p4.read_fd);
+print(out4);
+
+// Case 5: cwd — spawn `pwd` from /tmp and verify the output.
+let p5 = pipe_create();
+let r5 = posix_spawn(["pwd"], { cwd: "/tmp", stdout: p5.write_fd });
+fd_close(p5.write_fd);
+let w5 = waitpid(r5.pid, 0);
+print(w5.status == 0);
+let out5 = fd_read(p5.read_fd, 4096);
+fd_close(p5.read_fd);
+print(out5);
+
+// Case 6: setsid — child becomes session leader; verify it still exits cleanly.
+let r6 = posix_spawn(["true"], { setsid: true });
+let w6 = waitpid(r6.pid, 0);
+print(w6.status == 0);
 
 print("done");

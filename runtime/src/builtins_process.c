@@ -13,6 +13,10 @@
 
 #ifndef __EMSCRIPTEN__
 
+// _GNU_SOURCE exposes posix_spawn_file_actions_addchdir_np (glibc 2.29+) and
+// POSIX_SPAWN_SETSID (glibc 2.26+). Must be defined before any system header
+// inclusion.
+#define _GNU_SOURCE
 #include "builtins_internal.h"
 
 // ========== COMMAND EXECUTION ==========
@@ -699,7 +703,23 @@ HmlValue hml_waitpid(HmlValue pid, HmlValue options) {
 //   stdin:  i32 fd to dup2 onto STDIN_FILENO  in child (default: inherit)
 //   stdout: i32 fd to dup2 onto STDOUT_FILENO in child (default: inherit)
 //   stderr: i32 fd to dup2 onto STDERR_FILENO in child (default: inherit)
+//   cwd:    string; chdir before exec (requires glibc 2.29+ / macOS 10.15+)
+//   setsid: bool; child becomes session leader (requires POSIX_SPAWN_SETSID)
 extern char **environ;
+
+// Feature gates: hemlock targets modern systems but we still gate so a
+// build on an older libc fails cleanly at runtime when the option is used.
+#if defined(__GLIBC__) && defined(__GLIBC_PREREQ)
+#  if __GLIBC_PREREQ(2, 29)
+#    define HML_SPAWN_HAS_CHDIR 1
+#  endif
+#endif
+#if defined(__APPLE__)
+#  include <Availability.h>
+#  if defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
+#    define HML_SPAWN_HAS_CHDIR 1
+#  endif
+#endif
 
 HmlValue hml_posix_spawn(HmlValue argv_val, HmlValue opts_val) {
     if (hml_sandbox_check(HML_SANDBOX_RESTRICT_PROCESS)) {
@@ -784,6 +804,17 @@ HmlValue hml_posix_spawn(HmlValue argv_val, HmlValue opts_val) {
 
     posix_spawn_file_actions_t fa;
     int fa_inited = (posix_spawn_file_actions_init(&fa) == 0);
+    posix_spawnattr_t sa;
+    int sa_inited = (posix_spawnattr_init(&sa) == 0);
+    int attr_flags = 0;
+
+    #define HML_SPAWN_CLEANUP() do { \
+        if (cenv) { for (int64_t j = 0; j < cenv_count; j++) free(cenv[j]); free(cenv); } \
+        for (int64_t j = 0; j < arr->length; j++) free(cargv[j]); \
+        free(cargv); \
+        if (fa_inited) posix_spawn_file_actions_destroy(&fa); \
+        if (sa_inited) posix_spawnattr_destroy(&sa); \
+    } while (0)
 
     if (fa_inited && has_opts) {
         const char *names[3] = {"stdin", "stdout", "stderr"};
@@ -798,17 +829,62 @@ HmlValue hml_posix_spawn(HmlValue argv_val, HmlValue opts_val) {
         }
     }
 
+    if (fa_inited && has_opts && hml_object_has_field(opts_val, "cwd")) {
+        HmlValue cwd_val = hml_object_get_field(opts_val, "cwd");
+        if (cwd_val.type != HML_VAL_NULL) {
+            if (cwd_val.type != HML_VAL_STRING || !cwd_val.as.as_string) {
+                HML_SPAWN_CLEANUP();
+                hml_runtime_error("spawn() opts.cwd must be a string");
+            }
+            #ifdef HML_SPAWN_HAS_CHDIR
+            int chdir_rc = posix_spawn_file_actions_addchdir_np(&fa, cwd_val.as.as_string->data);
+            if (chdir_rc != 0) {
+                HML_SPAWN_CLEANUP();
+                hml_runtime_error("spawn() addchdir failed: %s", strerror(chdir_rc));
+            }
+            #else
+            HML_SPAWN_CLEANUP();
+            hml_runtime_error("spawn() opts.cwd not supported on this platform (requires glibc 2.29+ or macOS 10.15+)");
+            #endif
+        }
+    }
+
+    if (sa_inited && has_opts && hml_object_has_field(opts_val, "setsid")) {
+        HmlValue sid_val = hml_object_get_field(opts_val, "setsid");
+        if (sid_val.type != HML_VAL_NULL) {
+            if (sid_val.type != HML_VAL_BOOL) {
+                HML_SPAWN_CLEANUP();
+                hml_runtime_error("spawn() opts.setsid must be a bool");
+            }
+            if (sid_val.as.as_bool) {
+                #ifdef POSIX_SPAWN_SETSID
+                attr_flags |= POSIX_SPAWN_SETSID;
+                #else
+                HML_SPAWN_CLEANUP();
+                hml_runtime_error("spawn() opts.setsid not supported on this platform (POSIX_SPAWN_SETSID unavailable)");
+                #endif
+            }
+        }
+    }
+    if (sa_inited && attr_flags) {
+        posix_spawnattr_setflags(&sa, attr_flags);
+    }
+
     pid_t pid = -1;
-    int rc = posix_spawnp(&pid, cargv[0], fa_inited ? &fa : NULL, NULL,
+    int rc = posix_spawnp(&pid, cargv[0],
+                          fa_inited ? &fa : NULL,
+                          (sa_inited && attr_flags) ? &sa : NULL,
                           cargv, cenv ? cenv : environ);
 
     if (fa_inited) posix_spawn_file_actions_destroy(&fa);
+    if (sa_inited) posix_spawnattr_destroy(&sa);
     for (int64_t i = 0; i < arr->length; i++) free(cargv[i]);
     free(cargv);
     if (cenv) {
         for (int64_t i = 0; i < cenv_count; i++) free(cenv[i]);
         free(cenv);
     }
+    #undef HML_SPAWN_CLEANUP
 
     if (rc != 0) {
         hml_runtime_error("spawn() failed: %s", strerror(rc));

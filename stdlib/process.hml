@@ -52,6 +52,9 @@ export let exec_argv = __exec_argv;
 //   stdin:  i32 fd to dup2 onto STDIN_FILENO  in child (default: inherit)
 //   stdout: i32 fd to dup2 onto STDOUT_FILENO in child (default: inherit)
 //   stderr: i32 fd to dup2 onto STDERR_FILENO in child (default: inherit)
+//   cwd:    string; chdir before exec (requires glibc 2.29+ / macOS 10.15+)
+//   setsid: bool; child becomes session leader, detaching from the
+//           controlling terminal. Requires POSIX_SPAWN_SETSID.
 //
 // Returns: { pid: i32 }
 //
