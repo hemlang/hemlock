@@ -980,7 +980,15 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             // Check if we're inside a try-finally block
             const char *finally_label = codegen_get_finally_label(ctx);
             if (finally_label) {
-                // Inside try-finally: save return value and goto finally
+                // Inside try-finally: save return value and goto finally.
+                // Pop every exception context pushed by enclosing try-bodies
+                // between this return and the target finally (the natural
+                // pops after the try-bodies are skipped by the goto). The
+                // count is exactly ctx->try_body_depth at this point: the
+                // target try-finally pushes its context BEFORE we increment
+                // try_body_depth for its try-body, so its own contribution
+                // is included.
+                codegen_emit_return_try_pops(ctx);
                 const char *ret_var = codegen_get_return_value_var(ctx);
                 const char *has_ret = codegen_get_has_return_var(ctx);
                 if (stmt->as.return_stmt.value) {
@@ -991,7 +999,6 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_writeln(ctx, "%s = hml_val_null();", ret_var);
                 }
                 codegen_writeln(ctx, "%s = 1;", has_ret);
-                codegen_writeln(ctx, "hml_exception_pop();");
                 codegen_writeln(ctx, "goto %s;", finally_label);
             } else if (ctx->defer_stack) {
                 // We have defers - need to save return value, execute defers, then return
@@ -1003,6 +1010,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 } else {
                     codegen_writeln(ctx, "HmlValue %s = hml_val_null();", ret_val);
                 }
+                // Pop any exception contexts pushed by enclosing try-bodies
+                // before returning, so a later throw on this thread does not
+                // longjmp into this now-defunct stack frame.
+                codegen_emit_return_try_pops(ctx);
                 // Execute all defers in LIFO order
                 codegen_defer_execute_all(ctx);
                 // Execute any runtime defers (from loops) - only if this function has defers
@@ -1093,6 +1104,12 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     // Release body-local variables before looping back
                     codegen_emit_local_cleanup(ctx, NULL);
 
+                    // Pop any exception contexts pushed by enclosing try-bodies
+                    // before jumping back to the function start (otherwise each
+                    // tail-call iteration would leak a context and a later
+                    // throw could longjmp into a defunct frame).
+                    codegen_emit_return_try_pops(ctx);
+
                     // Check tail-call depth before jumping back
                     if (ctx->stack_check) {
                         codegen_writeln(ctx, "HML_TAIL_CALL_CHECK(_tail_depth);");
@@ -1104,6 +1121,11 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     // codegen_expr retains the value (via hml_retain_if_needed for idents),
                     // so the returned copy survives local cleanup even if the source is a local
                     char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
+                    // Pop exception contexts pushed by enclosing try-bodies
+                    // before returning (otherwise the jmp_buf survives past
+                    // this stack frame and a later throw will longjmp into
+                    // a defunct frame).
+                    codegen_emit_return_try_pops(ctx);
                     // Execute any runtime defers (from loops) - only if this function has defers
                     if (ctx->has_defers) {
                         codegen_writeln(ctx, "hml_defer_execute_all();");
@@ -1116,6 +1138,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_writeln(ctx, "return %s;", value);
                     free(value);
                 } else {
+                    // Pop exception contexts pushed by enclosing try-bodies
+                    // before returning.
+                    codegen_emit_return_try_pops(ctx);
                     // Execute any runtime defers (from loops) - only if this function has defers
                     if (ctx->has_defers) {
                         codegen_writeln(ctx, "hml_defer_execute_all();");
@@ -1137,6 +1162,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             if (label) {
                 // Labeled break: clean up all locals from here to the target loop
                 codegen_emit_labeled_break_cleanup(ctx, label);
+                // Pop exception contexts pushed by try-bodies nested inside
+                // the target labeled loop.
+                codegen_emit_labeled_break_try_pops(ctx, label);
                 const char *target = codegen_get_labeled_break(ctx, label);
                 if (target) {
                     codegen_writeln(ctx, "goto %s;", target);
@@ -1148,6 +1176,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 const char *switch_end = codegen_get_switch_end_label(ctx);
                 if (!switch_end) {
                     codegen_emit_break_cleanup(ctx);
+                    // Pop exception contexts pushed by try-bodies nested inside
+                    // the innermost loop being broken out of.
+                    codegen_emit_break_try_pops(ctx);
                 }
                 // If inside a switch, use goto to exit (so continue still works for loops)
                 if (switch_end) {
@@ -1165,6 +1196,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             if (label) {
                 // Labeled continue: clean up all locals from here to the target loop
                 codegen_emit_labeled_break_cleanup(ctx, label);
+                // Pop exception contexts pushed by try-bodies nested inside
+                // the target labeled loop.
+                codegen_emit_labeled_break_try_pops(ctx, label);
                 const char *target = codegen_get_labeled_continue(ctx, label);
                 if (target) {
                     codegen_writeln(ctx, "goto %s;", target);
@@ -1174,6 +1208,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             } else {
                 // Unlabeled continue: clean up block-scoped locals in the loop body
                 codegen_emit_break_cleanup(ctx);
+                // Pop exception contexts pushed by try-bodies nested inside
+                // the innermost loop being continued.
+                codegen_emit_break_try_pops(ctx);
                 // If inside a for loop, use goto to jump to before the increment
                 const char *for_continue = codegen_get_for_continue_label(ctx);
                 if (for_continue) {
@@ -1222,8 +1259,15 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             codegen_writeln(ctx, "if (setjmp(_ex_ctx->exception_buf) == 0) {");
             codegen_indent_inc(ctx);
+            // Track that we are now emitting code inside a try-body whose
+            // exception context is still pushed on the runtime stack. Any
+            // return/break/continue that escapes the try-body must pop it,
+            // otherwise the jmp_buf survives past its stack frame and a
+            // subsequent throw will longjmp into a dead frame.
+            ctx->try_body_depth++;
             // Try block
             codegen_stmt(ctx, stmt->as.try_stmt.try_block);
+            ctx->try_body_depth--;
             if (has_catch) {
                 // Pop exception context on the success path (no exception thrown).
                 // Emitted here while still inside the if-block, before indent_dec.
@@ -1303,6 +1347,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 if (needs_return_tracking) {
                     codegen_writeln(ctx, "if (%s) {", has_return_var);
                     codegen_indent_inc(ctx);
+                    // Pop any exception contexts pushed by try-bodies that
+                    // still enclose this finally (this try's own context was
+                    // already popped at the return site before the goto).
+                    codegen_emit_return_try_pops(ctx);
                     // Execute any runtime defers (from loops) - only if this function has defers
                     if (ctx->has_defers) {
                         codegen_writeln(ctx, "hml_defer_execute_all();");

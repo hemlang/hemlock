@@ -181,11 +181,17 @@ typedef struct {
     char **has_return_vars;       // Stack of "has return" flag variable names
     int try_finally_capacity;     // Capacity of the stacks
 
+    // Try-body tracking (for return/break/continue to pop pushed exception
+    // contexts when escaping out of a try block, so that a later throw on the
+    // same thread does not longjmp into a dead stack frame).
+    int try_body_depth;           // Number of enclosing try-bodies currently being emitted
+
     // Loop tracking (for runtime defer support)
     int loop_depth;               // Current loop nesting depth (0 = not in loop)
 
     // Loop body locals tracking (for break/continue cleanup of block-scoped vars)
     int *loop_body_locals;        // Stack of num_locals at loop body entry
+    int *loop_body_try_depth;     // Stack of try_body_depth at loop body entry
     int loop_body_depth;          // Current loop body nesting depth
     int loop_body_capacity;       // Capacity of loop_body_locals stack
 
@@ -204,6 +210,7 @@ typedef struct {
     char **loop_break_labels;     // Stack of generated break target labels
     char **loop_continue_labels;  // Stack of generated continue target labels
     int *loop_label_body_locals;  // Stack of num_locals at labeled loop body entry
+    int *loop_label_try_depth;    // Stack of try_body_depth at labeled loop body entry
     int loop_label_depth;         // Current labeled loop nesting depth
     int loop_label_capacity;      // Capacity of loop label stacks
 
@@ -391,6 +398,23 @@ void codegen_emit_break_cleanup(CodegenContext *ctx);
 
 // Emit cleanup for block-scoped locals before labeled break/continue
 void codegen_emit_labeled_break_cleanup(CodegenContext *ctx, const char *label);
+
+// ========== TRY-BODY EXCEPTION CONTEXT POPS ==========
+// Helpers used to pop exception contexts that were pushed by enclosing try
+// blocks when control escapes the try-body via return/break/continue. This
+// prevents a later throw from longjmp'ing into a dead stack frame.
+
+// Emit `pops` hml_exception_pop() calls.
+void codegen_emit_exception_pops(CodegenContext *ctx, int pops);
+
+// Emit pops for all enclosing try-bodies in the current function (for return).
+void codegen_emit_return_try_pops(CodegenContext *ctx);
+
+// Emit pops for try-bodies that are nested inside the innermost loop (for break/continue).
+void codegen_emit_break_try_pops(CodegenContext *ctx);
+
+// Emit pops for try-bodies that are nested inside a labeled loop (for labeled break/continue).
+void codegen_emit_labeled_break_try_pops(CodegenContext *ctx, const char *label);
 
 // ========== MODULE COMPILATION ==========
 

@@ -69,6 +69,7 @@ typedef struct {
     int locals_body_start;    // Saved ctx->locals_body_start
     int loop_body_depth;      // Saved ctx->loop_body_depth
     int loop_depth;           // Saved ctx->loop_depth
+    int try_body_depth;       // Saved ctx->try_body_depth
 } FuncGenState;
 
 // Save function generation state before entering a function body
