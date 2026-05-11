@@ -7,6 +7,8 @@
  * Extracted from expressions.c to reduce file size.
  */
 
+#include <stdio.h>
+
 #include "internal.h"
 #include "expressions_internal.h"
 
@@ -518,6 +520,22 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     // Cross-type equality comparisons (before numeric type check)
     // If types are different and not both numeric, == returns false, != returns true
     if (expr->as.binary.op == OP_EQUAL || expr->as.binary.op == OP_NOT_EQUAL) {
+        // Comparing a rune to a string is almost always a bug: string[i] returns
+        // a rune, but `s[i] == "x"` silently evaluates to false because the
+        // types differ. Match hemlockc's compile-time warning so the mistake
+        // isn't silent at runtime either.
+        if ((left.type == VAL_RUNE && right.type == VAL_STRING) ||
+            (left.type == VAL_STRING && right.type == VAL_RUNE)) {
+            const char *file = (ctx && ctx->current_source_file)
+                ? ctx->current_source_file
+                : get_current_source_file();
+            const char *left_name = left.type == VAL_RUNE ? "rune" : "string";
+            const char *right_name = right.type == VAL_RUNE ? "rune" : "string";
+            fprintf(stderr,
+                    "%s:%d: warning: equality comparison between different types '%s' and '%s'\n",
+                    file ? file : "<unknown>", expr->line, left_name, right_name);
+        }
+
         int left_is_numeric = is_numeric(left);
         int right_is_numeric = is_numeric(right);
 
