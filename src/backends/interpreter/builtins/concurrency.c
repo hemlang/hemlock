@@ -73,8 +73,7 @@ static void* task_thread_wrapper(void* arg) {
         // Memory allocation failed - log error and set exception state
         // The result will be lost, but the caller will see an exception
         // Set exception directly on the task's context (we're in the task thread)
-        task->ctx->exception_state.exception_value = val_string("Memory allocation failed for task result");
-        task->ctx->exception_state.is_throwing = 1;
+        exception_set_value(task->ctx, val_string("Memory allocation failed for task result"));
     }
     task->state = TASK_COMPLETED;
     pthread_mutex_unlock((pthread_mutex_t*)task->task_mutex);

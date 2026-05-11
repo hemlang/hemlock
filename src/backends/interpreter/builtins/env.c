@@ -208,8 +208,7 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
             snprintf(error_msg, sizeof(error_msg), "exec() pipe creation failed: %s", strerror(errno));
             for (int i = 0; i <= arr->length; i++) free(argv[i]);
             free(argv);
-            ctx->exception_state.exception_value = val_string(error_msg);
-            ctx->exception_state.is_throwing = 1;
+            exception_set_value(ctx, val_string(error_msg));
             return val_null();
         }
 
@@ -221,8 +220,7 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
             free(argv);
             close(stdout_pipe[0]); close(stdout_pipe[1]);
             close(stderr_pipe[0]); close(stderr_pipe[1]);
-            ctx->exception_state.exception_value = val_string(error_msg);
-            ctx->exception_state.is_throwing = 1;
+            exception_set_value(ctx, val_string(error_msg));
             return val_null();
         }
 
@@ -459,8 +457,7 @@ done_warning:
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to execute command '%s': %s", ccmd, strerror(errno));
         free(ccmd);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -622,8 +619,7 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
         snprintf(error_msg, sizeof(error_msg), "exec_argv() pipe creation failed: %s", strerror(errno));
         for (int i = 0; i < arr->length; i++) free(argv[i]);
         free(argv);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -635,8 +631,7 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
         free(argv);
         close(stdout_pipe[0]); close(stdout_pipe[1]);
         close(stderr_pipe[0]); close(stderr_pipe[1]);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -913,8 +908,7 @@ Value builtin_kill(Value *args, int num_args, ExecutionContext *ctx) {
     if (kill(pid, sig) != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "kill(%d, %d) failed: %s", pid, sig, strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -939,8 +933,7 @@ Value builtin_fork(Value *args, int num_args, ExecutionContext *ctx) {
     if (pid < 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "fork() failed: %s", strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -959,8 +952,7 @@ Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx) {
     if (pid < 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "wait() failed: %s", strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -1013,8 +1005,7 @@ Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx) {
     if (result_pid < 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "waitpid(%d, %d) failed: %s", pid, options, strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -1251,8 +1242,7 @@ Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx) {
                 HML_SPAWN_CLEANUP();
                 char error_msg[256];
                 snprintf(error_msg, sizeof(error_msg), "spawn() addchdir failed: %s", strerror(chdir_rc));
-                ctx->exception_state.exception_value = val_string(error_msg);
-                ctx->exception_state.is_throwing = 1;
+                exception_set_value(ctx, val_string(error_msg));
                 return val_null();
             }
             #else
@@ -1306,8 +1296,7 @@ Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     if (rc != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "spawn() failed: %s", strerror(rc));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -1366,8 +1355,7 @@ Value builtin_pipe(Value *args, int num_args, ExecutionContext *ctx) {
     if (pipe(fds) != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "pipe() failed: %s", strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -1398,8 +1386,7 @@ Value builtin_close_fd(Value *args, int num_args, ExecutionContext *ctx) {
     if (close(fd) != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "close_fd(%d) failed: %s", fd, strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
     }
     return val_null();
 }
@@ -1432,8 +1419,7 @@ Value builtin_read_fd(Value *args, int num_args, ExecutionContext *ctx) {
         }
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "read_fd(%d) failed: %s", fd, strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -1466,8 +1452,7 @@ Value builtin_write_fd(Value *args, int num_args, ExecutionContext *ctx) {
     if (written < 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "write_fd(%d) failed: %s", fd, strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -1493,8 +1478,7 @@ Value builtin_dup2(Value *args, int num_args, ExecutionContext *ctx) {
     if (result < 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "dup2(%d, %d) failed: %s", old_fd, new_fd, strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 

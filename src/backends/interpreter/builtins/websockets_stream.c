@@ -245,14 +245,12 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
     lws_init_logging();
 
     if (num_args != 5) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_stream_start() expects 5 arguments");
+        exception_set_value(ctx, val_string("__lws_http_stream_start() expects 5 arguments"));
         return val_null();
     }
 
     if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_stream_start() expects string method and URL");
+        exception_set_value(ctx, val_string("__lws_http_stream_start() expects string method and URL"));
         return val_null();
     }
 
@@ -267,15 +265,13 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
     char host[256], path[512];
     int port, ssl;
     if (parse_url(url, host, &port, path, &ssl) < 0) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Invalid URL format");
+        exception_set_value(ctx, val_string("Invalid URL format"));
         return val_null();
     }
 
     http_stream_t *stream = calloc(1, sizeof(http_stream_t));
     if (!stream) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate stream");
+        exception_set_value(ctx, val_string("Failed to allocate stream"));
         return val_null();
     }
     pthread_mutex_init(&stream->chunk_mutex, NULL);
@@ -289,8 +285,7 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
             pthread_mutex_destroy(&stream->chunk_mutex);
             pthread_cond_destroy(&stream->chunk_cond);
             free(stream);
-            ctx->exception_state.is_throwing = 1;
-            ctx->exception_state.exception_value = val_string("Failed to allocate request body");
+            exception_set_value(ctx, val_string("Failed to allocate request body"));
             return val_null();
         }
         memcpy(stream->post_body, post_body, blen);
@@ -303,8 +298,7 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
                 pthread_mutex_destroy(&stream->chunk_mutex);
                 pthread_cond_destroy(&stream->chunk_cond);
                 free(stream);
-                ctx->exception_state.is_throwing = 1;
-                ctx->exception_state.exception_value = val_string("Failed to allocate content_type");
+                exception_set_value(ctx, val_string("Failed to allocate content_type"));
                 return val_null();
             }
         }
@@ -329,8 +323,7 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        exception_set_value(ctx, val_string("Failed to create libwebsockets context"));
         return val_null();
     }
 
@@ -359,8 +352,7 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to connect for streaming");
+        exception_set_value(ctx, val_string("Failed to connect for streaming"));
         return val_null();
     }
 
@@ -379,8 +371,7 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Streaming HTTP connection failed or timed out");
+        exception_set_value(ctx, val_string("Streaming HTTP connection failed or timed out"));
         return val_null();
     }
 
@@ -399,8 +390,7 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create stream service thread");
+        exception_set_value(ctx, val_string("Failed to create stream service thread"));
         return val_null();
     }
 
@@ -410,13 +400,11 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
 // __lws_http_stream_read(stream, timeout_ms): string|null
 Value builtin_lws_http_stream_read(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_stream_read() expects 2 arguments");
+        exception_set_value(ctx, val_string("__lws_http_stream_read() expects 2 arguments"));
         return val_null();
     }
     if (args[0].type != VAL_PTR) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_stream_read() expects ptr");
+        exception_set_value(ctx, val_string("__lws_http_stream_read() expects ptr"));
         return val_null();
     }
 
@@ -459,8 +447,7 @@ Value builtin_lws_http_stream_read(Value *args, int num_args, ExecutionContext *
 // __lws_http_stream_status(stream): i32
 Value builtin_lws_http_stream_status(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1 || args[0].type != VAL_PTR) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_stream_status() expects ptr");
+        exception_set_value(ctx, val_string("__lws_http_stream_status() expects ptr"));
         return val_i32(0);
     }
     http_stream_t *stream = (http_stream_t *)args[0].as.as_ptr;
@@ -470,8 +457,7 @@ Value builtin_lws_http_stream_status(Value *args, int num_args, ExecutionContext
 // __lws_http_stream_headers(stream): string
 Value builtin_lws_http_stream_headers(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1 || args[0].type != VAL_PTR) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_stream_headers() expects ptr");
+        exception_set_value(ctx, val_string("__lws_http_stream_headers() expects ptr"));
         return val_string("");
     }
     http_stream_t *stream = (http_stream_t *)args[0].as.as_ptr;

@@ -466,14 +466,12 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     lws_init_logging();
 
     if (num_args < 1 || num_args > 2) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_get() expects 1-2 arguments (url, headers?)");
+        exception_set_value(ctx, val_string("__lws_http_get() expects 1-2 arguments (url, headers?)"));
         return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_get() expects string URL");
+        exception_set_value(ctx, val_string("__lws_http_get() expects string URL"));
         return val_null();
     }
 
@@ -482,15 +480,13 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     int port, ssl;
 
     if (parse_url(url, host, &port, path, &ssl) < 0) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Invalid URL format");
+        exception_set_value(ctx, val_string("Invalid URL format"));
         return val_null();
     }
 
     http_response_t *resp = calloc(1, sizeof(http_response_t));
     if (!resp) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate response");
+        exception_set_value(ctx, val_string("Failed to allocate response"));
         return val_null();
     }
 
@@ -504,8 +500,7 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
     if (!resp->body) {
         free_custom_headers(resp);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
+        exception_set_value(ctx, val_string("Failed to allocate body buffer"));
         return val_null();
     }
     resp->body[0] = '\0';
@@ -516,8 +511,7 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
         free(resp->body);
         free_custom_headers(resp);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        exception_set_value(ctx, val_string("Failed to create libwebsockets context"));
         return val_null();
     }
 
@@ -551,8 +545,7 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
         free(resp->body);
         free_custom_headers(resp);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to connect");
+        exception_set_value(ctx, val_string("Failed to connect"));
         return val_null();
     }
 
@@ -570,8 +563,7 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
         if (resp->redirect_url) free(resp->redirect_url);
         free_custom_headers(resp);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
+        exception_set_value(ctx, val_string("HTTP request failed or timed out"));
         return val_null();
     }
 
@@ -589,14 +581,12 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     lws_init_logging();
 
     if (num_args < 3 || num_args > 4) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_post() expects 3-4 arguments (url, body, content_type, headers?)");
+        exception_set_value(ctx, val_string("__lws_http_post() expects 3-4 arguments (url, body, content_type, headers?)"));
         return val_null();
     }
 
     if (args[0].type != VAL_STRING || args[1].type != VAL_STRING || args[2].type != VAL_STRING) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_post() expects string arguments");
+        exception_set_value(ctx, val_string("__lws_http_post() expects string arguments"));
         return val_null();
     }
 
@@ -608,15 +598,13 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     int port, ssl;
 
     if (parse_url(url, host, &port, path, &ssl) < 0) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Invalid URL format");
+        exception_set_value(ctx, val_string("Invalid URL format"));
         return val_null();
     }
 
     http_response_t *resp = calloc(1, sizeof(http_response_t));
     if (!resp) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate response");
+        exception_set_value(ctx, val_string("Failed to allocate response"));
         return val_null();
     }
 
@@ -630,8 +618,7 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     if (!resp->body) {
         free_custom_headers(resp);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
+        exception_set_value(ctx, val_string("Failed to allocate body buffer"));
         return val_null();
     }
     resp->body[0] = '\0';
@@ -642,8 +629,7 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
         free(resp->body);
         free_custom_headers(resp);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        exception_set_value(ctx, val_string("Failed to create libwebsockets context"));
         return val_null();
     }
 
@@ -678,8 +664,7 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
         free(resp->body);
         free_custom_headers(resp);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate request body");
+        exception_set_value(ctx, val_string("Failed to allocate request body"));
         return val_null();
     }
 
@@ -689,8 +674,7 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
         free_request_body(resp);
         free_custom_headers(resp);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to connect");
+        exception_set_value(ctx, val_string("Failed to connect"));
         return val_null();
     }
 
@@ -711,8 +695,7 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
         if (resp->redirect_url) free(resp->redirect_url);
         free_custom_headers(resp);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
+        exception_set_value(ctx, val_string("HTTP request failed or timed out"));
         return val_null();
     }
 
@@ -731,15 +714,13 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     lws_init_logging();
 
     if (num_args < 4 || num_args > 5) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_request() expects 4-5 arguments (method, url, body, content_type, headers?)");
+        exception_set_value(ctx, val_string("__lws_http_request() expects 4-5 arguments (method, url, body, content_type, headers?)"));
         return val_null();
     }
 
     if (args[0].type != VAL_STRING || args[1].type != VAL_STRING ||
         args[2].type != VAL_STRING || args[3].type != VAL_STRING) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_request() expects string arguments");
+        exception_set_value(ctx, val_string("__lws_http_request() expects string arguments"));
         return val_null();
     }
 
@@ -752,15 +733,13 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     int port, ssl;
 
     if (parse_url(url, host, &port, path, &ssl) < 0) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Invalid URL format");
+        exception_set_value(ctx, val_string("Invalid URL format"));
         return val_null();
     }
 
     http_response_t *resp = calloc(1, sizeof(http_response_t));
     if (!resp) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate response");
+        exception_set_value(ctx, val_string("Failed to allocate response"));
         return val_null();
     }
 
@@ -773,8 +752,7 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
+        exception_set_value(ctx, val_string("Failed to allocate body buffer"));
         return val_null();
     }
     resp->body[0] = '\0';
@@ -789,8 +767,7 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     if (!context) {
         free(resp->body);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        exception_set_value(ctx, val_string("Failed to create libwebsockets context"));
         return val_null();
     }
 
@@ -825,8 +802,7 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
         free(resp->body);
         free_custom_headers(resp);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate request body");
+        exception_set_value(ctx, val_string("Failed to allocate request body"));
         return val_null();
     }
 
@@ -836,8 +812,7 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
         free_request_body(resp);
         free_custom_headers(resp);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to connect");
+        exception_set_value(ctx, val_string("Failed to connect"));
         return val_null();
     }
 
@@ -858,8 +833,7 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
         if (resp->redirect_url) free(resp->redirect_url);
         free_custom_headers(resp);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
+        exception_set_value(ctx, val_string("HTTP request failed or timed out"));
         return val_null();
     }
 
@@ -878,14 +852,12 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     lws_init_logging();
 
     if (num_args != 2) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_get_timeout() expects 2 arguments (url, timeout_ms)");
+        exception_set_value(ctx, val_string("__lws_http_get_timeout() expects 2 arguments (url, timeout_ms)"));
         return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_get_timeout() expects string URL");
+        exception_set_value(ctx, val_string("__lws_http_get_timeout() expects string URL"));
         return val_null();
     }
 
@@ -898,8 +870,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     } else if (args[1].type == VAL_F64) {
         timeout_ms = (int)args[1].as.as_f64;
     } else {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_get_timeout() expects numeric timeout_ms");
+        exception_set_value(ctx, val_string("__lws_http_get_timeout() expects numeric timeout_ms"));
         return val_null();
     }
 
@@ -912,15 +883,13 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     int port, ssl;
 
     if (parse_url(url, host, &port, path, &ssl) < 0) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Invalid URL format");
+        exception_set_value(ctx, val_string("Invalid URL format"));
         return val_null();
     }
 
     http_response_t *resp = calloc(1, sizeof(http_response_t));
     if (!resp) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate response");
+        exception_set_value(ctx, val_string("Failed to allocate response"));
         return val_null();
     }
 
@@ -928,8 +897,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
+        exception_set_value(ctx, val_string("Failed to allocate body buffer"));
         return val_null();
     }
     resp->body[0] = '\0';
@@ -944,8 +912,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     if (!context) {
         free(resp->body);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        exception_set_value(ctx, val_string("Failed to create libwebsockets context"));
         return val_null();
     }
 
@@ -974,8 +941,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
         if (!ssl) lws_context_destroy(context);
         free(resp->body);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to connect");
+        exception_set_value(ctx, val_string("Failed to connect"));
         return val_null();
     }
 
@@ -992,8 +958,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
+        exception_set_value(ctx, val_string("HTTP request failed or timed out"));
         return val_null();
     }
 
@@ -1012,14 +977,12 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     lws_init_logging();
 
     if (num_args != 4) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_post_timeout() expects 4 arguments (url, body, content_type, timeout_ms)");
+        exception_set_value(ctx, val_string("__lws_http_post_timeout() expects 4 arguments (url, body, content_type, timeout_ms)"));
         return val_null();
     }
 
     if (args[0].type != VAL_STRING || args[1].type != VAL_STRING || args[2].type != VAL_STRING) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_post_timeout() expects string arguments");
+        exception_set_value(ctx, val_string("__lws_http_post_timeout() expects string arguments"));
         return val_null();
     }
 
@@ -1032,8 +995,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     } else if (args[3].type == VAL_F64) {
         timeout_ms = (int)args[3].as.as_f64;
     } else {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_post_timeout() expects numeric timeout_ms");
+        exception_set_value(ctx, val_string("__lws_http_post_timeout() expects numeric timeout_ms"));
         return val_null();
     }
 
@@ -1048,15 +1010,13 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     int port, ssl;
 
     if (parse_url(url, host, &port, path, &ssl) < 0) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Invalid URL format");
+        exception_set_value(ctx, val_string("Invalid URL format"));
         return val_null();
     }
 
     http_response_t *resp = calloc(1, sizeof(http_response_t));
     if (!resp) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate response");
+        exception_set_value(ctx, val_string("Failed to allocate response"));
         return val_null();
     }
 
@@ -1064,8 +1024,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
+        exception_set_value(ctx, val_string("Failed to allocate body buffer"));
         return val_null();
     }
     resp->body[0] = '\0';
@@ -1080,8 +1039,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     if (!context) {
         free(resp->body);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        exception_set_value(ctx, val_string("Failed to create libwebsockets context"));
         return val_null();
     }
 
@@ -1111,8 +1069,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
         if (!ssl) lws_context_destroy(context);
         free(resp->body);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate request body");
+        exception_set_value(ctx, val_string("Failed to allocate request body"));
         return val_null();
     }
 
@@ -1121,8 +1078,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
         free(resp->body);
         free_request_body(resp);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to connect");
+        exception_set_value(ctx, val_string("Failed to connect"));
         return val_null();
     }
 
@@ -1142,8 +1098,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
+        exception_set_value(ctx, val_string("HTTP request failed or timed out"));
         return val_null();
     }
 
@@ -1162,15 +1117,13 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     lws_init_logging();
 
     if (num_args != 5) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_request_timeout() expects 5 arguments (method, url, body, content_type, timeout_ms)");
+        exception_set_value(ctx, val_string("__lws_http_request_timeout() expects 5 arguments (method, url, body, content_type, timeout_ms)"));
         return val_null();
     }
 
     if (args[0].type != VAL_STRING || args[1].type != VAL_STRING ||
         args[2].type != VAL_STRING || args[3].type != VAL_STRING) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_request_timeout() expects string arguments");
+        exception_set_value(ctx, val_string("__lws_http_request_timeout() expects string arguments"));
         return val_null();
     }
 
@@ -1183,8 +1136,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     } else if (args[4].type == VAL_F64) {
         timeout_ms = (int)args[4].as.as_f64;
     } else {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_request_timeout() expects numeric timeout_ms");
+        exception_set_value(ctx, val_string("__lws_http_request_timeout() expects numeric timeout_ms"));
         return val_null();
     }
 
@@ -1200,15 +1152,13 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     int port, ssl;
 
     if (parse_url(url, host, &port, path, &ssl) < 0) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Invalid URL format");
+        exception_set_value(ctx, val_string("Invalid URL format"));
         return val_null();
     }
 
     http_response_t *resp = calloc(1, sizeof(http_response_t));
     if (!resp) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate response");
+        exception_set_value(ctx, val_string("Failed to allocate response"));
         return val_null();
     }
 
@@ -1216,8 +1166,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
+        exception_set_value(ctx, val_string("Failed to allocate body buffer"));
         return val_null();
     }
     resp->body[0] = '\0';
@@ -1232,8 +1181,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     if (!context) {
         free(resp->body);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        exception_set_value(ctx, val_string("Failed to create libwebsockets context"));
         return val_null();
     }
 
@@ -1263,8 +1211,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
         if (!ssl) lws_context_destroy(context);
         free(resp->body);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate request body");
+        exception_set_value(ctx, val_string("Failed to allocate request body"));
         return val_null();
     }
 
@@ -1273,8 +1220,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
         free(resp->body);
         free_request_body(resp);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to connect");
+        exception_set_value(ctx, val_string("Failed to connect"));
         return val_null();
     }
 
@@ -1294,8 +1240,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
         free(resp);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
+        exception_set_value(ctx, val_string("HTTP request failed or timed out"));
         return val_null();
     }
 
@@ -1305,14 +1250,12 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
 // __lws_response_status(resp: ptr): i32
 Value builtin_lws_response_status(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_response_status() expects 1 argument");
+        exception_set_value(ctx, val_string("__lws_response_status() expects 1 argument"));
         return val_null();
     }
 
     if (args[0].type != VAL_PTR) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_response_status() expects ptr");
+        exception_set_value(ctx, val_string("__lws_response_status() expects ptr"));
         return val_null();
     }
 
@@ -1327,14 +1270,12 @@ Value builtin_lws_response_status(Value *args, int num_args, ExecutionContext *c
 // __lws_response_body(resp: ptr): string
 Value builtin_lws_response_body(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_response_body() expects 1 argument");
+        exception_set_value(ctx, val_string("__lws_response_body() expects 1 argument"));
         return val_null();
     }
 
     if (args[0].type != VAL_PTR) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_response_body() expects ptr");
+        exception_set_value(ctx, val_string("__lws_response_body() expects ptr"));
         return val_null();
     }
 
@@ -1350,14 +1291,12 @@ Value builtin_lws_response_body(Value *args, int num_args, ExecutionContext *ctx
 // Returns the response body as a binary buffer (preserves null bytes)
 Value builtin_lws_response_body_binary(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_response_body_binary() expects 1 argument");
+        exception_set_value(ctx, val_string("__lws_response_body_binary() expects 1 argument"));
         return val_null();
     }
 
     if (args[0].type != VAL_PTR) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_response_body_binary() expects ptr");
+        exception_set_value(ctx, val_string("__lws_response_body_binary() expects ptr"));
         return val_null();
     }
 
@@ -1366,15 +1305,13 @@ Value builtin_lws_response_body_binary(Value *args, int num_args, ExecutionConte
         // Return empty buffer
         Buffer *buf = calloc(1, sizeof(Buffer));
         if (!buf) {
-            ctx->exception_state.is_throwing = 1;
-            ctx->exception_state.exception_value = val_string("Memory allocation failed");
+            exception_set_value(ctx, val_string("Memory allocation failed"));
             return val_null();
         }
         buf->data = malloc(1);
         if (!buf->data) {
             free(buf);
-            ctx->exception_state.is_throwing = 1;
-            ctx->exception_state.exception_value = val_string("Memory allocation failed");
+            exception_set_value(ctx, val_string("Memory allocation failed"));
             return val_null();
         }
         buf->length = 0;
@@ -1387,16 +1324,14 @@ Value builtin_lws_response_body_binary(Value *args, int num_args, ExecutionConte
     // Create buffer with full binary data
     Buffer *buf = calloc(1, sizeof(Buffer));
     if (!buf) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Memory allocation failed");
+        exception_set_value(ctx, val_string("Memory allocation failed"));
         return val_null();
     }
 
     buf->data = malloc(resp->body_len);
     if (!buf->data) {
         free(buf);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Memory allocation failed");
+        exception_set_value(ctx, val_string("Memory allocation failed"));
         return val_null();
     }
 
@@ -1412,14 +1347,12 @@ Value builtin_lws_response_body_binary(Value *args, int num_args, ExecutionConte
 // __lws_response_headers(resp: ptr): string
 Value builtin_lws_response_headers(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_response_headers() expects 1 argument");
+        exception_set_value(ctx, val_string("__lws_response_headers() expects 1 argument"));
         return val_null();
     }
 
     if (args[0].type != VAL_PTR) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_response_headers() expects ptr");
+        exception_set_value(ctx, val_string("__lws_response_headers() expects ptr"));
         return val_null();
     }
 
@@ -1434,14 +1367,12 @@ Value builtin_lws_response_headers(Value *args, int num_args, ExecutionContext *
 // __lws_response_redirect(resp: ptr): string
 Value builtin_lws_response_redirect(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_response_redirect() expects 1 argument");
+        exception_set_value(ctx, val_string("__lws_response_redirect() expects 1 argument"));
         return val_null();
     }
 
     if (args[0].type != VAL_PTR) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_response_redirect() expects ptr");
+        exception_set_value(ctx, val_string("__lws_response_redirect() expects ptr"));
         return val_null();
     }
 
@@ -1456,14 +1387,12 @@ Value builtin_lws_response_redirect(Value *args, int num_args, ExecutionContext 
 // __lws_response_free(resp: ptr): null
 Value builtin_lws_response_free(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_response_free() expects 1 argument");
+        exception_set_value(ctx, val_string("__lws_response_free() expects 1 argument"));
         return val_null();
     }
 
     if (args[0].type != VAL_PTR) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_response_free() expects ptr");
+        exception_set_value(ctx, val_string("__lws_response_free() expects ptr"));
         return val_null();
     }
 

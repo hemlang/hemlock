@@ -306,8 +306,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             // Validate iterable type before creating loop environment
             if (iterable.type != VAL_ARRAY && iterable.type != VAL_OBJECT && iterable.type != VAL_STRING) {
                 VALUE_RELEASE(iterable);  // Release iterable before breaking
-                ctx->exception_state.exception_value = val_string("for-in requires array, object, or string");
-                ctx->exception_state.is_throwing = 1;
+                exception_set_value(ctx, val_string("for-in requires array, object, or string"));
                 break;
             }
 
@@ -730,8 +729,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
                     // Clear exception state and release the exception value
                     // (env_set retained it, so we can release the context's reference)
-                    VALUE_RELEASE(ctx->exception_state.exception_value);
-                    ctx->exception_state.is_throwing = 0;
+                    exception_clear(ctx);
 
                     // Execute catch block
                     eval_stmt(stmt->as.try_stmt.catch_block, catch_env, ctx);
@@ -753,6 +751,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 // Clear states before finally
                 ctx->return_state.is_returning = 0;
                 ctx->exception_state.is_throwing = 0;
+                ctx->exception_state.exception_value = val_null();
                 ctx->loop_state.is_breaking = 0;
                 ctx->loop_state.is_continuing = 0;
 
@@ -768,6 +767,8 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     ctx->exception_state.exception_value = saved_exception;
                     ctx->loop_state.is_breaking = was_breaking;
                     ctx->loop_state.is_continuing = was_continuing;
+                } else if (was_throwing) {
+                    VALUE_RELEASE(saved_exception);
                 }
             }
             break;
@@ -777,8 +778,12 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             // Evaluate the value to throw
             // Ownership is transferred to the context (no retain needed)
             // The value will survive unwinding as long as exception_state holds it
-            ctx->exception_state.exception_value = eval_expr(stmt->as.throw_stmt.value, env, ctx);
-            ctx->exception_state.is_throwing = 1;
+            Value thrown = eval_expr(stmt->as.throw_stmt.value, env, ctx);
+            if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(thrown);
+                break;
+            }
+            exception_set_value(ctx, thrown);
 
             // Push throw location onto stack trace
             call_stack_push_line(&ctx->call_stack, "<throw>", stmt->line);
@@ -924,7 +929,7 @@ void eval_program(Stmt **stmts, int count, Environment *env, ExecutionContext *c
             // Clear stack for next execution (REPL mode)
             call_stack_free(&ctx->call_stack);
             // Release exception value before exiting
-            VALUE_RELEASE(ctx->exception_state.exception_value);
+            exception_clear(ctx);
             exit(1);
         }
     }

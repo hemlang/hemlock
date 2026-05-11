@@ -11,9 +11,7 @@ static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...)
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
 
-    ctx->exception_state.exception_value = val_string(buffer);
-    value_retain(ctx->exception_state.exception_value);
-    ctx->exception_state.is_throwing = 1;
+    exception_set_value(ctx, val_string(buffer));
     return val_null();
 }
 
@@ -318,9 +316,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
 Value builtin_read_line(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     if (num_args != 0) {
-        ctx->exception_state.exception_value = val_string("read_line() expects no arguments");
-        value_retain(ctx->exception_state.exception_value);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string("read_line() expects no arguments"));
         return val_null();
     }
 
@@ -354,9 +350,7 @@ Value builtin_read_line(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_eprint(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        ctx->exception_state.exception_value = val_string("eprint() expects 1 argument");
-        value_retain(ctx->exception_state.exception_value);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string("eprint() expects 1 argument"));
         return val_null();
     }
 
@@ -406,16 +400,12 @@ Value builtin_eprint(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_open(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args < 1 || num_args > 2) {
-        ctx->exception_state.exception_value = val_string("open() expects 1-2 arguments (path, [mode])");
-        value_retain(ctx->exception_state.exception_value);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string("open() expects 1-2 arguments (path, [mode])"));
         return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        ctx->exception_state.exception_value = val_string("open() path must be a string");
-        value_retain(ctx->exception_state.exception_value);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string("open() path must be a string"));
         return val_null();
     }
 
@@ -424,9 +414,7 @@ Value builtin_open(Value *args, int num_args, ExecutionContext *ctx) {
 
     if (num_args == 2) {
         if (args[1].type != VAL_STRING) {
-            ctx->exception_state.exception_value = val_string("open() mode must be a string");
-            value_retain(ctx->exception_state.exception_value);
-            ctx->exception_state.is_throwing = 1;
+            exception_set_value(ctx, val_string("open() mode must be a string"));
             return val_null();
         }
         mode = args[1].as.as_string->data;
@@ -450,9 +438,7 @@ Value builtin_open(Value *args, int num_args, ExecutionContext *ctx) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to open '%s' with mode '%s': %s",
                 path, mode, strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        value_retain(ctx->exception_state.exception_value);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
