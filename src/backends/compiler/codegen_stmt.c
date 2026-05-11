@@ -1288,15 +1288,38 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_writeln(ctx, "%s:;", finally_label);
                 }
 
-                codegen_stmt(ctx, stmt->as.try_stmt.finally_block);
-
-                // Re-throw saved exception if try threw and there was no catch
                 if (!has_catch) {
+                    // If the try body threw, run finally under a temporary handler so
+                    // a finally-thrown exception can release and replace the saved one.
                     codegen_writeln(ctx, "if (_had_exception) {");
                     codegen_indent_inc(ctx);
-                    codegen_writeln(ctx, "hml_throw(_saved_exception);");
+                    char *finally_ex_var = codegen_temp(ctx);
+                    char *finally_value_var = codegen_temp(ctx);
+                    codegen_writeln(ctx, "HmlExceptionContext *%s = hml_exception_push();", finally_ex_var);
+                    codegen_writeln(ctx, "if (setjmp(%s->exception_buf) == 0) {", finally_ex_var);
+                    codegen_indent_inc(ctx);
+                    codegen_stmt(ctx, stmt->as.try_stmt.finally_block);
+                    codegen_writeln(ctx, "hml_exception_pop();");
+                    codegen_writeln(ctx, "hml_throw_take(_saved_exception);");
+                    codegen_indent_dec(ctx);
+                    codegen_writeln(ctx, "} else {");
+                    codegen_indent_inc(ctx);
+                    codegen_writeln(ctx, "HmlValue %s = hml_exception_get_value();", finally_value_var);
+                    codegen_writeln(ctx, "hml_exception_pop();");
+                    codegen_writeln(ctx, "hml_release(&_saved_exception);");
+                    codegen_writeln(ctx, "hml_throw_take(%s);", finally_value_var);
                     codegen_indent_dec(ctx);
                     codegen_writeln(ctx, "}");
+                    free(finally_ex_var);
+                    free(finally_value_var);
+                    codegen_indent_dec(ctx);
+                    codegen_writeln(ctx, "} else {");
+                    codegen_indent_inc(ctx);
+                    codegen_stmt(ctx, stmt->as.try_stmt.finally_block);
+                    codegen_indent_dec(ctx);
+                    codegen_writeln(ctx, "}");
+                } else {
+                    codegen_stmt(ctx, stmt->as.try_stmt.finally_block);
                 }
 
                 // Check if we should return (from a return statement in the try block)
@@ -1333,7 +1356,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             if (ctx->defer_stack) {
                 codegen_defer_execute_all(ctx);
             }
-            codegen_writeln(ctx, "hml_throw(%s);", value);
+            codegen_writeln(ctx, "hml_throw_take(%s);", value);
             free(value);
             break;
         }
