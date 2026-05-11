@@ -1,17 +1,28 @@
 # Hemlock Standard Library
 
-The Hemlock standard library provides essential modules and data structures for Hemlock programs.
+Hemlock ships with 53 standard library modules. Each module has a matching implementation in `stdlib/<module>.hml`, API documentation in `stdlib/docs/<module>.md`, and should be imported with the `@stdlib/` prefix.
 
-## Installation
+```hemlock
+import { HashMap } from "@stdlib/collections";
+import { read_file } from "@stdlib/fs";
+import { parse, stringify } from "@stdlib/json";
+```
 
-### Core Modules
-Most stdlib modules are pure Hemlock and require no external dependencies.
+For a categorized index, see [Standard Library Overview](../docs/reference/stdlib-overview.md).
 
-### Optional Dependencies
+## Installation and Optional Dependencies
 
-Some modules require external C libraries:
+Most modules are pure Hemlock and require no external dependencies beyond a built Hemlock interpreter/compiler.
 
-**For HTTP/WebSocket support:**
+Some modules rely on optional native libraries:
+
+| Feature area | Modules | Dependency | Notes |
+|--------------|---------|------------|-------|
+| HTTP/WebSocket | `@stdlib/http`, `@stdlib/websocket` | `libwebsockets` | Build `stdlib/c/lws_wrapper.so` with `make stdlib`. If the library is missing, the build skips the wrapper and related tests may be skipped. |
+| Vector search | `@stdlib/vector` | USearch C library (`libusearch_c`) | Optional ANN/vector-similarity support. See [Installation: USearch](../docs/getting-started/installation.md#usearch-vector-similarity-search). |
+
+Common install commands for HTTP/WebSocket support:
+
 ```bash
 # Ubuntu/Debian
 sudo apt-get install libwebsockets-dev
@@ -23,688 +34,126 @@ brew install libwebsockets
 sudo pacman -S libwebsockets
 ```
 
-**Build stdlib C modules:**
+Build optional stdlib C helpers from the repository root:
+
 ```bash
 make stdlib
 ```
 
-This compiles the libwebsockets FFI wrapper (lws_wrapper.so) for HTTP and WebSocket modules.
+## Module Index
 
-## Available Modules
+The module list below is intentionally generated from the checked-in stdlib inventory during documentation audits. If you add or remove a module, update this table and make sure `python3 tests/check_docs.py` still passes.
 
-### Collections (`@stdlib/collections`) ⭐
-**Status:** Production-ready, fully optimized
+| Module | Import | Documentation |
+|--------|--------|---------------|
+| `arena` | `@stdlib/arena` | [docs/arena.md](docs/arena.md) |
+| `args` | `@stdlib/args` | [docs/args.md](docs/args.md) |
+| `assert` | `@stdlib/assert` | [docs/assert.md](docs/assert.md) |
+| `async` | `@stdlib/async` | [docs/async.md](docs/async.md) |
+| `async_fs` | `@stdlib/async_fs` | [docs/async_fs.md](docs/async_fs.md) |
+| `atomic` | `@stdlib/atomic` | [docs/atomic.md](docs/atomic.md) |
+| `bytes` | `@stdlib/bytes` | [docs/bytes.md](docs/bytes.md) |
+| `collections` | `@stdlib/collections` | [docs/collections.md](docs/collections.md) |
+| `compression` | `@stdlib/compression` | [docs/compression.md](docs/compression.md) |
+| `crypto` | `@stdlib/crypto` | [docs/crypto.md](docs/crypto.md) |
+| `csv` | `@stdlib/csv` | [docs/csv.md](docs/csv.md) |
+| `datetime` | `@stdlib/datetime` | [docs/datetime.md](docs/datetime.md) |
+| `debug` | `@stdlib/debug` | [docs/debug.md](docs/debug.md) |
+| `decimal` | `@stdlib/decimal` | [docs/decimal.md](docs/decimal.md) |
+| `encoding` | `@stdlib/encoding` | [docs/encoding.md](docs/encoding.md) |
+| `env` | `@stdlib/env` | [docs/env.md](docs/env.md) |
+| `ffi` | `@stdlib/ffi` | [docs/ffi.md](docs/ffi.md) |
+| `fmt` | `@stdlib/fmt` | [docs/fmt.md](docs/fmt.md) |
+| `fs` | `@stdlib/fs` | [docs/fs.md](docs/fs.md) |
+| `glob` | `@stdlib/glob` | [docs/glob.md](docs/glob.md) |
+| `hash` | `@stdlib/hash` | [docs/hash.md](docs/hash.md) |
+| `http` | `@stdlib/http` | [docs/http.md](docs/http.md) |
+| `ipc` | `@stdlib/ipc` | [docs/ipc.md](docs/ipc.md) |
+| `iter` | `@stdlib/iter` | [docs/iter.md](docs/iter.md) |
+| `jinja` | `@stdlib/jinja` | [docs/jinja.md](docs/jinja.md) |
+| `json` | `@stdlib/json` | [docs/json.md](docs/json.md) |
+| `logging` | `@stdlib/logging` | [docs/logging.md](docs/logging.md) |
+| `math` | `@stdlib/math` | [docs/math.md](docs/math.md) |
+| `matrix` | `@stdlib/matrix` | [docs/matrix.md](docs/matrix.md) |
+| `mmap` | `@stdlib/mmap` | [docs/mmap.md](docs/mmap.md) |
+| `net` | `@stdlib/net` | [docs/net.md](docs/net.md) |
+| `os` | `@stdlib/os` | [docs/os.md](docs/os.md) |
+| `path` | `@stdlib/path` | [docs/path.md](docs/path.md) |
+| `process` | `@stdlib/process` | [docs/process.md](docs/process.md) |
+| `random` | `@stdlib/random` | [docs/random.md](docs/random.md) |
+| `regex` | `@stdlib/regex` | [docs/regex.md](docs/regex.md) |
+| `retry` | `@stdlib/retry` | [docs/retry.md](docs/retry.md) |
+| `semver` | `@stdlib/semver` | [docs/semver.md](docs/semver.md) |
+| `shell` | `@stdlib/shell` | [docs/shell.md](docs/shell.md) |
+| `signal` | `@stdlib/signal` | [docs/signal.md](docs/signal.md) |
+| `sqlite` | `@stdlib/sqlite` | [docs/sqlite.md](docs/sqlite.md) |
+| `strings` | `@stdlib/strings` | [docs/strings.md](docs/strings.md) |
+| `terminal` | `@stdlib/terminal` | [docs/terminal.md](docs/terminal.md) |
+| `termios` | `@stdlib/termios` | [docs/termios.md](docs/termios.md) |
+| `testing` | `@stdlib/testing` | [docs/testing.md](docs/testing.md) |
+| `time` | `@stdlib/time` | [docs/time.md](docs/time.md) |
+| `toml` | `@stdlib/toml` | [docs/toml.md](docs/toml.md) |
+| `unix_socket` | `@stdlib/unix_socket` | [docs/unix_socket.md](docs/unix_socket.md) |
+| `url` | `@stdlib/url` | [docs/url.md](docs/url.md) |
+| `uuid` | `@stdlib/uuid` | [docs/uuid.md](docs/uuid.md) |
+| `vector` | `@stdlib/vector` | [docs/vector.md](docs/vector.md) |
+| `websocket` | `@stdlib/websocket` | [docs/websocket.md](docs/websocket.md) |
+| `yaml` | `@stdlib/yaml` | [docs/yaml.md](docs/yaml.md) |
 
-Provides high-performance data structures:
-- **HashMap** - O(1) hash table with djb2 algorithm
-- **Queue** - O(1) FIFO with circular buffer
-- **Stack** - O(1) LIFO
-- **Set** - O(1) unique values (HashMap-based)
-- **LinkedList** - Bidirectional doubly-linked list
+## Usage Patterns
 
-See [docs/collections.md](docs/collections.md) for detailed documentation.
-
-### Math (`@stdlib/math`)
-**Status:** Complete
-
-Mathematical functions and constants:
-- 21 functions: trigonometry, exponential/log, rounding, utility
-- 5 constants: PI, E, TAU, INF, NAN
-- Random number generation with seeding
-
-See [docs/math.md](docs/math.md) for detailed documentation.
-
-### Time (`@stdlib/time`)
-**Status:** Basic
-
-Time measurement and delays:
-- `now()` - Unix timestamp (i64)
-- `time_ms()` - Milliseconds since epoch (i64)
-- `clock()` - CPU time (f64)
-- `sleep(seconds)` - Sub-second precision delays
-
-See [docs/time.md](docs/time.md) for detailed documentation.
-
-### Date & Time (`@stdlib/datetime`)
-**Status:** Complete
-
-Comprehensive date/time manipulation:
-- **DateTime class** - High-level date/time object with methods
-- **Constructors:** now, from_date, from_utc, parse_iso
-- **Formatting:** format (strftime), to_string, to_date_string, to_time_string, to_iso_string
-- **Arithmetic:** add_days, add_hours, add_minutes, add_seconds
-- **Comparison:** is_before, is_after, is_equal
-- **Differences:** diff_days, diff_hours, diff_minutes, diff_seconds
-- **Utilities:** weekday_name, month_name
-- **Low-level builtins:** localtime, gmtime, mktime, strftime
-
-See [docs/datetime.md](docs/datetime.md) for detailed documentation.
-
-### Environment (`@stdlib/env`)
-**Status:** Complete
-
-Environment variables and process control:
-- `getenv()`, `setenv()`, `unsetenv()` - Environment variable management
-- `exit()` - Process termination with exit codes
-- `get_pid()` - Process ID
-
-See [docs/env.md](docs/env.md) for detailed documentation.
-
-### Process Management (`@stdlib/process`)
-**Status:** Complete
-
-Comprehensive process control and inter-process communication:
-- **Process ID:** get_pid, getppid, getuid, geteuid, getgid, getegid
-- **Process control:** exit, kill, abort
-- **Process creation:** fork, wait, waitpid
-- **Command execution:** exec (returns output + exit_code)
-
-See [docs/process.md](docs/process.md) for detailed documentation.
-
-### Filesystem (`@stdlib/fs`)
-**Status:** Comprehensive
-
-File and directory operations:
-- **File ops:** read_file, write_file, append_file, remove_file, rename, copy_file, exists
-- **Directory ops:** make_dir, remove_dir, list_dir
-- **File info:** is_file, is_dir, file_stat
-- **Path ops:** cwd, chdir, absolute_path
-
-See [docs/fs.md](docs/fs.md) for detailed documentation.
-
-### Networking (`@stdlib/net`)
-**Status:** Complete
-
-TCP/UDP networking with ergonomic wrappers:
-- **TcpListener** - TCP server socket for accepting connections
-- **TcpStream** - TCP client/connection with read/write methods
-- **UdpSocket** - UDP datagram socket with send_to/recv_from
-- **DNS:** resolve() - Hostname to IP resolution
-
-See [docs/net.md](docs/net.md) for detailed documentation.
-
-### Regular Expressions (`@stdlib/regex`)
-**Status:** Basic (via FFI)
-
-POSIX Extended Regular Expression pattern matching:
-- `compile(pattern, flags)` - Compile reusable regex object
-- `test(pattern, text, flags)` - One-shot pattern matching
-- `matches()`, `find()` - Convenience aliases
-- Case-insensitive matching with `REG_ICASE` flag
-- Manual memory management (explicit `.free()` required)
-
-See [docs/regex.md](docs/regex.md) for detailed documentation.
-
-### HTTP Client (`@stdlib/http`)
-**Status:** Production (via libwebsockets FFI)
-
-Production-ready HTTP/HTTPS client using libwebsockets:
-- **HTTP methods:** get, post, request
-- **Convenience:** fetch, post_json
-- **Status helpers:** is_success, is_redirect, is_client_error, is_server_error
-- **URL helpers:** url_encode
-- **Native libwebsockets FFI** for performance and reliability
-- **Full HTTPS/TLS support** via libwebsockets SSL
-- **Requires:** libwebsockets-dev package
-
-See [docs/http.md](docs/http.md) for detailed documentation.
-
-### WebSocket (`@stdlib/websocket`)
-**Status:** Production (via libwebsockets FFI)
-
-WebSocket client/server using libwebsockets:
-- **Client:** WebSocket(url) - Connect to ws:// or wss:// endpoints
-- **Server:** WebSocketServer(host, port) - Accept WebSocket connections
-- **Message types:** Text, binary, ping, pong, close
-- **SSL/TLS support:** Secure WebSocket (wss://) built-in
-- **Requires:** libwebsockets-dev package
-
-See [docs/websocket.md](docs/websocket.md) for detailed documentation.
-
-### JSON (`@stdlib/json`)
-**Status:** Comprehensive
-
-Full-featured JSON manipulation library:
-- **Parsing:** parse, parse_file, is_valid, validate
-- **Serialization:** stringify, stringify_file, pretty, pretty_file
-- **Path access:** get, set, has, delete (dot notation: "user.address.city")
-- **Type checking:** is_object, is_array, is_string, is_number, is_bool, is_null, type_of
-- **Utilities:** clone (deep copy), equals (deep comparison)
-- **Building on:** Built-in serialize()/deserialize() with enhanced features
-
-See [docs/json.md](docs/json.md) for detailed documentation.
-
-### Strings (`@stdlib/strings`)
-**Status:** Complete
-
-Advanced string utilities beyond the 18 built-in methods:
-- **Padding & Alignment:** pad_left, pad_right, center
-- **Character type checking:** is_alpha, is_digit, is_alnum, is_whitespace
-- **String manipulation:** reverse, lines, words
-- **Full Unicode support** - All functions work with UTF-8 codepoints
-- **Complements built-ins** - Extends substr, slice, split, trim, etc.
-
-See [docs/strings.md](docs/strings.md) for detailed documentation.
-
-### Decimal (`@stdlib/decimal`)
-**Status:** Complete
-
-Decimal formatting, number parsing, and string building:
-- **Fixed formatting:** to_fixed, to_precision - Control decimal places and significant figures
-- **Base conversion:** to_hex, to_oct, to_bin, number_to_string - Integer to string in any base
-- **Number parsing:** parse_int, parse_float - String to number with radix and prefix support
-- **StringBuilder:** sb_new, sb_append, sb_prepend, sb_to_string, sb_join, sb_clear
-
-See [docs/decimal.md](docs/decimal.md) for detailed documentation.
-
-### Encoding (`@stdlib/encoding`)
-**Status:** Complete
-
-Data encoding and decoding utilities for data interchange:
-- **Base64:** base64_encode, base64_decode - Standard Base64 encoding
-- **Hexadecimal:** hex_encode, hex_decode - Binary to hex string conversion
-- **URL encoding:** url_encode, url_decode - Percent-encoding for URLs
-- **Use cases:** Network protocols, data transmission, safe URL parameters
-
-See [docs/encoding.md](docs/encoding.md) for detailed documentation.
-
-### Testing (`@stdlib/testing`)
-**Status:** Complete
-
-Comprehensive test framework with modern describe/test/expect syntax:
-- **Test structure:** describe, test - Organize tests into suites
-- **Fluent assertions:** expect(value).to_equal(), .to_be_greater_than(), .to_throw(), etc.
-- **Simple assertions:** assert_eq, assert_ne, assert_true, assert_false, assert_throws
-- **Test hooks:** before_each, after_each - Setup and teardown
-- **Test runner:** run() - Execute tests with colored output and statistics
-- **Error messages:** Clear, detailed failure messages with value formatting
-
-See [docs/testing.md](docs/testing.md) for detailed documentation.
-
-### Logging (`@stdlib/logging`)
-**Status:** Complete
-
-Comprehensive logging facilities with levels, filtering, and structured logging:
-- **Log levels:** DEBUG, INFO, WARN, ERROR with filtering
-- **Output targets:** stdout or file
-- **Structured logging:** Key-value pairs (JSON serialization)
-- **Configurable formatting:** Customizable log message format
-- **Timestamps:** Unix epoch timestamps
-- **Default logger:** Convenience functions for quick logging
-- **Multiple loggers:** Create separate loggers for different subsystems
-
-See [docs/logging.md](docs/logging.md) for detailed documentation.
-
-### Compression (`@stdlib/compression`)
-**Status:** Complete
-
-Compression and decompression using zlib/gzip:
-- **zlib:** compress, decompress - Raw zlib compression
-- **gzip:** gzip_compress, gzip_decompress - Gzip format with headers
-- **Checksums:** adler32, crc32 - Data integrity verification
-- **TAR archives:** tar_create, tar_extract - Create and extract tar files
-- **Compression levels:** 0 (none) to 9 (maximum), default 6
-- **Error handling:** Exceptions on compression failures
-
-See [docs/compression.md](docs/compression.md) for detailed documentation.
-
-
-## Usage
-
-Import modules using the `@stdlib/` prefix:
+### Import specific names
 
 ```hemlock
-// Import specific functions
-import { HashMap, Queue, Stack } from "@stdlib/collections";
 import { sin, cos, PI } from "@stdlib/math";
-import { now, sleep } from "@stdlib/time";
-import { DateTime, from_date, parse_iso } from "@stdlib/datetime";
-import { getenv, exit } from "@stdlib/env";
-import { get_pid, getppid, exec, kill } from "@stdlib/process";
-import { read_file, write_file, exists } from "@stdlib/fs";
-import { TcpListener, TcpStream, UdpSocket } from "@stdlib/net";
-import { compile, test, REG_ICASE } from "@stdlib/regex";
-import { get, post, fetch } from "@stdlib/http";
-import { WebSocket, WebSocketServer } from "@stdlib/websocket";
-import { parse, stringify, pretty, get, set } from "@stdlib/json";
-import { pad_left, is_alpha, reverse, lines, words } from "@stdlib/strings";
-import { to_fixed, to_hex, parse_int, parse_float, sb_new, sb_append } from "@stdlib/decimal";
-import { base64_encode, base64_decode, hex_encode, url_encode } from "@stdlib/encoding";
-import { describe, test, expect, assert_eq, run } from "@stdlib/testing";
-import { Logger, DEBUG, INFO, WARN, ERROR } from "@stdlib/logging";
-import { compress, decompress, gzip_compress, adler32 } from "@stdlib/compression";
+import { read_file, write_file } from "@stdlib/fs";
+```
 
-// Import all as namespace
-import * as math from "@stdlib/math";
-import * as datetime from "@stdlib/datetime";
-import * as fs from "@stdlib/fs";
-import * as net from "@stdlib/net";
-import * as regex from "@stdlib/regex";
-import * as http from "@stdlib/http";
-import * as ws from "@stdlib/websocket";
+### Import a module namespace
+
+```hemlock
 import * as json from "@stdlib/json";
-import * as strings from "@stdlib/strings";
-import * as decimal from "@stdlib/decimal";
-import * as encoding from "@stdlib/encoding";
-import * as testing from "@stdlib/testing";
-import * as logging from "@stdlib/logging";
-import * as compression from "@stdlib/compression";
 
-// Use imported functions
-let angle = math.PI / 4.0;
-let result = math.sin(angle);
-let content = fs.read_file("data.txt");
-let stream = net.TcpStream("example.com", 80);
-let is_valid = regex.test("^[a-z]+$", "hello", null);
-let b64 = encoding.base64_encode("Hello!");
+let value = json.parse("{\"ok\":true}");
+print(json.stringify(value));
 ```
 
-## Quick Examples
+### Combine modules
 
-### Collections
 ```hemlock
-import { HashMap } from "@stdlib/collections";
+import { read_file } from "@stdlib/fs";
+import { parse } from "@stdlib/json";
 
-let map = HashMap();
-map.set("name", "Alice");
-map.set("age", 30);
-print(map.get("name"));  // "Alice"
-```
-
-### Math
-```hemlock
-import { sqrt, pow } from "@stdlib/math";
-
-let distance = sqrt(pow(3.0, 2.0) + pow(4.0, 2.0));
-print(distance);  // 5.0
-```
-
-### Time
-```hemlock
-import { time_ms, sleep } from "@stdlib/time";
-
-let start = time_ms();
-sleep(1.0);
-let elapsed = time_ms() - start;
-print("Elapsed: " + typeof(elapsed) + "ms");
-```
-
-### Date & Time
-```hemlock
-import { now, from_date, parse_iso } from "@stdlib/datetime";
-
-// Current date/time
-let current = now();
-print(current.to_string());  // "2025-01-16 12:30:45"
-
-// Create from specific date
-let birthday = from_date(1990, 5, 15);
-print(birthday.format("%B %d, %Y"));  // "May 15, 1990"
-
-// Date arithmetic
-let next_week = current.add_days(7);
-let days_until = next_week.diff_days(current);
-print("Days until: " + typeof(days_until));  // 7
-```
-
-### Environment
-```hemlock
-import { getenv } from "@stdlib/env";
-
-let home = getenv("HOME");
-if (home != null) {
-    print("Home directory: " + home);
-}
-```
-
-### Filesystem
-```hemlock
-import { read_file, write_file, exists } from "@stdlib/fs";
-
-if (exists("config.json")) {
-    let config = read_file("config.json");
-    print("Config loaded");
-} else {
-    write_file("config.json", "{}");
-}
-```
-
-### Networking
-```hemlock
-import { TcpStream, resolve } from "@stdlib/net";
-
-let ip = resolve("example.com");
-let stream = TcpStream(ip, 80);
-defer stream.close();
-
-stream.write("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n");
-let response = stream.read(4096);
-```
-
-### Regular Expressions
-```hemlock
-import { compile, test } from "@stdlib/regex";
-
-// One-shot pattern matching
-if (test("^[a-z]+$", "hello", null)) {
-    print("Valid lowercase string");
-}
-
-// Compiled regex for reuse
-let email_pattern = compile("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", null);
-print(email_pattern.test("user@example.com"));  // true
-email_pattern.free();  // Manual cleanup required
-```
-
-### HTTP Client
-```hemlock
-import { get, post_json, fetch } from "@stdlib/http";
-
-// Simple GET request
-let response = get("http://example.com/api/data", []);
-print(response.status_code);  // 200
-print(response.body);
-
-// Fetch URL (simplified)
-let body = fetch("http://example.com");
-
-// POST JSON
-let data = { name: "Alice", age: 30 };
-let response2 = post_json("http://api.example.com/users", data);
-```
-
-### WebSocket
-```hemlock
-import { WebSocket } from "@stdlib/websocket";
-
-// Connect to WebSocket server
-let ws = WebSocket("ws://echo.websocket.org");
-defer ws.close();
-
-// Send and receive messages
-ws.send_text("Hello, WebSocket!");
-let msg = ws.recv(5000);  // 5 second timeout
-if (msg.type == "text") {
-    print("Received: " + msg.data);
-}
-```
-
-### JSON
-```hemlock
-import { parse, pretty, get, set } from "@stdlib/json";
-
-// Parse and access nested data
-let config = parse('{"server":{"host":"localhost","port":8080}}');
-let port = get(config, "server.port");  // 8080
-
-// Modify and pretty print
-set(config, "server.port", 9000);
-print(pretty(config, 2));
-
-// Clone for independent copy
-let backup = clone(config);
-```
-
-### Strings
-```hemlock
-import { pad_left, is_alpha, reverse, lines, words } from "@stdlib/strings";
-
-// Padding and alignment
-let padded = pad_left("42", 5, "0");  // "00042"
-let centered = center("Title", 20, "=");  // "=======Title========"
-
-// Character type checking
-print(is_alpha("hello"));    // true
-print(is_digit("12345"));    // true
-print(is_alnum("test123"));  // true
-
-// String manipulation
-print(reverse("hello"));     // "olleh"
-let text_lines = lines("line1\nline2\nline3");  // ["line1", "line2", "line3"]
-let word_list = words("the quick brown fox");   // ["the", "quick", "brown", "fox"]
-```
-
-### Decimal
-```hemlock
-import { to_fixed, to_hex, parse_int, sb_new, sb_append, sb_to_string } from "@stdlib/decimal";
-
-// Format numbers
-print(to_fixed(3.14159, 2));  // "3.14"
-print(to_hex(255));            // "ff"
-
-// Parse strings to numbers
-let port = parse_int("8080");       // 8080
-let color = parse_int("0xFF8800");  // 16746496
-
-// Build strings efficiently
-let sb = sb_new();
-sb_append(sb, "Hello ");
-sb_append(sb, "World");
-print(sb_to_string(sb));  // "Hello World"
-```
-
-### Encoding
-```hemlock
-import { base64_encode, hex_encode, url_encode } from "@stdlib/encoding";
-
-// Base64 encoding
-let b64 = base64_encode("Hello, World!");
-print(b64);  // "SGVsbG8sIFdvcmxkIQ=="
-
-// Hexadecimal encoding
-let hex = hex_encode("Hello");
-print(hex);  // "48656c6c6f"
-
-// URL encoding
-let url_param = url_encode("hello@example.com");
-print(url_param);  // "hello%40example.com"
-```
-
-### Testing
-```hemlock
-import { describe, test, expect, run } from "@stdlib/testing";
-
-describe("Math operations", fn() {
-    test("addition works", fn() {
-        expect(2 + 2).to_equal(4);
-    });
-
-    test("arrays contain values", fn() {
-        expect([1, 2, 3]).to_contain(2);
-    });
-});
-
-let results = run();
+let config = parse(read_file("config.json"));
+print(config.name);
 ```
 
 ## Directory Structure
 
-```
+```text
 stdlib/
-├── README.md           # This file
-├── collections.hml     # Collections module implementation
-├── math.hml            # Math module implementation
-├── time.hml            # Time module implementation
-├── datetime.hml        # Date & time module implementation
-├── env.hml             # Environment module implementation
-├── fs.hml              # Filesystem module implementation
-├── net.hml             # Networking module implementation
-├── regex.hml           # Regular expressions module (via FFI)
-├── http.hml            # HTTP client module (via libwebsockets FFI)
-├── websocket.hml       # WebSocket client/server (via libwebsockets FFI)
-├── websocket_pure.hml  # WebSocket pure Hemlock implementation (educational)
-├── json.hml            # JSON module (pure Hemlock)
-├── strings.hml         # String utilities module (pure Hemlock)
-├── decimal.hml         # Decimal formatting, parsing, StringBuilder (pure Hemlock)
-├── encoding.hml        # Encoding module (pure Hemlock)
-├── testing.hml         # Testing framework (pure Hemlock)
-├── c/                  # C FFI wrappers (compiled with 'make stdlib')
-│   └── lws_wrapper.c   # libwebsockets wrapper for HTTP/WebSocket
-└── docs/
-    ├── collections.md  # Collections API reference
-    ├── math.md         # Math API reference
-    ├── time.md         # Time API reference
-    ├── datetime.md     # Date & time API reference
-    ├── env.md          # Environment API reference
-    ├── fs.md           # Filesystem API reference
-    ├── net.md          # Networking API reference
-    ├── regex.md        # Regex API reference
-    ├── http.md         # HTTP API reference
-    ├── websocket.md    # WebSocket API reference
-    ├── json.md         # JSON API reference
-    ├── strings.md      # Strings API reference
-    ├── decimal.md      # Decimal API reference
-    ├── encoding.md     # Encoding API reference
-    └── testing.md      # Testing API reference
+├── *.hml       # stdlib module implementations
+├── c/          # optional C helpers used by selected FFI-backed modules
+└── docs/       # module API references, one Markdown file per module
 ```
-
-## JSON Serialization
-
-Hemlock has built-in JSON support (no module import needed):
-
-```hemlock
-// Object to JSON
-let data = { name: "Alice", age: 30 };
-let json = data.serialize();
-print(json);  // {"name":"Alice","age":30}
-
-// JSON to object
-let parsed = json.deserialize();
-print(parsed.name);  // "Alice"
-```
-
-## Future Modules
-
-Planned additions to the standard library:
-- **path** - Path manipulation (join, basename, dirname, extname, normalize)
-- **crypto** - Cryptographic functions (via FFI + OpenSSL)
-- **compression** - zlib/gzip compression (via FFI)
-
-See `STDLIB_ANALYSIS_UPDATED.md` and `STDLIB_NETWORKING_DESIGN.md` for detailed roadmap.
-
-## Module Status
-
-| Module | Status | Docs | Tests | Lines | Quality |
-|--------|--------|------|-------|-------|---------|
-| collections | ✅ Production | ✅ Complete | ✅ Comprehensive | 760 | Excellent |
-| math | ✅ Complete | ✅ Complete | ✅ Good | 50 | High |
-| time | ⚠️ Basic | ✅ Complete | ✅ Good | 13 | Good |
-| datetime | ✅ Complete | ✅ Complete | ✅ Comprehensive | 450+ | High |
-| env | ✅ Complete | ✅ Complete | ✅ Good | 14 | High |
-| process | ✅ Complete | ✅ Complete | ✅ Good | 23 | High |
-| fs | ✅ Comprehensive | ✅ Complete | ⚠️ Partial | 31 | High |
-| net | ✅ Complete | ✅ Complete | ✅ Good | 240 | High |
-| regex | ⚠️ Basic (FFI) | ✅ Complete | ✅ Good | 152 | Good |
-| http | ✅ Production (libwebsockets) | ✅ Complete | ✅ Good | 280 | High |
-| websocket | ✅ Production (libwebsockets) | ✅ Complete | ✅ Good | 318 | High |
-| json | ✅ Comprehensive | ✅ Complete | ✅ Good | 550+ | High |
-| strings | ✅ Complete | ✅ Complete | ✅ Comprehensive | 293 | High |
-| decimal | ✅ Complete | ✅ Complete | ✅ Comprehensive | 370 | High |
-| encoding | ✅ Complete | ✅ Complete | ✅ Comprehensive | 370 | High |
-| testing | ✅ Complete | ✅ Complete | ✅ Good | 410 | High |
-
-**Legend:**
-- ✅ Complete/Excellent
-- ⚠️ Basic/Partial
-- ❌ Missing
 
 ## Contributing
 
-When adding new stdlib modules:
-1. Create the `.hml` file in `stdlib/`
-2. Implement the module with comprehensive error handling
-3. Add comprehensive tests in `tests/stdlib_<module>/`
-4. Document the module in `stdlib/docs/<module>.md` (use existing docs as template)
-5. Update this README with the new module
-6. Update `CLAUDE.md` stdlib section
+When adding or changing a stdlib module:
 
-## Testing
+1. Update `stdlib/<module>.hml`.
+2. Add or update tests under `tests/stdlib_<module>/`.
+3. Add or update `stdlib/docs/<module>.md`.
+4. Update [docs/reference/stdlib-overview.md](../docs/reference/stdlib-overview.md) and this README if the module inventory changes.
+5. Run `python3 tests/check_docs.py` to verify docs coverage and links.
+6. Run the relevant Hemlock tests, then `make test` when practical.
 
-All stdlib modules have comprehensive test coverage:
+## Documentation Quality Checks
+
+Use the documentation audit script before submitting doc or stdlib changes:
 
 ```bash
-# Run all tests
-make test
-
-# Run specific module tests
-make test | grep stdlib_collections
-make test | grep stdlib_math
-make test | grep stdlib_time
-make test | grep stdlib_env
-make test | grep stdlib_regex
-make test | grep stdlib_testing
-
-# Or run individual test files
-./hemlock tests/stdlib_collections/test_hashmap.hml
-./hemlock tests/stdlib_math/test_math_constants.hml
-./hemlock tests/stdlib_time/test_time.hml
-./hemlock tests/stdlib_regex/basic_test.hml
+python3 tests/check_docs.py
 ```
 
-**Current test statistics:**
-- Total Hemlock tests: 372 (all passing)
-- Collections tests: Comprehensive (100+ items, edge cases, performance)
-- Math tests: Constants and function coverage
-- Time tests: Basic functionality
-- Environment tests: Variable management
-- Filesystem tests: File operations (needs expansion)
-
-## Performance
-
-### Collections Module Performance
-
-Recent optimizations (PR #49) dramatically improved performance:
-
-**HashMap:**
-- djb2 hash algorithm (much better distribution than simple sum)
-- Native modulo operator (O(1) vs O(n) pure-Hemlock implementation)
-- Efficient type casting for float-to-int conversions
-- Load factor: 0.75 with automatic resizing
-
-**Queue:**
-- Circular buffer implementation (O(1) enqueue/dequeue, was O(n))
-- Automatic capacity doubling when full
-- Zero data movement during enqueue/dequeue
-
-**Set:**
-- Uses HashMap internally (O(1) operations, was O(n) linear search)
-- Dramatically faster add/delete/has operations
-
-**LinkedList:**
-- Bidirectional traversal (chooses head vs tail based on proximity)
-- O(n/2) average access instead of O(n)
-
-## Documentation
-
-### Module Documentation
-
-Each module has comprehensive documentation in `stdlib/docs/`:
-- **Full API reference** - All functions, parameters, return types
-- **Usage examples** - Practical code examples for each function
-- **Error handling** - Exception behavior and patterns
-- **Performance notes** - Time/space complexity where relevant
-- **Platform notes** - Cross-platform considerations
-- **Security considerations** - Best practices for safe usage
-
-### CLAUDE.md Integration
-
-The main language documentation (`CLAUDE.md`) now includes a complete Standard Library section with:
-- Import syntax examples
-- Overview of all modules
-- Quick reference for common operations
-- Links to detailed module documentation
-
-## Design Philosophy
-
-Hemlock's stdlib follows the language's core principles:
-
-1. **Explicit over implicit** - All operations require explicit imports
-2. **No magic** - Functions do exactly what they say
-3. **Manual memory management** - User controls lifecycle
-4. **Performance conscious** - O(1) operations where possible
-5. **Error transparency** - Exceptions for errors, no silent failures
-6. **Systems focus** - Essential tools for systems scripting
-
-## License
-
-Part of the Hemlock programming language.
+The script verifies that every `stdlib/*.hml` module has matching documentation, every stdlib doc has a matching implementation, and relative Markdown links resolve.

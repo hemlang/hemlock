@@ -22,7 +22,7 @@ hemlock lsp --tcp 5007 # TCP transport on specified port
 
 ### VS Code
 
-Use the [Hemlock VS Code extension](../editors/vscode/) or create `.vscode/settings.json`:
+Use the [Hemlock VS Code extension](../../editors/vscode/hemlock/) or create `.vscode/settings.json`:
 
 ```json
 {

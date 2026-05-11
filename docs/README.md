@@ -67,7 +67,7 @@ Welcome to the Hemlock programming language documentation!
 
 ### Contributing
 - [Contributing Guidelines](contributing/guidelines.md) - How to contribute
-- [Testing Guide](contributing/testing.md) - Writing and running tests
+- [Testing Guide](contributing/testing.md) - Writing and running tests, including documentation checks
 
 ### Plans & Proposals
 - [HemlockScript WASM](plans/hemlockscript-wasm.md) - WebAssembly compilation plans
@@ -132,7 +132,7 @@ We give you the tools to be safe (`buffer`, type annotations, bounds checking) b
 - **Package Manager**: [hpm](https://github.com/hemlang/hpm) - Hemlock Package Manager
 - **Issues**: Report bugs and request features
 - **Examples**: See the `examples/` directory
-- **Tests**: See the `tests/` directory for usage examples
+- **Tests**: See the `tests/` directory for usage examples and run `python3 tests/check_docs.py` for documentation consistency checks
 
 ## License
 

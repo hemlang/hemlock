@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Audited and refreshed documentation for the current v2.2.1 repository state, including README status, stdlib inventory, test documentation, and stale/broken relative links.
+
+### Added
+
+- Added `tests/check_docs.py`, a dependency-free documentation audit that verifies stdlib implementation/documentation parity and relative Markdown links.
+
 ## [2.2.1] - 2026-05-10
 
 ### Fixed

@@ -402,18 +402,9 @@ spawn(process_messages, ws);
 - macOS: Full support
 - Windows: Not yet tested
 
-## Comparison: FFI vs Pure Hemlock
+## Implementation Notes
 
-| Feature | @stdlib/websocket (FFI) | @stdlib/websocket_pure |
-|---------|-------------------------|------------------------|
-| SSL/TLS | ✅ Full support | ❌ Not supported |
-| Message size | ✅ Unlimited | ⚠️ <126 bytes |
-| Performance | ✅ Excellent | ⚠️ Good |
-| Dependencies | ⚠️ Requires libwebsockets | ✅ None |
-| Production ready | ✅ Yes | ❌ Educational only |
-| Server support | ✅ Yes | ❌ No |
-
-**Recommendation:** Use FFI version for production, pure version for learning.
+`@stdlib/websocket` is the supported WebSocket module in this repository. It is backed by the optional `stdlib/c/lws_wrapper.so` helper built with `make stdlib`, so install libwebsockets before using the module in environments that need WebSocket support.
 
 ## Troubleshooting
 

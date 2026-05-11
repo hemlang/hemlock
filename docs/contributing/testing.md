@@ -9,6 +9,7 @@ This guide explains Hemlock's testing philosophy, how to write tests, and how to
 - [Testing Philosophy](#testing-philosophy)
 - [Test Suite Structure](#test-suite-structure)
 - [Running Tests](#running-tests)
+- [Documentation Checks](#documentation-checks)
 - [Writing Tests](#writing-tests)
 - [Test Categories](#test-categories)
 - [Memory Leak Testing](#memory-leak-testing)
@@ -94,73 +95,16 @@ print("hello".substr(2, 100)); // "llo" (past end)
 
 ### Directory Organization
 
-```
-tests/
-├── run_tests.sh          # Main test runner script
-├── primitives/           # Type system tests
-│   ├── integers.hml
-│   ├── floats.hml
-│   ├── booleans.hml
-│   ├── i64.hml
-│   └── u64.hml
-├── conversions/          # Type conversion tests
-│   ├── int_to_float.hml
-│   ├── promotion.hml
-│   └── rune_conversions.hml
-├── memory/               # Pointer/buffer tests
-│   ├── alloc.hml
-│   ├── buffer.hml
-│   └── memcpy.hml
-├── strings/              # String operation tests
-│   ├── concat.hml
-│   ├── methods.hml
-│   ├── utf8.hml
-│   └── runes.hml
-├── control/              # Control flow tests
-│   ├── if.hml
-│   ├── switch.hml
-│   └── while.hml
-├── functions/            # Function and closure tests
-│   ├── basics.hml
-│   ├── closures.hml
-│   └── recursion.hml
-├── objects/              # Object tests
-│   ├── literals.hml
-│   ├── methods.hml
-│   ├── duck_typing.hml
-│   └── serialization.hml
-├── arrays/               # Array operation tests
-│   ├── basics.hml
-│   ├── methods.hml
-│   └── slicing.hml
-├── loops/                # Loop tests
-│   ├── for.hml
-│   ├── while.hml
-│   ├── break.hml
-│   └── continue.hml
-├── exceptions/           # Error handling tests
-│   ├── try_catch.hml
-│   ├── finally.hml
-│   └── throw.hml
-├── io/                   # File I/O tests
-│   ├── file_object.hml
-│   ├── read_write.hml
-│   └── seek.hml
-├── async/                # Concurrency tests
-│   ├── spawn_join.hml
-│   ├── channels.hml
-│   └── exceptions.hml
-├── ffi/                  # FFI tests
-│   ├── basic_call.hml
-│   ├── types.hml
-│   └── dlopen.hml
-├── signals/              # Signal handling tests
-│   ├── basic.hml
-│   ├── handlers.hml
-│   └── raise.hml
-└── args/                 # Command-line args tests
-    └── basic.hml
-```
+The suite is organized by feature area and subsystem rather than by one fixed, exhaustive tree. Common groups include:
+
+- `tests/<language-feature>/` for language semantics such as arithmetic, arrays, async, bitwise operators, control flow, conversions, enums, functions, loops, objects, optional chaining, pointers, primitives, strings, and error handling.
+- `tests/stdlib_<module>/` for standard library modules, mirroring `stdlib/<module>.hml` where practical.
+- `tests/parity/` for interpreter/compiler parity coverage.
+- `tests/compiler/`, `tests/formatter/`, `tests/lsp/`, `tests/bundler/`, and `tests/ast_serialize/` for tooling and compiler-specific behavior.
+- `tests/memory/`, `tests/ffi/`, `tests/networking/`, `tests/signals/`, and similar directories for systems/runtime features.
+- `tests/manual/` for opt-in tests that require special environment setup.
+
+Use the test runner summary or `find tests -name '*.hml' | wc -l` for current test counts instead of hard-coding totals in documentation.
 
 ### Test File Naming
 
@@ -239,6 +183,22 @@ gdb --args ./hemlock tests/failing_test.hml
 (gdb) run
 (gdb) backtrace  # if it crashes
 ```
+
+
+## Documentation Checks
+
+Run the lightweight documentation audit after editing Markdown files, stdlib modules, or documentation indexes:
+
+```bash
+python3 tests/check_docs.py
+```
+
+This check is dependency-free and verifies that:
+
+- Relative Markdown links point to existing files or directories.
+- Every `stdlib/*.hml` implementation has a matching `stdlib/docs/*.md` API document.
+- Every stdlib API document has a matching implementation.
+- `docs/reference/stdlib-overview.md` links every stdlib module document.
 
 ---
 
@@ -892,8 +852,8 @@ valgrind --leak-check=full ./hemlock tests/arrays/first_method.hml
 
 ```bash
 make test
-# Total: 252 tests (251 + new one)
-# Passed: 252
+# Total: <current count> tests (<previous count> + new one)
+# Passed: <current count>
 # Failed: 0
 ```
 

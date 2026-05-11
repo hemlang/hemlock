@@ -8,7 +8,7 @@ Hemlock is a systems scripting language that combines the power of C with the er
 
 ## Documentation
 
-For the complete language manual and documentation, visit **[hem-doc](https://github.com/hemlang/hem-doc)**.
+The checked-in documentation starts at **[docs/README.md](docs/README.md)**. Standard library module references live in **[stdlib/docs/](stdlib/docs/)**, and the release history is in **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## Design Philosophy
 
@@ -81,7 +81,7 @@ let pid = getpid();
 | **FFI** | Call C functions from shared libraries, export extern |
 | **Error Handling** | try/catch/finally/throw, panic() |
 | **I/O** | File API, signal handling, command execution |
-| **Stdlib** | 52 modules (math, net, crypto, signal, atomic, ffi, and more) |
+| **Stdlib** | 53 modules (math, net, crypto, signal, atomic, ffi, vector, and more) |
 | **Packages** | [hpm](https://github.com/hemlang/hpm) package manager with GitHub registry |
 
 ## Building
@@ -190,22 +190,22 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v2.0.1 is released with bugfixes since v2.0.0:
+Hemlock v2.2.1 is the current checked-in release. Highlights include:
 
-- **BREAKING: Reduced builtin conflicts** - Moved 63 builtins to `@stdlib` modules (math, signal, net, process, fs, atomic, debug, ffi) to reduce global namespace pollution
-- **New stdlib modules** - `@stdlib/signal`, `@stdlib/atomic`, `@stdlib/debug`, `@stdlib/ffi`
-- **C macro conflict prevention** - Compiler sanitizes imported names that conflict with C system macros
-- Full type system with 64-bit integers and Unicode support
-- Pattern matching with destructuring, guards, and rest syntax
-- Expression-bodied functions, type aliases, named arguments, null coalescing
-- Manual memory management with safe and unsafe options
-- Async/await with true pthread parallelism
-- 52 stdlib modules
-- FFI for C interop with `export extern fn` for reusable library wrappers
-- Compiler backend (C code generation) with 100% interpreter parity
-- LSP server with go-to-definition and find-references
-- [hpm](https://github.com/hemlang/hpm) package manager with GitHub-based registry
-- 900+ tests with 231 parity tests (100% pass rate)
+- **v2.2.1 HTTP body fix** - Compiled binaries now send `Content-Type`, `Content-Length`, and request body bytes for POST/PUT/PATCH/DELETE, matching interpreter behavior.
+- **v2.2.0 process and filesystem additions** - `@stdlib/process` exports `posix_spawn(argv, opts?)`; `@stdlib/fs` exports raw file-descriptor helpers `open_fd()` and `fileno()`.
+- **Safer module/codegen behavior** - Fixes include two-library FFI import collision handling, module `init` symbol-collision prevention, and stricter compiler/interpreter parity checks.
+- **Reduced builtin conflicts since v2.0.0** - 63 former globals moved to `@stdlib` modules (math, signal, net, process, fs, atomic, debug, ffi) to reduce global namespace pollution.
+- Full type system with 64-bit integers and Unicode support.
+- Pattern matching with destructuring, guards, and rest syntax.
+- Expression-bodied functions, type aliases, named arguments, null coalescing, string-literal object keys, and safe dynamic indexing (`obj?[key]`).
+- Manual memory management with safe (`buffer`) and unsafe (`ptr`) options.
+- Async/await with pthread-backed task execution and channels.
+- 53 stdlib modules with one API document per module.
+- FFI for C interop with `export extern fn` for reusable library wrappers.
+- Compiler backend (C code generation), formatter, bundler/packager, and LSP tooling.
+- [hpm](https://github.com/hemlang/hpm) package manager with GitHub-based registry.
+- A 990+ file Hemlock test corpus, including interpreter/compiler parity tests.
 
 ## Philosophy
 
