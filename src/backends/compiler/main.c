@@ -179,8 +179,11 @@ static const char* find_runtime_path(void) {
         search_dirs[num_dirs++] = self_dir;
 
         // 2. install.sh layout: <prefix>/bin/hemlockc + <prefix>/lib/hemlock/
-        snprintf(sibling_libdir, sizeof(sibling_libdir), "%s/../lib/hemlock", self_dir);
-        search_dirs[num_dirs++] = sibling_libdir;
+        int written = snprintf(sibling_libdir, sizeof(sibling_libdir),
+                               "%s/../lib/hemlock", self_dir);
+        if (written >= 0 && (size_t)written < sizeof(sibling_libdir)) {
+            search_dirs[num_dirs++] = sibling_libdir;
+        }
     }
 
     // 3. Standard install location
