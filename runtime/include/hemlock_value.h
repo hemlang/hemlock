@@ -609,7 +609,16 @@ static inline void hml_release_if_needed(HmlValue *val) {
 
 // Fast path: array[i32] = value (bounds checked, handles refcounting)
 static inline void hml_array_set_i32_fast(HmlArray *arr, int32_t index, HmlValue val) {
+    extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
+
     if (index >= 0 && index < arr->length) {
+        // Keep the optimized i32-index path behaviorally identical to
+        // hml_array_set(): typed arrays must reject mismatched values before
+        // mutating or changing reference counts.
+        if (arr->element_type != HML_VAL_NULL && val.type != arr->element_type) {
+            hml_runtime_error("Type mismatch in typed array - expected element of specific type");
+        }
+
         HmlValue old = arr->elements[index];
         // Retain new value FIRST to prevent use-after-free when old == new
         if (hml_needs_refcount(val)) {
@@ -623,7 +632,6 @@ static inline void hml_array_set_i32_fast(HmlArray *arr, int32_t index, HmlValue
         return;
     }
     // Bounds error
-    extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
     hml_runtime_error("Array index %d out of bounds (length %d)", index, arr->length);
 }
 
