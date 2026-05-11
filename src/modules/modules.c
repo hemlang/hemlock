@@ -201,6 +201,13 @@ static char* find_stdlib_path(void) {
             free(exe_copy);
             return realpath(resolved, NULL);
         }
+
+        // install.sh layout: <prefix>/bin/hemlockc + <prefix>/lib/hemlock/stdlib
+        snprintf(resolved, PATH_MAX, "%s/../lib/hemlock/stdlib", dir);
+        if (access(resolved, F_OK) == 0) {
+            free(exe_copy);
+            return realpath(resolved, NULL);
+        }
         free(exe_copy);
     }
 
