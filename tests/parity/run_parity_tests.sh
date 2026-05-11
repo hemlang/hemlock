@@ -10,8 +10,13 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 HEMLOCK="$ROOT_DIR/hemlock"
 HEMLOCKC="$ROOT_DIR/hemlockc"
 
-# Timeout for each test (in seconds)
-TEST_TIMEOUT=10
+# Timeout for each test execution (in seconds).  Compilation can legitimately
+# take longer than running the produced binary for large parity fixtures (for
+# example the stdlib_jinja audit exercises many imported helpers), so keep a
+# separate compile timeout to avoid reporting slow-but-valid codegen as an
+# interpreter-only parity failure.
+TEST_TIMEOUT=${TEST_TIMEOUT:-10}
+COMPILE_TIMEOUT=${COMPILE_TIMEOUT:-30}
 
 # Colors
 RED='\033[0;31m'
@@ -66,6 +71,18 @@ run_test() {
 
     local expected=$(cat "$expected_file")
 
+    # Tests that exercise libwebsockets-backed HTTP/WebSocket I/O require the
+    # optional stdlib/c/lws_wrapper.so helper.  When libwebsockets is not
+    # installed, `make stdlib` intentionally skips that helper; in that
+    # environment both backends throw the same "HTTP support not available"
+    # exception, which is an environment limitation rather than a parity
+    # regression.
+    if [[ "$test_file" == *"/http_post_body.hml" ]] && [ ! -f "$ROOT_DIR/stdlib/c/lws_wrapper.so" ]; then
+        echo -e "${YELLOW}⊘${NC} $test_name (libwebsockets not installed)"
+        ((SKIPPED++))
+        return
+    fi
+
     # Run interpreter with timeout
     local interp_output
     local interp_exit=0
@@ -81,11 +98,12 @@ run_test() {
     local compiler_output
     local run_exit=0
 
-    timeout "$TEST_TIMEOUT" "$HEMLOCKC" "$test_file" -o "$TEMP_DIR/$test_name" 2>/dev/null || compile_exit=$?
+    timeout "$COMPILE_TIMEOUT" "$HEMLOCKC" "$test_file" -o "$TEMP_DIR/$test_name" 2>/dev/null || compile_exit=$?
 
     # Check if compilation timed out
     if [ $compile_exit -eq 124 ]; then
         compile_exit=1  # Treat timeout as compile failure
+        compiler_output="[COMPILE TIMEOUT after ${COMPILE_TIMEOUT}s]"
     fi
 
     if [ $compile_exit -eq 0 ]; then
@@ -115,7 +133,11 @@ run_test() {
     elif [ "$interp_match" = true ] && [ "$compiler_match" = false ]; then
         echo -e "${YELLOW}◐${NC} $test_name (interpreter only)"
         if [ $compile_exit -ne 0 ]; then
-            echo -e "    ${RED}Compiler failed to compile${NC}"
+            if [ -n "$compiler_output" ]; then
+                echo -e "    ${RED}$compiler_output${NC}"
+            else
+                echo -e "    ${RED}Compiler failed to compile${NC}"
+            fi
         else
             echo -e "    ${RED}Compiler output differs${NC}"
             if [ -n "$compiler_output" ]; then
