@@ -388,5 +388,5 @@ pool.shutdown();
 ## See Also
 
 - [async_fs](async_fs.md) - Async file system operations using ThreadPool
-- [Concurrency API](../docs/reference/concurrency-api.md) - `spawn()`, `spawn_with()`, `join()`, `detach()`
-- [Async Concurrency Guide](../docs/advanced/async-concurrency.md) - Language-level async/await
+- [Concurrency API](../../docs/reference/concurrency-api.md) - `spawn()`, `spawn_with()`, `join()`, `detach()`
+- [Async Concurrency Guide](../../docs/advanced/async-concurrency.md) - Language-level async/await
