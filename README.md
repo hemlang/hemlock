@@ -190,8 +190,9 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v2.2.1 is the current checked-in release. Highlights include:
+Hemlock v2.2.2 is the current checked-in release. Highlights include:
 
+- **v2.2.2 hardening release** - Runtime `file_stat()` failures are catchable, typed-array fast-path assignments have stricter checks, non-default install prefixes find their stdlib/runtime layout, and documentation audit tooling is checked in.
 - **v2.2.1 HTTP body fix** - Compiled binaries now send `Content-Type`, `Content-Length`, and request body bytes for POST/PUT/PATCH/DELETE, matching interpreter behavior.
 - **v2.2.0 process and filesystem additions** - `@stdlib/process` exports `posix_spawn(argv, opts?)`; `@stdlib/fs` exports raw file-descriptor helpers `open_fd()` and `fileno()`.
 - **Safer module/codegen behavior** - Fixes include two-library FFI import collision handling, module `init` symbol-collision prevention, and stricter compiler/interpreter parity checks.

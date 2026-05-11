@@ -30,9 +30,9 @@ The version is defined in `include/version.h`:
 ```c
 #define HEMLOCK_VERSION_MAJOR 2
 #define HEMLOCK_VERSION_MINOR 2
-#define HEMLOCK_VERSION_PATCH 1
+#define HEMLOCK_VERSION_PATCH 2
 
-#define HEMLOCK_VERSION "2.2.1"
+#define HEMLOCK_VERSION "2.2.2"
 ```
 
 ### Checking Versions
@@ -93,6 +93,7 @@ import { sin, cos } from "@stdlib/math";
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **2.2.2** | 2026-05-11 | Catchable runtime `file_stat()` failures; typed-array fast-path assignment checks; non-default-prefix stdlib/runtime lookup fixes; documentation audit/check tooling |
 | **2.2.1** | 2026-05-10 | Compiled binaries actually send HTTP POST/PUT/PATCH bodies (interpreter was already correct); libwebsockets startup banner suppressed by default in compiled binaries |
 | **2.2.0** | 2026-05-10 | `posix_spawn()` primitive in `@stdlib/process`; `fs.open_fd()`/`fileno()` for raw fd access; string-literal object keys and `obj?[key]` safe-index; FFI two-library import fix; incremental builds track header deps |
 | **2.1.1** | 2026-04-21 | Parser no longer hangs on malformed `match` arms parsed as object literals |
