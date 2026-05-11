@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <zlib.h>
 #include "frontend.h"
@@ -535,13 +536,17 @@ static int show_file_info(const char *path) {
         }
 
         long compressed_size = file_size - 10;  // Header is 10 bytes
-        double ratio = (1.0 - (double)compressed_size / orig_size) * 100;
 
         printf("Format: HMLB (compressed bundle)\n");
         printf("Version: %d\n", version);
         printf("Uncompressed: %u bytes\n", orig_size);
         printf("Compressed: %ld bytes\n", compressed_size);
-        printf("Ratio: %.1f%% reduction\n", ratio);
+        if (orig_size == 0) {
+            printf("Ratio: unavailable (empty uncompressed payload)\n");
+        } else {
+            double ratio = (1.0 - (double)compressed_size / (double)(uint64_t)orig_size) * 100;
+            printf("Ratio: %.1f%% reduction\n", ratio);
+        }
     } else {
         printf("Format: Unknown (magic: 0x%08x)\n", magic);
     }
@@ -1143,16 +1148,33 @@ static int run_profile(int argc, char **argv) {
         return 1;
     }
 
-    fseek(f, 0, SEEK_END);
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fprintf(stderr, "Error: Could not seek to end of file\n");
+        fclose(f);
+        profiler_free(profiler);
+        return 1;
+    }
     long size = ftell(f);
+    if (size < 0) {
+        fprintf(stderr, "Error: Could not determine file size\n");
+        fclose(f);
+        profiler_free(profiler);
+        return 1;
+    }
     if (fseek(f, 0, SEEK_SET) != 0) {
         fprintf(stderr, "Error: Could not seek to beginning of file\n");
         fclose(f);
         profiler_free(profiler);
         return 1;
     }
-    source = malloc(size + 1);
-    size_t bytes_read = fread(source, 1, size, f);
+    source = malloc((size_t)size + 1);
+    if (!source) {
+        fprintf(stderr, "Error: Out of memory reading file '%s'\n", file_to_run);
+        fclose(f);
+        profiler_free(profiler);
+        return 1;
+    }
+    size_t bytes_read = fread(source, 1, (size_t)size, f);
     if ((long)bytes_read != size) {
         fprintf(stderr, "Error: Could not read complete file (read %zu of %ld bytes)\n", bytes_read, size);
         free(source);

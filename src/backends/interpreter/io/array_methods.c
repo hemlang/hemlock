@@ -802,8 +802,10 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
 
             size_t pos = 0;
             for (int i = 0; i < arr->length; i++) {
-                memcpy(result + pos, parts[i], part_lens[i]);
-                pos += part_lens[i];
+                if (part_lens[i] > 0) {
+                    memcpy(result + pos, parts[i], part_lens[i]);
+                    pos += part_lens[i];
+                }
                 free(parts[i]);
                 if (i < arr->length - 1) {
                     memcpy(result + pos, delim->data, delim->length);

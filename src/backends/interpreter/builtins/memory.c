@@ -297,6 +297,9 @@ Value builtin_talloc(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     int elem_size = get_type_size(type);
+    if (elem_size <= 0) {
+        runtime_error(ctx, "talloc() cannot allocate values of this type"); return val_null();
+    }
 
     // SECURITY: Check for multiplication overflow before allocating
     if ((size_t)count > SIZE_MAX / (size_t)elem_size) {
