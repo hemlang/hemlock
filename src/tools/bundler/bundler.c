@@ -908,6 +908,10 @@ static int flatten_module(Bundle *bundle, BundledModule *module, EmittedNames *e
                 // Build an object literal with all exports: let ns = { A: A, B: B, ... };
                 char *ns_name = stmt->as.import_stmt.namespace_name;
                 if (ns_name && !emitted_names_contains(emitted, ns_name)) {
+                    Symbol *ns_sym = bundle->dep_graph ? dep_graph_find(bundle->dep_graph, ns_name) : NULL;
+                    if (bundle->dep_graph && (!ns_sym || !ns_sym->is_reachable)) {
+                        continue;
+                    }
                     char *resolved = resolve_module_path(bundle->resolver,
                                                           module->absolute_path,
                                                           stmt->as.import_stmt.module_path);
@@ -935,6 +939,11 @@ static int flatten_module(Bundle *bundle, BundledModule *module, EmittedNames *e
 
                     // Only generate assignment if there's an alias different from the original
                     if (alias && strcmp(alias, original) != 0) {
+                        Symbol *alias_sym = bundle->dep_graph ? dep_graph_find(bundle->dep_graph, alias) : NULL;
+                        if (bundle->dep_graph && (!alias_sym || !alias_sym->is_reachable)) {
+                            continue;
+                        }
+
                         // Create: let alias = original;
                         Expr *var_ref = expr_ident(original);
                         Stmt *let_stmt = stmt_let(alias, var_ref);
@@ -1302,6 +1311,9 @@ void bundle_print_summary(Bundle *bundle) {
 // Build dependency graph from all modules
 static int build_dependency_graph(Bundle *bundle, int verbose) {
     DependencyGraph *graph = dep_graph_new();
+    if (!graph) {
+        return -1;
+    }
     bundle->dep_graph = graph;
 
     // Counter for anonymous side-effect symbols
@@ -1355,10 +1367,9 @@ static int build_dependency_graph(Bundle *bundle, int verbose) {
                 collect_stmt_deps(stmt, sym);
                 dep_graph_add_symbol(graph, sym);
 
-                // Side effects in entry module are always entry points
-                if (mod->is_entry) {
-                    dep_graph_add_entry(graph, synth_name);
-                }
+                // Importing a module evaluates its top-level statements, so
+                // every loaded top-level side effect must be retained.
+                dep_graph_add_entry(graph, synth_name);
 
                 if (verbose) {
                     fprintf(stderr, "  Side effect: %s (%d deps)\n",
@@ -1368,22 +1379,74 @@ static int build_dependency_graph(Bundle *bundle, int verbose) {
         }
     }
 
-    // Phase 2: Collect entry points from entry module's imports
+    // Phase 2: Model import bindings. Aliased imports and namespace
+    // imports create local names that reachable code can depend on; those
+    // synthetic symbols point at the source module exports they actually need.
     for (int m = 0; m < bundle->num_modules; m++) {
         BundledModule *mod = bundle->modules[m];
-        if (!mod->is_entry) continue;
 
         for (int i = 0; i < mod->num_statements; i++) {
             Stmt *stmt = mod->statements[i];
-            if (stmt->type == STMT_IMPORT) {
-                // Add all imported names as entry points
-                if (!stmt->as.import_stmt.is_namespace) {
-                    for (int j = 0; j < stmt->as.import_stmt.num_imports; j++) {
-                        const char *name = stmt->as.import_stmt.import_names[j];
-                        dep_graph_add_entry(graph, name);
-                        if (verbose) {
-                            fprintf(stderr, "  Entry point (import): %s\n", name);
+            if (stmt->type != STMT_IMPORT) continue;
+
+            char *resolved = resolve_module_path(bundle->resolver,
+                                                  mod->absolute_path,
+                                                  stmt->as.import_stmt.module_path);
+            BundledModule *target = resolved ? find_module_in_bundle(bundle, resolved) : NULL;
+            free(resolved);
+
+            if (stmt->as.import_stmt.is_namespace) {
+                // import * from "mod" imports every export into scope.
+                if (!stmt->as.import_stmt.namespace_name) {
+                    if (target) {
+                        for (int j = 0; j < target->num_exports; j++) {
+                            dep_graph_add_entry(graph, target->export_names[j]);
+                            if (verbose && mod->is_entry) {
+                                fprintf(stderr, "  Entry point (star import): %s\n", target->export_names[j]);
+                            }
                         }
+                    }
+                    continue;
+                }
+
+                // import * as ns from "mod" creates one namespace binding.
+                Symbol *sym = symbol_new(stmt->as.import_stmt.namespace_name,
+                                         mod->absolute_path, stmt);
+                if (!sym) return -1;
+                if (target) {
+                    for (int j = 0; j < target->num_exports; j++) {
+                        symbol_add_dep(sym, target->export_names[j]);
+                    }
+                }
+                dep_graph_add_symbol(graph, sym);
+
+                if (mod->is_entry) {
+                    dep_graph_add_entry(graph, stmt->as.import_stmt.namespace_name);
+                    if (verbose) {
+                        fprintf(stderr, "  Entry point (namespace import): %s\n",
+                                stmt->as.import_stmt.namespace_name);
+                    }
+                }
+                continue;
+            }
+
+            for (int j = 0; j < stmt->as.import_stmt.num_imports; j++) {
+                const char *name = stmt->as.import_stmt.import_names[j];
+                const char *alias = stmt->as.import_stmt.import_aliases
+                    ? stmt->as.import_stmt.import_aliases[j]
+                    : NULL;
+
+                if (alias && strcmp(alias, name) != 0) {
+                    Symbol *sym = symbol_new(alias, mod->absolute_path, stmt);
+                    if (!sym) return -1;
+                    symbol_add_dep(sym, name);
+                    dep_graph_add_symbol(graph, sym);
+                }
+
+                if (mod->is_entry) {
+                    dep_graph_add_entry(graph, alias ? alias : name);
+                    if (verbose) {
+                        fprintf(stderr, "  Entry point (import): %s\n", alias ? alias : name);
                     }
                 }
             }
