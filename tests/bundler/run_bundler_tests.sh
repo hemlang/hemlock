@@ -101,8 +101,17 @@ else
     fail "Compressed bundle" "Bundle command failed"
 fi
 
-# Test 8: Verbose output
-echo "Test 8: Verbose output"
+# Test 8: Run compressed bundle
+echo "Test 8: Run compressed bundle"
+OUTPUT=$($HEMLOCK "$TMPDIR/compressed.hmlb" 2>&1)
+if echo "$OUTPUT" | grep -q "All basic collections tests passed"; then
+    pass "Compressed bundle runs correctly"
+else
+    fail "Compressed bundle runs" "Expected output not found: $OUTPUT"
+fi
+
+# Test 9: Verbose output
+echo "Test 9: Verbose output"
 OUTPUT=$($HEMLOCK --bundle examples/multi_module/main.hml --verbose -o "$TMPDIR/verbose.hmlc" 2>&1)
 if echo "$OUTPUT" | grep -q "Bundle Summary" && echo "$OUTPUT" | grep -q "Flattened"; then
     pass "Verbose output shows summary"

@@ -19,6 +19,8 @@
 // Magic marker for packaged executables (appended at end of file)
 // Format: [hemlock binary][HMLB payload][payload_size:u64][HMLP magic:u32]
 #define HMLP_MAGIC 0x504C4D48  // "HMLP" in little-endian
+#define HMLB_MAGIC 0x424C4D48  // "HMLB" in little-endian
+#define MAX_COMPILED_PAYLOAD_SIZE 100000000U  // 100MB safety limit
 
 // FFI functions (from interpreter/ffi.c)
 extern void ffi_init(void);
@@ -130,7 +132,7 @@ static uint8_t* check_embedded_payload(size_t *out_size) {
     long file_size = ftell(f);
     long payload_start = file_size - 12 - (long)payload_size;
 
-    if (payload_start < 0 || payload_size == 0 || payload_size > 100000000) {  // 100MB max
+    if (payload_start < 0 || payload_size == 0 || payload_size > MAX_COMPILED_PAYLOAD_SIZE) {
         fclose(f);
         return NULL;
     }
@@ -154,56 +156,129 @@ static uint8_t* check_embedded_payload(size_t *out_size) {
     return payload;
 }
 
-// Run an embedded payload (HMLB compressed or HMLC uncompressed)
-static int run_embedded_payload(uint8_t *payload, size_t payload_size, int argc, char **argv) {
+static uint16_t read_le16(const uint8_t *data) {
+    return (uint16_t)data[0] | ((uint16_t)data[1] << 8);
+}
+
+static uint32_t read_le32(const uint8_t *data) {
+    return (uint32_t)data[0] |
+           ((uint32_t)data[1] << 8) |
+           ((uint32_t)data[2] << 16) |
+           ((uint32_t)data[3] << 24);
+}
+
+// Deserialize either an HMLC payload or an HMLB compressed payload.
+static Stmt **deserialize_compiled_payload(const uint8_t *payload, size_t payload_size,
+                                           int *out_stmt_count, const char *description) {
     if (payload_size < 4) {
-        fprintf(stderr, "Error: Invalid embedded payload\n");
-        return 1;
+        fprintf(stderr, "Error: Invalid %s payload\n", description);
+        return NULL;
     }
 
-    uint32_t magic = *(uint32_t*)payload;
-    int stmt_count;
-    Stmt **statements = NULL;
+    uint32_t magic = read_le32(payload);
 
-    if (magic == 0x424C4D48) {  // "HMLB" (compressed)
-        // Payload is in HMLB format: [magic:4][version:2][orig_size:4][compressed_data]
+    if (magic == HMLB_MAGIC) {
+        // HMLB format: [magic:4][version:2][orig_size:4][compressed_data]
         if (payload_size < 10) {
-            fprintf(stderr, "Error: Invalid HMLB payload\n");
-            return 1;
+            fprintf(stderr, "Error: Invalid HMLB %s payload\n", description);
+            return NULL;
         }
 
-        uint16_t version = *(uint16_t*)(payload + 4);
-        (void)version;  // Currently unused
+        uint16_t version = read_le16(payload + 4);
+        if (version != HMLC_VERSION) {
+            fprintf(stderr, "Error: Unsupported HMLB version %u in %s payload\n",
+                    version, description);
+            return NULL;
+        }
 
-        uint32_t orig_size = *(uint32_t*)(payload + 6);
-        uint8_t *compressed_data = payload + 10;
+        uint32_t orig_size = read_le32(payload + 6);
+        if (orig_size == 0 || orig_size > MAX_COMPILED_PAYLOAD_SIZE) {
+            fprintf(stderr, "Error: Invalid HMLB uncompressed size %u in %s payload\n",
+                    orig_size, description);
+            return NULL;
+        }
+
+        const uint8_t *compressed_data = payload + 10;
         size_t compressed_size = payload_size - 10;
 
-        // Decompress
         uint8_t *decompressed = malloc(orig_size);
         if (!decompressed) {
-            fprintf(stderr, "Error: Cannot allocate memory for decompression\n");
-            return 1;
+            fprintf(stderr, "Error: Cannot allocate memory for HMLB decompression\n");
+            return NULL;
         }
 
         uLongf dest_len = orig_size;
         int ret = uncompress(decompressed, &dest_len, compressed_data, compressed_size);
-        if (ret != Z_OK) {
-            fprintf(stderr, "Error: Decompression failed (%d)\n", ret);
+        if (ret != Z_OK || dest_len != orig_size) {
+            fprintf(stderr, "Error: HMLB decompression failed for %s payload (%d)\n",
+                    description, ret);
             free(decompressed);
-            return 1;
+            return NULL;
         }
 
-        // Deserialize AST from memory
-        statements = ast_deserialize(decompressed, dest_len, &stmt_count);
+        Stmt **statements = ast_deserialize(decompressed, dest_len, out_stmt_count);
         free(decompressed);
-    } else if (magic == 0x434C4D48) {  // "HMLC" (uncompressed)
-        // Payload is already in HMLC format, deserialize directly
-        statements = ast_deserialize(payload, payload_size, &stmt_count);
-    } else {
-        fprintf(stderr, "Error: Unknown embedded payload format (magic: 0x%08x)\n", magic);
-        return 1;
+        return statements;
     }
+
+    if (magic == HMLC_MAGIC) {
+        return ast_deserialize(payload, payload_size, out_stmt_count);
+    }
+
+    fprintf(stderr, "Error: Unknown %s payload format (magic: 0x%08x)\n", description, magic);
+    return NULL;
+}
+
+static uint8_t *read_binary_file(const char *path, size_t *out_size) {
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "Error: Cannot open '%s' for reading\n", path);
+        return NULL;
+    }
+
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fprintf(stderr, "Error: Cannot seek in '%s'\n", path);
+        fclose(f);
+        return NULL;
+    }
+
+    long file_size = ftell(f);
+    if (file_size < 0 || file_size > (long)MAX_COMPILED_PAYLOAD_SIZE) {
+        fprintf(stderr, "Error: Invalid or oversized compiled file '%s'\n", path);
+        fclose(f);
+        return NULL;
+    }
+
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fprintf(stderr, "Error: Cannot seek in '%s'\n", path);
+        fclose(f);
+        return NULL;
+    }
+
+    uint8_t *data = malloc((size_t)file_size == 0 ? 1 : (size_t)file_size);
+    if (!data) {
+        fprintf(stderr, "Error: Cannot allocate memory to read '%s'\n", path);
+        fclose(f);
+        return NULL;
+    }
+
+    size_t bytes_read = fread(data, 1, (size_t)file_size, f);
+    fclose(f);
+
+    if (bytes_read != (size_t)file_size) {
+        fprintf(stderr, "Error: Failed to read complete file '%s'\n", path);
+        free(data);
+        return NULL;
+    }
+
+    *out_size = (size_t)file_size;
+    return data;
+}
+
+// Run an embedded payload (HMLB compressed or HMLC uncompressed)
+static int run_embedded_payload(uint8_t *payload, size_t payload_size, int argc, char **argv) {
+    int stmt_count;
+    Stmt **statements = deserialize_compiled_payload(payload, payload_size, &stmt_count, "embedded");
 
     if (!statements) {
         fprintf(stderr, "Error: Failed to deserialize embedded code\n");
@@ -616,7 +691,7 @@ static int package_file(const char *input_path, const char *output_path, int ver
 
         payload_data = compressed;
         payload_data_size = compressed_size;
-        payload_magic = 0x424C4D48;  // "HMLB" (compressed)
+        payload_magic = HMLB_MAGIC;  // compressed bundle
         orig_size_for_header = (uint32_t)serialized_size;
         free(serialized);
     } else {
@@ -747,11 +822,17 @@ static int package_file(const char *input_path, const char *output_path, int ver
     return 0;
 }
 
-// Run a .hmlc compiled file
-static void run_hmlc_file(const char *path, int argc, char **argv, int stack_depth, int sandbox_flags, const char *sandbox_root) {
-    // Deserialize AST from file
+// Run a compiled bundle (.hmlc uncompressed or .hmlb compressed).
+static void run_compiled_file(const char *path, int argc, char **argv, int stack_depth, int sandbox_flags, const char *sandbox_root) {
+    size_t payload_size;
+    uint8_t *payload = read_binary_file(path, &payload_size);
+    if (payload == NULL) {
+        exit(1);
+    }
+
     int stmt_count;
-    Stmt **statements = ast_deserialize_from_file(path, &stmt_count);
+    Stmt **statements = deserialize_compiled_payload(payload, payload_size, &stmt_count, path);
+    free(payload);
     if (statements == NULL) {
         fprintf(stderr, "Failed to load compiled file '%s'\n", path);
         exit(1);
@@ -797,10 +878,25 @@ static void run_hmlc_file(const char *path, int argc, char **argv, int stack_dep
     set_current_source_file(NULL);
 }
 
-// Check if file has .hmlc extension
-static int is_hmlc_extension(const char *path) {
+// Check if file has a compiled bundle extension
+static int is_compiled_extension(const char *path) {
     size_t len = strlen(path);
-    return len > 5 && strcmp(path + len - 5, ".hmlc") == 0;
+    return (len > 5 && strcmp(path + len - 5, ".hmlc") == 0) ||
+           (len > 5 && strcmp(path + len - 5, ".hmlb") == 0);
+}
+
+static int is_compiled_file(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) return 0;
+
+    uint8_t magic_bytes[4];
+    size_t read = fread(magic_bytes, 1, 4, f);
+    fclose(f);
+
+    if (read != 4) return 0;
+
+    uint32_t magic = read_le32(magic_bytes);
+    return magic == HMLC_MAGIC || magic == HMLB_MAGIC;
 }
 
 static void run_repl(int stack_depth) {
@@ -901,7 +997,7 @@ static void print_help(const char *program) {
     printf("    %s format FILE [--check]\n", program);
     printf("    %s lsp [--stdio | --tcp PORT]\n\n", program);
     printf("ARGUMENTS:\n");
-    printf("    <FILE>       Hemlock script file to execute (.hml or .hmlc)\n");
+    printf("    <FILE>       Hemlock script file to execute (.hml, .hmlc, or .hmlb)\n");
     printf("    <ARGS>...    Arguments passed to the script (available in 'args' array)\n\n");
     printf("SUBCOMMANDS:\n");
     printf("    format       Format Hemlock source code\n");
@@ -940,6 +1036,7 @@ static void print_help(const char *program) {
     printf("    %s                     # Start interactive REPL\n", program);
     printf("    %s script.hml          # Run script.hml\n", program);
     printf("    %s script.hmlc         # Run compiled script\n", program);
+    printf("    %s app.hmlb            # Run compressed bundle\n", program);
     printf("    %s script.hml arg1 arg2    # Run script with arguments\n", program);
     printf("    %s -e 'print(\"Hello\");'    # Execute code string (one-liner)\n", program);
     printf("    %s -i script.hml       # Run script then start REPL\n", program);
@@ -1485,9 +1582,9 @@ int main(int argc, char **argv) {
         int script_argc = argc - first_script_arg;
         char **script_argv = &argv[first_script_arg];
 
-        // Check if it's a compiled .hmlc file
-        if (is_hmlc_extension(file_to_run) || is_hmlc_file(file_to_run)) {
-            run_hmlc_file(file_to_run, script_argc, script_argv, stack_depth, sandbox_flags, sandbox_root);
+        // Check if it's a compiled bundle (.hmlc or .hmlb)
+        if (is_compiled_extension(file_to_run) || is_compiled_file(file_to_run)) {
+            run_compiled_file(file_to_run, script_argc, script_argv, stack_depth, sandbox_flags, sandbox_root);
         } else {
             run_file(file_to_run, script_argc, script_argv, stack_depth, sandbox_flags, sandbox_root);
         }
