@@ -490,6 +490,112 @@ else
     fail "Tree shaking side effects" "Bundle command failed"
 fi
 
+
+# Test 29: Tree shaking preserves aliased transitive imports
+echo "Test 29: Tree shaking preserves aliased transitive imports"
+mkdir -p "$TMPDIR/treeshake_alias"
+cat > "$TMPDIR/treeshake_alias/helpers.hml" << 'EOF'
+export fn helper() {
+    return "aliased helper";
+}
+
+export fn unused_helper() {
+    return "unused";
+}
+EOF
+cat > "$TMPDIR/treeshake_alias/main_utils.hml" << 'EOF'
+import { helper as renamed_helper } from "./helpers";
+
+export fn main_function() {
+    return renamed_helper();
+}
+
+export fn unused_function() {
+    return "not used";
+}
+EOF
+cat > "$TMPDIR/treeshake_alias/main.hml" << 'EOF'
+import { main_function } from "./main_utils";
+let result = main_function();
+print("Alias result: " + result);
+if (result == "aliased helper") {
+    print("Alias dependency test passed!");
+}
+EOF
+
+if $HEMLOCK --bundle "$TMPDIR/treeshake_alias/main.hml" --tree-shake -o "$TMPDIR/alias_shake.hmlc" 2>/dev/null; then
+    OUTPUT=$($HEMLOCK "$TMPDIR/alias_shake.hmlc" 2>&1)
+    if echo "$OUTPUT" | grep -q "Alias dependency test passed"; then
+        pass "Tree shaking preserves aliased transitive imports"
+    else
+        fail "Tree shaking aliased imports" "Execution failed: $OUTPUT"
+    fi
+else
+    fail "Tree shaking aliased imports" "Bundle command failed"
+fi
+
+# Test 30: Tree shaking preserves namespace imports
+echo "Test 30: Tree shaking preserves namespace imports"
+mkdir -p "$TMPDIR/treeshake_namespace"
+cat > "$TMPDIR/treeshake_namespace/math.hml" << 'EOF'
+export fn add(a, b) {
+    return a + b;
+}
+
+export fn multiply(a, b) {
+    return a * b;
+}
+EOF
+cat > "$TMPDIR/treeshake_namespace/main.hml" << 'EOF'
+import * as math from "./math";
+let result = math.add(2, 3);
+print("Namespace result: " + result);
+if (result == 5) {
+    print("Namespace dependency test passed!");
+}
+EOF
+
+if $HEMLOCK --bundle "$TMPDIR/treeshake_namespace/main.hml" --tree-shake -o "$TMPDIR/namespace_shake.hmlc" 2>/dev/null; then
+    OUTPUT=$($HEMLOCK "$TMPDIR/namespace_shake.hmlc" 2>&1)
+    if echo "$OUTPUT" | grep -q "Namespace dependency test passed"; then
+        pass "Tree shaking preserves namespace imports"
+    else
+        fail "Tree shaking namespace imports" "Execution failed: $OUTPUT"
+    fi
+else
+    fail "Tree shaking namespace imports" "Bundle command failed"
+fi
+
+# Test 31: Tree shaking preserves side effects in imported modules
+echo "Test 31: Tree shaking preserves imported module side effects"
+mkdir -p "$TMPDIR/treeshake_import_side_effect"
+cat > "$TMPDIR/treeshake_import_side_effect/side_effect_mod.hml" << 'EOF'
+print("Imported side effect executed");
+
+export fn useful() {
+    return "useful";
+}
+
+export fn unused() {
+    return "unused";
+}
+EOF
+cat > "$TMPDIR/treeshake_import_side_effect/main.hml" << 'EOF'
+import { useful } from "./side_effect_mod";
+print(useful());
+EOF
+
+if $HEMLOCK --bundle "$TMPDIR/treeshake_import_side_effect/main.hml" --tree-shake -o "$TMPDIR/import_side_effect.hmlc" 2>/dev/null; then
+    OUTPUT=$($HEMLOCK "$TMPDIR/import_side_effect.hmlc" 2>&1)
+    if echo "$OUTPUT" | grep -q "Imported side effect executed" && echo "$OUTPUT" | grep -q "useful"; then
+        pass "Tree shaking preserves imported module side effects"
+    else
+        fail "Tree shaking imported side effects" "Execution failed: $OUTPUT"
+    fi
+else
+    fail "Tree shaking imported side effects" "Bundle command failed"
+fi
+
 echo ""
 echo "=== Results ==="
 echo -e "Passed: ${GREEN}$PASSED${NC}"
