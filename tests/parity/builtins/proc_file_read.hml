@@ -1,0 +1,16 @@
+// Reading /proc pseudo-files: these report st_size == 0 but contain data.
+// f.read() with no args must read to EOF, not trust the stat-based size.
+import { open } from "@stdlib/fs";
+
+let f = open("/proc/self/status", "r");
+let content = f.read();
+f.close();
+
+print(content.length > 0);
+print(content.contains("Pid:"));
+
+// Sized read on a /proc file should also work.
+let g = open("/proc/self/status", "r");
+let chunk = g.read(2048);
+g.close();
+print(chunk.length > 0);

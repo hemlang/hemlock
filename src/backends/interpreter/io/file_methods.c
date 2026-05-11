@@ -27,21 +27,22 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
         }
 
         if (num_args == 0) {
-            // Read entire file from current position
-            // First, check if the stream is seekable (regular file vs pipe/stdin)
+            // Read entire file from current position. We try the seek/size
+            // fast path first, but if it reports size 0 we fall through to
+            // chunked reading. /proc and /sys pseudo-files appear seekable
+            // and have st_size == 0 yet contain real data, so trusting the
+            // seek-based size silently returns "" for them. Real empty files
+            // just read 0 bytes via the chunked path -- same result, no harm.
             long current_pos = ftell(file->fp);
+            long size = -1;
             int is_seekable = (current_pos != -1 && fseek(file->fp, 0, SEEK_END) == 0);
-
             if (is_seekable) {
-                // Seekable stream: get size and read in one go
                 long end_pos = ftell(file->fp);
                 fseek(file->fp, current_pos, SEEK_SET);
+                if (end_pos >= 0) size = end_pos - current_pos;
+            }
 
-                long size = end_pos - current_pos;
-                if (size <= 0) {
-                    return val_string("");
-                }
-
+            if (size > 0) {
                 char *buffer = malloc(size + 1);
                 if (!buffer) {
                     return throw_runtime_error(ctx, "Memory allocation failed");

@@ -208,19 +208,20 @@ HmlValue hml_file_read_all(HmlValue file) {
     FILE *fp = (FILE*)fh->fp;
     long start_pos = ftell(fp);
 
-    // Check if stream is seekable (regular file vs pipe/stdin)
+    // Try the seek/size fast path first, but if it reports size 0 fall
+    // through to chunked reading. /proc and /sys pseudo-files appear
+    // seekable and have st_size == 0 yet contain real data, so trusting the
+    // seek-based size silently returns "" for them. Real empty files just
+    // read 0 bytes via the chunked path -- same result, no harm.
+    long size = -1;
     int is_seekable = (start_pos != -1 && fseek(fp, 0, SEEK_END) == 0);
-
     if (is_seekable) {
-        // Seekable stream: get size and read in one go
         long end_pos = ftell(fp);
         fseek(fp, start_pos, SEEK_SET);
+        if (end_pos >= 0) size = end_pos - start_pos;
+    }
 
-        long size = end_pos - start_pos;
-        if (size <= 0) {
-            return hml_val_string("");
-        }
-
+    if (size > 0) {
         char *buffer = malloc(size + 1);
         if (!buffer) {
             hml_throw(hml_val_string("Memory allocation failed"));
