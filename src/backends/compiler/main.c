@@ -169,27 +169,39 @@ static const char* find_runtime_path(void) {
     char check_path[PATH_MAX];
 
     // List of directories to check (in order of priority)
-    const char *search_dirs[4];
+    const char *search_dirs[5];
     int num_dirs = 0;
 
     // 1. Directory containing hemlockc (for development builds)
     const char *self_dir = get_self_dir();
+    char sibling_libdir[PATH_MAX] = {0};
     if (self_dir) {
         search_dirs[num_dirs++] = self_dir;
+
+        // 2. install.sh layout: <prefix>/bin/hemlockc + <prefix>/lib/hemlock/
+        snprintf(sibling_libdir, sizeof(sibling_libdir), "%s/../lib/hemlock", self_dir);
+        search_dirs[num_dirs++] = sibling_libdir;
     }
 
-    // 2. Standard install location
+    // 3. Standard install location
     search_dirs[num_dirs++] = HEMLOCK_LIBDIR;
 
-    // 3. Current directory (fallback)
+    // 4. Current directory (fallback)
     search_dirs[num_dirs++] = ".";
 
     // Check each directory for libhemlock_runtime.a
     for (int i = 0; i < num_dirs; i++) {
         snprintf(check_path, sizeof(check_path), "%s/libhemlock_runtime.a", search_dirs[i]);
         if (access(check_path, R_OK) == 0) {
-            strncpy(found_path, search_dirs[i], sizeof(found_path) - 1);
-            found_path[sizeof(found_path) - 1] = '\0';
+            char *resolved = realpath(search_dirs[i], NULL);
+            if (resolved) {
+                strncpy(found_path, resolved, sizeof(found_path) - 1);
+                found_path[sizeof(found_path) - 1] = '\0';
+                free(resolved);
+            } else {
+                strncpy(found_path, search_dirs[i], sizeof(found_path) - 1);
+                found_path[sizeof(found_path) - 1] = '\0';
+            }
             return found_path;
         }
     }
