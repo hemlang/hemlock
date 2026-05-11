@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.2] - 2026-05-11
+
+### Fixed
+
+- **Runtime `file_stat()` failures are catchable** — compiled binaries now throw normal Hemlock exceptions for `file_stat()` errors instead of terminating the process, matching try/catch expectations.
+- **Typed-array fast-path assignment checks** — runtime typed-array assignments now validate values on the optimized path before storing them.
+- **Non-default install prefixes** — compiler/module lookup now finds the stdlib and runtime assets in the install.sh layout even when Hemlock is installed outside the default prefix.
+
 ### Changed
 
-- Audited and refreshed documentation for the current v2.2.1 repository state, including README status, stdlib inventory, test documentation, and stale/broken relative links.
+- Audited and refreshed documentation for the current v2.2.2 repository state, including README status, stdlib inventory, test documentation, and stale/broken relative links.
 
 ### Added
 
