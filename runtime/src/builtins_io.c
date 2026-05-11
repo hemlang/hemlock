@@ -964,15 +964,15 @@ HmlValue hml_is_dir(HmlValue path) {
 
 HmlValue hml_file_stat(HmlValue path) {
     if (path.type != HML_VAL_STRING || !path.as.as_string) {
-        fprintf(stderr, "Error: file_stat() requires a string path\n");
-        exit(1);
+        hml_throw(hml_val_string("file_stat() requires a string path"));
     }
 
     struct stat st;
     if (stat(path.as.as_string->data, &st) != 0) {
-        fprintf(stderr, "Error: Failed to stat '%s': %s\n",
+        char err_buf[512];
+        snprintf(err_buf, sizeof(err_buf), "Failed to stat '%s': %s",
             path.as.as_string->data, strerror(errno));
-        exit(1);
+        hml_throw(hml_val_string(err_buf));
     }
 
     HmlValue obj = hml_val_object();
