@@ -137,6 +137,7 @@ void codegen_free(CodegenContext *ctx) {
                 free(c->captured_vars[i]);
             }
             free(c->captured_vars);
+            free(c->shared_env_indices);
             free(c);
             c = next;
         }
@@ -193,6 +194,24 @@ void codegen_free(CodegenContext *ctx) {
             free(ctx->main_func_inlinable);
         }
 
+        // Free main file imports tracking
+        if (ctx->main_imports) {
+            for (int i = 0; i < ctx->num_main_imports; i++) {
+                free(ctx->main_imports[i].local_name);
+                free(ctx->main_imports[i].original_name);
+                free(ctx->main_imports[i].module_prefix);
+            }
+            free(ctx->main_imports);
+        }
+
+        // Free any shared closure environment metadata left by an interrupted
+        // function-generation path. Normal function generation clears this when
+        // restoring state, but codegen_free must also own the final cleanup.
+        shared_env_clear(ctx);
+
+        // Free tail-call label tracking if codegen is torn down mid-function.
+        free(ctx->tail_call_label);
+
         // Free shadow variables tracking
         if (ctx->shadow_vars) {
             for (int i = 0; i < ctx->num_shadow_vars; i++) {
@@ -248,7 +267,19 @@ void codegen_free(CodegenContext *ctx) {
         // Free loop body locals stack
         free(ctx->loop_body_locals);
 
-        // Free loop label body locals stack
+        // Free loop label tracking stacks. Active entries may remain if codegen
+        // aborts before the matching pop; entries below loop_label_depth still
+        // own their strdup'd strings. Popped entries have already been freed.
+        if (ctx->loop_labels) {
+            for (int i = 0; i < ctx->loop_label_depth; i++) {
+                free(ctx->loop_labels[i]);
+                free(ctx->loop_break_labels[i]);
+                free(ctx->loop_continue_labels[i]);
+            }
+            free(ctx->loop_labels);
+            free(ctx->loop_break_labels);
+            free(ctx->loop_continue_labels);
+        }
         free(ctx->loop_label_body_locals);
 
         // Note: type_ctx is NOT freed here - it's owned by the caller (main.c)
