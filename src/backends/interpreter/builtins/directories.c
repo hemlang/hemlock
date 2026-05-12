@@ -40,8 +40,7 @@ Value builtin_make_dir(Value *args, int num_args, ExecutionContext *ctx) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to create directory '%s': %s", cpath, strerror(errno));
         free(cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -80,8 +79,7 @@ Value builtin_remove_dir(Value *args, int num_args, ExecutionContext *ctx) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to remove directory '%s': %s", cpath, strerror(errno));
         free(cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -121,8 +119,7 @@ Value builtin_list_dir(Value *args, int num_args, ExecutionContext *ctx) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to open directory '%s': %s", cpath, strerror(errno));
         free(cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -153,8 +150,7 @@ Value builtin_cwd(Value *args, int num_args, ExecutionContext *ctx) {
 
     char buffer[PATH_MAX];
     if (getcwd(buffer, sizeof(buffer)) == NULL) {
-        ctx->exception_state.exception_value = val_string(strerror(errno));
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(strerror(errno)));
         return val_null();
     }
 
@@ -185,8 +181,7 @@ Value builtin_chdir(Value *args, int num_args, ExecutionContext *ctx) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to change directory to '%s': %s", cpath, strerror(errno));
         free(cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -219,8 +214,7 @@ Value builtin_absolute_path(Value *args, int num_args, ExecutionContext *ctx) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to resolve path '%s': %s", cpath, strerror(errno));
         free(cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 

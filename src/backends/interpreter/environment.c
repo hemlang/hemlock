@@ -516,8 +516,7 @@ void env_define(Environment *env, const char *name, Value value, int is_const, E
         // Throw exception instead of exiting
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "Variable '%s' already defined in this scope", name);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return;
     }
 
@@ -530,8 +529,7 @@ void env_define(Environment *env, const char *name, Value value, int is_const, E
     env->names[index] = strdup(name);
     if (!env->names[index]) {
         if (mutex) pthread_mutex_unlock(mutex);
-        ctx->exception_state.exception_value = val_string("Memory allocation failed in env_define");
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string("Memory allocation failed in env_define"));
         return;
     }
     VALUE_RETAIN(value);  // Retain the value
@@ -561,8 +559,7 @@ void env_define_borrowed(Environment *env, const char *name, Value value, int is
         // Throw exception instead of exiting
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "Variable '%s' already defined in this scope", name);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return;
     }
 
@@ -647,8 +644,7 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
             // Throw exception instead of exiting
             char error_msg[256];
             snprintf(error_msg, sizeof(error_msg), "Cannot assign to const variable '%s'", name);
-            ctx->exception_state.exception_value = val_string(error_msg);
-            ctx->exception_state.is_throwing = 1;
+            exception_set_value(ctx, val_string(error_msg));
             return;
         }
         // Release old value, retain new value
@@ -676,8 +672,7 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
                 // Throw exception instead of exiting
                 char error_msg[256];
                 snprintf(error_msg, sizeof(error_msg), "Cannot assign to const variable '%s'", name);
-                ctx->exception_state.exception_value = val_string(error_msg);
-                ctx->exception_state.is_throwing = 1;
+                exception_set_value(ctx, val_string(error_msg));
                 return;
             }
             // Release old value, retain new value
@@ -707,8 +702,7 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
     env->names[index] = strdup(name);
     if (!env->names[index]) {
         if (mutex) pthread_mutex_unlock(mutex);
-        ctx->exception_state.exception_value = val_string("Memory allocation failed in env_set");
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string("Memory allocation failed in env_set"));
         return;
     }
     VALUE_RETAIN(value);  // Retain the value
@@ -759,8 +753,7 @@ Value env_get(Environment *env, const char *name, ExecutionContext *ctx) {
     // Variable not found - throw exception instead of exiting
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "Undefined variable '%s'", name);
-    ctx->exception_state.exception_value = val_string(error_msg);
-    ctx->exception_state.is_throwing = 1;
+    exception_set_value(ctx, val_string(error_msg));
     return val_null();  // Return dummy value when exception is thrown
 }
 

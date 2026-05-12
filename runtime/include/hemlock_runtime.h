@@ -493,6 +493,7 @@ typedef struct HmlExceptionContext {
 HmlExceptionContext* hml_exception_push(void);
 void hml_exception_pop(void);
 __attribute__((noreturn)) void hml_throw(HmlValue exception_value);
+__attribute__((noreturn)) void hml_throw_take(HmlValue exception_value);
 HmlValue hml_exception_get_value(void);
 
 // Runtime error helper - throws catchable exception with formatted message

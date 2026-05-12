@@ -192,10 +192,11 @@ Value builtin_assert(Value *args, int num_args, ExecutionContext *ctx) {
             exception_msg = val_string("assertion failed");
         }
 
-        // Retain the exception value so it survives past environment cleanups during unwinding
-        value_retain(exception_msg);
-        ctx->exception_state.exception_value = exception_msg;
-        ctx->exception_state.is_throwing = 1;
+        // Retain borrowed arguments before transferring exception ownership.
+        if (num_args == 2) {
+            VALUE_RETAIN(exception_msg);
+        }
+        exception_set_value(ctx, exception_msg);
     }
 
     return val_null();

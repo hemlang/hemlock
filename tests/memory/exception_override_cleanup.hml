@@ -1,0 +1,32 @@
+// Test: Exceptions overridden by defer/finally should release the original exception
+// Expected: No memory leaks when saved exception state is superseded during unwinding
+
+fn throw_defer_replacement() {
+    throw "defer replacement";
+}
+
+fn defer_overrides_body_exception() {
+    defer throw_defer_replacement();
+
+    throw "body exception";
+}
+
+try {
+    defer_overrides_body_exception();
+    print("ERROR: defer override should have thrown");
+} catch (e) {
+    print("Caught defer override: " + e);
+}
+
+try {
+    try {
+        throw "try exception";
+    } finally {
+        throw "finally replacement";
+    }
+    print("ERROR: finally override should have thrown");
+} catch (e) {
+    print("Caught finally override: " + e);
+}
+
+print("Exception override cleanup tests passed");

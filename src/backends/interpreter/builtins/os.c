@@ -45,8 +45,7 @@ Value builtin_arch(Value *args, int num_args, ExecutionContext *ctx) {
     if (uname(&info) != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "arch() failed: %s", strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -64,8 +63,7 @@ Value builtin_hostname(Value *args, int num_args, ExecutionContext *ctx) {
     if (gethostname(hostname, sizeof(hostname)) != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "hostname() failed: %s", strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -99,8 +97,7 @@ Value builtin_username(Value *args, int num_args, ExecutionContext *ctx) {
 
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "username() failed: could not determine username");
-    ctx->exception_state.exception_value = val_string(error_msg);
-    ctx->exception_state.is_throwing = 1;
+    exception_set_value(ctx, val_string(error_msg));
     return val_null();
 }
 
@@ -125,8 +122,7 @@ Value builtin_homedir(Value *args, int num_args, ExecutionContext *ctx) {
 
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "homedir() failed: could not determine home directory");
-    ctx->exception_state.exception_value = val_string(error_msg);
-    ctx->exception_state.is_throwing = 1;
+    exception_set_value(ctx, val_string(error_msg));
     return val_null();
 }
 
@@ -157,8 +153,7 @@ Value builtin_total_memory(Value *args, int num_args, ExecutionContext *ctx) {
     if (sysinfo(&info) != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "total_memory() failed: %s", strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
     return val_i64((int64_t)info.totalram * (int64_t)info.mem_unit);
@@ -169,8 +164,7 @@ Value builtin_total_memory(Value *args, int num_args, ExecutionContext *ctx) {
     if (sysctl(mib, 2, &memsize, &len, NULL, 0) != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "total_memory() failed: %s", strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
     return val_i64(memsize);
@@ -181,8 +175,7 @@ Value builtin_total_memory(Value *args, int num_args, ExecutionContext *ctx) {
     if (pages < 0 || page_size < 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "total_memory() failed: could not determine memory");
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
     return val_i64((int64_t)pages * (int64_t)page_size);
@@ -201,8 +194,7 @@ Value builtin_free_memory(Value *args, int num_args, ExecutionContext *ctx) {
     if (sysinfo(&info) != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "free_memory() failed: %s", strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
     // On Linux, freeram doesn't include buffers/cache, so we add them for "available" memory
@@ -219,16 +211,14 @@ Value builtin_free_memory(Value *args, int num_args, ExecutionContext *ctx) {
     if (host_page_size(host_port, &page_size) != KERN_SUCCESS) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "free_memory() failed: could not get page size");
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
     
     if (host_statistics64(host_port, HOST_VM_INFO64, (host_info64_t)&vm_stat, &host_size) != KERN_SUCCESS) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "free_memory() failed: could not get VM statistics");
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
     
@@ -247,8 +237,7 @@ Value builtin_free_memory(Value *args, int num_args, ExecutionContext *ctx) {
     
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "free_memory() failed: could not determine free memory");
-    ctx->exception_state.exception_value = val_string(error_msg);
-    ctx->exception_state.is_throwing = 1;
+    exception_set_value(ctx, val_string(error_msg));
     return val_null();
 #endif
 }
@@ -264,8 +253,7 @@ Value builtin_os_version(Value *args, int num_args, ExecutionContext *ctx) {
     if (uname(&info) != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "os_version() failed: %s", strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -283,8 +271,7 @@ Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx) {
     if (uname(&info) != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "os_name() failed: %s", strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -332,8 +319,7 @@ Value builtin_uptime(Value *args, int num_args, ExecutionContext *ctx) {
     if (sysinfo(&info) != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "uptime() failed: %s", strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
     return val_i64((int64_t)info.uptime);
@@ -345,8 +331,7 @@ Value builtin_uptime(Value *args, int num_args, ExecutionContext *ctx) {
     if (sysctl(mib, 2, &boottime, &len, NULL, 0) != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "uptime() failed: %s", strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
     time_t now = time(NULL);
@@ -355,8 +340,7 @@ Value builtin_uptime(Value *args, int num_args, ExecutionContext *ctx) {
     // Fallback: not supported
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "uptime() not supported on this platform");
-    ctx->exception_state.exception_value = val_string(error_msg);
-    ctx->exception_state.is_throwing = 1;
+    exception_set_value(ctx, val_string(error_msg));
     return val_null();
 #endif
 }

@@ -403,7 +403,7 @@ HmlValue hml_join(HmlValue task_val) {
     // Re-throw task exception in the joining thread (parity with interpreter)
     if (had_exception) {
         hml_release(&result);
-        hml_throw(exception);
+        hml_throw_take(exception);
     }
 
     return result;

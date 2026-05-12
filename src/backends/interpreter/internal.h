@@ -30,6 +30,11 @@ typedef struct {
     Value exception_value;
 } ExceptionState;
 
+// Exception state helpers. These functions take ownership of assigned values
+// and release any active exception that is being replaced or cleared.
+void exception_set_value(ExecutionContext *ctx, Value value);
+void exception_clear(ExecutionContext *ctx);
+
 // Defer stack - stores deferred expressions (function calls) to execute later
 typedef struct {
     Expr **calls;       // Array of deferred expressions

@@ -30,18 +30,24 @@ void hml_exception_pop(void) {
     }
 }
 
-void hml_throw(HmlValue exception_value) {
+void hml_throw_take(HmlValue exception_value) {
     if (!g_exception_stack || !g_exception_stack->is_active) {
         // Uncaught exception
         fprintf(stderr, "Uncaught exception: ");
         print_value_to(stderr, exception_value);
         fprintf(stderr, "\n");
+        hml_release(&exception_value);
         exit(1);
     }
 
+    hml_release(&g_exception_stack->exception_value);
     g_exception_stack->exception_value = exception_value;
-    hml_retain(&g_exception_stack->exception_value);
     longjmp(g_exception_stack->exception_buf, 1);
+}
+
+void hml_throw(HmlValue exception_value) {
+    hml_retain(&exception_value);
+    hml_throw_take(exception_value);
 }
 
 HmlValue hml_exception_get_value(void) {
@@ -62,7 +68,7 @@ void hml_runtime_error(const char *format, ...) {
     va_end(args);
 
     HmlValue error_msg = hml_val_string(buffer);
-    hml_throw(error_msg);
+    hml_throw_take(error_msg);
 }
 
 // ========== DEFER SUPPORT ==========

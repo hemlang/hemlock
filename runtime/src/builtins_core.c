@@ -169,6 +169,7 @@ HmlValue hml_get_args(void) {
     for (int i = 0; i < g_argc; i++) {
         HmlValue str = hml_val_string(g_argv[i]);
         hml_array_push(arr, str);
+        hml_release(&str);  // array_push retained its own reference
     }
 
     return arr;
@@ -821,13 +822,11 @@ HmlValue hml_parse_string_to_type(HmlValue val, HmlValueType target_type) {
 void hml_assert(HmlValue condition, HmlValue message) {
     if (!hml_to_bool(condition)) {
         // Throw catchable exception (match interpreter behavior)
-        HmlValue exception_msg;
         if (message.type == HML_VAL_STRING && message.as.as_string) {
-            exception_msg = message;
+            hml_throw(message);  // borrowed argument
         } else {
-            exception_msg = hml_val_string("assertion failed");
+            hml_throw_take(hml_val_string("assertion failed"));
         }
-        hml_throw(exception_msg);
     }
 }
 

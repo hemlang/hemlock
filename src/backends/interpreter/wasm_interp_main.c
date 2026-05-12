@@ -285,8 +285,7 @@ int hemlock_context_eval(int handle, const char *source) {
     wc->ctx->loop_state.is_breaking    = 0;
     wc->ctx->loop_state.is_continuing  = 0;
     if (wc->ctx->exception_state.is_throwing) {
-        VALUE_RELEASE(wc->ctx->exception_state.exception_value);
-        wc->ctx->exception_state.is_throwing = 0;
+        exception_clear(wc->ctx);
     }
 
     /* Parse */
@@ -340,8 +339,7 @@ int hemlock_context_eval(int handle, const char *source) {
 
             /* Clean up exception state so the context is reusable */
             call_stack_free(&wc->ctx->call_stack);
-            VALUE_RELEASE(wc->ctx->exception_state.exception_value);
-            wc->ctx->exception_state.is_throwing = 0;
+            exception_clear(wc->ctx);
             had_runtime_error = 1;
             break;
         }
@@ -423,8 +421,7 @@ const char *hemlock_context_get(int handle, const char *varname) {
 
     /* If the variable was not found, env_get sets the exception state */
     if (wc->ctx->exception_state.is_throwing) {
-        VALUE_RELEASE(wc->ctx->exception_state.exception_value);
-        wc->ctx->exception_state.is_throwing = 0;
+        exception_clear(wc->ctx);
         return NULL;
     }
 
@@ -439,8 +436,7 @@ const char *hemlock_context_get(int handle, const char *varname) {
 
     /* If serialization failed, clear the exception and return NULL */
     if (!json && wc->ctx->exception_state.is_throwing) {
-        VALUE_RELEASE(wc->ctx->exception_state.exception_value);
-        wc->ctx->exception_state.is_throwing = 0;
+        exception_clear(wc->ctx);
     }
 
     return json;  /* caller (JS) frees via Module._free() */
@@ -470,8 +466,7 @@ int hemlock_context_set(int handle, const char *varname, const char *json) {
     Value val = json_parse_value(&jp, wc->ctx);
 
     if (wc->ctx->exception_state.is_throwing) {
-        VALUE_RELEASE(wc->ctx->exception_state.exception_value);
-        wc->ctx->exception_state.is_throwing = 0;
+        exception_clear(wc->ctx);
         VALUE_RELEASE(val);
         return 1;
     }
@@ -485,14 +480,12 @@ int hemlock_context_set(int handle, const char *varname, const char *json) {
 
     if (wc->ctx->exception_state.is_throwing) {
         /* Variable not found — clear exception and define it instead */
-        VALUE_RELEASE(wc->ctx->exception_state.exception_value);
-        wc->ctx->exception_state.is_throwing = 0;
+        exception_clear(wc->ctx);
 
         env_define(wc->env, varname, val, 0 /* mutable */, wc->ctx);
 
         if (wc->ctx->exception_state.is_throwing) {
-            VALUE_RELEASE(wc->ctx->exception_state.exception_value);
-            wc->ctx->exception_state.is_throwing = 0;
+            exception_clear(wc->ctx);
             VALUE_RELEASE(val);
             return 1;
         }
@@ -660,8 +653,7 @@ int hemlock_run_script(int ctx_handle, int script_handle) {
     wc->ctx->loop_state.is_breaking    = 0;
     wc->ctx->loop_state.is_continuing  = 0;
     if (wc->ctx->exception_state.is_throwing) {
-        VALUE_RELEASE(wc->ctx->exception_state.exception_value);
-        wc->ctx->exception_state.is_throwing = 0;
+        exception_clear(wc->ctx);
     }
 
     /*
@@ -683,8 +675,7 @@ int hemlock_run_script(int ctx_handle, int script_handle) {
                                          get_current_source_code());
 
             call_stack_free(&wc->ctx->call_stack);
-            VALUE_RELEASE(wc->ctx->exception_state.exception_value);
-            wc->ctx->exception_state.is_throwing = 0;
+            exception_clear(wc->ctx);
             had_runtime_error = 1;
             break;
         }

@@ -324,14 +324,12 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
     lws_init_logging();
 
     if (num_args != 1) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_connect() expects 1 argument");
+        exception_set_value(ctx, val_string("__lws_ws_connect() expects 1 argument"));
         return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_connect() expects string URL");
+        exception_set_value(ctx, val_string("__lws_ws_connect() expects string URL"));
         return val_null();
     }
 
@@ -353,8 +351,7 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
         if (colon && (!slash || colon < slash)) {
             size_t host_len = colon - rest;
             if (host_len >= 256) {
-                ctx->exception_state.is_throwing = 1;
-                ctx->exception_state.exception_value = val_string("Host name too long");
+                exception_set_value(ctx, val_string("Host name too long"));
                 return val_null();
             }
             strncpy(host, rest, host_len);
@@ -367,8 +364,7 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
         } else if (slash) {
             size_t host_len = slash - rest;
             if (host_len >= 256) {
-                ctx->exception_state.is_throwing = 1;
-                ctx->exception_state.exception_value = val_string("Host name too long");
+                exception_set_value(ctx, val_string("Host name too long"));
                 return val_null();
             }
             strncpy(host, rest, host_len);
@@ -388,8 +384,7 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
         if (colon && (!slash || colon < slash)) {
             size_t host_len = colon - rest;
             if (host_len >= 256) {
-                ctx->exception_state.is_throwing = 1;
-                ctx->exception_state.exception_value = val_string("Host name too long");
+                exception_set_value(ctx, val_string("Host name too long"));
                 return val_null();
             }
             strncpy(host, rest, host_len);
@@ -402,8 +397,7 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
         } else if (slash) {
             size_t host_len = slash - rest;
             if (host_len >= 256) {
-                ctx->exception_state.is_throwing = 1;
-                ctx->exception_state.exception_value = val_string("Host name too long");
+                exception_set_value(ctx, val_string("Host name too long"));
                 return val_null();
             }
             strncpy(host, rest, host_len);
@@ -415,15 +409,13 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
             host[255] = '\0';
         }
     } else {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Invalid WebSocket URL (must start with ws:// or wss://)");
+        exception_set_value(ctx, val_string("Invalid WebSocket URL (must start with ws:// or wss://)"));
         return val_null();
     }
 
     ws_connection_t *conn = calloc(1, sizeof(ws_connection_t));
     if (!conn) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate connection");
+        exception_set_value(ctx, val_string("Failed to allocate connection"));
         return val_null();
     }
     conn->owns_memory = 1;
@@ -442,8 +434,7 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
     conn->context = lws_create_context(&info);
     if (!conn->context) {
         free(conn);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        exception_set_value(ctx, val_string("Failed to create libwebsockets context"));
         return val_null();
     }
 
@@ -469,8 +460,7 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
     if (!lws_client_connect_via_info(&connect_info)) {
         lws_context_destroy(conn->context);
         free(conn);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to connect");
+        exception_set_value(ctx, val_string("Failed to connect"));
         return val_null();
     }
 
@@ -483,8 +473,7 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
     if (conn->failed || conn->closed || !conn->established) {
         lws_context_destroy(conn->context);
         free(conn);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("WebSocket connection failed or timed out");
+        exception_set_value(ctx, val_string("WebSocket connection failed or timed out"));
         return val_null();
     }
 
@@ -499,8 +488,7 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
     if (conn_rc != 0) {
         lws_context_destroy(conn->context);
         free(conn);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create service thread");
+        exception_set_value(ctx, val_string("Failed to create service thread"));
         return val_null();
     }
 
@@ -508,8 +496,7 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
     WebSocketHandle *ws = calloc(1, sizeof(WebSocketHandle));
     if (!ws) {
         ws_connection_close(conn);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate WebSocket handle");
+        exception_set_value(ctx, val_string("Failed to allocate WebSocket handle"));
         return val_null();
     }
     ws->handle = conn;
@@ -517,8 +504,7 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
     if (!ws->url) {
         ws_connection_close(conn);
         free(ws);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate WebSocket URL");
+        exception_set_value(ctx, val_string("Failed to allocate WebSocket URL"));
         return val_null();
     }
     ws->host = NULL;
@@ -533,14 +519,12 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
 // __lws_ws_send_text(conn: websocket, text: string): i32
 Value builtin_lws_ws_send_text(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_send_text() expects 2 arguments");
+        exception_set_value(ctx, val_string("__lws_ws_send_text() expects 2 arguments"));
         return val_null();
     }
 
     if (args[1].type != VAL_STRING) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_send_text() expects string as second argument");
+        exception_set_value(ctx, val_string("__lws_ws_send_text() expects string as second argument"));
         return val_null();
     }
 
@@ -552,8 +536,7 @@ Value builtin_lws_ws_send_text(Value *args, int num_args, ExecutionContext *ctx)
     } else if (args[0].type == VAL_PTR) {
         conn = (ws_connection_t *)args[0].as.as_ptr;
     } else {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_send_text() expects websocket or ptr");
+        exception_set_value(ctx, val_string("__lws_ws_send_text() expects websocket or ptr"));
         return val_null();
     }
 
@@ -585,14 +568,12 @@ Value builtin_lws_ws_send_text(Value *args, int num_args, ExecutionContext *ctx)
 // Sends binary data over a WebSocket connection
 Value builtin_lws_ws_send_binary(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_send_binary() expects 2 arguments");
+        exception_set_value(ctx, val_string("__lws_ws_send_binary() expects 2 arguments"));
         return val_null();
     }
 
     if (args[1].type != VAL_BUFFER) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_send_binary() expects buffer as second argument");
+        exception_set_value(ctx, val_string("__lws_ws_send_binary() expects buffer as second argument"));
         return val_null();
     }
 
@@ -604,8 +585,7 @@ Value builtin_lws_ws_send_binary(Value *args, int num_args, ExecutionContext *ct
     } else if (args[0].type == VAL_PTR) {
         conn = (ws_connection_t *)args[0].as.as_ptr;
     } else {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_send_binary() expects websocket or ptr");
+        exception_set_value(ctx, val_string("__lws_ws_send_binary() expects websocket or ptr"));
         return val_null();
     }
 
@@ -636,8 +616,7 @@ Value builtin_lws_ws_send_binary(Value *args, int num_args, ExecutionContext *ct
 // __lws_ws_recv(conn: websocket, timeout_ms: i32): ptr
 Value builtin_lws_ws_recv(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_recv() expects 2 arguments");
+        exception_set_value(ctx, val_string("__lws_ws_recv() expects 2 arguments"));
         return val_null();
     }
 
@@ -649,8 +628,7 @@ Value builtin_lws_ws_recv(Value *args, int num_args, ExecutionContext *ctx) {
     } else if (args[0].type == VAL_PTR) {
         conn = (ws_connection_t *)args[0].as.as_ptr;
     } else {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_recv() expects websocket or ptr as first argument");
+        exception_set_value(ctx, val_string("__lws_ws_recv() expects websocket or ptr as first argument"));
         return val_null();
     }
     if (!conn || conn->closed) {
@@ -682,8 +660,7 @@ Value builtin_lws_ws_recv(Value *args, int num_args, ExecutionContext *ctx) {
 // __lws_msg_type(msg: ptr): i32
 Value builtin_lws_msg_type(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_msg_type() expects 1 argument");
+        exception_set_value(ctx, val_string("__lws_msg_type() expects 1 argument"));
         return val_null();
     }
 
@@ -702,8 +679,7 @@ Value builtin_lws_msg_type(Value *args, int num_args, ExecutionContext *ctx) {
 // __lws_msg_text(msg: ptr): string
 Value builtin_lws_msg_text(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_msg_text() expects 1 argument");
+        exception_set_value(ctx, val_string("__lws_msg_text() expects 1 argument"));
         return val_null();
     }
 
@@ -722,8 +698,7 @@ Value builtin_lws_msg_text(Value *args, int num_args, ExecutionContext *ctx) {
 // __lws_msg_len(msg: ptr): i32
 Value builtin_lws_msg_len(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_msg_len() expects 1 argument");
+        exception_set_value(ctx, val_string("__lws_msg_len() expects 1 argument"));
         return val_null();
     }
 
@@ -743,8 +718,7 @@ Value builtin_lws_msg_len(Value *args, int num_args, ExecutionContext *ctx) {
 // Returns the binary data from a WebSocket message as a buffer
 Value builtin_lws_msg_binary(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_msg_binary() expects 1 argument");
+        exception_set_value(ctx, val_string("__lws_msg_binary() expects 1 argument"));
         return val_null();
     }
 
@@ -759,8 +733,7 @@ Value builtin_lws_msg_binary(Value *args, int num_args, ExecutionContext *ctx) {
 
     Value buf_val = val_buffer((int)msg->len);
     if (buf_val.type == VAL_NULL) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_msg_binary() failed to allocate buffer");
+        exception_set_value(ctx, val_string("__lws_msg_binary() failed to allocate buffer"));
         return val_null();
     }
     memcpy(buf_val.as.as_buffer->data, msg->data, msg->len);
@@ -770,8 +743,7 @@ Value builtin_lws_msg_binary(Value *args, int num_args, ExecutionContext *ctx) {
 // __lws_msg_free(msg: ptr): null
 Value builtin_lws_msg_free(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_msg_free() expects 1 argument");
+        exception_set_value(ctx, val_string("__lws_msg_free() expects 1 argument"));
         return val_null();
     }
 
@@ -791,8 +763,7 @@ Value builtin_lws_msg_free(Value *args, int num_args, ExecutionContext *ctx) {
 // __lws_ws_close(conn: websocket): null
 Value builtin_lws_ws_close(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_close() expects 1 argument");
+        exception_set_value(ctx, val_string("__lws_ws_close() expects 1 argument"));
         return val_null();
     }
 
@@ -815,8 +786,7 @@ Value builtin_lws_ws_close(Value *args, int num_args, ExecutionContext *ctx) {
 // __lws_ws_is_closed(conn: websocket): i32
 Value builtin_lws_ws_is_closed(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_is_closed() expects 1 argument");
+        exception_set_value(ctx, val_string("__lws_ws_is_closed() expects 1 argument"));
         return val_null();
     }
 
@@ -845,14 +815,12 @@ Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *
     lws_init_logging();
 
     if (num_args != 2) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_server_create() expects 2 arguments");
+        exception_set_value(ctx, val_string("__lws_ws_server_create() expects 2 arguments"));
         return val_null();
     }
 
     if (args[0].type != VAL_STRING) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_server_create() expects string host");
+        exception_set_value(ctx, val_string("__lws_ws_server_create() expects string host"));
         return val_null();
     }
 
@@ -861,8 +829,7 @@ Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *
 
     ws_server_t *server = calloc(1, sizeof(ws_server_t));
     if (!server) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate server");
+        exception_set_value(ctx, val_string("Failed to allocate server"));
         return val_null();
     }
 
@@ -886,8 +853,7 @@ Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *
     if (!server->context) {
         pthread_mutex_destroy(&server->pending_mutex);
         free(server);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create server context");
+        exception_set_value(ctx, val_string("Failed to create server context"));
         return val_null();
     }
 
@@ -901,8 +867,7 @@ Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *
         lws_context_destroy(server->context);
         pthread_mutex_destroy(&server->pending_mutex);
         free(server);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create service thread");
+        exception_set_value(ctx, val_string("Failed to create service thread"));
         return val_null();
     }
 
@@ -910,8 +875,7 @@ Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *
     WebSocketHandle *ws = calloc(1, sizeof(WebSocketHandle));
     if (!ws) {
         ws_server_close_internal(server);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate WebSocket server handle");
+        exception_set_value(ctx, val_string("Failed to allocate WebSocket server handle"));
         return val_null();
     }
     ws->handle = server;
@@ -920,8 +884,7 @@ Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *
     if (!ws->host) {
         ws_server_close_internal(server);
         free(ws);
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate WebSocket host string");
+        exception_set_value(ctx, val_string("Failed to allocate WebSocket host string"));
         return val_null();
     }
     ws->port = port;
@@ -935,8 +898,7 @@ Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *
 // __lws_ws_server_accept(server: websocket, timeout_ms: i32): websocket
 Value builtin_lws_ws_server_accept(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_server_accept() expects 2 arguments");
+        exception_set_value(ctx, val_string("__lws_ws_server_accept() expects 2 arguments"));
         return val_null();
     }
 
@@ -952,8 +914,7 @@ Value builtin_lws_ws_server_accept(Value *args, int num_args, ExecutionContext *
     } else if (args[0].type == VAL_PTR) {
         server = (ws_server_t *)args[0].as.as_ptr;
     } else {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_server_accept() expects websocket server");
+        exception_set_value(ctx, val_string("__lws_ws_server_accept() expects websocket server"));
         return val_null();
     }
 
@@ -1019,8 +980,7 @@ Value builtin_lws_ws_server_accept(Value *args, int num_args, ExecutionContext *
 // __lws_ws_server_close(server: websocket): null
 Value builtin_lws_ws_server_close(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_ws_server_close() expects 1 argument");
+        exception_set_value(ctx, val_string("__lws_ws_server_close() expects 1 argument"));
         return val_null();
     }
 

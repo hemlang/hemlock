@@ -183,10 +183,9 @@ static FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
     // SECURITY: Validate library path before loading
     const char *validation_error = validate_ffi_library_path(path);
     if (validation_error) {
-        ctx->exception_state.is_throwing = 1;
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "FFI security error: %s (path: %s)", validation_error, path);
-        ctx->exception_state.exception_value = val_string(error_msg);
+        exception_set_value(ctx, val_string(error_msg));
         return NULL;
     }
 
@@ -231,10 +230,9 @@ static FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
 #endif
     if (handle == NULL) {
         pthread_mutex_unlock(&ffi_cache_mutex);
-        ctx->exception_state.is_throwing = 1;
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to load library '%s': %s", path, dlerror());
-        ctx->exception_state.exception_value = val_string(error_msg);
+        exception_set_value(ctx, val_string(error_msg));
         return NULL;
     }
 
@@ -251,8 +249,7 @@ static FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
             free(lib->path);
             free(lib);
             pthread_mutex_unlock(&ffi_cache_mutex);
-            ctx->exception_state.is_throwing = 1;
-            ctx->exception_state.exception_value = val_string("FFI library cache capacity overflow");
+            exception_set_value(ctx, val_string("FFI library cache capacity overflow"));
             return NULL;
         }
         FFILibrary **new_libraries = realloc(g_ffi_state.libraries, sizeof(FFILibrary*) * new_capacity);
@@ -260,8 +257,7 @@ static FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
             free(lib->path);
             free(lib);
             pthread_mutex_unlock(&ffi_cache_mutex);
-            ctx->exception_state.is_throwing = 1;
-            ctx->exception_state.exception_value = val_string("Failed to expand FFI library cache");
+            exception_set_value(ctx, val_string("Failed to expand FFI library cache"));
             return NULL;
         }
         g_ffi_state.libraries = new_libraries;
@@ -457,8 +453,7 @@ FFIStructType* ffi_register_struct(const char *name, char **field_names,
 // Returns pointer to allocated struct memory (caller must free)
 static void* ffi_object_to_struct(Value obj, FFIStructType *struct_type, ExecutionContext *ctx) {
     if (obj.type != VAL_OBJECT || !obj.as.as_object) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("FFI struct conversion requires an object");
+        exception_set_value(ctx, val_string("FFI struct conversion requires an object"));
         return NULL;
     }
 
@@ -472,11 +467,10 @@ static void* ffi_object_to_struct(Value obj, FFIStructType *struct_type, Executi
         // Look up field in object
         int field_idx = object_lookup_field(o, field->name);
         if (field_idx < 0) {
-            ctx->exception_state.is_throwing = 1;
             char err[256];
             snprintf(err, sizeof(err), "FFI struct '%s' missing required field '%s'",
                      struct_type->name, field->name);
-            ctx->exception_state.exception_value = val_string(err);
+            exception_set_value(ctx, val_string(err));
             free(struct_mem);
             return NULL;
         }
@@ -893,10 +887,9 @@ static FFIFunction* ffi_declare_function(
     );
 
     if (status != FFI_OK) {
-        ctx->exception_state.is_throwing = 1;
         char err[512];
         snprintf(err, sizeof(err), "Failed to prepare FFI call interface for '%s'", name);
-        ctx->exception_state.exception_value = val_string(err);
+        exception_set_value(ctx, val_string(err));
         free(func->arg_types);
         free(func->name);
         free(func);
@@ -931,23 +924,21 @@ Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionC
         func->func_ptr = dlsym(func->lib_handle, func->name);
         char *error_msg = dlerror();
         if (error_msg != NULL || func->func_ptr == NULL) {
-            ctx->exception_state.is_throwing = 1;
             char err[512];
             snprintf(err, sizeof(err), "FFI function '%s' not found in '%s'%s%s",
                      func->name, func->lib_path,
                      error_msg ? ": " : "", error_msg ? error_msg : "");
-            ctx->exception_state.exception_value = val_string(err);
+            exception_set_value(ctx, val_string(err));
             return val_null();
         }
     }
 
     // Validate argument count
     if (num_args != func->num_params) {
-        ctx->exception_state.is_throwing = 1;
         char err[256];
         snprintf(err, sizeof(err), "FFI function '%s' expects %d arguments, got %d",
                  func->name, func->num_params, num_args);
-        ctx->exception_state.exception_value = val_string(err);
+        exception_set_value(ctx, val_string(err));
         return val_null();
     }
 
@@ -1208,8 +1199,7 @@ static void ffi_callback_handler(ffi_cif *cif, void *ret, void **args, void *use
 FFICallback* ffi_create_callback(Function *fn, Type **param_types, int num_params, Type *return_type, ExecutionContext *ctx) {
     FFICallback *cb = malloc(sizeof(FFICallback));
     if (!cb) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate FFI callback");
+        exception_set_value(ctx, val_string("Failed to allocate FFI callback"));
         return NULL;
     }
 
@@ -1241,8 +1231,7 @@ FFICallback* ffi_create_callback(Function *fn, Type **param_types, int num_param
 
     ffi_status status = ffi_prep_cif(cif, FFI_DEFAULT_ABI, num_params, ret_type, arg_types);
     if (status != FFI_OK) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to prepare FFI callback interface");
+        exception_set_value(ctx, val_string("Failed to prepare FFI callback interface"));
         function_release(fn);
         free(cb->hemlock_params);
         free(arg_types);
@@ -1255,8 +1244,7 @@ FFICallback* ffi_create_callback(Function *fn, Type **param_types, int num_param
     void *code_ptr;
     ffi_closure *closure = ffi_closure_alloc(sizeof(ffi_closure), &code_ptr);
     if (!closure) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to allocate FFI closure");
+        exception_set_value(ctx, val_string("Failed to allocate FFI closure"));
         function_release(fn);
         free(cb->hemlock_params);
         free(arg_types);
@@ -1271,8 +1259,7 @@ FFICallback* ffi_create_callback(Function *fn, Type **param_types, int num_param
     // Prepare the closure with our handler
     status = ffi_prep_closure_loc(closure, cif, ffi_callback_handler, cb, code_ptr);
     if (status != FFI_OK) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to prepare FFI closure");
+        exception_set_value(ctx, val_string("Failed to prepare FFI closure"));
         ffi_closure_free(closure);
         function_release(fn);
         free(cb->hemlock_params);
@@ -1296,8 +1283,7 @@ FFICallback* ffi_create_callback(Function *fn, Type **param_types, int num_param
             free(arg_types);
             free(cif);
             free(cb);
-            ctx->exception_state.is_throwing = 1;
-            ctx->exception_state.exception_value = val_string("FFI callback cache capacity overflow");
+            exception_set_value(ctx, val_string("FFI callback cache capacity overflow"));
             return NULL;
         }
         FFICallback **new_callbacks = realloc(g_callback_state.callbacks, sizeof(FFICallback*) * new_capacity);
@@ -1309,8 +1295,7 @@ FFICallback* ffi_create_callback(Function *fn, Type **param_types, int num_param
             free(arg_types);
             free(cif);
             free(cb);
-            ctx->exception_state.is_throwing = 1;
-            ctx->exception_state.exception_value = val_string("Failed to expand FFI callback cache");
+            exception_set_value(ctx, val_string("Failed to expand FFI callback cache"));
             return NULL;
         }
         g_callback_state.callbacks = new_callbacks;
@@ -1543,8 +1528,7 @@ void execute_extern_fn(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
     pthread_mutex_unlock(&ffi_cache_mutex);
 
     if (current_lib == NULL) {
-        ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("No library imported before extern declaration");
+        exception_set_value(ctx, val_string("No library imported before extern declaration"));
         return;
     }
 

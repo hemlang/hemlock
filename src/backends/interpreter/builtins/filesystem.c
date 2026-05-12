@@ -63,8 +63,7 @@ Value builtin_read_file(Value *args, int num_args, ExecutionContext *ctx) {
             snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
         }
         free(cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -74,8 +73,7 @@ Value builtin_read_file(Value *args, int num_args, ExecutionContext *ctx) {
         snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
         close(fd);
         free(cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -154,8 +152,7 @@ Value builtin_write_file(Value *args, int num_args, ExecutionContext *ctx) {
             snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
         }
         free(cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -166,8 +163,7 @@ Value builtin_write_file(Value *args, int num_args, ExecutionContext *ctx) {
         snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
         close(fd);
         free(cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -228,8 +224,7 @@ Value builtin_append_file(Value *args, int num_args, ExecutionContext *ctx) {
             snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
         }
         free(cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -239,8 +234,7 @@ Value builtin_append_file(Value *args, int num_args, ExecutionContext *ctx) {
         snprintf(error_msg, sizeof(error_msg), "Failed to open '%s': %s", cpath, strerror(errno));
         close(fd);
         free(cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -274,8 +268,7 @@ Value builtin_remove_file(Value *args, int num_args, ExecutionContext *ctx) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to remove file '%s': %s", cpath, strerror(errno));
         free(cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -319,8 +312,7 @@ Value builtin_rename(Value *args, int num_args, ExecutionContext *ctx) {
         snprintf(error_msg, sizeof(error_msg), "Failed to rename '%s' to '%s': %s", old_cpath, new_cpath, strerror(errno));
         free(old_cpath);
         free(new_cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -371,8 +363,7 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx) {
         }
         free(src_cpath);
         free(dest_cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -383,8 +374,7 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx) {
         close(src_fd);
         free(src_cpath);
         free(dest_cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -400,8 +390,7 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx) {
         fclose(src_fp);
         free(src_cpath);
         free(dest_cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -413,8 +402,7 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx) {
         close(dest_fd);
         free(src_cpath);
         free(dest_cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -429,8 +417,7 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx) {
             fclose(dest_fp);
             free(src_cpath);
             free(dest_cpath);
-            ctx->exception_state.exception_value = val_string(error_msg);
-            ctx->exception_state.is_throwing = 1;
+            exception_set_value(ctx, val_string(error_msg));
             return val_null();
         }
     }
@@ -442,8 +429,7 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx) {
         fclose(dest_fp);
         free(src_cpath);
         free(dest_cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -539,8 +525,7 @@ Value builtin_file_stat(Value *args, int num_args, ExecutionContext *ctx) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to stat '%s': %s", cpath, strerror(errno));
         free(cpath);
-        ctx->exception_state.exception_value = val_string(error_msg);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -633,9 +618,7 @@ Value builtin_open_fd(Value *args, int num_args, ExecutionContext *ctx) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to open '%s' with mode '%s': %s",
                  path, mode, strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        value_retain(ctx->exception_state.exception_value);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 
@@ -666,9 +649,7 @@ Value builtin_fileno(Value *args, int num_args, ExecutionContext *ctx) {
     if (fd < 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "fileno() failed: %s", strerror(errno));
-        ctx->exception_state.exception_value = val_string(error_msg);
-        value_retain(ctx->exception_state.exception_value);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(error_msg));
         return val_null();
     }
 

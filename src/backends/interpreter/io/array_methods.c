@@ -11,9 +11,7 @@ static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...)
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
 
-    ctx->exception_state.exception_value = val_string(buffer);
-    value_retain(ctx->exception_state.exception_value);
-    ctx->exception_state.is_throwing = 1;
+    exception_set_value(ctx, val_string(buffer));
     return val_null();
 }
 
@@ -31,9 +29,7 @@ static Value throw_runtime_error_at(ExecutionContext *ctx, int line, const char 
         snprintf(full_buffer, sizeof(full_buffer), "%s", buffer);
     }
 
-    ctx->exception_state.exception_value = val_string(full_buffer);
-    value_retain(ctx->exception_state.exception_value);
-    ctx->exception_state.is_throwing = 1;
+    exception_set_value(ctx, val_string(full_buffer));
     return val_null();
 }
 

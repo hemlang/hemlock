@@ -39,7 +39,7 @@ HmlValue hml_read_line(void) {
 
 HmlValue hml_open(HmlValue path, HmlValue mode) {
     if (path.type != HML_VAL_STRING) {
-        hml_throw(hml_val_string("open() expects string path"));
+        hml_throw_take(hml_val_string("open() expects string path"));
     }
 
     const char *path_str = path.as.as_string->data;
@@ -66,7 +66,7 @@ HmlValue hml_open(HmlValue path, HmlValue mode) {
         char err_buf[512];
         snprintf(err_buf, sizeof(err_buf), "Failed to open '%s' with mode '%s': %s",
                 path_str, mode_str, strerror(errno));
-        hml_throw(hml_val_string(err_buf));
+        hml_throw_take(hml_val_string(err_buf));
     }
 
     HmlFileHandle *fh = malloc(sizeof(HmlFileHandle));
@@ -99,7 +99,7 @@ static int hml_mode_to_open_flags(const char *mode) {
 // open_fd(path, mode?) -> i32: open a file and return its raw POSIX fd.
 HmlValue hml_open_fd(HmlValue path, HmlValue mode) {
     if (path.type != HML_VAL_STRING) {
-        hml_throw(hml_val_string("open_fd() expects string path"));
+        hml_throw_take(hml_val_string("open_fd() expects string path"));
     }
 
     const char *path_str = path.as.as_string->data;
@@ -113,7 +113,7 @@ HmlValue hml_open_fd(HmlValue path, HmlValue mode) {
         char err_buf[256];
         snprintf(err_buf, sizeof(err_buf),
                  "open_fd() unsupported mode '%s' (use r, w, a, r+, w+, a+)", mode_str);
-        hml_throw(hml_val_string(err_buf));
+        hml_throw_take(hml_val_string(err_buf));
     }
 
     int is_write = (strchr(mode_str, 'w') != NULL || strchr(mode_str, 'a') != NULL ||
@@ -131,7 +131,7 @@ HmlValue hml_open_fd(HmlValue path, HmlValue mode) {
         char err_buf[512];
         snprintf(err_buf, sizeof(err_buf), "Failed to open '%s' with mode '%s': %s",
                  path_str, mode_str, strerror(errno));
-        hml_throw(hml_val_string(err_buf));
+        hml_throw_take(hml_val_string(err_buf));
     }
 
     return hml_val_i32(fd);
@@ -141,7 +141,7 @@ HmlValue hml_open_fd(HmlValue path, HmlValue mode) {
 // file retains ownership of the fd; closing the file closes the fd.
 HmlValue hml_fileno(HmlValue file) {
     if (file.type != HML_VAL_FILE || !file.as.as_file) {
-        hml_throw(hml_val_string("fileno() expects file object"));
+        hml_throw_take(hml_val_string("fileno() expects file object"));
     }
 
     HmlFileHandle *fh = file.as.as_file;
@@ -149,14 +149,14 @@ HmlValue hml_fileno(HmlValue file) {
         char err_buf[512];
         snprintf(err_buf, sizeof(err_buf), "fileno() called on closed file '%s'",
                  fh->path ? fh->path : "<unknown>");
-        hml_throw(hml_val_string(err_buf));
+        hml_throw_take(hml_val_string(err_buf));
     }
 
     int fd = fileno((FILE*)fh->fp);
     if (fd < 0) {
         char err_buf[256];
         snprintf(err_buf, sizeof(err_buf), "fileno() failed: %s", strerror(errno));
-        hml_throw(hml_val_string(err_buf));
+        hml_throw_take(hml_val_string(err_buf));
     }
 
     return hml_val_i32(fd);
@@ -164,14 +164,14 @@ HmlValue hml_fileno(HmlValue file) {
 
 HmlValue hml_file_read(HmlValue file, HmlValue size) {
     if (file.type != HML_VAL_FILE) {
-        hml_throw(hml_val_string("read() expects file object"));
+        hml_throw_take(hml_val_string("read() expects file object"));
     }
 
     HmlFileHandle *fh = file.as.as_file;
     if (fh->closed) {
         char _err_buf[512];
         snprintf(_err_buf, sizeof(_err_buf), "Cannot read from closed file '%s'", fh->path);
-        hml_throw(hml_val_string(_err_buf));
+        hml_throw_take(hml_val_string(_err_buf));
     }
 
     int32_t read_size = 0;
@@ -195,14 +195,14 @@ HmlValue hml_file_read(HmlValue file, HmlValue size) {
 
 HmlValue hml_file_read_all(HmlValue file) {
     if (file.type != HML_VAL_FILE) {
-        hml_throw(hml_val_string("read() expects file object"));
+        hml_throw_take(hml_val_string("read() expects file object"));
     }
 
     HmlFileHandle *fh = file.as.as_file;
     if (fh->closed) {
         char _err_buf[512];
         snprintf(_err_buf, sizeof(_err_buf), "Cannot read from closed file '%s'", fh->path);
-        hml_throw(hml_val_string(_err_buf));
+        hml_throw_take(hml_val_string(_err_buf));
     }
 
     FILE *fp = (FILE*)fh->fp;
@@ -224,7 +224,7 @@ HmlValue hml_file_read_all(HmlValue file) {
     if (size > 0) {
         char *buffer = malloc(size + 1);
         if (!buffer) {
-            hml_throw(hml_val_string("Memory allocation failed"));
+            hml_throw_take(hml_val_string("Memory allocation failed"));
         }
         size_t bytes_read = fread(buffer, 1, size, fp);
         buffer[bytes_read] = '\0';
@@ -238,7 +238,7 @@ HmlValue hml_file_read_all(HmlValue file) {
         size_t total_read = 0;
         char *buffer = malloc(capacity);
         if (!buffer) {
-            hml_throw(hml_val_string("Memory allocation failed"));
+            hml_throw_take(hml_val_string("Memory allocation failed"));
         }
 
         while (1) {
@@ -248,7 +248,7 @@ HmlValue hml_file_read_all(HmlValue file) {
                 char *new_buffer = realloc(buffer, capacity);
                 if (!new_buffer) {
                     free(buffer);
-                    hml_throw(hml_val_string("Memory allocation failed"));
+                    hml_throw_take(hml_val_string("Memory allocation failed"));
                 }
                 buffer = new_buffer;
             }
@@ -262,7 +262,7 @@ HmlValue hml_file_read_all(HmlValue file) {
                     free(buffer);
                     char _err_buf[512];
                     snprintf(_err_buf, sizeof(_err_buf), "Read error on file '%s'", fh->path);
-                    hml_throw(hml_val_string(_err_buf));
+                    hml_throw_take(hml_val_string(_err_buf));
                 }
                 break;  // EOF reached
             }
@@ -278,14 +278,14 @@ HmlValue hml_file_read_all(HmlValue file) {
 
 HmlValue hml_file_write(HmlValue file, HmlValue data) {
     if (file.type != HML_VAL_FILE) {
-        hml_throw(hml_val_string("write() expects file object"));
+        hml_throw_take(hml_val_string("write() expects file object"));
     }
 
     HmlFileHandle *fh = file.as.as_file;
     if (fh->closed) {
         char _err_buf[512];
         snprintf(_err_buf, sizeof(_err_buf), "Cannot write to closed file '%s'", fh->path);
-        hml_throw(hml_val_string(_err_buf));
+        hml_throw_take(hml_val_string(_err_buf));
     }
 
     const char *str = "";
@@ -299,14 +299,14 @@ HmlValue hml_file_write(HmlValue file, HmlValue data) {
 
 HmlValue hml_file_seek(HmlValue file, HmlValue position) {
     if (file.type != HML_VAL_FILE) {
-        hml_throw(hml_val_string("seek() expects file object"));
+        hml_throw_take(hml_val_string("seek() expects file object"));
     }
 
     HmlFileHandle *fh = file.as.as_file;
     if (fh->closed) {
         char _err_buf[512];
         snprintf(_err_buf, sizeof(_err_buf), "Cannot seek in closed file '%s'", fh->path);
-        hml_throw(hml_val_string(_err_buf));
+        hml_throw_take(hml_val_string(_err_buf));
     }
 
     long pos = 0;
@@ -322,14 +322,14 @@ HmlValue hml_file_seek(HmlValue file, HmlValue position) {
 
 HmlValue hml_file_tell(HmlValue file) {
     if (file.type != HML_VAL_FILE) {
-        hml_throw(hml_val_string("tell() expects file object"));
+        hml_throw_take(hml_val_string("tell() expects file object"));
     }
 
     HmlFileHandle *fh = file.as.as_file;
     if (fh->closed) {
         char _err_buf[512];
         snprintf(_err_buf, sizeof(_err_buf), "Cannot tell position in closed file '%s'", fh->path);
-        hml_throw(hml_val_string(_err_buf));
+        hml_throw_take(hml_val_string(_err_buf));
     }
 
     return hml_val_i32((int32_t)ftell((FILE*)fh->fp));
@@ -349,14 +349,14 @@ void hml_file_close(HmlValue file) {
 
 HmlValue hml_file_read_bytes(HmlValue file, HmlValue size) {
     if (file.type != HML_VAL_FILE) {
-        hml_throw(hml_val_string("read_bytes() expects file object"));
+        hml_throw_take(hml_val_string("read_bytes() expects file object"));
     }
 
     HmlFileHandle *fh = file.as.as_file;
     if (fh->closed) {
         char _err_buf[512];
         snprintf(_err_buf, sizeof(_err_buf), "Cannot read from closed file '%s'", fh->path);
-        hml_throw(hml_val_string(_err_buf));
+        hml_throw_take(hml_val_string(_err_buf));
     }
 
     int32_t read_size = 0;
@@ -365,7 +365,7 @@ HmlValue hml_file_read_bytes(HmlValue file, HmlValue size) {
     } else if (size.type == HML_VAL_I64) {
         read_size = (int32_t)size.as.as_i64;
     } else {
-        hml_throw(hml_val_string("read_bytes() expects integer size argument"));
+        hml_throw_take(hml_val_string("read_bytes() expects integer size argument"));
     }
 
     if (read_size <= 0) {
@@ -382,7 +382,7 @@ HmlValue hml_file_read_bytes(HmlValue file, HmlValue size) {
 
     void *data = malloc(read_size);
     if (!data) {
-        hml_throw(hml_val_string("Memory allocation failed in read_bytes()"));
+        hml_throw_take(hml_val_string("Memory allocation failed in read_bytes()"));
     }
 
     size_t bytes_read = fread(data, 1, read_size, (FILE*)fh->fp);
@@ -391,7 +391,7 @@ HmlValue hml_file_read_bytes(HmlValue file, HmlValue size) {
         free(data);
         char _err_buf[512];
         snprintf(_err_buf, sizeof(_err_buf), "Read error on file '%s': %s", fh->path, strerror(errno));
-        hml_throw(hml_val_string(_err_buf));
+        hml_throw_take(hml_val_string(_err_buf));
     }
 
     HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
@@ -407,25 +407,25 @@ HmlValue hml_file_read_bytes(HmlValue file, HmlValue size) {
 
 HmlValue hml_file_write_bytes(HmlValue file, HmlValue data) {
     if (file.type != HML_VAL_FILE) {
-        hml_throw(hml_val_string("write_bytes() expects file object"));
+        hml_throw_take(hml_val_string("write_bytes() expects file object"));
     }
 
     HmlFileHandle *fh = file.as.as_file;
     if (fh->closed) {
         char _err_buf[512];
         snprintf(_err_buf, sizeof(_err_buf), "Cannot write to closed file '%s'", fh->path);
-        hml_throw(hml_val_string(_err_buf));
+        hml_throw_take(hml_val_string(_err_buf));
     }
 
     // Check if file is writable
     if (fh->mode[0] == 'r' && strchr(fh->mode, '+') == NULL) {
         char _err_buf[512];
         snprintf(_err_buf, sizeof(_err_buf), "Cannot write to file '%s' opened in read-only mode", fh->path);
-        hml_throw(hml_val_string(_err_buf));
+        hml_throw_take(hml_val_string(_err_buf));
     }
 
     if (data.type != HML_VAL_BUFFER || !data.as.as_buffer) {
-        hml_throw(hml_val_string("write_bytes() expects buffer argument"));
+        hml_throw_take(hml_val_string("write_bytes() expects buffer argument"));
     }
 
     HmlBuffer *buf = data.as.as_buffer;
@@ -434,7 +434,7 @@ HmlValue hml_file_write_bytes(HmlValue file, HmlValue data) {
     if (ferror((FILE*)fh->fp)) {
         char _err_buf[512];
         snprintf(_err_buf, sizeof(_err_buf), "Write error on file '%s': %s", fh->path, strerror(errno));
-        hml_throw(hml_val_string(_err_buf));
+        hml_throw_take(hml_val_string(_err_buf));
     }
 
     return hml_val_i32((int32_t)written);
@@ -965,7 +965,7 @@ HmlValue hml_is_dir(HmlValue path) {
 
 HmlValue hml_file_stat(HmlValue path) {
     if (path.type != HML_VAL_STRING || !path.as.as_string) {
-        hml_throw(hml_val_string("file_stat() requires a string path"));
+        hml_throw_take(hml_val_string("file_stat() requires a string path"));
     }
 
     struct stat st;
@@ -973,7 +973,7 @@ HmlValue hml_file_stat(HmlValue path) {
         char err_buf[512];
         snprintf(err_buf, sizeof(err_buf), "Failed to stat '%s': %s",
             path.as.as_string->data, strerror(errno));
-        hml_throw(hml_val_string(err_buf));
+        hml_throw_take(hml_val_string(err_buf));
     }
 
     HmlValue obj = hml_val_object();

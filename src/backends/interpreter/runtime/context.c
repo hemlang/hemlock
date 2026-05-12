@@ -205,8 +205,30 @@ ExecutionContext* exec_context_new(void) {
     return ctx;
 }
 
+void exception_clear(ExecutionContext *ctx) {
+    if (!ctx) return;
+
+    if (ctx->exception_state.is_throwing) {
+        VALUE_RELEASE(ctx->exception_state.exception_value);
+    }
+    ctx->exception_state.exception_value = val_null();
+    ctx->exception_state.is_throwing = 0;
+}
+
+void exception_set_value(ExecutionContext *ctx, Value value) {
+    if (!ctx) {
+        VALUE_RELEASE(value);
+        return;
+    }
+
+    exception_clear(ctx);
+    ctx->exception_state.exception_value = value;
+    ctx->exception_state.is_throwing = 1;
+}
+
 void exec_context_free(ExecutionContext *ctx) {
     if (ctx) {
+        exception_clear(ctx);
         call_stack_free(&ctx->call_stack);
         defer_stack_free(&ctx->defer_stack);
         if (ctx->sandbox_root) {
@@ -449,6 +471,7 @@ void defer_stack_execute(DeferStack *stack, ExecutionContext *ctx) {
 
         // Temporarily clear exception state to allow defer to run
         ctx->exception_state.is_throwing = 0;
+        ctx->exception_state.exception_value = val_null();
 
         // Execute the deferred call
         eval_expr(stack->calls[i], stack->envs[i], ctx);
@@ -458,6 +481,8 @@ void defer_stack_execute(DeferStack *stack, ExecutionContext *ctx) {
         if (!ctx->exception_state.is_throwing) {
             ctx->exception_state.is_throwing = was_throwing;
             ctx->exception_state.exception_value = saved_exception;
+        } else if (was_throwing) {
+            VALUE_RELEASE(saved_exception);
         }
 
         // Clean up the deferred expression and release environment
@@ -499,13 +524,11 @@ void runtime_error(ExecutionContext *ctx, const char *format, ...) {
         if (ctx->current_line > 0) {
             const char *file = ctx->current_source_file ? ctx->current_source_file : get_current_source_file();
             char *formatted = format_error_with_context(file, ctx->current_line, 0, buffer);
-            ctx->exception_state.exception_value = val_string(formatted);
+            exception_set_value(ctx, val_string(formatted));
             free(formatted);
         } else {
-            ctx->exception_state.exception_value = val_string(buffer);
+            exception_set_value(ctx, val_string(buffer));
         }
-        value_retain(ctx->exception_state.exception_value);
-        ctx->exception_state.is_throwing = 1;
     } else {
         // No context - print error and exit
         fprintf(stderr, "Runtime error: %s\n", buffer);
@@ -531,9 +554,7 @@ void runtime_error_at(ExecutionContext *ctx, int line, const char *format, ...) 
 
     // Set exception state for catchable errors
     if (ctx) {
-        ctx->exception_state.exception_value = val_string(full_buffer);
-        value_retain(ctx->exception_state.exception_value);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(full_buffer));
     } else {
         // No context - print error and exit
         fprintf(stderr, "Runtime error: %s\n", full_buffer);
@@ -554,9 +575,7 @@ void runtime_error_with_context(ExecutionContext *ctx, const char *file, int lin
 
     // Set exception state for catchable errors
     if (ctx) {
-        ctx->exception_state.exception_value = val_string(formatted);
-        value_retain(ctx->exception_state.exception_value);
-        ctx->exception_state.is_throwing = 1;
+        exception_set_value(ctx, val_string(formatted));
     } else {
         // No context - print error and exit
         fprintf(stderr, "Runtime error: %s\n", formatted);

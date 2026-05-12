@@ -1,0 +1,24 @@
+// Test: compiled exception replacement in finally does not leak saved exceptions
+
+fn run_once(i) {
+    try {
+        throw "try exception " + i;
+    } finally {
+        throw "finally replacement " + i;
+    }
+}
+
+fn run() {
+    let i = 0;
+    while (i < 50000) {
+        try {
+            run_once(i);
+        } catch (e) {
+            // caught; exception storage should be released each iteration
+        }
+        i = i + 1;
+    }
+}
+
+run();
+print("ok");
