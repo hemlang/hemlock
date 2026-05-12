@@ -9,14 +9,15 @@
 #define HEMLOCK_VERSION_H
 
 #define HEMLOCK_VERSION_MAJOR 2
-#define HEMLOCK_VERSION_MINOR 2
-#define HEMLOCK_VERSION_PATCH 3
+#define HEMLOCK_VERSION_MINOR 3
+#define HEMLOCK_VERSION_PATCH 0
 
-#define HEMLOCK_VERSION "2.2.3"
+#define HEMLOCK_VERSION "2.3.0"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   2.3.0 - Streaming HTTP support in @stdlib/http (chunked / SSE): stream(), stream_get(), stream_post(), post_json_stream(), stream_sse(); compiler runtime now sends POST bodies for streaming requests and throws the same catchable errors as the interpreter (invalid ptr, bad URL, connection failure) for full interpreter/compiler parity
  *   2.2.3 - Patch release with runtime/compiler hardening: catchable socket connect/bind failures, correct /proc and /sys File.read() behavior, safer buffer memory builtins, optional-chain null-guard narrowing, string concatenation numeric regressions fixed, CLI help parsing fixed, and fs.make_dirs() added
  *   2.2.2 - Release prep with compiler/runtime/install hardening: catchable runtime file_stat() failures, typed-array fast-path assignment checks, non-default-prefix stdlib/runtime lookup fixes, and refreshed documentation audits
  *   2.2.1 - HTTP POST/PUT/PATCH/DELETE body fix: compiled binaries actually send Content-Type, Content-Length, and the body bytes (interpreter was already correct); libwebsockets startup banner suppressed by default in compiled binaries to match interpreter

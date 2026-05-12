@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-05-12
+
+### Added
+
+- **Streaming HTTP in `@stdlib/http`** — chunked / SSE-friendly streaming client built on the already-bundled libwebsockets. New exports:
+  - `stream(method, url, body, headers, timeout_ms)` returns an object with `read(timeout_ms)`, `close()`, `status_code`, `headers`, and `done`.
+  - `stream_get(url, headers, timeout_ms)` and `stream_post(url, body, headers, timeout_ms)` convenience wrappers.
+  - `post_json_stream(url, data, timeout_ms)` for streaming LLM-style JSON POSTs.
+  - `stream_sse(url, headers, timeout_ms)` returns a Server-Sent Events parser with `next_event(timeout_ms)`.
+- **Streaming HTTP builtins available to both backends** — `__lws_http_stream_start`, `__lws_http_stream_read`, `__lws_http_stream_status`, `__lws_http_stream_headers`, `__lws_http_stream_close` are now wired identically into the interpreter and compiler/runtime.
+
+### Fixed
+
+- **Streaming HTTP POST/PUT/PATCH bodies in compiled binaries** — the compiler runtime previously discarded the request body and content type, so compiled `stream_post()` / `post_json_stream()` calls sent an empty body. The runtime now attaches and writes the body via `LWS_CALLBACK_CLIENT_HTTP_WRITEABLE`, matching the interpreter.
+- **Interpreter/compiler parity for thrown errors in streaming HTTP** — the compiler runtime now throws the same catchable exceptions as the interpreter for invalid pointer arguments to `__lws_http_stream_read`, `__lws_http_stream_status`, and `__lws_http_stream_headers`, and for missing-libwebsockets builds. Previously the compiler silently returned `null`/`0`/`""`, diverging from interpreter behavior.
+- **Cleanup of streaming request body memory on connect/spawn failures** in the compiler runtime.
+
 ## [2.2.3] - 2026-05-12
 
 ### Added

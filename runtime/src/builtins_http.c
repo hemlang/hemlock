@@ -1291,6 +1291,11 @@ typedef struct {
     hml_http_stream_chunk_t *chunk_tail;
     pthread_mutex_t chunk_mutex;
     pthread_cond_t chunk_cond;
+    // Outgoing request body (for POST/PUT/PATCH/etc.)
+    char *post_body;
+    size_t post_body_len;
+    char *content_type;
+    int body_sent;
 } hml_http_stream_t;
 
 static void hml_http_stream_enqueue(hml_http_stream_t *stream, const char *data, size_t len) {
@@ -1335,8 +1340,54 @@ static int hml_http_stream_callback(struct lws *wsi, enum lws_callback_reasons r
                 memcpy(*p, accept, accept_len);
                 *p += accept_len;
             }
+
+            // If we have a request body, emit Content-Type / Content-Length
+            // and request a writable callback so we can send the body bytes.
+            if (stream && stream->post_body && stream->post_body_len > 0) {
+                const char *ct = (stream->content_type && stream->content_type[0])
+                                     ? stream->content_type
+                                     : "application/octet-stream";
+                char ct_line[256];
+                int ctn = snprintf(ct_line, sizeof(ct_line),
+                                   "Content-Type: %s\r\n", ct);
+                if (ctn > 0 && (end - *p) >= ctn) {
+                    memcpy(*p, ct_line, (size_t)ctn);
+                    *p += ctn;
+                }
+                char cl_line[64];
+                int cln = snprintf(cl_line, sizeof(cl_line),
+                                   "Content-Length: %zu\r\n",
+                                   stream->post_body_len);
+                if (cln > 0 && (end - *p) >= cln) {
+                    memcpy(*p, cl_line, (size_t)cln);
+                    *p += cln;
+                }
+                lws_client_http_body_pending(wsi, 1);
+                lws_callback_on_writable(wsi);
+            }
             break;
         }
+
+        case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+            if (stream && stream->post_body && stream->post_body_len > 0 && !stream->body_sent) {
+                size_t body_len = stream->post_body_len;
+                unsigned char *buf = malloc(LWS_PRE + body_len);
+                if (!buf) {
+                    stream->failed = 1;
+                    stream->complete = 1;
+                    pthread_mutex_lock(&stream->chunk_mutex);
+                    pthread_cond_signal(&stream->chunk_cond);
+                    pthread_mutex_unlock(&stream->chunk_mutex);
+                    return -1;
+                }
+                memcpy(buf + LWS_PRE, stream->post_body, body_len);
+                int n = lws_write(wsi, buf + LWS_PRE, body_len, LWS_WRITE_HTTP);
+                free(buf);
+                lws_client_http_body_pending(wsi, 0);
+                stream->body_sent = 1;
+                return n < 0 ? -1 : 0;
+            }
+            break;
 
         case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
             if (stream) {
@@ -1444,8 +1495,8 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
 
     const char *method = method_val.as.as_string->data;
     const char *url = url_val.as.as_string->data;
-    (void)body_val;
-    (void)content_type_val;
+    const char *post_body = (body_val.type == HML_VAL_STRING) ? body_val.as.as_string->data : "";
+    const char *content_type = (content_type_val.type == HML_VAL_STRING) ? content_type_val.as.as_string->data : "";
 
     int timeout_ms = 120000;
     if (timeout_val.type == HML_VAL_I32) timeout_ms = timeout_val.as.as_i32;
@@ -1464,6 +1515,31 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
     pthread_mutex_init(&stream->chunk_mutex, NULL);
     pthread_cond_init(&stream->chunk_cond, NULL);
 
+    // Attach outgoing request body (if any) so the callback can send it.
+    if (post_body && post_body[0] != '\0') {
+        size_t blen = strlen(post_body);
+        stream->post_body = malloc(blen + 1);
+        if (!stream->post_body) {
+            pthread_mutex_destroy(&stream->chunk_mutex);
+            pthread_cond_destroy(&stream->chunk_cond);
+            free(stream);
+            hml_runtime_error("Failed to allocate request body");
+        }
+        memcpy(stream->post_body, post_body, blen);
+        stream->post_body[blen] = '\0';
+        stream->post_body_len = blen;
+        if (content_type && content_type[0] != '\0') {
+            stream->content_type = strdup(content_type);
+            if (!stream->content_type) {
+                free(stream->post_body);
+                pthread_mutex_destroy(&stream->chunk_mutex);
+                pthread_cond_destroy(&stream->chunk_cond);
+                free(stream);
+                hml_runtime_error("Failed to allocate content_type");
+            }
+        }
+    }
+
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
     info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -1478,6 +1554,8 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
 
     stream->context = lws_create_context(&info);
     if (!stream->context) {
+        if (stream->post_body) free(stream->post_body);
+        if (stream->content_type) free(stream->content_type);
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
@@ -1504,6 +1582,8 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
 
     if (!lws_client_connect_via_info(&connect_info)) {
         lws_context_destroy(stream->context);
+        if (stream->post_body) free(stream->post_body);
+        if (stream->content_type) free(stream->content_type);
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
@@ -1520,6 +1600,8 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
     if (stream->failed || (!stream->established && wait_iters <= 0)) {
         lws_context_destroy(stream->context);
         if (stream->headers) free(stream->headers);
+        if (stream->post_body) free(stream->post_body);
+        if (stream->content_type) free(stream->content_type);
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
@@ -1530,6 +1612,8 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
     if (pthread_create(&stream->service_thread, NULL, hml_http_stream_service_thread, stream) != 0) {
         lws_context_destroy(stream->context);
         if (stream->headers) free(stream->headers);
+        if (stream->post_body) free(stream->post_body);
+        if (stream->content_type) free(stream->content_type);
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
@@ -1542,7 +1626,7 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
 // __lws_http_stream_read(stream, timeout_ms): string|null
 HmlValue hml_lws_http_stream_read(HmlValue stream_val, HmlValue timeout_val) {
     if (stream_val.type != HML_VAL_PTR) {
-        return hml_val_null();
+        hml_runtime_error("__lws_http_stream_read() expects ptr");
     }
     hml_http_stream_t *stream = (hml_http_stream_t *)stream_val.as.as_ptr;
     if (!stream) return hml_val_null();
@@ -1580,14 +1664,18 @@ HmlValue hml_lws_http_stream_read(HmlValue stream_val, HmlValue timeout_val) {
 
 // __lws_http_stream_status(stream): i32
 HmlValue hml_lws_http_stream_status(HmlValue stream_val) {
-    if (stream_val.type != HML_VAL_PTR) return hml_val_i32(0);
+    if (stream_val.type != HML_VAL_PTR) {
+        hml_runtime_error("__lws_http_stream_status() expects ptr");
+    }
     hml_http_stream_t *stream = (hml_http_stream_t *)stream_val.as.as_ptr;
     return hml_val_i32(stream ? stream->status_code : 0);
 }
 
 // __lws_http_stream_headers(stream): string
 HmlValue hml_lws_http_stream_headers(HmlValue stream_val) {
-    if (stream_val.type != HML_VAL_PTR) return hml_val_string("");
+    if (stream_val.type != HML_VAL_PTR) {
+        hml_runtime_error("__lws_http_stream_headers() expects ptr");
+    }
     hml_http_stream_t *stream = (hml_http_stream_t *)stream_val.as.as_ptr;
     if (!stream || !stream->headers) return hml_val_string("");
     return hml_val_string(stream->headers);
@@ -1618,6 +1706,8 @@ HmlValue hml_lws_http_stream_close(HmlValue stream_val) {
 
     if (stream->context) lws_context_destroy(stream->context);
     if (stream->headers) free(stream->headers);
+    if (stream->post_body) free(stream->post_body);
+    if (stream->content_type) free(stream->content_type);
     free(stream);
 
     return hml_val_null();
@@ -2685,7 +2775,7 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
 
 HmlValue hml_lws_http_stream_read(HmlValue stream_val, HmlValue timeout_val) {
     (void)stream_val; (void)timeout_val;
-    return hml_val_null();
+    hml_runtime_error("Streaming HTTP not available (libwebsockets not installed)");
 }
 
 HmlValue hml_lws_http_stream_status(HmlValue stream_val) {
