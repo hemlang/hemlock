@@ -172,6 +172,19 @@ CheckedType* type_common(CheckedType *a, CheckedType *b) {
 
     // Numeric promotion using shared rules
     if (type_is_numeric(a) && type_is_numeric(b)) {
+        if (a->kind == CHECKED_NUMERIC || b->kind == CHECKED_NUMERIC) {
+            return checked_type_primitive(CHECKED_NUMERIC);
+        }
+        if (a->kind == CHECKED_INTEGER && b->kind == CHECKED_INTEGER) {
+            return checked_type_primitive(CHECKED_INTEGER);
+        }
+        if (a->kind == CHECKED_INTEGER) {
+            return checked_type_clone(b);
+        }
+        if (b->kind == CHECKED_INTEGER) {
+            return checked_type_clone(a);
+        }
+
         static const HmlTypeKind checked_to_tk_map[] = {
             [CHECKED_I8]  = HML_TK_I8,  [CHECKED_I16] = HML_TK_I16,
             [CHECKED_I32] = HML_TK_I32, [CHECKED_I64] = HML_TK_I64,
