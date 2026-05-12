@@ -1,0 +1,3 @@
+let src = buffer(4);
+let dest = buffer(2);
+memcpy(dest, src, 4);

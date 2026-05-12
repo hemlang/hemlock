@@ -173,15 +173,14 @@ Value builtin_memset(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "memset() expects 3 arguments (ptr, byte, size)"); return val_null();
     }
 
-    if (args[0].type != VAL_PTR) {
-        runtime_error(ctx, "memset() requires pointer as first argument"); return val_null();
+    if (args[0].type != VAL_PTR && args[0].type != VAL_BUFFER) {
+        runtime_error(ctx, "memset() requires pointer or buffer as first argument"); return val_null();
     }
 
     if (!is_integer(args[1]) || !is_integer(args[2])) {
         runtime_error(ctx, "memset() byte and size must be integers"); return val_null();
     }
 
-    void *ptr = args[0].as.as_ptr;
     int byte = value_to_int(args[1]);
     int size = value_to_int(args[2]);
 
@@ -190,11 +189,28 @@ Value builtin_memset(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "memset() size cannot be negative"); return val_null();
     }
 
-    if (ptr == NULL) {
+    void *ptr = NULL;
+    if (args[0].type == VAL_PTR) {
+        ptr = args[0].as.as_ptr;
+    } else {
+        Buffer *buf = args[0].as.as_buffer;
+        if (!buf || (!buf->data && size > 0)) {
+            runtime_error(ctx, "memset() cannot write to null buffer"); return val_null();
+        }
+        if (atomic_load(&buf->freed)) {
+            runtime_error(ctx, "memset() cannot write to freed buffer"); return val_null();
+        }
+        if (size > buf->length) {
+            runtime_error(ctx, "memset() size exceeds buffer length"); return val_null();
+        }
+        ptr = buf->data;
+    }
+
+    if (ptr == NULL && size > 0) {
         runtime_error(ctx, "memset() cannot write to null pointer"); return val_null();
     }
 
-    memset(ptr, byte, size);
+    memset(ptr, byte, (size_t)size);
     return val_null();
 }
 
@@ -203,16 +219,15 @@ Value builtin_memcpy(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "memcpy() expects 3 arguments (dest, src, size)"); return val_null();
     }
 
-    if (args[0].type != VAL_PTR || args[1].type != VAL_PTR) {
-        runtime_error(ctx, "memcpy() requires pointers for dest and src"); return val_null();
+    if ((args[0].type != VAL_PTR && args[0].type != VAL_BUFFER) ||
+        (args[1].type != VAL_PTR && args[1].type != VAL_BUFFER)) {
+        runtime_error(ctx, "memcpy() requires pointers or buffers for dest and src"); return val_null();
     }
 
     if (!is_integer(args[2])) {
         runtime_error(ctx, "memcpy() size must be an integer"); return val_null();
     }
 
-    void *dest = args[0].as.as_ptr;
-    void *src = args[1].as.as_ptr;
     int size = value_to_int(args[2]);
 
     // SECURITY: Validate size is non-negative to prevent undefined behavior
@@ -220,14 +235,51 @@ Value builtin_memcpy(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "memcpy() size cannot be negative"); return val_null();
     }
 
-    if (dest == NULL) {
-        runtime_error(ctx, "memcpy() cannot write to null pointer"); return val_null();
-    }
-    if (src == NULL) {
-        runtime_error(ctx, "memcpy() cannot read from null pointer"); return val_null();
+    void *dest = NULL;
+    void *src = NULL;
+    if (args[0].type == VAL_PTR) {
+        dest = args[0].as.as_ptr;
+    } else {
+        Buffer *dest_buf = args[0].as.as_buffer;
+        if (!dest_buf || (!dest_buf->data && size > 0)) {
+            runtime_error(ctx, "memcpy() cannot write to null destination buffer"); return val_null();
+        }
+        if (atomic_load(&dest_buf->freed)) {
+            runtime_error(ctx, "memcpy() cannot write to freed destination buffer"); return val_null();
+        }
+        if (size > dest_buf->length) {
+            runtime_error(ctx, "memcpy() size exceeds destination buffer length"); return val_null();
+        }
+        dest = dest_buf->data;
     }
 
-    memcpy(dest, src, size);
+    if (args[1].type == VAL_PTR) {
+        src = args[1].as.as_ptr;
+    } else {
+        Buffer *src_buf = args[1].as.as_buffer;
+        if (!src_buf || (!src_buf->data && size > 0)) {
+            runtime_error(ctx, "memcpy() cannot read from null source buffer"); return val_null();
+        }
+        if (atomic_load(&src_buf->freed)) {
+            runtime_error(ctx, "memcpy() cannot read from freed source buffer"); return val_null();
+        }
+        if (size > src_buf->length) {
+            runtime_error(ctx, "memcpy() size exceeds source buffer length"); return val_null();
+        }
+        src = src_buf->data;
+    }
+
+    if (dest == NULL && size > 0) {
+        runtime_error(ctx, "memcpy() cannot write to null pointer"); return val_null();
+    }
+    if (src == NULL && size > 0) {
+        runtime_error(ctx, "memcpy() cannot read from null pointer"); return val_null();
+    }
+    if (size == 0) {
+        return val_null();
+    }
+
+    memcpy(dest, src, (size_t)size);
     return val_null();
 }
 
