@@ -10,13 +10,14 @@
 
 #define HEMLOCK_VERSION_MAJOR 2
 #define HEMLOCK_VERSION_MINOR 2
-#define HEMLOCK_VERSION_PATCH 2
+#define HEMLOCK_VERSION_PATCH 3
 
-#define HEMLOCK_VERSION "2.2.2"
+#define HEMLOCK_VERSION "2.2.3"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   2.2.3 - Patch release with runtime/compiler hardening: catchable socket connect/bind failures, correct /proc and /sys File.read() behavior, safer buffer memory builtins, optional-chain null-guard narrowing, string concatenation numeric regressions fixed, CLI help parsing fixed, and fs.make_dirs() added
  *   2.2.2 - Release prep with compiler/runtime/install hardening: catchable runtime file_stat() failures, typed-array fast-path assignment checks, non-default-prefix stdlib/runtime lookup fixes, and refreshed documentation audits
  *   2.2.1 - HTTP POST/PUT/PATCH/DELETE body fix: compiled binaries actually send Content-Type, Content-Length, and the body bytes (interpreter was already correct); libwebsockets startup banner suppressed by default in compiled binaries to match interpreter
  *   2.2.0 - posix_spawn() primitive in @stdlib/process; fs.open_fd()/fileno() for raw fd access; string-literal object keys and obj?[key] safe-index; FFI fix for two-library import collision; compiler-strictness parity fixes (typed array of custom types, `export let X = X;` self-rebind, substr() arity); incremental builds correctly track header dependencies

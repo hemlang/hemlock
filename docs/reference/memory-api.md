@@ -245,11 +245,11 @@ Fill memory with byte value.
 
 **Signature:**
 ```hemlock
-memset(ptr: ptr, byte: i32, size: i32): null
+memset(ptr: ptr | buffer, byte: i32, size: i32): null
 ```
 
 **Parameters:**
-- `ptr` - Pointer to memory
+- `ptr` - Pointer or buffer to memory
 - `byte` - Byte value to fill (0-255)
 - `size` - Number of bytes to fill
 
@@ -266,8 +266,8 @@ memset(p, 0, 100);
 memset(p, 0xFF, 100);
 
 // Initialize buffer
-let buf = alloc(256);
-memset(buf, 65, 256);       // Fill with 'A'
+let buf = buffer(256);
+memset(buf, 65, 256);       // Fill with 'A' (bounds checked)
 
 free(p);
 free(buf);
@@ -276,7 +276,8 @@ free(buf);
 **Behavior:**
 - Writes byte value to each byte in range
 - Byte value is truncated to 8 bits (0-255)
-- No bounds checking (unsafe)
+- Raw pointers have no bounds checking (unsafe)
+- Buffers validate that `size` bytes fit within the buffer before writing
 
 ---
 
@@ -286,12 +287,12 @@ Copy memory from source to destination.
 
 **Signature:**
 ```hemlock
-memcpy(dest: ptr, src: ptr, size: i32): null
+memcpy(dest: ptr | buffer, src: ptr | buffer, size: i32): null
 ```
 
 **Parameters:**
-- `dest` - Destination pointer
-- `src` - Source pointer
+- `dest` - Destination pointer or buffer
+- `src` - Source pointer or buffer
 - `size` - Number of bytes to copy
 
 **Returns:** `null`
@@ -315,7 +316,8 @@ free(dest);
 
 **Behavior:**
 - Copies byte-by-byte from src to dest
-- No bounds checking (unsafe)
+- Raw pointers have no bounds checking (unsafe)
+- Buffers validate that `size` bytes fit within both source and destination before copying
 - Overlapping regions have undefined behavior (use carefully)
 
 ---
@@ -375,7 +377,7 @@ let total = sizeof(i32) * count; // 400 bytes
 
 ## Pointer/Buffer Interoperability
 
-All `ptr_read_*`, `ptr_write_*`, and `ptr_deref_*` builtins accept both `ptr` and `buffer` types directly. When a buffer is passed, the operation uses the buffer's underlying data pointer.
+All `ptr_read_*`, `ptr_write_*`, and `ptr_deref_*` builtins accept both `ptr` and `buffer` types directly. When a buffer is passed, the operation uses the buffer's underlying data pointer and validates that the whole typed access fits within the buffer.
 
 ```hemlock
 let buf = buffer(16);
@@ -395,7 +397,7 @@ let pval = ptr_read_i32(p);      // 99
 free(p);
 ```
 
-This eliminates the need to call `buffer_ptr()` before every typed read/write operation, making buffer-based code more concise.
+This eliminates the need to call `buffer_ptr()` before every typed read/write operation, making buffer-based code more concise while preserving buffer bounds checks for direct buffer operands.
 
 ---
 
@@ -678,7 +680,8 @@ memset(p, 65, 100);  // CRASH: writing past allocation
 
 // GOOD: Use buffer for bounds checking
 let buf = buffer(10);
-// buf[100] = 65;  // ERROR: bounds check fails
+// buf[100] = 65;       // ERROR: index bounds check fails
+// memset(buf, 65, 100); // ERROR: range bounds check fails
 ```
 
 **5. Dangling Pointers**

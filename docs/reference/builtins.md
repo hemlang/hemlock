@@ -37,8 +37,8 @@ let name = read_line();     // blocks until input
 | `talloc(type, count)` | Type-aware allocation: `talloc(i32, 10)` allocates 10 i32s |
 | `realloc(ptr, new_size)` | Resize previously allocated memory |
 | `free(ptr)` | Free allocated memory |
-| `memset(ptr, value, size)` | Set `size` bytes to `value` |
-| `memcpy(dest, src, size)` | Copy `size` bytes from `src` to `dest` |
+| `memset(ptr_or_buffer, value, size)` | Set `size` bytes to `value`; buffers are bounds checked |
+| `memcpy(dest, src, size)` | Copy `size` bytes from `src` to `dest`; buffer operands are bounds checked |
 | `buffer(size)` | Create a bounds-checked buffer of `size` bytes |
 
 ```hemlock
@@ -154,7 +154,7 @@ ptr_deref_u8, ptr_deref_u16, ptr_deref_u32, ptr_deref_u64
 ptr_deref_f32, ptr_deref_f64, ptr_deref_ptr
 ```
 
-All `ptr_read_*`, `ptr_write_*`, and `ptr_deref_*` functions accept both `ptr` and `buffer` types directly:
+All `ptr_read_*`, `ptr_write_*`, and `ptr_deref_*` functions accept both `ptr` and `buffer` types directly; direct buffer operands are bounds checked for the whole typed access:
 
 ```hemlock
 let p = alloc(8);
