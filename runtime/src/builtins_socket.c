@@ -37,6 +37,7 @@ HmlValue hml_socket_create(HmlValue domain, HmlValue sock_type, HmlValue protoco
     sock->type = t;
     sock->closed = 0;
     sock->listening = 0;
+    sock->nonblocking = 0;
 
     return hml_val_socket(sock);
 }
@@ -191,9 +192,8 @@ void hml_socket_connect(HmlValue socket_val, HmlValue address, HmlValue port) {
         strncpy(addr_un.sun_path, addr_str, sizeof(addr_un.sun_path) - 1);
 
         if (connect(sock->fd, (struct sockaddr *)&addr_un, sizeof(addr_un)) < 0) {
-            fprintf(stderr, "Runtime error: Failed to connect to unix socket '%s': %s\n",
+            hml_runtime_error("Failed to connect to unix socket '%s': %s",
                     addr_str, strerror(errno));
-            exit(1);
         }
     } else {
         struct hostent *host = gethostbyname(addr_str);
@@ -212,9 +212,8 @@ void hml_socket_connect(HmlValue socket_val, HmlValue address, HmlValue port) {
         memcpy(&server_addr.sin_addr.s_addr, host->h_addr_list[0], host->h_length);
 
         if (connect(sock->fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-            fprintf(stderr, "Runtime error: Failed to connect to %s:%d: %s\n",
+            hml_runtime_error("Failed to connect to %s:%d: %s",
                     addr_str, p, strerror(errno));
-            exit(1);
         }
     }
 
