@@ -17,7 +17,7 @@ Hey, Charlie...
 [INFO] test
 [WARN] alert
 [INFO] done - OK
-item: 10 (true, 0)
+item: 10 (true, 0.0)
 widget: 5 (true, 9.5)
 thing: 20 (false, 3.14)
 1,2,3,4
