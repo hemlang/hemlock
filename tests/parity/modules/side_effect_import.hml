@@ -1,0 +1,6 @@
+// Empty named imports are the current workaround for source-module
+// side-effect imports. Bare `import "./side_effect_import_fixture";` would
+// try to load a native FFI library instead of a .hml source module.
+import {} from "./side_effect_import_fixture.hml";
+
+print("runner loaded");
