@@ -438,6 +438,25 @@ static int count_string_concat_chain(Expr *expr, Expr **elements, int max_elemen
     return left_count + 1;
 }
 
+static int expr_contains_ident_for_codegen(Expr *expr) {
+    if (!expr) return 0;
+    switch (expr->type) {
+        case EXPR_IDENT:
+            return 1;
+        case EXPR_BINARY:
+            return expr_contains_ident_for_codegen(expr->as.binary.left) ||
+                   expr_contains_ident_for_codegen(expr->as.binary.right);
+        case EXPR_UNARY:
+            return expr_contains_ident_for_codegen(expr->as.unary.operand);
+        case EXPR_TERNARY:
+            return expr_contains_ident_for_codegen(expr->as.ternary.condition) ||
+                   expr_contains_ident_for_codegen(expr->as.ternary.true_expr) ||
+                   expr_contains_ident_for_codegen(expr->as.ternary.false_expr);
+        default:
+            return 0;
+    }
+}
+
 // OPTIMIZATION: Check if this is a chain of string concatenations
 // Detects patterns like: a + b + c + d (left-associative ADD chains)
 // where at least one operand has a string type
@@ -713,11 +732,16 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
                     Expr *elements[6] = {NULL, NULL, NULL, NULL, NULL, NULL};
                     count_string_concat_chain(expr, elements, 6);
 
-                    // Generate code for all elements
+                    // Generate code for all elements.  While lowering concat operands,
+                    // prefer integer division for identifier-based integer arithmetic so
+                    // inline fixed-point formatting matches the interpreter.
                     char *temps[5] = {NULL, NULL, NULL, NULL, NULL};
+                    int prev_string_concat_context = ctx->string_concat_context;
+                    ctx->string_concat_context = 1;
                     for (int i = 0; i < concat_count; i++) {
                         temps[i] = codegen_expr(ctx, elements[i]);
                     }
+                    ctx->string_concat_context = prev_string_concat_context;
 
                     // Call the appropriate concat function
                     if (concat_count == 3) {
@@ -923,6 +947,18 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
             // General case: evaluate both operands
             char *left = codegen_expr(ctx, expr->as.binary.left);
             char *right = codegen_expr(ctx, expr->as.binary.right);
+
+            if (ctx->optimize && ctx->string_concat_context && expr->as.binary.op == OP_DIV &&
+                (expr_contains_ident_for_codegen(expr->as.binary.left) ||
+                 expr_contains_ident_for_codegen(expr->as.binary.right))) {
+                codegen_writeln(ctx, "HmlValue %s = hml_both_i32(%s, %s) ? hml_i32_div(%s, %s) : (hml_both_i64(%s, %s) ? hml_i64_div(%s, %s) : hml_binary_op(HML_OP_DIV, %s, %s));",
+                              result, left, right, left, right, left, right, left, right, left, right);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", left);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", right);
+                free(left);
+                free(right);
+                return result;
+            }
 
             // OPTIMIZATION: Compile-time type inference for binary operations
             // When we can determine the types at compile time, skip runtime type checks

@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <limits.h>
+#include <math.h>
 
 // ========== OBJECT POOL ==========
 // Pre-allocate Object structs + FieldEntry arrays to avoid malloc/free overhead
@@ -1383,6 +1384,20 @@ void print_value(Value val) {
     }
 }
 
+
+static void format_float_for_string(char *buffer, size_t size, double value, int precision) {
+    snprintf(buffer, size, precision == 9 ? "%.9g" : "%.15g", value);
+    if (isfinite(value) && floor(value) == value &&
+        !strchr(buffer, '.') && !strchr(buffer, 'e') && !strchr(buffer, 'E')) {
+        size_t len = strlen(buffer);
+        if (len + 2 < size) {
+            buffer[len] = '.';
+            buffer[len + 1] = '0';
+            buffer[len + 2] = '\0';
+        }
+    }
+}
+
 // Convert value to string (caller must free the result)
 char* value_to_string(Value val) {
     char buffer[1024];  // Temporary buffer for formatting
@@ -1413,10 +1428,10 @@ char* value_to_string(Value val) {
             snprintf(buffer, sizeof(buffer), "%" PRIu64, val.as.as_u64);
             return strdup(buffer);
         case VAL_F32:
-            snprintf(buffer, sizeof(buffer), "%g", val.as.as_f32);
+            format_float_for_string(buffer, sizeof(buffer), val.as.as_f32, 9);
             return strdup(buffer);
         case VAL_F64:
-            snprintf(buffer, sizeof(buffer), "%.15g", val.as.as_f64);
+            format_float_for_string(buffer, sizeof(buffer), val.as.as_f64, 15);
             return strdup(buffer);
         case VAL_BOOL:
             return strdup(val.as.as_bool ? "true" : "false");

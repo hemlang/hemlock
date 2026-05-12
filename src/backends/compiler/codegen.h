@@ -237,6 +237,7 @@ typedef struct {
 
     // WASM target configuration
     int target_wasm;              // Targeting WebAssembly via Emscripten (0 = native, 1 = wasm)
+    int string_concat_context;     // Prefer integer division while emitting concat operands
 } CodegenContext;
 
 // Initialize code generation context

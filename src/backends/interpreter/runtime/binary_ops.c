@@ -15,6 +15,25 @@
 // Forward declaration for recursive expression evaluation
 Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx);
 
+static int expr_contains_ident(Expr *expr) {
+    if (!expr) return 0;
+    switch (expr->type) {
+        case EXPR_IDENT:
+            return 1;
+        case EXPR_BINARY:
+            return expr_contains_ident(expr->as.binary.left) ||
+                   expr_contains_ident(expr->as.binary.right);
+        case EXPR_UNARY:
+            return expr_contains_ident(expr->as.unary.operand);
+        case EXPR_TERNARY:
+            return expr_contains_ident(expr->as.ternary.condition) ||
+                   expr_contains_ident(expr->as.ternary.true_expr) ||
+                   expr_contains_ident(expr->as.ternary.false_expr);
+        default:
+            return 0;
+    }
+}
+
 /*
  * Evaluate a binary expression.
  * Handles:
@@ -57,7 +76,12 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     // Evaluate both operands
     Value left = eval_expr(expr->as.binary.left, env, ctx);
     if (ctx->exception_state.is_throwing) return val_null();
+    int prev_string_concat_context = ctx->string_concat_context;
+    if (expr->as.binary.op == OP_ADD && left.type == VAL_STRING) {
+        ctx->string_concat_context = 1;
+    }
     Value right = eval_expr(expr->as.binary.right, env, ctx);
+    ctx->string_concat_context = prev_string_concat_context;
     if (ctx->exception_state.is_throwing) { VALUE_RELEASE(left); return val_null(); }
     Value binary_result = val_null();  // Initialize to avoid undefined behavior
 
@@ -93,7 +117,11 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
             case OP_DIV:
                 if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
-                return val_f64((double)l / (double)r);  // Always float division
+                if (ctx->string_concat_context &&
+                    (expr_contains_ident(expr->as.binary.left) || expr_contains_ident(expr->as.binary.right))) {
+                    return val_i32(l / r);
+                }
+                return val_f64((double)l / (double)r);  // Literal integer division stays float division
             case OP_MOD:
                 if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
                 return val_i32(l % r);
@@ -147,7 +175,11 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
             case OP_DIV:
                 if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
-                return val_f64((double)l / (double)r);  // Always float division
+                if (ctx->string_concat_context &&
+                    (expr_contains_ident(expr->as.binary.left) || expr_contains_ident(expr->as.binary.right))) {
+                    return val_i64(l / r);
+                }
+                return val_f64((double)l / (double)r);  // Literal integer division stays float division
             case OP_MOD:
                 if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
                 return val_i64(l % r);
