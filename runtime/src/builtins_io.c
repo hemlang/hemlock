@@ -826,8 +826,17 @@ HmlValue hml_write_file(HmlValue path, HmlValue content) {
         fprintf(stderr, "Error: write_file() requires a string path\n");
         exit(1);
     }
-    if (content.type != HML_VAL_STRING || !content.as.as_string) {
-        fprintf(stderr, "Error: write_file() requires string content\n");
+
+    const char *data;
+    size_t length;
+    if (content.type == HML_VAL_STRING && content.as.as_string) {
+        data = content.as.as_string->data;
+        length = content.as.as_string->length;
+    } else if (content.type == HML_VAL_BUFFER && content.as.as_buffer) {
+        data = (const char *)content.as.as_buffer->data;
+        length = content.as.as_buffer->length;
+    } else {
+        fprintf(stderr, "Error: write_file() requires string or buffer content\n");
         exit(1);
     }
 
@@ -836,13 +845,14 @@ HmlValue hml_write_file(HmlValue path, HmlValue content) {
         hml_sandbox_error("file write operations");
     }
 
-    FILE *fp = fopen(path.as.as_string->data, "w");
+    // Binary mode preserves all bytes regardless of content type
+    FILE *fp = fopen(path.as.as_string->data, "wb");
     if (!fp) {
         fprintf(stderr, "Error: Failed to open '%s': %s\n", path.as.as_string->data, strerror(errno));
         exit(1);
     }
 
-    fwrite(content.as.as_string->data, 1, content.as.as_string->length, fp);
+    fwrite(data, 1, length, fp);
     fclose(fp);
     return hml_val_null();
 }

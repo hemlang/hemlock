@@ -1,0 +1,30 @@
+// Test write_file() with buffer for binary content
+import { write_file, read_file } from "@stdlib/fs";
+
+let path = "/tmp/hemlock_parity_write_file_buf.bin";
+
+// Build a 4-byte buffer with raw bytes 0xDE 0xAD 0xBE 0xEF
+let buf = buffer(4);
+let bp = buffer_ptr(buf);
+ptr_write_u8(bp, 0xDE);
+ptr_write_u8(ptr_offset(bp, 1, 1), 0xAD);
+ptr_write_u8(ptr_offset(bp, 2, 1), 0xBE);
+ptr_write_u8(ptr_offset(bp, 3, 1), 0xEF);
+
+// Write buffer to file (binary mode)
+write_file(path, buf);
+
+// Read back and verify each byte survived intact
+let got = read_file(path);
+print(got.byte_length);
+print(got.byte_at(0));
+print(got.byte_at(1));
+print(got.byte_at(2));
+print(got.byte_at(3));
+
+// write_file still works with strings
+write_file(path, "ok");
+print(read_file(path));
+
+free(buf);
+print("done");
