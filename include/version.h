@@ -10,13 +10,14 @@
 
 #define HEMLOCK_VERSION_MAJOR 2
 #define HEMLOCK_VERSION_MINOR 3
-#define HEMLOCK_VERSION_PATCH 0
+#define HEMLOCK_VERSION_PATCH 1
 
-#define HEMLOCK_VERSION "2.3.0"
+#define HEMLOCK_VERSION "2.3.1"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   2.3.1 - Binary HTTP fixes: @stdlib/http.download() now actually writes the buffer body (was f.write(buffer) which silently no-op'd in compiled binaries and threw in the interpreter); new download_streaming(url, path) for bounded-memory pulls of large files (model weights, archives) — chunks straight to disk via .partial + atomic rename; new stream.read_binary() + __lws_http_stream_read_binary returning buffer chunks (existing read() routes through val_string which strlen-truncates at the first 0x00 byte, corrupting binary payloads)
  *   2.3.0 - Streaming HTTP support in @stdlib/http (chunked / SSE): stream(), stream_get(), stream_post(), post_json_stream(), stream_sse(); compiler runtime now sends POST bodies for streaming requests and throws the same catchable errors as the interpreter (invalid ptr, bad URL, connection failure) for full interpreter/compiler parity
  *   2.2.3 - Patch release with runtime/compiler hardening: catchable socket connect/bind failures, correct /proc and /sys File.read() behavior, safer buffer memory builtins, optional-chain null-guard narrowing, string concatenation numeric regressions fixed, CLI help parsing fixed, and fs.make_dirs() added
  *   2.2.2 - Release prep with compiler/runtime/install hardening: catchable runtime file_stat() failures, typed-array fast-path assignment checks, non-default-prefix stdlib/runtime lookup fixes, and refreshed documentation audits

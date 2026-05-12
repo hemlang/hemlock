@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-05-12
+
+### Added
+
+- **`@stdlib/http.download_streaming(url, output_path)`** — bounded-memory HTTP download for large artifacts (model weights, archives, anything multi-GB). Opens a stream, reads buffer chunks, writes them straight to disk via `<path>.partial` then atomic-renames on completion. Returns `{status_code, bytes_written}` on success, throws on non-2xx.
+- **`stream.read_binary(timeout_ms)`** on the `stream()` return object — same poll loop as `read()` but returns a buffer using the chunk's actual byte length, preserving 0x00 bytes that would have terminated a string read early. Use for downloading non-text content over a streamed connection.
+- **`__lws_http_stream_read_binary(stream, timeout_ms)`** runtime + interpreter builtin that backs `stream.read_binary`.
+
+### Fixed
+
+- **`@stdlib/http.download(url, output_path)` actually writes the response body now.** The previous implementation called `f.write(response.body)`, which silently no-op'd in the compiled binary (writing a zero-byte file) and threw `"write() expects string argument"` in the interpreter. Now uses `__open(...).write_bytes(buf)` — same pattern `compression.hml`'s gunzip pipeline already uses.
+
 ## [2.3.0] - 2026-05-12
 
 ### Added

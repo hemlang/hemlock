@@ -1662,6 +1662,54 @@ HmlValue hml_lws_http_stream_read(HmlValue stream_val, HmlValue timeout_val) {
     return hml_val_null();
 }
 
+// __lws_http_stream_read_binary(stream, timeout_ms): buffer|null
+//
+// Same poll loop as hml_lws_http_stream_read, but returns a buffer
+// using the chunk's actual byte length instead of strlen-truncating
+// at the first null byte. Required for binary downloads (GGUFs,
+// images, archives) where 0x00 bytes are part of the payload, not
+// terminators.
+HmlValue hml_lws_http_stream_read_binary(HmlValue stream_val, HmlValue timeout_val) {
+    if (stream_val.type != HML_VAL_PTR) {
+        hml_runtime_error("__lws_http_stream_read_binary() expects ptr");
+    }
+    hml_http_stream_t *stream = (hml_http_stream_t *)stream_val.as.as_ptr;
+    if (!stream) return hml_val_null();
+
+    int timeout_ms = 30000;
+    if (timeout_val.type == HML_VAL_I32) timeout_ms = timeout_val.as.as_i32;
+    else if (timeout_val.type == HML_VAL_I64) timeout_ms = (int)timeout_val.as.as_i64;
+
+    int iterations = timeout_ms / 10;
+    if (iterations < 1) iterations = 1;
+
+    while (iterations-- > 0) {
+        pthread_mutex_lock(&stream->chunk_mutex);
+        if (stream->chunk_head) {
+            hml_http_stream_chunk_t *chunk = stream->chunk_head;
+            stream->chunk_head = chunk->next;
+            if (!stream->chunk_head) stream->chunk_tail = NULL;
+            pthread_mutex_unlock(&stream->chunk_mutex);
+
+            HmlValue buf = hml_val_buffer((int)chunk->len);
+            if (buf.type == HML_VAL_BUFFER && buf.as.as_buffer && chunk->len > 0) {
+                memcpy(buf.as.as_buffer->data, chunk->data, chunk->len);
+            }
+            free(chunk->data);
+            free(chunk);
+            return buf;
+        }
+        if (stream->complete || stream->failed) {
+            pthread_mutex_unlock(&stream->chunk_mutex);
+            return hml_val_null();
+        }
+        pthread_mutex_unlock(&stream->chunk_mutex);
+        usleep(10000);
+    }
+
+    return hml_val_null();
+}
+
 // __lws_http_stream_status(stream): i32
 HmlValue hml_lws_http_stream_status(HmlValue stream_val) {
     if (stream_val.type != HML_VAL_PTR) {
@@ -1723,6 +1771,11 @@ HmlValue hml_builtin_lws_http_stream_start(HmlClosureEnv *env, HmlValue method, 
 HmlValue hml_builtin_lws_http_stream_read(HmlClosureEnv *env, HmlValue stream, HmlValue timeout) {
     (void)env;
     return hml_lws_http_stream_read(stream, timeout);
+}
+
+HmlValue hml_builtin_lws_http_stream_read_binary(HmlClosureEnv *env, HmlValue stream, HmlValue timeout) {
+    (void)env;
+    return hml_lws_http_stream_read_binary(stream, timeout);
 }
 
 HmlValue hml_builtin_lws_http_stream_status(HmlClosureEnv *env, HmlValue stream) {
@@ -2802,6 +2855,11 @@ HmlValue hml_builtin_lws_http_stream_start(HmlClosureEnv *env, HmlValue method, 
 HmlValue hml_builtin_lws_http_stream_read(HmlClosureEnv *env, HmlValue stream, HmlValue timeout) {
     (void)env;
     return hml_lws_http_stream_read(stream, timeout);
+}
+
+HmlValue hml_builtin_lws_http_stream_read_binary(HmlClosureEnv *env, HmlValue stream, HmlValue timeout) {
+    (void)env;
+    return hml_lws_http_stream_read_binary(stream, timeout);
 }
 
 HmlValue hml_builtin_lws_http_stream_status(HmlClosureEnv *env, HmlValue stream) {

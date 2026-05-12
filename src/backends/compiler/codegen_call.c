@@ -2276,6 +2276,18 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // __lws_http_stream_read_binary(stream, timeout_ms) → buffer|null
+        if (strcmp(fn_name, "__lws_http_stream_read_binary") == 0 && expr->as.call.num_args == 2) {
+            char *stream = codegen_expr(ctx, expr->as.call.args[0]);
+            char *timeout_ms = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "HmlValue %s = hml_lws_http_stream_read_binary(%s, %s);", result, stream, timeout_ms);
+            codegen_writeln(ctx, "hml_release(&%s);", stream);
+            codegen_writeln(ctx, "hml_release(&%s);", timeout_ms);
+            free(stream);
+            free(timeout_ms);
+            return result;
+        }
+
         // __lws_http_stream_status(stream)
         if (strcmp(fn_name, "__lws_http_stream_status") == 0 && expr->as.call.num_args == 1) {
             char *stream = codegen_expr(ctx, expr->as.call.args[0]);

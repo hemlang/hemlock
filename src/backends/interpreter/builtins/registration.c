@@ -163,6 +163,7 @@ static BuiltinInfo builtins[] = {
     // Streaming HTTP builtins
     {"__lws_http_stream_start", builtin_lws_http_stream_start},
     {"__lws_http_stream_read", builtin_lws_http_stream_read},
+    {"__lws_http_stream_read_binary", builtin_lws_http_stream_read_binary},
     {"__lws_http_stream_status", builtin_lws_http_stream_status},
     {"__lws_http_stream_headers", builtin_lws_http_stream_headers},
     {"__lws_http_stream_close", builtin_lws_http_stream_close},
