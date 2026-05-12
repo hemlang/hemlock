@@ -69,7 +69,7 @@ buf[0] = 42;             // Safe indexing
 free(buf);               // Still needs explicit free
 ```
 
-**Key difference:** Buffers provide bounds checking, raw pointers don't.
+**Key difference:** Buffers provide bounds checking for indexing, direct `ptr_read_*`/`ptr_write_*` access, and `memset()`/`memcpy()` buffer operands; raw pointers do not.
 
 ---
 

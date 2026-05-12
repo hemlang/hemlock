@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.3] - 2026-05-12
+
+### Added
+
+- **`@stdlib/fs` `make_dirs(path, mode?)`** — recursive directory creation helper similar to `mkdir -p`, including existing-directory tolerance and file-blocking-component errors.
+
+### Fixed
+
+- **Socket failures are catchable in compiled binaries** — TCP connect-refused and bind/listen failures such as `EADDRINUSE` now throw normal Hemlock exceptions instead of aborting the process.
+- **`File.read()` on `/proc` and `/sys` pseudo-files** — reads no longer return an empty string just because `stat()` reports size 0 for dynamically-generated pseudo-file contents.
+- **Control flow escaping `try` bodies in compiled code** — `return`, `break`, and `continue` inside `try` bodies now unwind compiler exception-handler state correctly instead of triggering longjmp aborts later.
+- **Buffer memory builtins** — `memset()`, `memcpy()`, and direct `ptr_write_*()` operations on buffers now validate full access ranges before writing.
+- **Numeric string concatenation regressions** — string concatenation with `f64` values and integer zeroes now preserves expected textual results in both interpreter and compiler paths.
+- **Optional-chain null guards in the compiler** — values checked by `x != null`/`x == null` guards are narrowed across optional-chain expressions, eliminating false nullable-type errors.
+- **CLI help parsing** — `--help` is honored after inline command flags handled by the interpreter launcher.
+- **Security hardening findings** — tightened checked size conversions, buffer-growth overflow handling, byte-array index validation, and package path length handling.
+- **Rune/string equality diagnostics** — the interpreter now warns on equality comparisons between `rune` and `string`, matching the compiler-side guidance that these are distinct types.
+
+### Changed
+
+- Refreshed filesystem and memory docs to document recursive directory creation and buffer-aware bounds checks in the memory builtins.
+
 ## [2.2.2] - 2026-05-11
 
 ### Fixed

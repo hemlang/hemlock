@@ -190,8 +190,9 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v2.2.2 is the current checked-in release. Highlights include:
+Hemlock v2.2.3 is the current checked-in release. Highlights include:
 
+- **v2.2.3 hardening release** - Socket connect/bind failures are catchable in compiled binaries, `/proc` and `/sys` pseudo-files read correctly, buffer memory builtins validate ranges, optional-chain null guards narrow in the compiler, CLI help parsing is stricter, and `@stdlib/fs` now includes recursive `make_dirs()`.
 - **v2.2.2 hardening release** - Runtime `file_stat()` failures are catchable, typed-array fast-path assignments have stricter checks, non-default install prefixes find their stdlib/runtime layout, and documentation audit tooling is checked in.
 - **v2.2.1 HTTP body fix** - Compiled binaries now send `Content-Type`, `Content-Length`, and request body bytes for POST/PUT/PATCH/DELETE, matching interpreter behavior.
 - **v2.2.0 process and filesystem additions** - `@stdlib/process` exports `posix_spawn(argv, opts?)`; `@stdlib/fs` exports raw file-descriptor helpers `open_fd()` and `fileno()`.
@@ -206,7 +207,7 @@ Hemlock v2.2.2 is the current checked-in release. Highlights include:
 - FFI for C interop with `export extern fn` for reusable library wrappers.
 - Compiler backend (C code generation), formatter, bundler/packager, and LSP tooling.
 - [hpm](https://github.com/hemlang/hpm) package manager with GitHub-based registry.
-- A 990+ file Hemlock test corpus, including interpreter/compiler parity tests.
+- A 1,400+ file Hemlock test corpus, including interpreter/compiler parity tests.
 
 ## Philosophy
 
