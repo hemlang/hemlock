@@ -1,0 +1,2 @@
+let b = buffer(1);
+ptr_write_u32(b, 0xFFFFFFFF);

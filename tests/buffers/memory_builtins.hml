@@ -1,0 +1,13 @@
+let src = buffer(4);
+let dest = buffer(4);
+src[0] = 10;
+src[1] = 20;
+src[2] = 30;
+src[3] = 40;
+memcpy(dest, src, 4);
+assert(dest[0] == 10, "memcpy buffer byte 0");
+assert(dest[3] == 40, "memcpy buffer byte 3");
+memset(dest, 0xAA, 4);
+assert(dest[0] == 0xAA, "memset buffer byte 0");
+assert(dest[3] == 0xAA, "memset buffer byte 3");
+print("PASS: buffer memory builtins");
