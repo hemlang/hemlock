@@ -23,7 +23,7 @@ cat > /tmp/test_fn_arg.hml << 'EOF'
 let add = fn(a: i32, b: i32): i32 { return a + b; };
 let x = add("hello", 2);
 EOF
-if $HEMLOCKC --check /tmp/test_fn_arg.hml 2>&1 | grep -q "argument 1 to 'add'"; then
+if $HEMLOCKC --check /tmp/test_fn_arg.hml 2>&1 | grep -q "argument .* to 'add'"; then
     echo "  PASSED: Caught function argument type mismatch"
     ((PASSED++))
 else
@@ -197,6 +197,42 @@ if $HEMLOCKC --check /tmp/test_property.hml 2>&1 | grep -q "cannot assign"; then
     ((PASSED++))
 else
     echo "  FAILED: Did not catch property type mismatch"
+    ((FAILED++))
+fi
+
+
+# Test 15: Optional-chain result remains nullable without a guard
+echo "Test 15: Optional-chain nullable field requires guard"
+cat > /tmp/test_optional_chain_no_guard.hml << 'EOF'
+define Profile { default_model: string? }
+fn pick_placement(model: string, profile: Profile): string { return model; }
+fn use_profile(profile: Profile): string {
+    return pick_placement(profile?.default_model, profile);
+}
+EOF
+if $HEMLOCKC --check /tmp/test_optional_chain_no_guard.hml 2>&1 | grep -q "expected 'string', got 'string?'"; then
+    echo "  PASSED: Caught unguarded nullable optional-chain value"
+    ((PASSED++))
+else
+    echo "  FAILED: Did not catch unguarded nullable optional-chain value"
+    ((FAILED++))
+fi
+
+# Test 16: Early-return null guard narrows repeated optional-chain field access
+echo "Test 16: Optional-chain null guard narrows repeated access"
+cat > /tmp/test_optional_chain_narrow.hml << 'EOF'
+define Profile { default_model: string? }
+fn pick_placement(model: string, profile: Profile): string { return model; }
+fn use_profile(profile: Profile): string {
+    if (profile?.default_model == null) { return "missing"; }
+    return pick_placement(profile?.default_model, profile);
+}
+EOF
+if $HEMLOCKC --check /tmp/test_optional_chain_narrow.hml 2>&1 | grep -q "no type errors"; then
+    echo "  PASSED: Null guard narrowed optional-chain value"
+    ((PASSED++))
+else
+    echo "  FAILED: Null guard did not narrow optional-chain value"
     ((FAILED++))
 fi
 

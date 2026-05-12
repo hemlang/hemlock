@@ -124,6 +124,16 @@ void type_check_free(TypeCheckContext *ctx) {
         a = next;
     }
 
+    // Free flow-sensitive narrowing facts
+    TypeCheckNarrowing *n = ctx->narrowings;
+    while (n) {
+        TypeCheckNarrowing *next = n->next;
+        free(n->key);
+        checked_type_free(n->type);
+        free(n);
+        n = next;
+    }
+
     // Free unboxable variable list
     UnboxableVar *u = ctx->unboxable_vars;
     while (u) {
@@ -147,6 +157,7 @@ void type_check_push_scope(TypeCheckContext *ctx) {
     TypeCheckEnv *env = calloc(1, sizeof(TypeCheckEnv));
     env->parent = ctx->current_env;
     ctx->current_env = env;
+    ctx->scope_depth++;
 }
 
 void type_check_pop_scope(TypeCheckContext *ctx) {
@@ -154,6 +165,20 @@ void type_check_pop_scope(TypeCheckContext *ctx) {
 
     TypeCheckEnv *env = ctx->current_env;
     ctx->current_env = env->parent;
+
+    TypeCheckNarrowing **pn = &ctx->narrowings;
+    while (*pn) {
+        TypeCheckNarrowing *cur = *pn;
+        if (cur->depth >= ctx->scope_depth) {
+            *pn = cur->next;
+            free(cur->key);
+            checked_type_free(cur->type);
+            free(cur);
+        } else {
+            pn = &cur->next;
+        }
+    }
+    if (ctx->scope_depth > 0) ctx->scope_depth--;
 
     TypeCheckBinding *b = env->bindings;
     while (b) {
@@ -212,6 +237,74 @@ int type_check_is_const(TypeCheckContext *ctx, const char *name) {
         }
     }
     return 0;
+}
+
+static char* join_expr_key(const char *base, const char *op, const char *suffix) {
+    if (!base || !op || !suffix) return NULL;
+    size_t len = strlen(base) + strlen(op) + strlen(suffix) + 1;
+    char *key = malloc(len);
+    if (!key) return NULL;
+    snprintf(key, len, "%s%s%s", base, op, suffix);
+    return key;
+}
+
+char* type_check_expr_key(Expr *expr) {
+    if (!expr) return NULL;
+
+    switch (expr->type) {
+        case EXPR_IDENT:
+            return expr->as.ident.name ? strdup(expr->as.ident.name) : NULL;
+
+        case EXPR_GET_PROPERTY: {
+            char *base = type_check_expr_key(expr->as.get_property.object);
+            char *key = join_expr_key(base, ".", expr->as.get_property.property);
+            free(base);
+            return key;
+        }
+
+        case EXPR_OPTIONAL_CHAIN: {
+            if (!expr->as.optional_chain.is_property || !expr->as.optional_chain.property) {
+                return NULL;
+            }
+            char *base = type_check_expr_key(expr->as.optional_chain.object);
+            char *key = join_expr_key(base, "?.", expr->as.optional_chain.property);
+            free(base);
+            return key;
+        }
+
+        default:
+            return NULL;
+    }
+}
+
+void type_check_add_narrowing(TypeCheckContext *ctx, const char *key, CheckedType *type) {
+    if (!ctx || !key || !type) return;
+
+    for (TypeCheckNarrowing *n = ctx->narrowings; n; n = n->next) {
+        if (n->depth == ctx->scope_depth && strcmp(n->key, key) == 0) {
+            checked_type_free(n->type);
+            n->type = checked_type_clone(type);
+            return;
+        }
+    }
+
+    TypeCheckNarrowing *n = calloc(1, sizeof(TypeCheckNarrowing));
+    if (!n) return;
+    n->key = strdup(key);
+    n->type = checked_type_clone(type);
+    n->depth = ctx->scope_depth;
+    n->next = ctx->narrowings;
+    ctx->narrowings = n;
+}
+
+CheckedType* type_check_lookup_narrowing(TypeCheckContext *ctx, const char *key) {
+    if (!ctx || !key) return NULL;
+    for (TypeCheckNarrowing *n = ctx->narrowings; n; n = n->next) {
+        if (strcmp(n->key, key) == 0) {
+            return n->type;
+        }
+    }
+    return NULL;
 }
 
 // ========== FUNCTION REGISTRATION ==========

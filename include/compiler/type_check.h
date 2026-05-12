@@ -88,6 +88,14 @@ typedef struct TypeCheckEnv {
     struct TypeCheckEnv *parent;
 } TypeCheckEnv;
 
+// Flow-sensitive expression narrowing (for repeated null-checked expressions)
+typedef struct TypeCheckNarrowing {
+    char *key;
+    CheckedType *type;
+    int depth;
+    struct TypeCheckNarrowing *next;
+} TypeCheckNarrowing;
+
 // Function signature for checking calls
 typedef struct FunctionSig {
     char *name;
@@ -176,6 +184,10 @@ typedef struct {
     CheckedType *current_return_type;
     char *current_function_name;
     int in_async_function;
+
+    // Flow-sensitive narrowing facts scoped with the type environment.
+    TypeCheckNarrowing *narrowings;
+    int scope_depth;
 
     // Error tracking
     int error_count;
