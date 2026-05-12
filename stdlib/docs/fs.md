@@ -171,11 +171,11 @@ try {
 **Note:** For line-by-line reading or binary files, use the File object API (`open()`).
 
 ### write_file(path, content)
-Writes a string to a file, creating it if it doesn't exist, or overwriting if it does.
+Writes content to a file, creating it if it doesn't exist, or overwriting if it does. The file is opened in binary mode so all bytes are preserved exactly.
 
 **Parameters:**
 - `path: string` - Path to the file
-- `content: string` - Content to write
+- `content: string | buffer` - Content to write. Pass a `buffer` to write arbitrary binary data; pass a `string` for text.
 
 **Returns:** `null`
 
@@ -184,15 +184,17 @@ Writes a string to a file, creating it if it doesn't exist, or overwriting if it
 ```hemlock
 import { write_file } from "@stdlib/fs";
 
-try {
-    write_file("output.txt", "Hello, World!");
-    print("File written successfully");
-} catch (e) {
-    print("Error writing file: " + e);
-}
+// Text
+write_file("output.txt", "Hello, World!");
+
+// Binary
+let buf = buffer(4);
+ptr_write_u8(buf, 0, 0xDE); ptr_write_u8(buf, 1, 0xAD);
+ptr_write_u8(buf, 2, 0xBE); ptr_write_u8(buf, 3, 0xEF);
+write_file("output.bin", buf);
 ```
 
-**Note:** Creates parent directory if needed (on some systems). Overwrites existing files.
+**Note:** Overwrites existing files. Unlike `file.write()` (which is string-only), `write_file()` accepts buffers, making it the preferred way to write binary data without managing a file handle.
 
 ### append_file(path, content)
 Appends content to a file, creating it if it doesn't exist.
