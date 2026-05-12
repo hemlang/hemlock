@@ -24,6 +24,9 @@ void type_check_function_body(TypeCheckContext *ctx, Expr *func, const char *nam
 // First pass: collect all function signatures, object definitions, and enums
 void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int count);
 
+// Infer the type of an expression for compile-time type checking.
+CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr);
+
 // ========== INTERNAL HELPERS (type_check_expr.c) ==========
 
 // Check method call arguments for built-in types (array, string)

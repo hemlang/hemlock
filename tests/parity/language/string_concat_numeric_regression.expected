@@ -1,0 +1,6 @@
+f64 concat: 2.71828
+2.71828 f64 suffix
+zero suffix: 0
+0 zero prefix
+chain keeps zero: 12
+i64 zero: 0

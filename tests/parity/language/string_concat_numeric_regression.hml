@@ -1,0 +1,13 @@
+// Regression coverage for string concatenation numeric formatting.
+
+let f: f64 = 2.71828;
+print("f64 concat: " + f);
+print(f + " f64 suffix");
+
+let z = 0;
+print("zero suffix: " + z);
+print(z + " zero prefix");
+print("chain keeps zero: " + 1 + 0 + 2);
+
+let explicit_zero: i64 = 0;
+print("i64 zero: " + explicit_zero);
