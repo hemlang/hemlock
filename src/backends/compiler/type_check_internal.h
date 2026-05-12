@@ -42,6 +42,17 @@ void type_check_validate_object_literal(TypeCheckContext *ctx, Expr *expr,
 void type_check_validate_compound_object(TypeCheckContext *ctx, Expr *expr,
                                          Type *compound_type, int line);
 
+// Build a stable key for expressions that can be narrowed by null checks.
+char* type_check_expr_key(Expr *expr);
+
+// Record and query flow-sensitive non-null expression narrowings.
+void type_check_add_narrowing(TypeCheckContext *ctx, const char *key, CheckedType *type);
+CheckedType* type_check_lookup_narrowing(TypeCheckContext *ctx, const char *key);
+
+// Infer declared custom-object property types.
+CheckedType* type_check_infer_property_type(TypeCheckContext *ctx, CheckedType *obj_type,
+                                            const char *property);
+
 // ========== INTERNAL HELPERS (type_errors.c) ==========
 
 // Helper to calculate column for a line in source

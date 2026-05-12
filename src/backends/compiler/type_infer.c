@@ -6,6 +6,38 @@
 
 #include "type_check_internal.h"
 
+CheckedType* type_check_infer_property_type(TypeCheckContext *ctx, CheckedType *obj_type,
+                                            const char *property) {
+    if (!ctx || !obj_type || !property) return NULL;
+
+    if (obj_type->kind == CHECKED_CUSTOM && obj_type->type_name) {
+        ObjectDef *def = type_check_lookup_object(ctx, obj_type->type_name);
+        if (def) {
+            for (int i = 0; i < def->num_fields; i++) {
+                if (strcmp(def->field_names[i], property) == 0) {
+                    CheckedType *field = def->field_types && def->field_types[i]
+                        ? checked_type_clone(def->field_types[i])
+                        : checked_type_primitive(CHECKED_ANY);
+                    if (def->field_optional && def->field_optional[i]) {
+                        field->nullable = 1;
+                    }
+                    return field;
+                }
+            }
+
+            for (int i = 0; i < def->num_methods; i++) {
+                if (strcmp(def->method_names[i], property) == 0) {
+                    return def->method_types && def->method_types[i]
+                        ? checked_type_clone(def->method_types[i])
+                        : checked_type_primitive(CHECKED_ANY);
+                }
+            }
+        }
+    }
+
+    return NULL;
+}
+
 // ========== TYPE INFERENCE ==========
 
 CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr) {
@@ -282,9 +314,17 @@ CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr) {
             return result;
         }
 
-        case EXPR_GET_PROPERTY:
-            // Could be improved with object type tracking
-            return checked_type_primitive(CHECKED_ANY);
+        case EXPR_GET_PROPERTY: {
+            char *key = type_check_expr_key(expr);
+            CheckedType *narrowed = type_check_lookup_narrowing(ctx, key);
+            free(key);
+            if (narrowed) return checked_type_clone(narrowed);
+
+            CheckedType *obj = type_check_infer_expr(ctx, expr->as.get_property.object);
+            CheckedType *result = type_check_infer_property_type(ctx, obj, expr->as.get_property.property);
+            checked_type_free(obj);
+            return result ? result : checked_type_primitive(CHECKED_ANY);
+        }
 
         case EXPR_AWAIT: {
             // await on a task returns the task's result type
@@ -294,6 +334,37 @@ CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr) {
 
         case EXPR_STRING_INTERPOLATION:
             return checked_type_primitive(CHECKED_STRING);
+
+        case EXPR_OPTIONAL_CHAIN: {
+            char *key = type_check_expr_key(expr);
+            CheckedType *narrowed = type_check_lookup_narrowing(ctx, key);
+            free(key);
+            if (narrowed) return checked_type_clone(narrowed);
+
+            CheckedType *obj = type_check_infer_expr(ctx, expr->as.optional_chain.object);
+            CheckedType *result = NULL;
+
+            if (expr->as.optional_chain.is_property) {
+                result = type_check_infer_property_type(ctx, obj, expr->as.optional_chain.property);
+            } else if (expr->as.optional_chain.is_call) {
+                if (obj && obj->kind == CHECKED_FUNCTION && obj->return_type) {
+                    result = checked_type_clone(obj->return_type);
+                }
+            } else {
+                if (obj && obj->kind == CHECKED_ARRAY && obj->element_type) {
+                    result = checked_type_clone(obj->element_type);
+                } else if (obj && obj->kind == CHECKED_STRING) {
+                    result = checked_type_primitive(CHECKED_RUNE);
+                }
+            }
+
+            checked_type_free(obj);
+            if (!result) result = checked_type_primitive(CHECKED_ANY);
+            if (result->kind != CHECKED_ANY && result->kind != CHECKED_NULL) {
+                result->nullable = 1;
+            }
+            return result;
+        }
 
         case EXPR_NULL_COALESCE: {
             CheckedType *left = type_check_infer_expr(ctx, expr->as.null_coalesce.left);
