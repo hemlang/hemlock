@@ -1,0 +1,25 @@
+// Parity: streaming HTTP builtins must throw catchable exceptions on bad
+// arguments in BOTH the interpreter and the compiled runtime. We only test
+// invariants that hold whether or not libwebsockets is present (the stub
+// build and the libwebsockets build both throw for these cases).
+
+// 1) __lws_http_stream_read with a non-ptr argument must throw.
+//    - Stub build: throws "not available"
+//    - libwebsockets build: throws "expects ptr"
+try {
+    __lws_http_stream_read("not a ptr", 100);
+    print("read: not thrown");
+} catch (e) {
+    print("read: threw");
+}
+
+// 2) __lws_http_stream_close is idempotent — passing a non-ptr must NOT
+//    throw in either build.
+try {
+    __lws_http_stream_close("not a ptr");
+    print("close: not thrown");
+} catch (e) {
+    print("close: threw");
+}
+
+print("done");

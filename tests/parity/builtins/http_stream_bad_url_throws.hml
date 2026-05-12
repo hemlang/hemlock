@@ -1,0 +1,19 @@
+// Parity: __lws_http_stream_start() must throw a catchable exception when
+// given an unparseable URL. Both interpreter and compiler must agree.
+
+try {
+    __lws_http_stream_start("GET", "not-a-real-url", "", "", 1000);
+    print("not thrown");
+} catch (e) {
+    print("threw");
+}
+
+// And it must throw when given a non-string method or URL.
+try {
+    __lws_http_stream_start(42, "https://example.com/", "", "", 1000);
+    print("type: not thrown");
+} catch (e) {
+    print("type: threw");
+}
+
+print("done");

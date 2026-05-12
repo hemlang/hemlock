@@ -190,8 +190,9 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v2.2.3 is the current checked-in release. Highlights include:
+Hemlock v2.3.0 is the current checked-in release. Highlights include:
 
+- **v2.3.0 streaming HTTP** - `@stdlib/http` now exports `stream()`, `stream_get()`, `stream_post()`, `post_json_stream()`, and `stream_sse()` for chunked HTTP and Server-Sent Events. Built on the already-bundled libwebsockets, so no new dependency. The compiler runtime now sends POST/PUT/PATCH bodies for streaming requests and throws the same catchable exceptions as the interpreter on invalid arguments — full interpreter/compiler parity.
 - **v2.2.3 hardening release** - Socket connect/bind failures are catchable in compiled binaries, `/proc` and `/sys` pseudo-files read correctly, buffer memory builtins validate ranges, optional-chain null guards narrow in the compiler, CLI help parsing is stricter, and `@stdlib/fs` now includes recursive `make_dirs()`.
 - **v2.2.2 hardening release** - Runtime `file_stat()` failures are catchable, typed-array fast-path assignments have stricter checks, non-default install prefixes find their stdlib/runtime layout, and documentation audit tooling is checked in.
 - **v2.2.1 HTTP body fix** - Compiled binaries now send `Content-Type`, `Content-Length`, and request body bytes for POST/PUT/PATCH/DELETE, matching interpreter behavior.
