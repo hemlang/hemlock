@@ -216,6 +216,10 @@ export fn get_json(url) {
 	return response.body.deserialize();
 }
 
+// Buffered download — fetches the whole body into memory then writes
+// it to disk in one shot. Fine for small/medium files (HTML, JSON,
+// modest binaries). For large artifacts (>100MB), prefer
+// download_streaming below to keep memory bounded.
 export fn download(url, output_path) {
 	let response = get_binary(url, null);
 
@@ -223,11 +227,54 @@ export fn download(url, output_path) {
 		throw "download() failed with status " + response.status_code;
 	}
 
+	// __open + write_bytes for binary content. f.write only accepts
+	// string and would silently no-op (compiled) or throw (interpreter)
+	// on a buffer; the analogous compression.hml pipeline uses the same
+	// __open pattern.
 	let f = __open(output_path, "w");
-	f.write(response.body);
+	f.write_bytes(response.body);
 	f.close();
 
 	return true;
+}
+
+// Streaming download — opens an HTTP stream, writes binary chunks to
+// disk as they arrive. Memory usage is bounded by chunk size, not
+// file size. The right API for multi-GB artifacts (model weights,
+// archives, etc.).
+//
+// Returns { status_code, bytes_written } on success. Throws on
+// non-2xx status. Writes to <output_path>.partial first and renames
+// on completion so a crashed download doesn't leave a half-file
+// masquerading as a complete one.
+export fn download_streaming(url, output_path) {
+	let s = stream("GET", url, "", null, 600000);
+	if (s.status_code < 200 || s.status_code >= 300) {
+		s.close();
+		throw "download_streaming() failed with status " + s.status_code;
+	}
+
+	let partial = output_path + ".partial";
+	let out = __open(partial, "w");
+	let bytes_written: i64 = 0;
+	try {
+		while (!s.done) {
+			let chunk = s.read_binary(60000);
+			if (chunk == null) { break; }
+			if (chunk.length == 0) { continue; }
+			out.write_bytes(chunk);
+			bytes_written = bytes_written + chunk.length;
+		}
+	} catch (e) {
+		out.close();
+		s.close();
+		throw "download_streaming() error mid-transfer: " + e;
+	}
+	out.close();
+	s.close();
+	__rename(partial, output_path);
+
+	return { status_code: s.status_code, bytes_written: bytes_written };
 }
 
 // ========== STATUS CODE HELPERS ==========
@@ -444,6 +491,19 @@ export fn stream(method, url, body, headers, timeout_ms) {
 			read_timeout_ms = read_timeout_ms ?? 30000;
 			if (self.done) { return null; }
 			let chunk = __lws_http_stream_read(self._ptr, read_timeout_ms);
+			if (chunk == null) {
+				self.done = true;
+			}
+			return chunk;
+		},
+		// Same as read() but returns a buffer (preserves null bytes in
+		// binary payloads). Use for downloading non-text content over a
+		// streamed connection — text read() goes through val_string
+		// which strlen-truncates.
+		read_binary: fn(read_timeout_ms) {
+			read_timeout_ms = read_timeout_ms ?? 30000;
+			if (self.done) { return null; }
+			let chunk = __lws_http_stream_read_binary(self._ptr, read_timeout_ms);
 			if (chunk == null) {
 				self.done = true;
 			}

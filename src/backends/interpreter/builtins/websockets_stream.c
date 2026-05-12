@@ -456,6 +456,59 @@ Value builtin_lws_http_stream_read(Value *args, int num_args, ExecutionContext *
     return val_null();  // Timeout
 }
 
+// __lws_http_stream_read_binary(stream, timeout_ms): buffer|null
+//
+// Returns chunks as buffers using their actual byte length, so binary
+// data with embedded 0x00 bytes (GGUFs, archives, images) is preserved.
+// builtin_lws_http_stream_read uses val_string which strlen-truncates.
+Value builtin_lws_http_stream_read_binary(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 2) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_http_stream_read_binary() expects 2 arguments");
+        return val_null();
+    }
+    if (args[0].type != VAL_PTR) {
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("__lws_http_stream_read_binary() expects ptr");
+        return val_null();
+    }
+
+    http_stream_t *stream = (http_stream_t *)args[0].as.as_ptr;
+    if (!stream) return val_null();
+
+    int timeout_ms = 30000;
+    if (args[1].type == VAL_I32) timeout_ms = args[1].as.as_i32;
+    else if (args[1].type == VAL_I64) timeout_ms = (int)args[1].as.as_i64;
+
+    int iterations = timeout_ms / 10;
+    if (iterations < 1) iterations = 1;
+
+    while (iterations-- > 0) {
+        pthread_mutex_lock(&stream->chunk_mutex);
+        if (stream->chunk_head) {
+            http_stream_chunk_t *chunk = stream->chunk_head;
+            stream->chunk_head = chunk->next;
+            if (!stream->chunk_head) stream->chunk_tail = NULL;
+            pthread_mutex_unlock(&stream->chunk_mutex);
+
+            Value buf_val = val_buffer((int)chunk->len);
+            if (buf_val.type != VAL_NULL && chunk->len > 0) {
+                memcpy(buf_val.as.as_buffer->data, chunk->data, chunk->len);
+            }
+            free(chunk->data);
+            free(chunk);
+            return buf_val;
+        }
+        if (stream->complete || stream->failed) {
+            pthread_mutex_unlock(&stream->chunk_mutex);
+            return val_null();
+        }
+        pthread_mutex_unlock(&stream->chunk_mutex);
+        usleep(10000);
+    }
+    return val_null();
+}
+
 // __lws_http_stream_status(stream): i32
 Value builtin_lws_http_stream_status(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1 || args[0].type != VAL_PTR) {
@@ -524,6 +577,12 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
 }
 
 Value builtin_lws_http_stream_read(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args; (void)num_args;
+    runtime_error(ctx, "Streaming HTTP not available (libwebsockets not installed)");
+    return val_null();
+}
+
+Value builtin_lws_http_stream_read_binary(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args; (void)num_args;
     runtime_error(ctx, "Streaming HTTP not available (libwebsockets not installed)");
     return val_null();
