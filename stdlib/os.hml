@@ -6,6 +6,8 @@
 // - System info (hostname, username, home dir)
 // - Hardware info (CPU count, memory)
 
+import { divi } from "@stdlib/math";
+
 // ========== PLATFORM DETECTION ==========
 
 // Get platform name: "linux", "macos", "windows", or "unknown"
@@ -106,21 +108,21 @@ export fn format_bytes(bytes: i64): string {
 		return "" + bytes + " B";
 	}
 
-	let kb = bytes / 1024;
+	let kb = divi(bytes, 1024);
 	if (kb < 1024) {
 		return "" + kb + " KB";
 	}
 
-	let mb = kb / 1024;
+	let mb = divi(kb, 1024);
 	if (mb < 1024) {
 		return "" + mb + " MB";
 	}
 
-	let gb = mb / 1024;
+	let gb = divi(mb, 1024);
 	if (gb < 1024) {
 		return "" + gb + " GB";
 	}
 
-	let tb = gb / 1024;
+	let tb = divi(gb, 1024);
 	return "" + tb + " TB";
 }

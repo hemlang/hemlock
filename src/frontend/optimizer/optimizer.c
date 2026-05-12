@@ -38,6 +38,32 @@ static int is_const_null(Expr *expr) {
 }
 
 /*
+ * Check whether an expression tree contains a string literal/interpolation.
+ * Identity rewrites like x + 0 are only valid for numeric addition; if a
+ * string is already present in the ADD chain, the + is concatenation and the
+ * zero is significant output.
+ */
+static int expr_contains_string(Expr *expr) {
+    if (!expr) return 0;
+    switch (expr->type) {
+        case EXPR_STRING:
+        case EXPR_STRING_INTERPOLATION:
+            return 1;
+        case EXPR_BINARY:
+            return expr_contains_string(expr->as.binary.left) ||
+                   expr_contains_string(expr->as.binary.right);
+        case EXPR_UNARY:
+            return expr_contains_string(expr->as.unary.operand);
+        case EXPR_TERNARY:
+            return expr_contains_string(expr->as.ternary.condition) ||
+                   expr_contains_string(expr->as.ternary.true_expr) ||
+                   expr_contains_string(expr->as.ternary.false_expr);
+        default:
+            return 0;
+    }
+}
+
+/*
  * Check if an expression is a constant integer (not float).
  */
 static int is_const_int(Expr *expr) {
@@ -622,15 +648,18 @@ static Expr *optimize_binary(Expr *expr, OptimizationStats *stats) {
     }
 
     /* Identity optimizations */
-    /* x + 0 → x, x - 0 → x */
-    if ((op == OP_ADD || op == OP_SUB) && is_const_number(right) && get_number_as_double(right) == 0.0) {
+    /* x + 0 → x, x - 0 → x.  Do not remove 0 from string concatenations. */
+    if ((op == OP_ADD || op == OP_SUB) &&
+        (op != OP_ADD || !expr_contains_string(left)) &&
+        is_const_number(right) && get_number_as_double(right) == 0.0) {
         stats->constants_folded++;
         expr->as.binary.left = NULL;  /* Detach left before freeing */
         expr_free(expr);  /* Free binary expr and the 0 operand */
         return left;
     }
-    /* 0 + x → x */
-    if (op == OP_ADD && is_const_number(left) && get_number_as_double(left) == 0.0) {
+    /* 0 + x → x.  Do not remove 0 from string concatenations. */
+    if (op == OP_ADD && !expr_contains_string(right) &&
+        is_const_number(left) && get_number_as_double(left) == 0.0) {
         stats->constants_folded++;
         expr->as.binary.right = NULL;  /* Detach right before freeing */
         expr_free(expr);  /* Free binary expr and the 0 operand */

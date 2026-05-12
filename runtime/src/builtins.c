@@ -18,6 +18,21 @@
  */
 
 #include "builtins_internal.h"
+#include <math.h>
+
+
+static void hml_format_float_for_string(char *buffer, size_t size, double value, int precision) {
+    snprintf(buffer, size, precision == 9 ? "%.9g" : "%.15g", value);
+    if (isfinite(value) && floor(value) == value &&
+        !strchr(buffer, '.') && !strchr(buffer, 'e') && !strchr(buffer, 'E')) {
+        size_t len = strlen(buffer);
+        if (len + 2 < size) {
+            buffer[len] = '.';
+            buffer[len + 1] = '0';
+            buffer[len + 2] = '\0';
+        }
+    }
+}
 
 // ========== STRING OPERATIONS ==========
 
@@ -224,10 +239,10 @@ HmlValue hml_to_string(HmlValue val) {
             snprintf(buffer, sizeof(buffer), "%" PRIu64, val.as.as_u64);
             break;
         case HML_VAL_F32:
-            snprintf(buffer, sizeof(buffer), "%g", val.as.as_f32);
+            hml_format_float_for_string(buffer, sizeof(buffer), val.as.as_f32, 9);
             break;
         case HML_VAL_F64:
-            snprintf(buffer, sizeof(buffer), "%.15g", val.as.as_f64);
+            hml_format_float_for_string(buffer, sizeof(buffer), val.as.as_f64, 15);
             break;
         case HML_VAL_BOOL:
             return hml_val_string(val.as.as_bool ? "true" : "false");

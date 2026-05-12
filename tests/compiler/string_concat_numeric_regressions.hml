@@ -1,0 +1,6 @@
+print("" + 75.0);
+let f: f64 = 3.14;
+print("" + f);
+print("a" + 0 + "b");
+let xi: i32 = 2575;
+print("" + (xi/100) + "." + (xi - (xi/100)*100));

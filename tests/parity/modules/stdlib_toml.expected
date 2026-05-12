@@ -9,7 +9,7 @@ names joined: a|b|c
 === Mixed scalars ===
 data[0]: 1
 data[1]: two
-data[2]: 3
+data[2]: 3.0
 data[3]: true
 === Array of tables ===
 items len: 2
