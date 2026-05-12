@@ -1,0 +1,20 @@
+// Test socket.bind failures throw catchable exceptions in both backends.
+import { AF_INET, SOCK_STREAM, socket_create } from "@stdlib/net";
+import { get_pid } from "@stdlib/env";
+
+let port = 20000 + (get_pid() % 20000);
+let first = socket_create(AF_INET, SOCK_STREAM, 0);
+let second = socket_create(AF_INET, SOCK_STREAM, 0);
+
+first.bind("127.0.0.1", port);
+
+try {
+    second.bind("127.0.0.1", port);
+    print("unexpected bind success");
+} catch (e) {
+    print("caught bind error");
+    print(e.contains("bind() failed"));
+}
+
+first.close();
+second.close();

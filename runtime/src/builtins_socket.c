@@ -67,9 +67,7 @@ void hml_socket_bind(HmlValue socket_val, HmlValue address, HmlValue port) {
         strncpy(addr_un.sun_path, addr_str, sizeof(addr_un.sun_path) - 1);
 
         if (bind(sock->fd, (struct sockaddr *)&addr_un, sizeof(addr_un)) < 0) {
-            fprintf(stderr, "Runtime error: Failed to bind unix socket to %s: %s\n",
-                    addr_str, strerror(errno));
-            exit(1);
+            hml_runtime_error("bind() failed: %s", strerror(errno));
         }
     } else if (sock->domain == AF_INET) {
         struct sockaddr_in addr;
@@ -84,9 +82,7 @@ void hml_socket_bind(HmlValue socket_val, HmlValue address, HmlValue port) {
         }
 
         if (bind(sock->fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-            fprintf(stderr, "Runtime error: Failed to bind socket to %s:%d: %s\n",
-                    addr_str, p, strerror(errno));
-            exit(1);
+            hml_runtime_error("bind() failed: %s", strerror(errno));
         }
     } else {
         hml_runtime_error("Unsupported socket domain for bind()");
