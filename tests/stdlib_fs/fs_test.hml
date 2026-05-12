@@ -1,7 +1,7 @@
 // Test @stdlib/fs - File system operations
 
 import { exists, read_file, write_file, append_file, remove_file } from "@stdlib/fs";
-import { make_dir, remove_dir, list_dir, is_file, is_dir } from "@stdlib/fs";
+import { make_dir, make_dirs, remove_dir, list_dir, is_file, is_dir } from "@stdlib/fs";
 import { cwd, rename, copy_file, file_stat } from "@stdlib/fs";
 
 let test_dir = "/tmp/hemlock_fs_test";
@@ -10,12 +10,17 @@ let test_dir = "/tmp/hemlock_fs_test";
 // Setup
 // ============================================================================
 
-try { remove_file(test_dir + "/test.txt"); } catch (e) {}
-try { remove_file(test_dir + "/copy.txt"); } catch (e) {}
-try { remove_file(test_dir + "/renamed.txt"); } catch (e) {}
-try { remove_dir(test_dir); } catch (e) {}
+if (exists(test_dir + "/test.txt")) { remove_file(test_dir + "/test.txt"); }
+if (exists(test_dir + "/copy.txt")) { remove_file(test_dir + "/copy.txt"); }
+if (exists(test_dir + "/renamed.txt")) { remove_file(test_dir + "/renamed.txt"); }
+if (exists(test_dir + "/blocker")) { remove_file(test_dir + "/blocker"); }
+if (exists(test_dir + "/nested/a/b")) { remove_dir(test_dir + "/nested/a/b"); }
+if (exists(test_dir + "/nested/a")) { remove_dir(test_dir + "/nested/a"); }
+if (exists(test_dir + "/nested")) { remove_dir(test_dir + "/nested"); }
+if (exists(test_dir)) { remove_dir(test_dir); }
 
-make_dir(test_dir);
+let default_dir_mode: u32 = 493;
+make_dir(test_dir, default_dir_mode);
 
 print("PASS: setup");
 
@@ -50,6 +55,29 @@ assert(is_dir(test_dir) == true, "is_dir true");
 assert(is_dir(test_dir + "/test.txt") == false, "is_dir false for file");
 
 print("PASS: exists and type checks");
+
+// ============================================================================
+// Recursive Directory Creation
+// ============================================================================
+
+make_dirs(test_dir + "/nested/a/b");
+assert(is_dir(test_dir + "/nested") == true, "make_dirs creates first parent");
+assert(is_dir(test_dir + "/nested/a") == true, "make_dirs creates nested parent");
+assert(is_dir(test_dir + "/nested/a/b") == true, "make_dirs creates leaf");
+make_dirs(test_dir + "/nested/a/b");
+assert(is_dir(test_dir + "/nested/a/b") == true, "make_dirs accepts existing directory");
+
+let blocked = false;
+write_file(test_dir + "/blocker", "not a dir");
+try {
+    make_dirs(test_dir + "/blocker/child");
+} catch (e) {
+    blocked = true;
+}
+assert(blocked == true, "make_dirs rejects file path component");
+remove_file(test_dir + "/blocker");
+
+print("PASS: recursive directory creation");
 
 // ============================================================================
 // Copy and Rename
@@ -101,6 +129,9 @@ remove_file(test_dir + "/test.txt");
 assert(exists(test_dir + "/test.txt") == false, "file removed");
 
 remove_file(test_dir + "/renamed.txt");
+remove_dir(test_dir + "/nested/a/b");
+remove_dir(test_dir + "/nested/a");
+remove_dir(test_dir + "/nested");
 remove_dir(test_dir);
 assert(exists(test_dir) == false, "dir removed");
 

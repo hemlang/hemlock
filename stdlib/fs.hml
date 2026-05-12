@@ -19,6 +19,58 @@ export let make_dir = __make_dir;
 export let remove_dir = __remove_dir;
 export let list_dir = __list_dir;
 
+// Create a directory and any missing parent directories. Existing directories
+// are accepted, matching mkdir -p behavior. Throws if any path component exists
+// but is not a directory, or if a directory cannot be created.
+export fn make_dirs(path: string, mode?: null) {
+	if (typeof(path) != "string") {
+		throw "make_dirs() requires a string path";
+	}
+
+	if (path.length == 0) {
+		throw "make_dirs() requires a non-empty path";
+	}
+
+	if (__exists(path)) {
+		if (__is_dir(path)) {
+			return null;
+		}
+		throw "make_dirs() path exists and is not a directory: " + path;
+	}
+
+	let current = path.starts_with("/") ? "/" : "";
+	let parts = path.split("/");
+	let i = 0;
+	while (i < parts.length) {
+		let part = parts[i];
+
+		// Empty parts come from repeated or leading slashes; . is already current.
+		if (part.length > 0 && part != ".") {
+			if (current.length == 0) {
+				current = part;
+			} else if (current == "/") {
+				current = "/" + part;
+			} else {
+				current = current + "/" + part;
+			}
+
+			if (__exists(current)) {
+				if (!__is_dir(current)) {
+					throw "make_dirs() path component exists and is not a directory: " + current;
+				}
+			} else if (mode == null) {
+				__make_dir(current);
+			} else {
+				__make_dir(current, mode);
+			}
+		}
+
+		i = i + 1;
+	}
+
+	return null;
+}
+
 // ========== FILE INFO ==========
 
 export let is_file = __is_file;
