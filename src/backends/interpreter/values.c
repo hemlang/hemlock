@@ -1416,7 +1416,7 @@ char* value_to_string(Value val) {
             snprintf(buffer, sizeof(buffer), "%g", val.as.as_f32);
             return strdup(buffer);
         case VAL_F64:
-            snprintf(buffer, sizeof(buffer), "%g", val.as.as_f64);
+            snprintf(buffer, sizeof(buffer), "%.15g", val.as.as_f64);
             return strdup(buffer);
         case VAL_BOOL:
             return strdup(val.as.as_bool ? "true" : "false");

@@ -4,6 +4,7 @@
  */
 
 #include "codegen_expr_internal.h"
+#include "type_check_internal.h"
 #include <inttypes.h>
 
 // Forward declarations
@@ -183,10 +184,16 @@ char* codegen_native_expr(CodegenContext *ctx, Expr *expr, CheckedTypeKind *out_
 
 // ========== OPTIMIZATION HELPERS ==========
 
-// OPTIMIZATION: Helper to check if an expression is likely a string
-// (string literal or identifier - we can't know types at compile time for all cases)
-static int is_likely_string_expr(Expr *expr) {
-    return expr->type == EXPR_STRING;
+// OPTIMIZATION: Helper to check if an expression is a string at compile time
+static int is_string_expr(CodegenContext *ctx, Expr *expr) {
+    if (!expr) return 0;
+    if (expr->type == EXPR_STRING || expr->type == EXPR_STRING_INTERPOLATION) {
+        return 1;
+    }
+    if (!ctx->type_ctx) return 0;
+
+    CheckedType *type = type_check_infer_expr(ctx->type_ctx, expr);
+    return type && type->kind == CHECKED_STRING;
 }
 
 // OPTIMIZATION: Check if an expression is a compile-time integer constant
@@ -433,8 +440,8 @@ static int count_string_concat_chain(Expr *expr, Expr **elements, int max_elemen
 
 // OPTIMIZATION: Check if this is a chain of string concatenations
 // Detects patterns like: a + b + c + d (left-associative ADD chains)
-// where at least one operand is a string literal
-static int is_string_concat_chain(Expr *expr, int *count) {
+// where at least one operand has a string type
+static int is_string_concat_chain(CodegenContext *ctx, Expr *expr, int *count) {
     if (expr->type != EXPR_BINARY || expr->as.binary.op != OP_ADD) {
         return 0;
     }
@@ -443,10 +450,10 @@ static int is_string_concat_chain(Expr *expr, int *count) {
     Expr *elements[6];
     int n = count_string_concat_chain(expr, elements, 6);
 
-    // For it to be a string concat chain, at least one element should be a string literal
+    // For it to be a string concat chain, at least one element should be a string
     int has_string = 0;
     for (int i = 0; i < n; i++) {
-        if (is_likely_string_expr(elements[i])) {
+        if (is_string_expr(ctx, elements[i])) {
             has_string = 1;
             break;
         }
@@ -702,7 +709,7 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
             // Use hml_string_concat3/4/5 for single-allocation efficiency
             {
                 int concat_count = 0;
-                if (is_string_concat_chain(expr, &concat_count)) {
+                if (is_string_concat_chain(ctx, expr, &concat_count)) {
                     Expr *elements[6] = {NULL, NULL, NULL, NULL, NULL, NULL};
                     count_string_concat_chain(expr, elements, 6);
 
@@ -821,8 +828,11 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
             if (ctx->optimize) {
                 int64_t const_val;
 
-                // x + 0 or 0 + x -> x
-                if (expr->as.binary.op == OP_ADD) {
+                // x + 0 or 0 + x -> x. Do not apply this to string
+                // concatenation: `"" + 0` must preserve the literal zero.
+                if (expr->as.binary.op == OP_ADD &&
+                    !is_string_expr(ctx, expr->as.binary.left) &&
+                    !is_string_expr(ctx, expr->as.binary.right)) {
                     if (is_const_integer(expr->as.binary.right, &const_val) && const_val == 0) {
                         char *left_val = codegen_expr(ctx, expr->as.binary.left);
                         codegen_writeln(ctx, "HmlValue %s = %s;", result, left_val);

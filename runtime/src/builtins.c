@@ -227,7 +227,7 @@ HmlValue hml_to_string(HmlValue val) {
             snprintf(buffer, sizeof(buffer), "%g", val.as.as_f32);
             break;
         case HML_VAL_F64:
-            snprintf(buffer, sizeof(buffer), "%g", val.as.as_f64);
+            snprintf(buffer, sizeof(buffer), "%.15g", val.as.as_f64);
             break;
         case HML_VAL_BOOL:
             return hml_val_string(val.as.as_bool ? "true" : "false");
