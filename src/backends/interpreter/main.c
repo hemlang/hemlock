@@ -1438,6 +1438,10 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
                 return 1;
             }
+            if (strcmp(argv[i + 1], "-h") == 0 || strcmp(argv[i + 1], "--help") == 0) {
+                print_help(argv[0]);
+                return 0;
+            }
             command_to_run = argv[i + 1];
             i++;  // Skip the code argument
         } else if (strcmp(argv[i], "--compile") == 0) {
