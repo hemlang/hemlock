@@ -178,6 +178,10 @@ test-wasm-context: $(INTERP_OBJS) $(LIBTOOLS) $(LIBCOMMON)
 test-formatter: $(TARGET)
 	@bash tests/formatter/run_tests.sh
 
+.PHONY: test-cli
+test-cli: $(TARGET)
+	@bash tests/cli/run_cli_tests.sh
+
 # ========== STDLIB C MODULES ==========
 
 # Build stdlib C modules (lws_wrapper.so for HTTP/WebSocket, ffi_struct_test for tests)
@@ -724,7 +728,7 @@ test-memory: compiler
 
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler parity test-bundler test-lsp test-memory test-formatter
+test-all: test test-compiler parity test-bundler test-lsp test-memory test-formatter test-cli
 
 # ========== RELEASE BUILD ==========
 
