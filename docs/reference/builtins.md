@@ -228,7 +228,7 @@ import { exec, fork, kill } from "@stdlib/process";
 import { open, read_file } from "@stdlib/fs";
 ```
 
-**Functions:** `open`, `read_file`, `write_file`, `append_file`, `remove_file`, `rename`, `copy_file`, `is_file`, `is_dir`, `file_stat`, `make_dir`, `remove_dir`, `list_dir`, `cwd`, `chdir`, `absolute_path`, `exists`
+**Functions:** `open`, `read_file`, `write_file`, `append_file`, `remove_file`, `rename`, `copy_file`, `is_file`, `is_dir`, `file_stat`, `make_dir`, `make_dirs`, `remove_dir`, `list_dir`, `cwd`, `chdir`, `absolute_path`, `exists`
 
 ### `@stdlib/time`
 

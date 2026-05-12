@@ -7,7 +7,7 @@ A standard library module providing comprehensive file and directory operations 
 The fs module provides essential filesystem capabilities:
 
 - **File operations** - Read, write, append, copy, rename, delete files
-- **Directory operations** - Create, remove, list directories
+- **Directory operations** - Create single directories, recursively create directory trees, remove, and list directories
 - **File information** - Check existence, get file stats, distinguish files/directories
 - **Path operations** - Get current directory, change directory, resolve absolute paths
 
@@ -326,7 +326,38 @@ try {
 }
 ```
 
-**Note:** Does not create parent directories (non-recursive). Use a loop to create nested directories.
+**Note:** Does not create parent directories (non-recursive). Use `make_dirs()` to create nested directory trees.
+
+### make_dirs(path, mode?)
+Creates a directory and any missing parent directories, similar to `mkdir -p`.
+
+**Parameters:**
+- `path: string` - Path for the directory tree
+- `mode: u32` (optional) - Permissions mode to use for newly-created directories (default: 0755)
+
+**Returns:** `null`
+
+**Throws:** Exception if any path component exists and is not a directory, or if a directory cannot be created
+
+```hemlock
+import { make_dirs } from "@stdlib/fs";
+
+try {
+    make_dirs("/tmp/app/data/logs");
+    print("Directory tree created");
+
+    // Existing directories are accepted.
+    make_dirs("/tmp/app/data/logs");
+
+    // Create with custom permissions (0700 - owner only).
+    let mode: u32 = 448;
+    make_dirs("/tmp/app/private/cache", mode);
+} catch (e) {
+    print("Error creating directory tree: " + e);
+}
+```
+
+**Note:** `make_dirs()` only creates directories. It fails if a file blocks one of the path components.
 
 ### remove_dir(path)
 Removes an empty directory.
@@ -686,45 +717,19 @@ rotate_log("app.log", 10485760);  // 10 MB
 
 ### Recursive Directory Creation
 
+Use `make_dirs()` when you need to create a full directory tree without hand-walking each parent component.
+
 ```hemlock
-import { exists, make_dir, is_dir } from "@stdlib/fs";
+import { make_dirs, is_dir } from "@stdlib/fs";
 
-fn make_dirs(path: string): bool {
-    if (exists(path)) {
-        return is_dir(path);
+try {
+    make_dirs("/tmp/app/data/logs");
+
+    if (is_dir("/tmp/app/data/logs")) {
+        print("Directory tree created");
     }
-
-    // Find the last slash
-    let parts = path.split("/");
-    if (parts.length <= 1) {
-        try {
-            make_dir(path);
-            return true;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    // Create parent first
-    let parent_parts = parts.slice(0, parts.length - 1);
-    let parent = parent_parts.join("/");
-
-    if (!make_dirs(parent)) {
-        return false;
-    }
-
-    // Then create this directory
-    try {
-        make_dir(path);
-        return true;
-    } catch (e) {
-        return false;
-    }
-}
-
-// Usage
-if (make_dirs("/tmp/app/data/logs")) {
-    print("Directory tree created");
+} catch (e) {
+    print("Error creating directory tree: " + e);
 }
 ```
 
