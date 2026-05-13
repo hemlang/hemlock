@@ -125,6 +125,7 @@ Environment* env_new(Environment *parent) {
         env->count = 0;
         env->ref_count = 1;
         env->borrowed_flags = 0;  // Clear borrowed flags
+        env->imports = NULL;
         // Clear hash table using memset (faster than loop)
         memset(env->hash_table, 0xFF, sizeof(int) * env->hash_capacity);
         // mutex is already set to pooled mutex in env_pool_alloc
@@ -192,11 +193,30 @@ Environment* env_new(Environment *parent) {
     }
     pthread_mutex_init((pthread_mutex_t*)env->mutex, NULL);
     env->parent = parent;
+    env->imports = NULL;
     // Retain parent environment if it exists
     if (parent) {
         env_retain(parent);
     }
     return env;
+}
+
+// Free all import aliases attached to the environment. Releases the source
+// envs each import retained. Called from env_free before the env itself is
+// torn down or returned to the pool.
+static void env_free_imports(Environment *env) {
+    EnvImport *imp = env->imports;
+    while (imp) {
+        EnvImport *next = imp->next;
+        if (imp->source_env) {
+            env_release(imp->source_env);
+        }
+        free(imp->alias_name);
+        free(imp->source_name);
+        free(imp);
+        imp = next;
+    }
+    env->imports = NULL;
 }
 
 // ========== CYCLE BREAKING ==========
@@ -295,6 +315,9 @@ void env_clear(Environment *env) {
     // Reset count but keep capacity and allocated arrays
     env->count = 0;
     env->borrowed_flags = 0;  // Clear borrowed flags
+    if (env->imports) {
+        env_free_imports(env);
+    }
     // Clear hash table (reset all slots to -1)
     for (int i = 0; i < env->hash_capacity; i++) {
         env->hash_table[i] = -1;
@@ -309,6 +332,11 @@ void env_free(Environment *env) {
             free(env->names[i]);
         }
         VALUE_RELEASE(env->values[i]);  // Decrement reference count
+    }
+
+    // Tear down live-import aliases (releases the source envs)
+    if (env->imports) {
+        env_free_imports(env);
     }
 
     // Release parent environment (may trigger cascade of frees)
@@ -460,6 +488,18 @@ static void env_grow(Environment *env) {
     env_rehash(env);
 }
 
+// Search an env's import alias list for `name`. Returns the matching
+// EnvImport or NULL. Caller must already hold env->mutex.
+static EnvImport* env_find_import(Environment *env, const char *name) {
+    for (EnvImport *imp = env->imports; imp; imp = imp->next) {
+        if (imp->alias_name == name ||
+            (imp->alias_name[0] == name[0] && strcmp(imp->alias_name, name) == 0)) {
+            return imp;
+        }
+    }
+    return NULL;
+}
+
 // O(1) hash table lookup - returns index or -1 if not found
 // Fast path for short identifiers using first 8 bytes comparison
 static inline int env_lookup(Environment *env, const char *name, uint32_t hash) {
@@ -511,7 +551,7 @@ void env_define(Environment *env, const char *name, Value value, int is_const, E
 
     // Check if variable already exists in current scope using hash table
     int existing = env_lookup(env, name, hash);
-    if (existing >= 0) {
+    if (existing >= 0 || env_find_import(env, name) != NULL) {
         if (mutex) pthread_mutex_unlock(mutex);
         // Throw exception instead of exiting
         char error_msg[256];
@@ -618,6 +658,58 @@ void env_define_param(Environment *env, const char *name, uint32_t hash, Value v
     if (mutex) pthread_mutex_unlock(mutex);
 }
 
+// Install a live-binding alias from the importing scope to a name in another
+// module's exports environment. Subsequent `env_get(env, alias_name, ...)`
+// calls dispatch to `env_get(source_env, source_name, ...)`, so the importer
+// always sees the exporter's current value (matching the compiler's
+// module-global semantics and standard ES module live bindings).
+void env_define_import(Environment *env, const char *alias_name,
+                       Environment *source_env, const char *source_name,
+                       ExecutionContext *ctx) {
+    if (!env || !source_env) return;
+
+    uint32_t hash = hash_string(alias_name);
+
+    pthread_mutex_t *mutex = (pthread_mutex_t*)env->mutex;
+    if (mutex) pthread_mutex_lock(mutex);
+
+    if (env_lookup(env, alias_name, hash) >= 0 ||
+        env_find_import(env, alias_name) != NULL) {
+        if (mutex) pthread_mutex_unlock(mutex);
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg),
+                 "Variable '%s' already defined in this scope", alias_name);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return;
+    }
+
+    EnvImport *imp = malloc(sizeof(EnvImport));
+    if (!imp) {
+        if (mutex) pthread_mutex_unlock(mutex);
+        ctx->exception_state.exception_value = val_string("Memory allocation failed in env_define_import");
+        ctx->exception_state.is_throwing = 1;
+        return;
+    }
+    imp->alias_name = strdup(alias_name);
+    imp->source_name = strdup(source_name);
+    if (!imp->alias_name || !imp->source_name) {
+        free(imp->alias_name);
+        free(imp->source_name);
+        free(imp);
+        if (mutex) pthread_mutex_unlock(mutex);
+        ctx->exception_state.exception_value = val_string("Memory allocation failed in env_define_import");
+        ctx->exception_state.is_throwing = 1;
+        return;
+    }
+    imp->source_env = source_env;
+    env_retain(source_env);
+    imp->next = env->imports;
+    env->imports = imp;
+
+    if (mutex) pthread_mutex_unlock(mutex);
+}
+
 // Set a variable (for reassignment or implicit definition in loops/functions)
 void env_set(Environment *env, const char *name, Value value, ExecutionContext *ctx) {
     uint32_t hash = hash_string(name);
@@ -659,6 +751,18 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
         return;
     }
 
+    // Imported bindings are read-only at the import site (mutations belong
+    // to the exporting module). Reject assignment so we don't shadow the
+    // alias with a new local variable.
+    if (env_find_import(env, name) != NULL) {
+        if (mutex) pthread_mutex_unlock(mutex);
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "Cannot assign to imported binding '%s'", name);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return;
+    }
+
     // Unlock current env before checking parents (to prevent deadlock)
     if (mutex) pthread_mutex_unlock(mutex);
 
@@ -686,6 +790,15 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
             // Update parent scope variable
             search_env->values[pidx] = value;
             if (parent_mutex) pthread_mutex_unlock(parent_mutex);
+            return;
+        }
+
+        if (env_find_import(search_env, name) != NULL) {
+            if (parent_mutex) pthread_mutex_unlock(parent_mutex);
+            char error_msg[256];
+            snprintf(error_msg, sizeof(error_msg), "Cannot assign to imported binding '%s'", name);
+            ctx->exception_state.exception_value = val_string(error_msg);
+            ctx->exception_state.is_throwing = 1;
             return;
         }
 
@@ -748,6 +861,26 @@ Value env_get(Environment *env, const char *name, ExecutionContext *ctx) {
             Value val = search_env->values[idx];
             VALUE_RETAIN(val);  // Retain for the caller (caller now owns a reference)
             if (mutex) pthread_mutex_unlock(mutex);
+            return val;
+        }
+
+        // Check live-binding aliases installed at this scope. Imports are
+        // resolved to the exporter's exports env, so subsequent mutations in
+        // the exporter are visible here (live bindings, not snapshots).
+        EnvImport *imp = env_find_import(search_env, name);
+        if (imp) {
+            Environment *src = imp->source_env;
+            // Copy source_name; releasing the mutex before recursing is required
+            // to avoid deadlock if the source env shares a mutex chain.
+            char *src_name = strdup(imp->source_name);
+            if (mutex) pthread_mutex_unlock(mutex);
+            if (!src_name) {
+                ctx->exception_state.exception_value = val_string("Memory allocation failed in env_get import");
+                ctx->exception_state.is_throwing = 1;
+                return val_null();
+            }
+            Value val = env_get(src, src_name, ctx);
+            free(src_name);
             return val;
         }
 
