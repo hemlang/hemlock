@@ -9,14 +9,15 @@
 #define HEMLOCK_VERSION_H
 
 #define HEMLOCK_VERSION_MAJOR 2
-#define HEMLOCK_VERSION_MINOR 3
-#define HEMLOCK_VERSION_PATCH 1
+#define HEMLOCK_VERSION_MINOR 4
+#define HEMLOCK_VERSION_PATCH 0
 
-#define HEMLOCK_VERSION "2.3.1"
+#define HEMLOCK_VERSION "2.4.0"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   2.4.0 - HTTP/auth + ergonomics batch (10 issues from Witchgrid bring-up): @stdlib/http now threads custom headers through POST/PUT/DELETE/PATCH and the timeout variants (was: only Content-Type made it to libwebsockets, breaking Authorization on POST); interpreter named-module imports are now live bindings instead of import-time snapshots so reassigning an exported `let` is visible to importers and to spawned tasks; flow null-narrowing propagates through `?.` field access (no more `let mp = model_path` shadow-rebind after a null check); type error labels report the parameter name instead of `'positional'`; `string.lower()`/`upper()` aliases for `to_lower`/`to_upper`; `get_binary` follows 3xx redirects (GitHub→CDN tarball pulls work directly); C codegen no longer prefixes call symbols with surrounding scope tokens (function calls inside `port_free_on_agent(agent_url: ...)` no longer mangle to `hml_fn_agent_*`); macOS libwebsockets initialization picks up Homebrew CA bundles by default (no SSL_CERT_FILE workaround); default one-shot LWS HTTP timeout lowered from ~30s to 5s so a single failed call doesn't wedge the caller for half a minute (the `_timeout` variants still honor their per-call timeout); side-effect import workaround documented
  *   2.3.1 - Binary HTTP fixes: @stdlib/http.download() now actually writes the buffer body (was f.write(buffer) which silently no-op'd in compiled binaries and threw in the interpreter); new download_streaming(url, path) for bounded-memory pulls of large files (model weights, archives) — chunks straight to disk via .partial + atomic rename; new stream.read_binary() + __lws_http_stream_read_binary returning buffer chunks (existing read() routes through val_string which strlen-truncates at the first 0x00 byte, corrupting binary payloads)
  *   2.3.0 - Streaming HTTP support in @stdlib/http (chunked / SSE): stream(), stream_get(), stream_post(), post_json_stream(), stream_sse(); compiler runtime now sends POST bodies for streaming requests and throws the same catchable errors as the interpreter (invalid ptr, bad URL, connection failure) for full interpreter/compiler parity
  *   2.2.3 - Patch release with runtime/compiler hardening: catchable socket connect/bind failures, correct /proc and /sys File.read() behavior, safer buffer memory builtins, optional-chain null-guard narrowing, string concatenation numeric regressions fixed, CLI help parsing fixed, and fs.make_dirs() added

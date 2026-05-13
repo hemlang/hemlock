@@ -7,9 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-05-13
+
+A batch release driven by ten issues surfaced during Witchgrid's CP↔agent shared-bearer auth bring-up. Most of the fixes unblock real-world HTTP and concurrency patterns; the rest are ergonomics that make the compiler easier to live with.
+
+### Added
+
+- **`string.lower()` / `string.upper()` aliases** for `to_lower` / `to_upper`. Matches the spelling reach of Python/JS/Ruby and removes a runtime "String has no method 'lower'" papercut for anyone porting code in.
+
 ### Fixed
 
-- **Default one-shot LWS HTTP timeout lowered** — `__lws_http_get`, `__lws_http_post`, and `__lws_http_request` now use a shared 5000ms default service-loop timeout instead of waiting about 30000ms before reporting connection/request failure. The `_timeout` variants still honor their per-call timeout argument.
+- **`@stdlib/http` POST/PUT/DELETE/PATCH now actually send custom headers.** The wrappers accepted a `headers` array but `http_request_with_redirects` and `http_request_timeout_with_redirects` only scanned it for `Content-Type:` and dropped the rest, so `Authorization`, `X-Request-Id`, etc. never reached the wire. GET worked because `__lws_http_get_with_headers` already used the `custom_headers` plumbing in the LWS callback. New `__lws_http_post_with_headers` / `__lws_http_request_with_headers` (and their `_timeout` siblings) thread the full headers array through, and the stdlib wrappers call them when `headers != null && headers.length > 0`.
+- **Interpreter named-module imports are live bindings, not import-time snapshots.** `import { X } from "mod"` used to install a value snapshot of `X` taken at import time, so reassigning the exported `let X` in the source module was invisible to the importer (and to any tasks `spawn`'d from the importing scope). The compiler already used live bindings; the interpreter now matches. Practical impact: code like `let SECRET = ""; fn init() { SECRET = getenv(...); }` in a module now propagates the post-init value to spawned heartbeats / accept workers, instead of those tasks snapshotting `""` at spawn time.
+- **Flow null-narrowing propagates through `?.` field access.** A `if (x == null) { return; }` immediately above a use of `x` (or a value derived from `x?.field`) now narrows correctly, so call sites no longer need a shadow `let nn = x;` rebind purely to satisfy the type checker.
+- **Type error labels name the parameter instead of `'positional'`.** Errors on argument-type mismatches used to read `argument 'positional' to 'fn_name'`, which gave no hint about which arg in a multi-arg call was wrong. Now they identify the parameter by name (or by 1-based index when the callee is anonymous).
+- **`get_binary` follows 3xx redirects.** Previously stopped at the first redirect, which broke pulls of GitHub release tarballs (GitHub redirects to `objects.githubusercontent.com` to S3). Same redirect-chain limit as the text path (10 hops).
+- **C codegen no longer prefixes call symbols with surrounding-scope tokens.** Call sites inside a function whose parameter happened to share a prefix with the called function's name (e.g. calling `cp_post_json(agent_url + ...)` inside `port_free_on_agent(agent_url: string, ...)`) were mangling to `hml_fn_agent_cp_post_json` because the codegen accidentally prepended a token from the parameter name. Symbol generation is now stable regardless of the surrounding identifier set.
+- **macOS libwebsockets startup picks up Homebrew's CA bundle by default.** `lws_create_context` was failing on Apple Silicon with `Failed to create default vhost` unless the user set `SSL_CERT_FILE=/opt/homebrew/etc/openssl@3/cert.pem`. The runtime now probes the Homebrew openssl@3 bundle automatically when running on Darwin, with a clearer error message if the bundle isn't found at all.
+- **Default one-shot LWS HTTP timeout lowered** from ~30000ms to 5000ms across `__lws_http_get`, `__lws_http_post`, `__lws_http_request`, and the `_with_headers` variants. A single failed connect/request used to wedge the caller for half a minute; now it surfaces in 5s. The `_timeout` variants still honor their per-call timeout argument.
+
+### Documentation
+
+- Side-effect imports — using `import "./mod";` for modules that need to run boot code without exporting anything — are now documented as a deliberate pattern, with a worked example. The interpreter and compiler both supported it; only the docs were missing.
 
 ## [2.3.1] - 2026-05-12
 

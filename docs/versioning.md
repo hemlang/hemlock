@@ -29,10 +29,10 @@ The version is defined in `include/version.h`:
 
 ```c
 #define HEMLOCK_VERSION_MAJOR 2
-#define HEMLOCK_VERSION_MINOR 2
-#define HEMLOCK_VERSION_PATCH 3
+#define HEMLOCK_VERSION_MINOR 4
+#define HEMLOCK_VERSION_PATCH 0
 
-#define HEMLOCK_VERSION "2.2.3"
+#define HEMLOCK_VERSION "2.4.0"
 ```
 
 ### Checking Versions
@@ -93,6 +93,9 @@ import { sin, cos } from "@stdlib/math";
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **2.4.0** | 2026-05-13 | `@stdlib/http` POST/PUT/DELETE/PATCH thread custom headers; interpreter named-module imports are live bindings (post-init reassignments visible to spawned tasks); flow null-narrowing follows `?.`; type-error labels name the parameter; `string.lower()`/`upper()` aliases; `get_binary` follows 3xx; codegen call-symbol stability; macOS LWS auto-finds Homebrew CA bundles; default LWS HTTP timeout dropped 30s → 5s |
+| **2.3.1** | 2026-05-12 | Binary HTTP fixes: `@stdlib/http.download()` actually writes the buffer body; new `download_streaming(url, path)` for bounded-memory large pulls; new `stream.read_binary()` + `__lws_http_stream_read_binary` preserving 0x00 bytes |
+| **2.3.0** | 2026-05-12 | Streaming HTTP support: `stream()`, `stream_get()`, `stream_post()`, `post_json_stream()`, `stream_sse()`; compiler runtime sends POST bodies for streaming requests with full interpreter parity on catchable errors |
 | **2.2.3** | 2026-05-12 | Catchable socket connect/bind failures; `/proc`/`/sys` `File.read()` fix; safer buffer memory builtins; optional-chain null-guard narrowing; recursive `fs.make_dirs()`; CLI help parsing and numeric string-concat fixes |
 | **2.2.2** | 2026-05-11 | Catchable runtime `file_stat()` failures; typed-array fast-path assignment checks; non-default-prefix stdlib/runtime lookup fixes; documentation audit/check tooling |
 | **2.2.1** | 2026-05-10 | Compiled binaries actually send HTTP POST/PUT/PATCH bodies (interpreter was already correct); libwebsockets startup banner suppressed by default in compiled binaries |

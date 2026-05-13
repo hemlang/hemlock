@@ -190,8 +190,10 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v2.3.0 is the current checked-in release. Highlights include:
+Hemlock v2.4.0 is the current checked-in release. Highlights include:
 
+- **v2.4.0 HTTP/auth + ergonomics batch** - `@stdlib/http` POST/PUT/DELETE/PATCH now actually send custom headers (`Authorization`, `X-Request-Id`, etc. were silently dropped before — only `Content-Type` made it past the wrapper). Interpreter named-module imports are live bindings instead of import-time snapshots, so reassigning an exported `let` propagates to importers and to spawned tasks. Flow null-narrowing follows `?.` field access. Type error labels report the parameter name instead of `'positional'`. `string.lower()`/`upper()` aliases. `get_binary` follows 3xx redirects. C codegen no longer prefixes call symbols with surrounding-scope tokens. macOS libwebsockets picks up Homebrew CA bundles automatically. Default LWS HTTP timeout dropped from ~30s to 5s.
+- **v2.3.1 binary HTTP fixes** - `@stdlib/http.download(url, path)` now actually writes the buffer body (was silently writing zero-byte files in compiled binaries); new `download_streaming(url, path)` for bounded-memory pulls of large artifacts; new `stream.read_binary()` preserves 0x00 bytes that `read()` would have truncated at.
 - **v2.3.0 streaming HTTP** - `@stdlib/http` now exports `stream()`, `stream_get()`, `stream_post()`, `post_json_stream()`, and `stream_sse()` for chunked HTTP and Server-Sent Events. Built on the already-bundled libwebsockets, so no new dependency. The compiler runtime now sends POST/PUT/PATCH bodies for streaming requests and throws the same catchable exceptions as the interpreter on invalid arguments — full interpreter/compiler parity.
 - **v2.2.3 hardening release** - Socket connect/bind failures are catchable in compiled binaries, `/proc` and `/sys` pseudo-files read correctly, buffer memory builtins validate ranges, optional-chain null guards narrow in the compiler, CLI help parsing is stricter, and `@stdlib/fs` now includes recursive `make_dirs()`.
 - **v2.2.2 hardening release** - Runtime `file_stat()` failures are catchable, typed-array fast-path assignments have stricter checks, non-default install prefixes find their stdlib/runtime layout, and documentation audit tooling is checked in.
