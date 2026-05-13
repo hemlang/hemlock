@@ -667,17 +667,22 @@ HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
     return hml_val_ptr(resp);
 }
 
-// HTTP POST
-HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content_type_val) {
-    hml_lws_init_logging();
-    if (url_val.type != HML_VAL_STRING || body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
-        hml_runtime_error("__lws_http_post() expects string arguments");
-    }
-
-    const char *url = url_val.as.as_string->data;
-    const char *post_body = body_val.as.as_string->data;
-    const char *content_type = content_type_val.as.as_string->data;
-
+// Shared core for POST/PUT/DELETE/PATCH/etc. — handles URL parsing, response
+// allocation, optional custom headers, optional request body, the LWS context
+// + connect dance, and the service loop. On failure raises a runtime error
+// (which is noreturn). On success returns the response as an HmlValue ptr.
+//
+// `headers_val` may be a non-array (e.g. null) — in that case no custom
+// headers are attached. `force_body` controls whether a zero-length body is
+// still attached (POST always does so; the generic request path skips for
+// empty bodies, matching pre-fix behavior).
+static HmlValue hml_lws_http_perform(const char *method,
+                                      const char *url,
+                                      const char *post_body,
+                                      const char *content_type,
+                                      HmlValue headers_val,
+                                      int timeout_iterations,
+                                      int force_body) {
     char host[256], path[512];
     int port, ssl;
 
@@ -690,117 +695,17 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
         hml_runtime_error("Failed to allocate response");
     }
 
-    resp->body_capacity = 4096;
-    resp->body = malloc(resp->body_capacity);
-    if (!resp->body) {
-        free(resp);
-        hml_runtime_error("Failed to allocate body buffer");
-    }
-    resp->body[0] = '\0';
-
-    if (hml_attach_request_body(resp, post_body, content_type) < 0) {
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to attach request body");
-    }
-
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-
-    static const struct lws_protocols post_protocols[] = {
-        { "http", hml_http_callback, 0, 16384, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = post_protocols;
-
-    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
-    if (!context) {
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("%s", hml_lws_context_error_message());
-    }
-
-    struct lws_client_connect_info connect_info;
-    memset(&connect_info, 0, sizeof(connect_info));
-    connect_info.context = context;
-    connect_info.address = host;
-    connect_info.port = port;
-    connect_info.path = path;
-    connect_info.host = host;
-    connect_info.origin = host;
-    connect_info.method = "POST";
-    connect_info.protocol = post_protocols[0].name;
-    connect_info.userdata = resp;
-
-    struct lws *wsi;
-    connect_info.pwsi = &wsi;
-
-    connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
-
-    if (ssl) {
-        // SECURITY: Enable SSL with proper certificate validation
-        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
-        // to prevent MITM attacks
-        connect_info.ssl_connection |= LCCSCF_USE_SSL;
-    }
-
-    if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to connect");
-    }
-
-    int timeout = hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS);
-    while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
-    }
-
-    lws_context_destroy(context);
-    hml_free_request_body(resp);
-
-    if (resp->failed || timeout <= 0) {
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("HTTP request failed or timed out");
-    }
-
-    return hml_val_ptr(resp);
-}
-
-// Generic HTTP request with configurable method
-HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val) {
-    hml_lws_init_logging();
-    if (method_val.type != HML_VAL_STRING || url_val.type != HML_VAL_STRING ||
-        body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
-        hml_runtime_error("__lws_http_request() expects string arguments");
-    }
-
-    const char *method = method_val.as.as_string->data;
-    const char *url = url_val.as.as_string->data;
-    const char *post_body = body_val.as.as_string->data;
-    const char *content_type = content_type_val.as.as_string->data;
-
-    char host[256], path[512];
-    int port, ssl;
-
-    if (hml_parse_url(url, host, &port, path, &ssl) < 0) {
-        hml_runtime_error("Invalid URL format");
-    }
-
-    hml_http_response_t *resp = calloc(1, sizeof(hml_http_response_t));
-    if (!resp) {
-        hml_runtime_error("Failed to allocate response");
-    }
+    hml_parse_headers_into_resp(resp, headers_val);
 
     resp->body_capacity = 4096;
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
-        free(resp);
+        hml_lws_response_destroy(resp);
         hml_runtime_error("Failed to allocate body buffer");
     }
     resp->body[0] = '\0';
 
-    if (post_body && strlen(post_body) > 0) {
+    if (post_body && (force_body || strlen(post_body) > 0)) {
         if (hml_attach_request_body(resp, post_body, content_type) < 0) {
             hml_lws_response_destroy(resp);
             hml_runtime_error("Failed to attach request body");
@@ -813,11 +718,11 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;
 
-    static const struct lws_protocols req_protocols[] = {
+    static const struct lws_protocols protocols[] = {
         { "http", hml_http_callback, 0, 16384, 0, NULL, 0 },
         { NULL, NULL, 0, 0, 0, NULL, 0 }
     };
-    info.protocols = req_protocols;
+    info.protocols = protocols;
 
     struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
@@ -834,14 +739,14 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
     connect_info.host = host;
     connect_info.origin = host;
     connect_info.method = method;
-    connect_info.protocol = req_protocols[0].name;
+    connect_info.protocol = protocols[0].name;
     connect_info.userdata = resp;
 
     struct lws *wsi;
     connect_info.pwsi = &wsi;
 
+    // Disable automatic redirects - handled at the hemlock layer
     connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
-
     if (ssl) {
         connect_info.ssl_connection |= LCCSCF_USE_SSL;
     }
@@ -852,7 +757,7 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
         hml_runtime_error("Failed to connect");
     }
 
-    int timeout = hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS);
+    int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
         lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
@@ -866,6 +771,71 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
     }
 
     return hml_val_ptr(resp);
+}
+
+// HTTP POST
+HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content_type_val) {
+    hml_lws_init_logging();
+    if (url_val.type != HML_VAL_STRING || body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_post() expects string arguments");
+    }
+    return hml_lws_http_perform("POST",
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 hml_val_null(),
+                                 hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS),
+                                 /*force_body=*/1);
+}
+
+// HTTP POST with custom headers
+HmlValue hml_lws_http_post_with_headers(HmlValue url_val, HmlValue body_val,
+                                         HmlValue content_type_val, HmlValue headers_val) {
+    hml_lws_init_logging();
+    if (url_val.type != HML_VAL_STRING || body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_post() expects string arguments");
+    }
+    return hml_lws_http_perform("POST",
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 headers_val,
+                                 hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS),
+                                 /*force_body=*/1);
+}
+
+// Generic HTTP request with configurable method
+HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val) {
+    hml_lws_init_logging();
+    if (method_val.type != HML_VAL_STRING || url_val.type != HML_VAL_STRING ||
+        body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_request() expects string arguments");
+    }
+    return hml_lws_http_perform(method_val.as.as_string->data,
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 hml_val_null(),
+                                 hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS),
+                                 /*force_body=*/0);
+}
+
+// Generic HTTP request with configurable method and custom headers
+HmlValue hml_lws_http_request_with_headers(HmlValue method_val, HmlValue url_val,
+                                            HmlValue body_val, HmlValue content_type_val,
+                                            HmlValue headers_val) {
+    hml_lws_init_logging();
+    if (method_val.type != HML_VAL_STRING || url_val.type != HML_VAL_STRING ||
+        body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_request() expects string arguments");
+    }
+    return hml_lws_http_perform(method_val.as.as_string->data,
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 headers_val,
+                                 hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS),
+                                 /*force_body=*/0);
 }
 
 // ========== TIMEOUT VERSIONS ==========
@@ -981,97 +951,30 @@ HmlValue hml_lws_http_post_timeout(HmlValue url_val, HmlValue body_val, HmlValue
     if (url_val.type != HML_VAL_STRING || body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
         hml_runtime_error("__lws_http_post_timeout() expects string arguments");
     }
+    return hml_lws_http_perform("POST",
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 hml_val_null(),
+                                 hml_extract_timeout_ms(timeout_val),
+                                 /*force_body=*/1);
+}
 
-    int timeout_iterations = hml_extract_timeout_ms(timeout_val);
-
-    const char *url = url_val.as.as_string->data;
-    const char *post_body = body_val.as.as_string->data;
-    const char *content_type = content_type_val.as.as_string->data;
-
-    char host[256], path[512];
-    int port, ssl;
-
-    if (hml_parse_url(url, host, &port, path, &ssl) < 0) {
-        hml_runtime_error("Invalid URL format");
+// HTTP POST with configurable timeout and custom headers
+HmlValue hml_lws_http_post_timeout_with_headers(HmlValue url_val, HmlValue body_val,
+                                                 HmlValue content_type_val, HmlValue timeout_val,
+                                                 HmlValue headers_val) {
+    hml_lws_init_logging();
+    if (url_val.type != HML_VAL_STRING || body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_post_timeout() expects string arguments");
     }
-
-    hml_http_response_t *resp = calloc(1, sizeof(hml_http_response_t));
-    if (!resp) {
-        hml_runtime_error("Failed to allocate response");
-    }
-
-    resp->body_capacity = 4096;
-    resp->body = malloc(resp->body_capacity);
-    if (!resp->body) {
-        free(resp);
-        hml_runtime_error("Failed to allocate body buffer");
-    }
-    resp->body[0] = '\0';
-
-    if (hml_attach_request_body(resp, post_body, content_type) < 0) {
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to attach request body");
-    }
-
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-
-    static const struct lws_protocols protocols[] = {
-        { "http", hml_http_callback, 0, 16384, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
-
-    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
-    if (!context) {
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("%s", hml_lws_context_error_message());
-    }
-
-    struct lws_client_connect_info connect_info;
-    memset(&connect_info, 0, sizeof(connect_info));
-    connect_info.context = context;
-    connect_info.address = host;
-    connect_info.port = port;
-    connect_info.path = path;
-    connect_info.host = host;
-    connect_info.origin = host;
-    connect_info.method = "POST";
-    connect_info.protocol = protocols[0].name;
-    connect_info.userdata = resp;
-
-    struct lws *wsi;
-    connect_info.pwsi = &wsi;
-
-    connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
-
-    if (ssl) {
-        connect_info.ssl_connection |= LCCSCF_USE_SSL;
-    }
-
-    if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to connect");
-    }
-
-    int timeout = timeout_iterations;
-    while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
-    }
-
-    lws_context_destroy(context);
-    hml_free_request_body(resp);
-
-    if (resp->failed || timeout <= 0) {
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("HTTP request failed or timed out");
-    }
-
-    return hml_val_ptr(resp);
+    return hml_lws_http_perform("POST",
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 headers_val,
+                                 hml_extract_timeout_ms(timeout_val),
+                                 /*force_body=*/1);
 }
 
 // Generic HTTP request with configurable timeout
@@ -1081,100 +984,31 @@ HmlValue hml_lws_http_request_timeout(HmlValue method_val, HmlValue url_val, Hml
         body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
         hml_runtime_error("__lws_http_request_timeout() expects string arguments");
     }
+    return hml_lws_http_perform(method_val.as.as_string->data,
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 hml_val_null(),
+                                 hml_extract_timeout_ms(timeout_val),
+                                 /*force_body=*/0);
+}
 
-    int timeout_iterations = hml_extract_timeout_ms(timeout_val);
-
-    const char *method = method_val.as.as_string->data;
-    const char *url = url_val.as.as_string->data;
-    const char *post_body = body_val.as.as_string->data;
-    const char *content_type = content_type_val.as.as_string->data;
-
-    char host[256], path[512];
-    int port, ssl;
-
-    if (hml_parse_url(url, host, &port, path, &ssl) < 0) {
-        hml_runtime_error("Invalid URL format");
+// Generic HTTP request with configurable timeout and custom headers
+HmlValue hml_lws_http_request_timeout_with_headers(HmlValue method_val, HmlValue url_val,
+                                                    HmlValue body_val, HmlValue content_type_val,
+                                                    HmlValue timeout_val, HmlValue headers_val) {
+    hml_lws_init_logging();
+    if (method_val.type != HML_VAL_STRING || url_val.type != HML_VAL_STRING ||
+        body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_request_timeout() expects string arguments");
     }
-
-    hml_http_response_t *resp = calloc(1, sizeof(hml_http_response_t));
-    if (!resp) {
-        hml_runtime_error("Failed to allocate response");
-    }
-
-    resp->body_capacity = 4096;
-    resp->body = malloc(resp->body_capacity);
-    if (!resp->body) {
-        free(resp);
-        hml_runtime_error("Failed to allocate body buffer");
-    }
-    resp->body[0] = '\0';
-
-    if (post_body && strlen(post_body) > 0) {
-        if (hml_attach_request_body(resp, post_body, content_type) < 0) {
-            hml_lws_response_destroy(resp);
-            hml_runtime_error("Failed to attach request body");
-        }
-    }
-
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-
-    static const struct lws_protocols protocols[] = {
-        { "http", hml_http_callback, 0, 16384, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
-
-    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
-    if (!context) {
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("%s", hml_lws_context_error_message());
-    }
-
-    struct lws_client_connect_info connect_info;
-    memset(&connect_info, 0, sizeof(connect_info));
-    connect_info.context = context;
-    connect_info.address = host;
-    connect_info.port = port;
-    connect_info.path = path;
-    connect_info.host = host;
-    connect_info.origin = host;
-    connect_info.method = method;
-    connect_info.protocol = protocols[0].name;
-    connect_info.userdata = resp;
-
-    struct lws *wsi;
-    connect_info.pwsi = &wsi;
-
-    connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
-
-    if (ssl) {
-        connect_info.ssl_connection |= LCCSCF_USE_SSL;
-    }
-
-    if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to connect");
-    }
-
-    int timeout = timeout_iterations;
-    while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
-    }
-
-    lws_context_destroy(context);
-    hml_free_request_body(resp);
-
-    if (resp->failed || timeout <= 0) {
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("HTTP request failed or timed out");
-    }
-
-    return hml_val_ptr(resp);
+    return hml_lws_http_perform(method_val.as.as_string->data,
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 headers_val,
+                                 hml_extract_timeout_ms(timeout_val),
+                                 /*force_body=*/0);
 }
 
 // Get response status code
@@ -1254,14 +1088,29 @@ HmlValue hml_builtin_lws_http_get(HmlClosureEnv *env, HmlValue url) {
     return hml_lws_http_get(url);
 }
 
+HmlValue hml_builtin_lws_http_get_with_headers(HmlClosureEnv *env, HmlValue url, HmlValue headers) {
+    (void)env;
+    return hml_lws_http_get_with_headers(url, headers);
+}
+
 HmlValue hml_builtin_lws_http_post(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type) {
     (void)env;
     return hml_lws_http_post(url, body, content_type);
 }
 
+HmlValue hml_builtin_lws_http_post_with_headers(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers) {
+    (void)env;
+    return hml_lws_http_post_with_headers(url, body, content_type, headers);
+}
+
 HmlValue hml_builtin_lws_http_request(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type) {
     (void)env;
     return hml_lws_http_request(method, url, body, content_type);
+}
+
+HmlValue hml_builtin_lws_http_request_with_headers(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers) {
+    (void)env;
+    return hml_lws_http_request_with_headers(method, url, body, content_type, headers);
 }
 
 HmlValue hml_builtin_lws_response_status(HmlClosureEnv *env, HmlValue resp) {
@@ -2612,8 +2461,18 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
     hml_runtime_error("HTTP support not available (libwebsockets not installed)");
 }
 
+HmlValue hml_lws_http_post_with_headers(HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue headers_val) {
+    (void)url_val; (void)body_val; (void)content_type_val; (void)headers_val;
+    hml_runtime_error("HTTP support not available (libwebsockets not installed)");
+}
+
 HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val) {
     (void)method_val; (void)url_val; (void)body_val; (void)content_type_val;
+    hml_runtime_error("HTTP support not available (libwebsockets not installed)");
+}
+
+HmlValue hml_lws_http_request_with_headers(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue headers_val) {
+    (void)method_val; (void)url_val; (void)body_val; (void)content_type_val; (void)headers_val;
     hml_runtime_error("HTTP support not available (libwebsockets not installed)");
 }
 
@@ -2627,8 +2486,18 @@ HmlValue hml_lws_http_post_timeout(HmlValue url_val, HmlValue body_val, HmlValue
     hml_runtime_error("HTTP support not available (libwebsockets not installed)");
 }
 
+HmlValue hml_lws_http_post_timeout_with_headers(HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue timeout_val, HmlValue headers_val) {
+    (void)url_val; (void)body_val; (void)content_type_val; (void)timeout_val; (void)headers_val;
+    hml_runtime_error("HTTP support not available (libwebsockets not installed)");
+}
+
 HmlValue hml_lws_http_request_timeout(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue timeout_val) {
     (void)method_val; (void)url_val; (void)body_val; (void)content_type_val; (void)timeout_val;
+    hml_runtime_error("HTTP support not available (libwebsockets not installed)");
+}
+
+HmlValue hml_lws_http_request_timeout_with_headers(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue timeout_val, HmlValue headers_val) {
+    (void)method_val; (void)url_val; (void)body_val; (void)content_type_val; (void)timeout_val; (void)headers_val;
     hml_runtime_error("HTTP support not available (libwebsockets not installed)");
 }
 
@@ -2667,14 +2536,29 @@ HmlValue hml_builtin_lws_http_get(HmlClosureEnv *env, HmlValue url) {
     return hml_lws_http_get(url);
 }
 
+HmlValue hml_builtin_lws_http_get_with_headers(HmlClosureEnv *env, HmlValue url, HmlValue headers) {
+    (void)env;
+    return hml_lws_http_get_with_headers(url, headers);
+}
+
 HmlValue hml_builtin_lws_http_post(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type) {
     (void)env;
     return hml_lws_http_post(url, body, content_type);
 }
 
+HmlValue hml_builtin_lws_http_post_with_headers(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers) {
+    (void)env;
+    return hml_lws_http_post_with_headers(url, body, content_type, headers);
+}
+
 HmlValue hml_builtin_lws_http_request(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type) {
     (void)env;
     return hml_lws_http_request(method, url, body, content_type);
+}
+
+HmlValue hml_builtin_lws_http_request_with_headers(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers) {
+    (void)env;
+    return hml_lws_http_request_with_headers(method, url, body, content_type, headers);
 }
 
 HmlValue hml_builtin_lws_response_status(HmlClosureEnv *env, HmlValue resp) {

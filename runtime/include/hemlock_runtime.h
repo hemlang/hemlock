@@ -923,14 +923,18 @@ HmlValue hml_lws_http_get_with_headers(HmlValue url, HmlValue headers);
 
 // HTTP POST request
 HmlValue hml_lws_http_post(HmlValue url, HmlValue body, HmlValue content_type);
+HmlValue hml_lws_http_post_with_headers(HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers);
 
 // Generic HTTP request (any method: PUT, DELETE, PATCH, etc.)
 HmlValue hml_lws_http_request(HmlValue method, HmlValue url, HmlValue body, HmlValue content_type);
+HmlValue hml_lws_http_request_with_headers(HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers);
 
 // HTTP requests with configurable timeout (timeout_ms in milliseconds)
 HmlValue hml_lws_http_get_timeout(HmlValue url, HmlValue timeout_ms);
 HmlValue hml_lws_http_post_timeout(HmlValue url, HmlValue body, HmlValue content_type, HmlValue timeout_ms);
+HmlValue hml_lws_http_post_timeout_with_headers(HmlValue url, HmlValue body, HmlValue content_type, HmlValue timeout_ms, HmlValue headers);
 HmlValue hml_lws_http_request_timeout(HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue timeout_ms);
+HmlValue hml_lws_http_request_timeout_with_headers(HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue timeout_ms, HmlValue headers);
 
 // Get HTTP response status code
 HmlValue hml_lws_response_status(HmlValue resp);
@@ -952,8 +956,11 @@ HmlValue hml_lws_response_body_binary(HmlValue resp);
 
 // Builtin wrappers for function-as-value
 HmlValue hml_builtin_lws_http_get(HmlClosureEnv *env, HmlValue url);
+HmlValue hml_builtin_lws_http_get_with_headers(HmlClosureEnv *env, HmlValue url, HmlValue headers);
 HmlValue hml_builtin_lws_http_post(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type);
+HmlValue hml_builtin_lws_http_post_with_headers(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers);
 HmlValue hml_builtin_lws_http_request(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type);
+HmlValue hml_builtin_lws_http_request_with_headers(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers);
 HmlValue hml_builtin_lws_response_status(HmlClosureEnv *env, HmlValue resp);
 HmlValue hml_builtin_lws_response_body(HmlClosureEnv *env, HmlValue resp);
 HmlValue hml_builtin_lws_response_headers(HmlClosureEnv *env, HmlValue resp);

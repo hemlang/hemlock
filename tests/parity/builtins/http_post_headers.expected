@@ -1,0 +1,5 @@
+status: 200
+has authorization: true
+has x-request-id: true
+has content-type: true
+has body: true

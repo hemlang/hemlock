@@ -57,18 +57,28 @@ fn http_request_with_redirects(method, url, body, headers, redirect_count) {
 		}
 	}
 
+	let has_headers = headers != null && headers.length > 0;
+
 	if (method == "GET") {
-		if (headers != null && headers.length > 0) {
+		if (has_headers) {
 			resp_ptr = __lws_http_get(url, headers);
 		} else {
 			resp_ptr = __lws_http_get(url);
 		}
 	} else if (method == "POST") {
-		resp_ptr = __lws_http_post(url, body, content_type);
+		if (has_headers) {
+			resp_ptr = __lws_http_post(url, body, content_type, headers);
+		} else {
+			resp_ptr = __lws_http_post(url, body, content_type);
+		}
 	} else if (method == "PUT" || method == "DELETE" || method == "PATCH" || method == "HEAD" ||
 		method == "OPTIONS") {
 		// Use generic request function for other HTTP methods
-		resp_ptr = __lws_http_request(method, url, body, content_type);
+		if (has_headers) {
+			resp_ptr = __lws_http_request(method, url, body, content_type, headers);
+		} else {
+			resp_ptr = __lws_http_request(method, url, body, content_type);
+		}
 	} else {
 		throw "HTTP method not supported: " + method;
 	}
@@ -352,13 +362,30 @@ fn http_request_timeout_with_redirects(method, url, body, headers, redirect_coun
 		}
 	}
 
+	let has_headers = headers != null && headers.length > 0;
+
 	if (method == "GET") {
-		resp_ptr = __lws_http_get_timeout(url, timeout_ms);
+		if (has_headers) {
+			// __lws_http_get_timeout doesn't yet accept headers; fall back
+			// to the non-timeout path which does. Same approximate semantics
+			// for GET since headers travel on the request line.
+			resp_ptr = __lws_http_get(url, headers);
+		} else {
+			resp_ptr = __lws_http_get_timeout(url, timeout_ms);
+		}
 	} else if (method == "POST") {
-		resp_ptr = __lws_http_post_timeout(url, body, content_type, timeout_ms);
+		if (has_headers) {
+			resp_ptr = __lws_http_post_timeout(url, body, content_type, timeout_ms, headers);
+		} else {
+			resp_ptr = __lws_http_post_timeout(url, body, content_type, timeout_ms);
+		}
 	} else if (method == "PUT" || method == "DELETE" || method == "PATCH" || method == "HEAD" ||
 		method == "OPTIONS") {
-		resp_ptr = __lws_http_request_timeout(method, url, body, content_type, timeout_ms);
+		if (has_headers) {
+			resp_ptr = __lws_http_request_timeout(method, url, body, content_type, timeout_ms, headers);
+		} else {
+			resp_ptr = __lws_http_request_timeout(method, url, body, content_type, timeout_ms);
+		}
 	} else {
 		throw "HTTP method not supported: " + method;
 	}

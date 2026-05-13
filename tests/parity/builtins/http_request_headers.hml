@@ -1,0 +1,68 @@
+// Regression test for the compiled-binary HTTP PUT/DELETE/PATCH headers bug.
+//
+// Companion to http_post_headers.hml — exercises __lws_http_request
+// (the generic non-GET, non-POST path) with custom headers, since
+// PUT/DELETE/PATCH/HEAD/OPTIONS all funnel through it. Before the fix
+// the stdlib wrapper scanned the headers array only for Content-Type
+// and dropped the rest.
+//
+// Each parity test runs in its own process, so we deliberately keep
+// this separate from http_post_headers rather than serialising two
+// LWS contexts in one program — destroying a libwebsockets context
+// calls OPENSSL_cleanup() on some platforms, which is hostile to
+// follow-up requests in the same process.
+
+import { TcpListener } from "@stdlib/net";
+import { request } from "@stdlib/http";
+import { sleep } from "@stdlib/time";
+
+async fn server_task(port: i32): string {
+	let listener = TcpListener("127.0.0.1", port);
+	let stream = listener.accept();
+	let captured = "";
+	let i = 0;
+	while (i < 200) {
+		let line = stream.read_line();
+		if (line == null) { break; }
+		captured = captured + line + "\n";
+		if (line.trim().length == 0) { break; }
+		i = i + 1;
+	}
+	let lc = captured.to_lower();
+	let cl_idx = lc.find("content-length:");
+	if (cl_idx >= 0) {
+		let after = captured.substr(cl_idx + 15, captured.length - cl_idx - 15);
+		let nl = after.find("\n");
+		let n_str = "0";
+		if (nl > 0) { n_str = after.substr(0, nl).trim(); }
+		let n = i32(n_str);
+		if (n > 0) {
+			let buf = stream.read(n);
+			let j = 0;
+			while (j < buf.length) {
+				let r: rune = buf[j];
+				captured = captured + r;
+				j = j + 1;
+			}
+		}
+	}
+	stream.write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+	stream.close();
+	return captured;
+}
+
+let port = 28767;
+let task = spawn(server_task, port);
+sleep(0.1);
+
+let resp = request("PUT", "http://127.0.0.1:" + port + "/", "put-body", [
+	"Content-Type: text/plain",
+	"X-Custom: put-header",
+]);
+print("status: " + resp.status_code);
+
+let captured = await task;
+let lc = captured.to_lower();
+print("has PUT line: " + (captured.find("PUT / HTTP/1.1") >= 0));
+print("has x-custom: " + (lc.find("x-custom: put-header") >= 0));
+print("has body: " + (captured.find("put-body") >= 0));

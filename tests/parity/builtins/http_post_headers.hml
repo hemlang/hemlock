@@ -1,0 +1,69 @@
+// Regression test for the compiled-binary HTTP POST headers bug.
+//
+// Before the fix, hml_lws_http_post took a content_type scalar but no
+// headers list, so stdlib/http.hml scanned the user-supplied headers
+// array for Content-Type and dropped the rest. Authorization,
+// X-Request-Id, and any other custom headers never reached the wire
+// on POST. GET already worked through the existing
+// __lws_http_get_with_headers plumbing.
+//
+// This test boots a tiny TCP listener, fires post() with three custom
+// headers, and verifies they actually arrived.
+
+import { TcpListener } from "@stdlib/net";
+import { post } from "@stdlib/http";
+import { sleep } from "@stdlib/time";
+
+async fn server_task(port: i32): string {
+	let listener = TcpListener("127.0.0.1", port);
+	let stream = listener.accept();
+	let captured = "";
+	let i = 0;
+	while (i < 200) {
+		let line = stream.read_line();
+		if (line == null) { break; }
+		captured = captured + line + "\n";
+		if (line.trim().length == 0) { break; }
+		i = i + 1;
+	}
+	let lc = captured.to_lower();
+	let cl_idx = lc.find("content-length:");
+	if (cl_idx >= 0) {
+		let after = captured.substr(cl_idx + 15, captured.length - cl_idx - 15);
+		let nl = after.find("\n");
+		let n_str = "0";
+		if (nl > 0) { n_str = after.substr(0, nl).trim(); }
+		let n = i32(n_str);
+		if (n > 0) {
+			let buf = stream.read(n);
+			let j = 0;
+			while (j < buf.length) {
+				let r: rune = buf[j];
+				captured = captured + r;
+				j = j + 1;
+			}
+		}
+	}
+	stream.write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+	stream.close();
+	return captured;
+}
+
+let port = 28766;
+let task = spawn(server_task, port);
+sleep(0.1);
+
+let resp = post("http://127.0.0.1:" + port + "/", "body data", [
+	"Content-Type: application/json",
+	"Authorization: Bearer secret-token-xyz",
+	"X-Request-Id: req-42",
+]);
+print("status: " + resp.status_code);
+
+let captured = await task;
+let lc = captured.to_lower();
+
+print("has authorization: " + (lc.find("authorization: bearer secret-token-xyz") >= 0));
+print("has x-request-id: " + (lc.find("x-request-id: req-42") >= 0));
+print("has content-type: " + (lc.find("content-type: application/json") >= 0));
+print("has body: " + (captured.find("body data") >= 0));

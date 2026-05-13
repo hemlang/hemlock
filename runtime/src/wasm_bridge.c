@@ -184,6 +184,23 @@ HmlValue hml_lws_http_request(HmlValue m, HmlValue url, HmlValue body, HmlValue 
     return wasm_http_do_request(m.as.as_string->data, url.as.as_string->data, body_str, ct_str);
 }
 
+// Custom-header variants — synchronous XHR doesn't expose request headers,
+// so the headers argument is dropped and we fall back to the regular path.
+HmlValue hml_lws_http_get_with_headers(HmlValue url, HmlValue h) {
+    (void)h;
+    return hml_lws_http_get(url);
+}
+
+HmlValue hml_lws_http_post_with_headers(HmlValue url, HmlValue body, HmlValue ct, HmlValue h) {
+    (void)h;
+    return hml_lws_http_post(url, body, ct);
+}
+
+HmlValue hml_lws_http_request_with_headers(HmlValue m, HmlValue url, HmlValue body, HmlValue ct, HmlValue h) {
+    (void)h;
+    return hml_lws_http_request(m, url, body, ct);
+}
+
 // Timeout variants — timeout is ignored in synchronous XHR mode
 HmlValue hml_lws_http_get_timeout(HmlValue url, HmlValue t) {
     (void)t;
@@ -195,8 +212,18 @@ HmlValue hml_lws_http_post_timeout(HmlValue url, HmlValue body, HmlValue ct, Hml
     return hml_lws_http_post(url, body, ct);
 }
 
+HmlValue hml_lws_http_post_timeout_with_headers(HmlValue url, HmlValue body, HmlValue ct, HmlValue t, HmlValue h) {
+    (void)t; (void)h;
+    return hml_lws_http_post(url, body, ct);
+}
+
 HmlValue hml_lws_http_request_timeout(HmlValue m, HmlValue url, HmlValue body, HmlValue ct, HmlValue t) {
     (void)t;
+    return hml_lws_http_request(m, url, body, ct);
+}
+
+HmlValue hml_lws_http_request_timeout_with_headers(HmlValue m, HmlValue url, HmlValue body, HmlValue ct, HmlValue t, HmlValue h) {
+    (void)t; (void)h;
     return hml_lws_http_request(m, url, body, ct);
 }
 
@@ -232,8 +259,11 @@ HmlValue hml_lws_response_body_binary(HmlValue r) {
 
 // HTTP builtin wrappers
 HmlValue hml_builtin_lws_http_get(HmlClosureEnv *env, HmlValue url) { (void)env; return hml_lws_http_get(url); }
+HmlValue hml_builtin_lws_http_get_with_headers(HmlClosureEnv *env, HmlValue url, HmlValue h) { (void)env; return hml_lws_http_get_with_headers(url, h); }
 HmlValue hml_builtin_lws_http_post(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue ct) { (void)env; return hml_lws_http_post(url,body,ct); }
+HmlValue hml_builtin_lws_http_post_with_headers(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue ct, HmlValue h) { (void)env; return hml_lws_http_post_with_headers(url, body, ct, h); }
 HmlValue hml_builtin_lws_http_request(HmlClosureEnv *env, HmlValue m, HmlValue url, HmlValue body, HmlValue ct) { (void)env; return hml_lws_http_request(m,url,body,ct); }
+HmlValue hml_builtin_lws_http_request_with_headers(HmlClosureEnv *env, HmlValue m, HmlValue url, HmlValue body, HmlValue ct, HmlValue h) { (void)env; return hml_lws_http_request_with_headers(m, url, body, ct, h); }
 HmlValue hml_builtin_lws_response_status(HmlClosureEnv *env, HmlValue r) { (void)env; return hml_lws_response_status(r); }
 HmlValue hml_builtin_lws_response_body(HmlClosureEnv *env, HmlValue r) { (void)env; return hml_lws_response_body(r); }
 HmlValue hml_builtin_lws_response_headers(HmlClosureEnv *env, HmlValue r) { (void)env; return hml_lws_response_headers(r); }
