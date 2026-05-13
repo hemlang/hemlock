@@ -1,17 +1,19 @@
-// Regression test for the compiled-binary HTTP POST headers bug.
+// Regression test for the compiled-binary HTTP PUT/DELETE/PATCH headers bug.
 //
-// Before the fix, hml_lws_http_post took a content_type scalar but no
-// headers list, so stdlib/http.hml scanned the user-supplied headers
-// array for Content-Type and dropped the rest. Authorization,
-// X-Request-Id, and any other custom headers never reached the wire
-// on POST. GET already worked through the existing
-// __lws_http_get_with_headers plumbing.
+// Companion to http_post_headers.hml — exercises __lws_http_request
+// (the generic non-GET, non-POST path) with custom headers, since
+// PUT/DELETE/PATCH/HEAD/OPTIONS all funnel through it. Before the fix
+// the stdlib wrapper scanned the headers array only for Content-Type
+// and dropped the rest.
 //
-// This test boots a tiny TCP listener, fires post() with three custom
-// headers, and verifies they actually arrived.
+// Each parity test runs in its own process, so we deliberately keep
+// this separate from http_post_headers rather than serialising two
+// LWS contexts in one program — destroying a libwebsockets context
+// calls OPENSSL_cleanup() on some platforms, which is hostile to
+// follow-up requests in the same process.
 
 import { TcpListener } from "@stdlib/net";
-import { post } from "@stdlib/http";
+import { request } from "@stdlib/http";
 import { sleep } from "@stdlib/time";
 
 async fn server_task(port: i32): string {
@@ -49,21 +51,18 @@ async fn server_task(port: i32): string {
 	return captured;
 }
 
-let port = 28766;
+let port = 28767;
 let task = spawn(server_task, port);
 sleep(0.1);
 
-let resp = post("http://127.0.0.1:" + port + "/", "body data", [
-	"Content-Type: application/json",
-	"Authorization: Bearer secret-token-xyz",
-	"X-Request-Id: req-42",
+let resp = request("PUT", "http://127.0.0.1:" + port + "/", "put-body", [
+	"Content-Type: text/plain",
+	"X-Custom: put-header",
 ]);
 print("status: " + resp.status_code);
 
 let captured = await task;
 let lc = captured.to_lower();
-
-print("has authorization: " + (lc.find("authorization: bearer secret-token-xyz") >= 0));
-print("has x-request-id: " + (lc.find("x-request-id: req-42") >= 0));
-print("has content-type: " + (lc.find("content-type: application/json") >= 0));
-print("has body: " + (captured.find("body data") >= 0));
+print("has PUT line: " + (captured.find("PUT / HTTP/1.1") >= 0));
+print("has x-custom: " + (lc.find("x-custom: put-header") >= 0));
+print("has body: " + (captured.find("put-body") >= 0));
