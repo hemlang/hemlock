@@ -95,9 +95,9 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         codegen_writeln(ctx, "HmlValue %s = hml_string_trim_start(%s);", result, obj_val);
     } else if (strcmp(method, "trim_end") == 0 && num_args == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_string_trim_end(%s);", result, obj_val);
-    } else if (strcmp(method, "to_upper") == 0 && num_args == 0) {
+    } else if ((strcmp(method, "to_upper") == 0 || strcmp(method, "upper") == 0) && num_args == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_string_to_upper(%s);", result, obj_val);
-    } else if (strcmp(method, "to_lower") == 0 && num_args == 0) {
+    } else if ((strcmp(method, "to_lower") == 0 || strcmp(method, "lower") == 0) && num_args == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_string_to_lower(%s);", result, obj_val);
     } else if (strcmp(method, "starts_with") == 0 && num_args == 1) {
         codegen_writeln(ctx, "HmlValue %s = hml_string_starts_with(%s, %s);",
