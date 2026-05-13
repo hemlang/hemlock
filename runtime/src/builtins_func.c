@@ -407,10 +407,10 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
         if (strcmp(method, "trim") == 0 && num_args == 0) {
             return hml_string_trim(obj);
         }
-        if (strcmp(method, "to_upper") == 0 && num_args == 0) {
+        if ((strcmp(method, "to_upper") == 0 || strcmp(method, "upper") == 0) && num_args == 0) {
             return hml_string_to_upper(obj);
         }
-        if (strcmp(method, "to_lower") == 0 && num_args == 0) {
+        if ((strcmp(method, "to_lower") == 0 || strcmp(method, "lower") == 0) && num_args == 0) {
             return hml_string_to_lower(obj);
         }
         if (strcmp(method, "starts_with") == 0 && num_args == 1) {
