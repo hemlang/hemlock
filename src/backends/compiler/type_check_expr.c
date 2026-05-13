@@ -509,6 +509,9 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
                     "cannot reassign const variable '%s'", expr->as.assign.name);
             }
 
+            // Reassignment can make previous flow-sensitive non-null facts stale.
+            type_check_clear_narrowings_for_assignment(ctx, expr->as.assign.name);
+
             // Check type compatibility
             CheckedType *var_type = type_check_lookup(ctx, expr->as.assign.name);
             // Variables initialized with null (and no type annotation) are dynamically typed
