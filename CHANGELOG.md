@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Default one-shot LWS HTTP timeout lowered** — `__lws_http_get`, `__lws_http_post`, and `__lws_http_request` now use a shared 5000ms default service-loop timeout instead of waiting about 30000ms before reporting connection/request failure. The `_timeout` variants still honor their per-call timeout argument.
+
 ## [2.3.1] - 2026-05-12
 
 ### Added

@@ -40,6 +40,17 @@ static void hml_lws_init_logging(void) {
     }
 }
 
+// Default timeout for the non-*_timeout one-shot LWS HTTP helpers.
+// The service loop below polls in ~10ms increments, so 5000ms maps to
+// 500 iterations instead of the previous 3000 iterations (~30000ms).
+#define HML_LWS_HTTP_DEFAULT_TIMEOUT_MS 5000
+#define HML_LWS_HTTP_SERVICE_POLL_MS 10
+
+static int hml_lws_timeout_iterations_from_ms(int timeout_ms) {
+    int iterations = timeout_ms / HML_LWS_HTTP_SERVICE_POLL_MS;
+    return iterations < 1 ? 1 : iterations;
+}
+
 // HTTP response structure
 typedef struct {
     char *body;
@@ -528,9 +539,9 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
         hml_runtime_error("Failed to connect");
     }
 
-    int timeout = 3000;
+    int timeout = hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS);
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
 
     lws_context_destroy(context);
@@ -619,9 +630,9 @@ HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
         hml_runtime_error("Failed to connect");
     }
 
-    int timeout = 3000;
+    int timeout = hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS);
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
 
     lws_context_destroy(context);
@@ -718,9 +729,9 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
         hml_runtime_error("Failed to connect");
     }
 
-    int timeout = 3000;
+    int timeout = hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS);
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
 
     lws_context_destroy(context);
@@ -819,9 +830,9 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
         hml_runtime_error("Failed to connect");
     }
 
-    int timeout = 3000;
+    int timeout = hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS);
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
 
     lws_context_destroy(context);
@@ -847,11 +858,9 @@ static int hml_extract_timeout_ms(HmlValue timeout_val) {
     } else if (timeout_val.type == HML_VAL_F64) {
         timeout_ms = (int)timeout_val.as.as_f64;
     } else {
-        timeout_ms = 30000;  // Default 30 seconds
+        timeout_ms = HML_LWS_HTTP_DEFAULT_TIMEOUT_MS;
     }
-    // Convert to iterations (each ~10ms)
-    int iterations = timeout_ms / 10;
-    return iterations < 1 ? 1 : iterations;
+    return hml_lws_timeout_iterations_from_ms(timeout_ms);
 }
 
 // HTTP GET with configurable timeout
@@ -931,7 +940,7 @@ HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
 
     int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
 
     lws_context_destroy(context);
@@ -1029,7 +1038,7 @@ HmlValue hml_lws_http_post_timeout(HmlValue url_val, HmlValue body_val, HmlValue
 
     int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
 
     lws_context_destroy(context);
@@ -1132,7 +1141,7 @@ HmlValue hml_lws_http_request_timeout(HmlValue method_val, HmlValue url_val, Hml
 
     int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
 
     lws_context_destroy(context);

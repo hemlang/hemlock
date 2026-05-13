@@ -15,6 +15,17 @@
 
 // ========== HTTP SUPPORT ==========
 
+// Default timeout for the non-*_timeout LWS HTTP builtins.
+// The service loop polls in ~10ms increments, so 5000ms maps to 500
+// iterations instead of the previous 3000 iterations (~30000ms).
+#define LWS_HTTP_DEFAULT_TIMEOUT_MS 5000
+#define LWS_HTTP_SERVICE_POLL_MS 10
+
+static int lws_timeout_iterations_from_ms(int timeout_ms) {
+    int iterations = timeout_ms / LWS_HTTP_SERVICE_POLL_MS;
+    return iterations < 1 ? 1 : iterations;
+}
+
 typedef struct {
     char *body;
     size_t body_len;
@@ -556,10 +567,10 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    // Event loop (timeout after 30 seconds)
-    int timeout = 3000;
+    // Event loop (timeout after 5 seconds)
+    int timeout = lws_timeout_iterations_from_ms(LWS_HTTP_DEFAULT_TIMEOUT_MS);
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
     }
 
     if (!ssl) lws_context_destroy(context);
@@ -694,10 +705,10 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    // Event loop (timeout after 30 seconds)
-    int timeout = 3000;
+    // Event loop (timeout after 5 seconds)
+    int timeout = lws_timeout_iterations_from_ms(LWS_HTTP_DEFAULT_TIMEOUT_MS);
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
     }
 
     if (!ssl) lws_context_destroy(context);
@@ -841,10 +852,10 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
         return val_null();
     }
 
-    // Event loop (timeout after 30 seconds)
-    int timeout = 3000;
+    // Event loop (timeout after 5 seconds)
+    int timeout = lws_timeout_iterations_from_ms(LWS_HTTP_DEFAULT_TIMEOUT_MS);
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
     }
 
     if (!ssl) lws_context_destroy(context);
@@ -903,9 +914,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
         return val_null();
     }
 
-    // Convert timeout_ms to iterations (each iteration is ~10ms)
-    int timeout_iterations = timeout_ms / 10;
-    if (timeout_iterations < 1) timeout_iterations = 1;
+    int timeout_iterations = lws_timeout_iterations_from_ms(timeout_ms);
 
     const char *url = args[0].as.as_string->data;
     char host[256], path[512];
@@ -982,7 +991,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     // Event loop with custom timeout
     int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
     }
 
     if (!ssl) lws_context_destroy(context);
@@ -1037,8 +1046,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
         return val_null();
     }
 
-    int timeout_iterations = timeout_ms / 10;
-    if (timeout_iterations < 1) timeout_iterations = 1;
+    int timeout_iterations = lws_timeout_iterations_from_ms(timeout_ms);
 
     const char *url = args[0].as.as_string->data;
     const char *post_body = args[1].as.as_string->data;
@@ -1129,7 +1137,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     // Event loop with custom timeout
     int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
     }
 
     if (!ssl) lws_context_destroy(context);
@@ -1188,8 +1196,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
         return val_null();
     }
 
-    int timeout_iterations = timeout_ms / 10;
-    if (timeout_iterations < 1) timeout_iterations = 1;
+    int timeout_iterations = lws_timeout_iterations_from_ms(timeout_ms);
 
     const char *method = args[0].as.as_string->data;
     const char *url = args[1].as.as_string->data;
@@ -1281,7 +1288,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     // Event loop with custom timeout
     int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
     }
 
     if (!ssl) lws_context_destroy(context);
