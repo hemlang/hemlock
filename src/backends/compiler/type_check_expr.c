@@ -474,14 +474,32 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
 
                         CheckedType *arg_type = type_check_infer_expr(ctx, expr->as.call.args[i]);
                         if (!type_is_assignable(sig->param_types[param_idx], arg_type)) {
-                            type_error(ctx, expr->line,
-                                "argument '%s' to '%s': expected '%s', got '%s'",
-                                (expr->as.call.arg_names && expr->as.call.arg_names[i])
-                                    ? expr->as.call.arg_names[i]
-                                    : "positional",
-                                name,
-                                checked_type_name(sig->param_types[param_idx]),
-                                checked_type_name(arg_type));
+                            const char *param_name = (sig->param_names && sig->param_names[param_idx])
+                                ? sig->param_names[param_idx]
+                                : NULL;
+                            const char *arg_name = (expr->as.call.arg_names && expr->as.call.arg_names[i])
+                                ? expr->as.call.arg_names[i]
+                                : NULL;
+
+                            if (arg_name) {
+                                type_error(ctx, expr->line,
+                                    "argument '%s' to '%s': expected '%s', got '%s'",
+                                    arg_name, name,
+                                    checked_type_name(sig->param_types[param_idx]),
+                                    checked_type_name(arg_type));
+                            } else if (param_name) {
+                                type_error(ctx, expr->line,
+                                    "argument %d ('%s') to '%s': expected '%s', got '%s'",
+                                    i + 1, param_name, name,
+                                    checked_type_name(sig->param_types[param_idx]),
+                                    checked_type_name(arg_type));
+                            } else {
+                                type_error(ctx, expr->line,
+                                    "argument %d to '%s': expected '%s', got '%s'",
+                                    i + 1, name,
+                                    checked_type_name(sig->param_types[param_idx]),
+                                    checked_type_name(arg_type));
+                            }
                         }
                         checked_type_free(arg_type);
                     }

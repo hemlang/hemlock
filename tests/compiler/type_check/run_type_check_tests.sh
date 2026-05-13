@@ -236,8 +236,25 @@ else
     ((FAILED++))
 fi
 
-# Test 17: Early-return null guard narrows a nullable local from optional-chain access
-echo "Test 17: Local optional-chain value narrows after early return"
+
+# Test 17: Positional argument type errors identify argument index and parameter name
+echo "Test 17: Positional function argument mismatch names parameter"
+cat > /tmp/test_fn_arg_label.hml << 'INNEREOF'
+define Profile { default_model: string? }
+fn pick_placement(model: string, profile: Profile): string { return model; }
+let x = pick_placement("fast", "not a profile");
+INNEREOF
+ARG_LABEL_OUTPUT=$($HEMLOCKC --check /tmp/test_fn_arg_label.hml 2>&1)
+if echo "$ARG_LABEL_OUTPUT" | grep -q "argument 2 ('profile')" && ! echo "$ARG_LABEL_OUTPUT" | grep -q "argument 'positional'"; then
+    echo "  PASSED: Positional mismatch includes argument index and parameter name"
+    ((PASSED++))
+else
+    echo "  FAILED: Positional mismatch did not include useful argument label"
+    echo "$ARG_LABEL_OUTPUT"
+    ((FAILED++))
+fi
+# Test 18: Early-return null guard narrows a nullable local from optional-chain access
+echo "Test 18: Local optional-chain value narrows after early return"
 cat > /tmp/test_optional_chain_local_narrow.hml << 'EOF'
 define Profile { default_model: string? }
 fn pick_placement(model: string, profile: Profile): string { return model; }
@@ -255,8 +272,8 @@ else
     ((FAILED++))
 fi
 
-# Test 18: Positive branch null guard narrows within the guarded branch
-echo "Test 18: Non-null branch narrows within if body"
+# Test 19: Positive branch null guard narrows within the guarded branch
+echo "Test 19: Non-null branch narrows within if body"
 cat > /tmp/test_positive_branch_narrow.hml << 'EOF'
 define Profile { default_model: string? }
 fn pick_placement(model: string, profile: Profile): string { return model; }
@@ -276,8 +293,8 @@ else
     ((FAILED++))
 fi
 
-# Test 19: Reassignment invalidates earlier non-null narrowing
-echo "Test 19: Reassignment clears non-null narrowing"
+# Test 20: Reassignment invalidates earlier non-null narrowing
+echo "Test 20: Reassignment clears non-null narrowing"
 cat > /tmp/test_narrow_reassign.hml << 'EOF'
 define Profile { default_model: string? }
 fn pick_placement(model: string, profile: Profile): string { return model; }
