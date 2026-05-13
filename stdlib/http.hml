@@ -34,6 +34,11 @@ fn resolve_redirect_url(url, redirect_url) {
 	return redirect_url;
 }
 
+fn is_redirect_response_status(status) {
+	// libwebsockets can report 618 for some redirect handoffs while still exposing Location.
+	return status >= 300 && status < 400 || status == 618;
+}
+
 fn http_request_with_redirects(method, url, body, headers, redirect_count) {
 	// Limit redirects to prevent infinite loops
 	if (redirect_count > 10) {
@@ -81,8 +86,8 @@ fn http_request_with_redirects(method, url, body, headers, redirect_count) {
 	// Free C response structure
 	__lws_response_free(resp_ptr);
 
-	// Handle redirects (3xx status codes)
-	if (status >= 300 && status < 400 && redirect_url != null) {
+	// Handle redirects
+	if (is_redirect_response_status(status) && redirect_url != null) {
 		redirect_url = resolve_redirect_url(url, redirect_url);
 		// Follow redirect (use GET for 301/302/303)
 		return http_request_with_redirects(
@@ -134,8 +139,8 @@ fn http_request_binary_with_redirects(method, url, headers, redirect_count) {
 	let status = __lws_response_status(resp_ptr);
 	let redirect_url = __lws_response_redirect(resp_ptr);
 
-	// Handle redirects (3xx status codes) BEFORE getting body
-	if (status >= 300 && status < 400 && redirect_url != null) {
+	// Handle redirects before getting body
+	if (is_redirect_response_status(status) && redirect_url != null) {
 		// Free response before following redirect
 		__lws_response_free(resp_ptr);
 
@@ -371,8 +376,8 @@ fn http_request_timeout_with_redirects(method, url, body, headers, redirect_coun
 	// Free C response structure
 	__lws_response_free(resp_ptr);
 
-	// Handle redirects (3xx status codes)
-	if (status >= 300 && status < 400 && redirect_url != null) {
+	// Handle redirects
+	if (is_redirect_response_status(status) && redirect_url != null) {
 		redirect_url = resolve_redirect_url(url, redirect_url);
 		return http_request_timeout_with_redirects("GET", redirect_url, "", headers, redirect_count + 1, timeout_ms);
 	}
@@ -796,23 +801,12 @@ export fn HttpServer(host: string, port: i32) {
 			let status = response.status ?? 200;
 			let body = response.body ?? "";
 			let content_type = response.content_type ?? "text/plain";
-			let headers = response.headers ?? [];
 
 			let status_text = "OK";
 			if (status == 201) {
 				status_text = "Created";
 			} else if (status == 204) {
 				status_text = "No Content";
-			} else if (status == 301) {
-				status_text = "Moved Permanently";
-			} else if (status == 302) {
-				status_text = "Found";
-			} else if (status == 303) {
-				status_text = "See Other";
-			} else if (status == 307) {
-				status_text = "Temporary Redirect";
-			} else if (status == 308) {
-				status_text = "Permanent Redirect";
 			} else if (status == 400) {
 				status_text = "Bad Request";
 			} else if (status == 401) {
@@ -829,9 +823,6 @@ export fn HttpServer(host: string, port: i32) {
 
 			let resp = "HTTP/1.1 " + status + " " + status_text + "\r\n";
 			resp = resp + ("Content-Type: " + content_type + "\r\n");
-			for (header in headers) {
-				resp = resp + header + "\r\n";
-			}
 			resp = resp + ("Content-Length: " + body.length + "\r\n");
 			resp = resp + "Connection: close\r\n";
 			resp = resp + "\r\n";
