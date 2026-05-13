@@ -1,0 +1,43 @@
+// Test get_binary() follows HTTP redirects before reading the binary body.
+import { get_binary, is_success, HttpServer } from "@stdlib/http";
+import { sleep } from "@stdlib/time";
+
+print("Testing get_binary redirect handling...");
+
+let server_port = 18768;
+let server = HttpServer("127.0.0.1", server_port);
+
+server.route("GET", "/release", fn(req) {
+	return { status: 301, headers: ["Location: /asset"], body: "", content_type: "text/plain" };
+}
+);
+
+server.route("GET", "/asset", fn(req) {
+	return { status: 200, body: "binary asset", content_type: "application/octet-stream" };
+}
+);
+
+async fn run_server(srv, count: i32) {
+	srv.serve(count);
+	return null;
+}
+
+let server_task = spawn(run_server, server, 2);
+sleep(1);
+
+let response = get_binary("http://127.0.0.1:" + server_port + "/release", []);
+
+assert(response != null, "Response should not be null");
+assert(
+	is_success(response.status_code),
+	"get_binary() should follow redirect and return success",
+);
+assert(response.body != null, "Binary body should exist");
+assert(response.body.length == 12, "Binary body length should match final asset");
+assert(response.body[0] == 98, "Binary body should start with 'b'");
+assert(response.body[11] == 116, "Binary body should end with 't'");
+
+server.close();
+detach(server_task);
+
+print("✓ get_binary follows redirects");

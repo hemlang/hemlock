@@ -16,6 +16,24 @@ fn http_request(method, url, body, headers) {
 	);
 }
 
+fn resolve_redirect_url(url, redirect_url) {
+	// If redirect URL is relative, make it absolute using the original URL.
+	if (redirect_url.starts_with("/")) {
+		let scheme_end = url.index_of("://");
+		if (scheme_end >= 0) {
+			let host_start = scheme_end + 3;
+			let host_end = url.index_of("/", host_start);
+			if (host_end < 0) {
+				host_end = url.length;
+			}
+			let base = url.substr(0, host_end);
+			return base + redirect_url;
+		}
+	}
+
+	return redirect_url;
+}
+
 fn http_request_with_redirects(method, url, body, headers, redirect_count) {
 	// Limit redirects to prevent infinite loops
 	if (redirect_count > 10) {
@@ -65,20 +83,7 @@ fn http_request_with_redirects(method, url, body, headers, redirect_count) {
 
 	// Handle redirects (3xx status codes)
 	if (status >= 300 && status < 400 && redirect_url != null) {
-		// If redirect URL is relative, make it absolute
-		if (redirect_url.starts_with("/")) {
-			// Extract scheme and host from original URL
-			let scheme_end = url.index_of("://");
-			if (scheme_end >= 0) {
-				let host_start = scheme_end + 3;
-				let host_end = url.index_of("/", host_start);
-				if (host_end < 0) {
-					host_end = url.length;
-				}
-				let base = url.substr(0, host_end);
-				redirect_url = base + redirect_url;
-			}
-		}
+		redirect_url = resolve_redirect_url(url, redirect_url);
 		// Follow redirect (use GET for 301/302/303)
 		return http_request_with_redirects(
 			"GET",
@@ -112,7 +117,11 @@ fn http_request_binary_with_redirects(method, url, headers, redirect_count) {
 	let resp_ptr = null;
 
 	if (method == "GET") {
-		resp_ptr = __lws_http_get(url);
+		if (headers != null && headers.length > 0) {
+			resp_ptr = __lws_http_get(url, headers);
+		} else {
+			resp_ptr = __lws_http_get(url);
+		}
 	} else {
 		throw "Binary download only supports GET method";
 	}
@@ -130,19 +139,7 @@ fn http_request_binary_with_redirects(method, url, headers, redirect_count) {
 		// Free response before following redirect
 		__lws_response_free(resp_ptr);
 
-		// If redirect URL is relative, make it absolute
-		if (redirect_url.starts_with("/")) {
-			let scheme_end = url.index_of("://");
-			if (scheme_end >= 0) {
-				let host_start = scheme_end + 3;
-				let host_end = url.index_of("/", host_start);
-				if (host_end < 0) {
-					host_end = url.length;
-				}
-				let base = url.substr(0, host_end);
-				redirect_url = base + redirect_url;
-			}
-		}
+		redirect_url = resolve_redirect_url(url, redirect_url);
 		// Follow redirect
 		return http_request_binary_with_redirects(
 			"GET",
@@ -376,18 +373,7 @@ fn http_request_timeout_with_redirects(method, url, body, headers, redirect_coun
 
 	// Handle redirects (3xx status codes)
 	if (status >= 300 && status < 400 && redirect_url != null) {
-		if (redirect_url.starts_with("/")) {
-			let scheme_end = url.index_of("://");
-			if (scheme_end >= 0) {
-				let host_start = scheme_end + 3;
-				let host_end = url.index_of("/", host_start);
-				if (host_end < 0) {
-					host_end = url.length;
-				}
-				let base = url.substr(0, host_end);
-				redirect_url = base + redirect_url;
-			}
-		}
+		redirect_url = resolve_redirect_url(url, redirect_url);
 		return http_request_timeout_with_redirects("GET", redirect_url, "", headers, redirect_count + 1, timeout_ms);
 	}
 
@@ -810,12 +796,23 @@ export fn HttpServer(host: string, port: i32) {
 			let status = response.status ?? 200;
 			let body = response.body ?? "";
 			let content_type = response.content_type ?? "text/plain";
+			let headers = response.headers ?? [];
 
 			let status_text = "OK";
 			if (status == 201) {
 				status_text = "Created";
 			} else if (status == 204) {
 				status_text = "No Content";
+			} else if (status == 301) {
+				status_text = "Moved Permanently";
+			} else if (status == 302) {
+				status_text = "Found";
+			} else if (status == 303) {
+				status_text = "See Other";
+			} else if (status == 307) {
+				status_text = "Temporary Redirect";
+			} else if (status == 308) {
+				status_text = "Permanent Redirect";
 			} else if (status == 400) {
 				status_text = "Bad Request";
 			} else if (status == 401) {
@@ -832,6 +829,9 @@ export fn HttpServer(host: string, port: i32) {
 
 			let resp = "HTTP/1.1 " + status + " " + status_text + "\r\n";
 			resp = resp + ("Content-Type: " + content_type + "\r\n");
+			for (header in headers) {
+				resp = resp + header + "\r\n";
+			}
 			resp = resp + ("Content-Length: " + body.length + "\r\n");
 			resp = resp + "Connection: close\r\n";
 			resp = resp + "\r\n";
