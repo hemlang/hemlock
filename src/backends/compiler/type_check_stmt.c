@@ -162,6 +162,7 @@ static int stmt_definitely_returns(Stmt *stmt) {
 
     switch (stmt->type) {
         case STMT_RETURN:
+        case STMT_THROW:
             return 1;
         case STMT_BLOCK:
             if (stmt->as.block.count == 0) return 0;
@@ -197,18 +198,30 @@ static Expr* null_checked_expr(Expr *condition, int *non_null_when_false) {
     return checked;
 }
 
-static void add_non_null_narrowing(TypeCheckContext *ctx, Expr *expr) {
+static char* add_non_null_narrowing(TypeCheckContext *ctx, Expr *expr) {
     char *key = type_check_expr_key(expr);
-    if (!key) return;
+    if (!key) return NULL;
 
     CheckedType *type = type_check_infer_expr(ctx, expr);
     if (type && type->kind != CHECKED_ANY && type->kind != CHECKED_NULL) {
         type->nullable = 0;
         type_check_add_narrowing(ctx, key, type);
+        checked_type_free(type);
+        return key;
     }
 
     checked_type_free(type);
     free(key);
+    return NULL;
+}
+
+static void type_check_stmt_with_non_null_narrowing(TypeCheckContext *ctx, Stmt *stmt, Expr *expr) {
+    char *key = add_non_null_narrowing(ctx, expr);
+    type_check_stmt(ctx, stmt);
+    if (key) {
+        type_check_remove_narrowing(ctx, key);
+        free(key);
+    }
 }
 
 // ========== STATEMENT TYPE CHECKING ==========
@@ -310,13 +323,26 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
             int non_null_when_false = 0;
             Expr *checked = null_checked_expr(stmt->as.if_stmt.condition, &non_null_when_false);
             int then_returns = stmt_definitely_returns(stmt->as.if_stmt.then_branch);
+            int else_returns = stmt->as.if_stmt.else_branch &&
+                stmt_definitely_returns(stmt->as.if_stmt.else_branch);
 
-            type_check_stmt(ctx, stmt->as.if_stmt.then_branch);
-            if (stmt->as.if_stmt.else_branch) {
-                type_check_stmt(ctx, stmt->as.if_stmt.else_branch);
+            if (checked && !non_null_when_false) {
+                type_check_stmt_with_non_null_narrowing(ctx, stmt->as.if_stmt.then_branch, checked);
+            } else {
+                type_check_stmt(ctx, stmt->as.if_stmt.then_branch);
             }
 
-            if (checked && !stmt->as.if_stmt.else_branch && then_returns && non_null_when_false) {
+            if (stmt->as.if_stmt.else_branch) {
+                if (checked && non_null_when_false) {
+                    type_check_stmt_with_non_null_narrowing(ctx, stmt->as.if_stmt.else_branch, checked);
+                } else {
+                    type_check_stmt(ctx, stmt->as.if_stmt.else_branch);
+                }
+            }
+
+            if (checked && then_returns && non_null_when_false) {
+                add_non_null_narrowing(ctx, checked);
+            } else if (checked && else_returns && !non_null_when_false) {
                 add_non_null_narrowing(ctx, checked);
             }
             break;
