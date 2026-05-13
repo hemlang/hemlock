@@ -280,14 +280,6 @@ char* type_check_expr_key(Expr *expr) {
 void type_check_add_narrowing(TypeCheckContext *ctx, const char *key, CheckedType *type) {
     if (!ctx || !key || !type) return;
 
-    for (TypeCheckNarrowing *n = ctx->narrowings; n; n = n->next) {
-        if (n->depth == ctx->scope_depth && strcmp(n->key, key) == 0) {
-            checked_type_free(n->type);
-            n->type = checked_type_clone(type);
-            return;
-        }
-    }
-
     TypeCheckNarrowing *n = calloc(1, sizeof(TypeCheckNarrowing));
     if (!n) return;
     n->key = strdup(key);
@@ -295,6 +287,44 @@ void type_check_add_narrowing(TypeCheckContext *ctx, const char *key, CheckedTyp
     n->depth = ctx->scope_depth;
     n->next = ctx->narrowings;
     ctx->narrowings = n;
+}
+
+void type_check_remove_narrowing(TypeCheckContext *ctx, const char *key) {
+    if (!ctx || !key) return;
+
+    TypeCheckNarrowing **pn = &ctx->narrowings;
+    while (*pn) {
+        TypeCheckNarrowing *cur = *pn;
+        if (cur->depth == ctx->scope_depth && strcmp(cur->key, key) == 0) {
+            *pn = cur->next;
+            free(cur->key);
+            checked_type_free(cur->type);
+            free(cur);
+            return;
+        }
+        pn = &cur->next;
+    }
+}
+
+void type_check_clear_narrowings_for_assignment(TypeCheckContext *ctx, const char *name) {
+    if (!ctx || !name) return;
+    size_t name_len = strlen(name);
+
+    TypeCheckNarrowing **pn = &ctx->narrowings;
+    while (*pn) {
+        TypeCheckNarrowing *cur = *pn;
+        int matches = strcmp(cur->key, name) == 0 ||
+            (strncmp(cur->key, name, name_len) == 0 &&
+             (cur->key[name_len] == '.' || cur->key[name_len] == '?' || cur->key[name_len] == '['));
+        if (matches) {
+            *pn = cur->next;
+            free(cur->key);
+            checked_type_free(cur->type);
+            free(cur);
+        } else {
+            pn = &cur->next;
+        }
+    }
 }
 
 CheckedType* type_check_lookup_narrowing(TypeCheckContext *ctx, const char *key) {

@@ -51,6 +51,36 @@ describe("String operations", fn() {
 let results = run();
 ```
 
+### Multi-file suites and side-effect registration
+
+The test registry is populated when `describe()` and `test()` calls run. For a test runner file that discovers suites by importing files for their side effects, use an empty source import today:
+
+```hemlock
+// all_tests.hml
+import { run } from "@stdlib/testing";
+
+// Current workaround: execute these modules, but bind no exports.
+import {} from "./math_test.hml";
+import {} from "./string_test.hml";
+
+let results = run();
+```
+
+Each imported test module can register suites at top level:
+
+```hemlock
+// math_test.hml
+import { describe, test, expect } from "@stdlib/testing";
+
+describe("Math operations", fn() {
+    test("addition works", fn() {
+        expect(2 + 2).to_equal(4);
+    });
+});
+```
+
+Avoid `import "./math_test";` for this use case: bare string imports currently mean FFI library loads, so a source-like path without bindings may be sent to the dynamic loader instead of the module resolver.
+
 **Output:**
 ```
 Running tests...

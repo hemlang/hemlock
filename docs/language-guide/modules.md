@@ -101,6 +101,15 @@ import { add as sum, subtract as diff } from "./math.hml";
 print(sum(1, 2));  // 3
 ```
 
+**Side-effect-only source imports (current workaround):**
+```hemlock
+// Load and execute ./register_tests.hml without binding any exports.
+// Useful when a test runner discovers suites registered during module load.
+import {} from "./register_tests.hml";
+```
+
+Hemlock already accepts an empty named import list. The imported `.hml` module is resolved, loaded, cached, and executed like any other source module; it simply creates no local bindings in the importing file. This is the safest current way to trigger module-load side effects because `import "./register_tests";` is reserved for FFI library loading, not source-module loading.
+
 ## Module Resolution
 
 ### Path Types

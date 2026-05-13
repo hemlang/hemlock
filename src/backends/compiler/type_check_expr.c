@@ -239,7 +239,8 @@ int type_check_method_call(TypeCheckContext *ctx, CheckedType *receiver_type,
 
         // No-arg string methods
         if (strcmp(method_name, "trim") == 0 || strcmp(method_name, "to_upper") == 0 ||
-            strcmp(method_name, "to_lower") == 0 || strcmp(method_name, "chars") == 0 ||
+            strcmp(method_name, "upper") == 0 || strcmp(method_name, "to_lower") == 0 ||
+            strcmp(method_name, "lower") == 0 || strcmp(method_name, "chars") == 0 ||
             strcmp(method_name, "bytes") == 0 || strcmp(method_name, "byte_ptr") == 0 ||
             strcmp(method_name, "to_bytes") == 0 ||
             strcmp(method_name, "deserialize") == 0) {
@@ -526,6 +527,9 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
                 type_error(ctx, expr->line,
                     "cannot reassign const variable '%s'", expr->as.assign.name);
             }
+
+            // Reassignment can make previous flow-sensitive non-null facts stale.
+            type_check_clear_narrowings_for_assignment(ctx, expr->as.assign.name);
 
             // Check type compatibility
             CheckedType *var_type = type_check_lookup(ctx, expr->as.assign.name);

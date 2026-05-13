@@ -281,6 +281,10 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
                     env_define(module_env, ns_name, val_object(ns), 1, ctx);  // immutable
                 } else {
                     // Star import: import * from "module" - import all exports directly
+                    // NOTE: matches the compiler's current star-import semantics, which
+                    // snapshots values at import time. Named imports use live bindings
+                    // (see env_define_import). Aligning star imports to live bindings
+                    // would require a corresponding compiler change.
                     for (int j = 0; j < imported->num_exports; j++) {
                         char *export_name = imported->export_names[j];
                         Value val = env_get(imported->exports_env, export_name, ctx);
@@ -289,15 +293,17 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
                     }
                 }
             } else {
-                // Named imports
+                // Named imports - install live aliases (see env_define_import).
+                // Reassignments to a `let` in the exporting module are reflected
+                // here on next read, matching the compiler's module-global
+                // semantics and standard ES module live-binding behavior.
                 for (int j = 0; j < stmt->as.import_stmt.num_imports; j++) {
                     char *import_name = stmt->as.import_stmt.import_names[j];
                     char *alias = stmt->as.import_stmt.import_aliases[j];
                     char *bind_name = alias ? alias : import_name;
 
-                    Value val = env_get(imported->exports_env, import_name, ctx);
-                    env_define(module_env, bind_name, val, 1, ctx);  // immutable
-                    value_release(val);  // Release temp reference from env_get (env_define already retained)
+                    env_define_import(module_env, bind_name,
+                                      imported->exports_env, import_name, ctx);
                 }
             }
         } else if (stmt->type == STMT_EXPORT) {

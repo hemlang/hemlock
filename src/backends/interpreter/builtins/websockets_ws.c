@@ -439,11 +439,11 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
     };
     info.protocols = ws_protocols;
 
-    conn->context = lws_create_context(&info);
+    conn->context = (lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!conn->context) {
         free(conn);
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        ctx->exception_state.exception_value = val_string(lws_context_error_message());
         return val_null();
     }
 
@@ -882,12 +882,12 @@ Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *
     };
     info.protocols = server_protocols;
 
-    server->context = lws_create_context(&info);
+    server->context = (lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!server->context) {
         pthread_mutex_destroy(&server->pending_mutex);
         free(server);
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create server context");
+        ctx->exception_state.exception_value = val_string(lws_context_error_message());
         return val_null();
     }
 

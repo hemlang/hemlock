@@ -16,6 +16,29 @@ fn http_request(method, url, body, headers) {
 	);
 }
 
+fn resolve_redirect_url(url, redirect_url) {
+	// If redirect URL is relative, make it absolute using the original URL.
+	if (redirect_url.starts_with("/")) {
+		let scheme_end = url.index_of("://");
+		if (scheme_end >= 0) {
+			let host_start = scheme_end + 3;
+			let host_end = url.index_of("/", host_start);
+			if (host_end < 0) {
+				host_end = url.length;
+			}
+			let base = url.substr(0, host_end);
+			return base + redirect_url;
+		}
+	}
+
+	return redirect_url;
+}
+
+fn is_redirect_response_status(status) {
+	// libwebsockets can report 618 for some redirect handoffs while still exposing Location.
+	return status >= 300 && status < 400 || status == 618;
+}
+
 fn http_request_with_redirects(method, url, body, headers, redirect_count) {
 	// Limit redirects to prevent infinite loops
 	if (redirect_count > 10) {
@@ -63,22 +86,9 @@ fn http_request_with_redirects(method, url, body, headers, redirect_count) {
 	// Free C response structure
 	__lws_response_free(resp_ptr);
 
-	// Handle redirects (3xx status codes)
-	if (status >= 300 && status < 400 && redirect_url != null) {
-		// If redirect URL is relative, make it absolute
-		if (redirect_url.starts_with("/")) {
-			// Extract scheme and host from original URL
-			let scheme_end = url.index_of("://");
-			if (scheme_end >= 0) {
-				let host_start = scheme_end + 3;
-				let host_end = url.index_of("/", host_start);
-				if (host_end < 0) {
-					host_end = url.length;
-				}
-				let base = url.substr(0, host_end);
-				redirect_url = base + redirect_url;
-			}
-		}
+	// Handle redirects
+	if (is_redirect_response_status(status) && redirect_url != null) {
+		redirect_url = resolve_redirect_url(url, redirect_url);
 		// Follow redirect (use GET for 301/302/303)
 		return http_request_with_redirects(
 			"GET",
@@ -112,7 +122,11 @@ fn http_request_binary_with_redirects(method, url, headers, redirect_count) {
 	let resp_ptr = null;
 
 	if (method == "GET") {
-		resp_ptr = __lws_http_get(url);
+		if (headers != null && headers.length > 0) {
+			resp_ptr = __lws_http_get(url, headers);
+		} else {
+			resp_ptr = __lws_http_get(url);
+		}
 	} else {
 		throw "Binary download only supports GET method";
 	}
@@ -125,24 +139,12 @@ fn http_request_binary_with_redirects(method, url, headers, redirect_count) {
 	let status = __lws_response_status(resp_ptr);
 	let redirect_url = __lws_response_redirect(resp_ptr);
 
-	// Handle redirects (3xx status codes) BEFORE getting body
-	if (status >= 300 && status < 400 && redirect_url != null) {
+	// Handle redirects before getting body
+	if (is_redirect_response_status(status) && redirect_url != null) {
 		// Free response before following redirect
 		__lws_response_free(resp_ptr);
 
-		// If redirect URL is relative, make it absolute
-		if (redirect_url.starts_with("/")) {
-			let scheme_end = url.index_of("://");
-			if (scheme_end >= 0) {
-				let host_start = scheme_end + 3;
-				let host_end = url.index_of("/", host_start);
-				if (host_end < 0) {
-					host_end = url.length;
-				}
-				let base = url.substr(0, host_end);
-				redirect_url = base + redirect_url;
-			}
-		}
+		redirect_url = resolve_redirect_url(url, redirect_url);
 		// Follow redirect
 		return http_request_binary_with_redirects(
 			"GET",
@@ -374,20 +376,9 @@ fn http_request_timeout_with_redirects(method, url, body, headers, redirect_coun
 	// Free C response structure
 	__lws_response_free(resp_ptr);
 
-	// Handle redirects (3xx status codes)
-	if (status >= 300 && status < 400 && redirect_url != null) {
-		if (redirect_url.starts_with("/")) {
-			let scheme_end = url.index_of("://");
-			if (scheme_end >= 0) {
-				let host_start = scheme_end + 3;
-				let host_end = url.index_of("/", host_start);
-				if (host_end < 0) {
-					host_end = url.length;
-				}
-				let base = url.substr(0, host_end);
-				redirect_url = base + redirect_url;
-			}
-		}
+	// Handle redirects
+	if (is_redirect_response_status(status) && redirect_url != null) {
+		redirect_url = resolve_redirect_url(url, redirect_url);
 		return http_request_timeout_with_redirects("GET", redirect_url, "", headers, redirect_count + 1, timeout_ms);
 	}
 

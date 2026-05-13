@@ -1,0 +1,3 @@
+initial: secret='' counter=0
+after mutation: secret='alpaca' counter=3
+spawned views: secret='alpaca' counter=3

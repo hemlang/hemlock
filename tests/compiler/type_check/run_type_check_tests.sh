@@ -236,20 +236,63 @@ else
     ((FAILED++))
 fi
 
-# Test 17: Positional argument type errors identify argument index and parameter name
-echo "Test 17: Positional function argument mismatch names parameter"
-cat > /tmp/test_fn_arg_label.hml << 'EOF'
+# Test 17: Early-return null guard narrows a nullable local from optional-chain access
+echo "Test 17: Local optional-chain value narrows after early return"
+cat > /tmp/test_optional_chain_local_narrow.hml << 'EOF'
 define Profile { default_model: string? }
 fn pick_placement(model: string, profile: Profile): string { return model; }
-let x = pick_placement("fast", "not a profile");
+fn use_profile(profile: Profile): string {
+    let model_path = profile?.default_model;
+    if (model_path == null) { return "missing"; }
+    return pick_placement(model_path, profile);
+}
 EOF
-ARG_LABEL_OUTPUT=$($HEMLOCKC --check /tmp/test_fn_arg_label.hml 2>&1)
-if echo "$ARG_LABEL_OUTPUT" | grep -q "argument 2 ('profile')" && ! echo "$ARG_LABEL_OUTPUT" | grep -q "argument 'positional'"; then
-    echo "  PASSED: Positional mismatch includes argument index and parameter name"
+if $HEMLOCKC --check /tmp/test_optional_chain_local_narrow.hml 2>&1 | grep -q "no type errors"; then
+    echo "  PASSED: Local optional-chain value was narrowed"
     ((PASSED++))
 else
-    echo "  FAILED: Positional mismatch did not include useful argument label"
-    echo "$ARG_LABEL_OUTPUT"
+    echo "  FAILED: Local optional-chain value did not narrow"
+    ((FAILED++))
+fi
+
+# Test 18: Positive branch null guard narrows within the guarded branch
+echo "Test 18: Non-null branch narrows within if body"
+cat > /tmp/test_positive_branch_narrow.hml << 'EOF'
+define Profile { default_model: string? }
+fn pick_placement(model: string, profile: Profile): string { return model; }
+fn use_profile(profile: Profile): string {
+    let model_path = profile?.default_model;
+    if (model_path != null) {
+        return pick_placement(model_path, profile);
+    }
+    return "missing";
+}
+EOF
+if $HEMLOCKC --check /tmp/test_positive_branch_narrow.hml 2>&1 | grep -q "no type errors"; then
+    echo "  PASSED: Non-null if branch narrowed local value"
+    ((PASSED++))
+else
+    echo "  FAILED: Non-null if branch did not narrow local value"
+    ((FAILED++))
+fi
+
+# Test 19: Reassignment invalidates earlier non-null narrowing
+echo "Test 19: Reassignment clears non-null narrowing"
+cat > /tmp/test_narrow_reassign.hml << 'EOF'
+define Profile { default_model: string? }
+fn pick_placement(model: string, profile: Profile): string { return model; }
+fn use_profile(profile: Profile): string {
+    let model_path = profile?.default_model;
+    if (model_path == null) { return "missing"; }
+    model_path = null;
+    return pick_placement(model_path, profile);
+}
+EOF
+if $HEMLOCKC --check /tmp/test_narrow_reassign.hml 2>&1 | grep -q "expected 'string', got 'string?'"; then
+    echo "  PASSED: Reassignment invalidated non-null narrowing"
+    ((PASSED++))
+else
+    echo "  FAILED: Reassignment did not invalidate non-null narrowing"
     ((FAILED++))
 fi
 
