@@ -18,6 +18,26 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#define HEMLOCK_MACOS_OPENSSL_CERT_FILE "/opt/homebrew/etc/openssl@3/cert.pem"
+
+static void hemlock_lws_configure_macos_ca_file(void) {
+#ifdef __APPLE__
+    const char *cert_file = getenv("SSL_CERT_FILE");
+    if ((!cert_file || cert_file[0] == '\0') &&
+        access(HEMLOCK_MACOS_OPENSSL_CERT_FILE, R_OK) == 0) {
+        setenv("SSL_CERT_FILE", HEMLOCK_MACOS_OPENSSL_CERT_FILE, 0);
+    }
+#endif
+}
+
+static const char *hemlock_lws_context_error_message(void) {
+#ifdef __APPLE__
+    return "Failed to create libwebsockets context; on macOS, install openssl@3 with Homebrew or set SSL_CERT_FILE=/opt/homebrew/etc/openssl@3/cert.pem";
+#else
+    return "Failed to create libwebsockets context";
+#endif
+}
+
 // Forward declaration
 static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
                          void *user, void *in, size_t len);
@@ -39,12 +59,19 @@ static struct lws_context* get_http_client_context(int needs_ssl) {
     if (needs_ssl) {
         if (!ssl_http_ctx) {
             info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-            ssl_http_ctx = lws_create_context(&info);
+            ssl_http_ctx = (hemlock_lws_configure_macos_ca_file(), lws_create_context(&info));
+            if (!ssl_http_ctx) {
+                fprintf(stderr, "%s\n", hemlock_lws_context_error_message());
+            }
         }
         return ssl_http_ctx;
     }
 
-    return lws_create_context(&info);
+    struct lws_context *context = (hemlock_lws_configure_macos_ca_file(), lws_create_context(&info));
+    if (!context) {
+        fprintf(stderr, "%s\n", hemlock_lws_context_error_message());
+    }
+    return context;
 }
 
 // ========== HTTP SUPPORT ==========
@@ -645,8 +672,9 @@ ws_connection_t* lws_ws_connect(const char *url) {
     };
     info.protocols = ws_protocols;
 
-    conn->context = lws_create_context(&info);
+    conn->context = (hemlock_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!conn->context) {
+        fprintf(stderr, "%s\n", hemlock_lws_context_error_message());
         free(conn);
         return NULL;
     }
@@ -994,8 +1022,9 @@ ws_server_t* lws_ws_server_create(const char *host, int port) {
     };
     info.protocols = server_protocols;
 
-    server->context = lws_create_context(&info);
+    server->context = (hemlock_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!server->context) {
+        fprintf(stderr, "%s\n", hemlock_lws_context_error_message());
         free(server);
         return NULL;
     }

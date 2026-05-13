@@ -322,7 +322,7 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
     };
     info.protocols = stream_protocols;
 
-    stream->context = lws_create_context(&info);
+    stream->context = (lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!stream->context) {
         if (stream->post_body) free(stream->post_body);
         if (stream->content_type) free(stream->content_type);
@@ -330,7 +330,7 @@ Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext 
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        ctx->exception_state.exception_value = val_string(lws_context_error_message());
         return val_null();
     }
 
