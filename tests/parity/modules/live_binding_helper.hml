@@ -1,0 +1,21 @@
+// Helper module for live-binding parity tests. Both the named import and
+// star import test fixtures use these exports.
+
+export let SHARED_SECRET = "";
+export let counter = 0;
+
+export fn set_secret(s: string) {
+    SHARED_SECRET = s;
+}
+
+export fn bump() {
+    counter = counter + 1;
+}
+
+export async fn read_secret_async(): string {
+    return SHARED_SECRET;
+}
+
+export async fn read_counter_async(): i32 {
+    return counter;
+}
