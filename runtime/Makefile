@@ -45,10 +45,31 @@ ifeq ($(LWS_CHECK),yes)
     CFLAGS += -DHML_HAVE_LIBWEBSOCKETS $(shell pkg-config --cflags libwebsockets)
     LDFLAGS += $(shell pkg-config --libs libwebsockets)
 else
-    # Fallback: check if header exists directly
-    LWS_HEADER_CHECK := $(shell test -f /usr/include/libwebsockets.h && echo yes)
+    # Fallback: check the usual prefixes when pkg-config is missing
+    # (common on macOS without `brew install pkg-config`). Without
+    # this, the runtime compiled HTTP streaming as stubs and the link
+    # step then failed with "Undefined symbols: _hml_lws_http_*"
+    # because the builtin wrappers reference real impls that weren't
+    # compiled in.
+    LWS_HEADER_CHECK := $(shell test -f /usr/include/libwebsockets.h \
+                              -o -f /opt/homebrew/include/libwebsockets.h \
+                              -o -f /usr/local/include/libwebsockets.h \
+                              && echo yes)
     ifeq ($(LWS_HEADER_CHECK),yes)
         CFLAGS += -DHML_HAVE_LIBWEBSOCKETS
+        # If the header lives under a brew prefix, add its include + lib
+        # paths so the linker can actually find -lwebsockets.
+        LWS_BREW_PFX := $(shell test -f /opt/homebrew/include/libwebsockets.h && echo /opt/homebrew)
+        ifneq ($(LWS_BREW_PFX),)
+            CFLAGS += -I$(LWS_BREW_PFX)/include
+            LDFLAGS += -L$(LWS_BREW_PFX)/lib
+        else
+            LWS_LOCAL_PFX := $(shell test -f /usr/local/include/libwebsockets.h && echo /usr/local)
+            ifneq ($(LWS_LOCAL_PFX),)
+                CFLAGS += -I$(LWS_LOCAL_PFX)/include
+                LDFLAGS += -L$(LWS_LOCAL_PFX)/lib
+            endif
+        endif
         LDFLAGS += -lwebsockets
     endif
 endif

@@ -102,11 +102,25 @@ Required only for `@stdlib/http` and `@stdlib/websocket`. Without it those modul
 # Install Xcode Command Line Tools
 xcode-select --install
 
-# Install dependencies via Homebrew
-brew install libffi openssl@3 libwebsockets
+# Install build + runtime dependencies via Homebrew
+brew install pkg-config libffi openssl@3 libwebsockets
 ```
 
-**Note for macOS users**: The Makefile automatically detects Homebrew installations and sets the correct include/library paths. Hemlock supports both Intel (x86_64) and Apple Silicon (arm64) architectures.
+**Notes for macOS users**:
+
+- `pkg-config` is required even though it's not always listed as a Hemlock
+  dependency. The Makefile uses it to detect libwebsockets; the brew bottle
+  ships the headers at `/opt/homebrew/include/libwebsockets.h` (Apple
+  Silicon) or `/usr/local/include/libwebsockets.h` (Intel), and the
+  Makefile's fallback only checks `/usr/include/libwebsockets.h`. Without
+  `pkg-config`, the build silently compiles the runtime *without* HTTP
+  streaming support, then fails to link with `Undefined symbols: _hml_lws_http_*`.
+- Make sure `/opt/homebrew/bin` is on your `PATH` when you run `make`. SSH
+  non-interactive sessions inherit a stripped `PATH` that excludes it; the
+  Makefile's `brew --prefix …` calls then return empty and the linker
+  can't find the libs. `PATH=/opt/homebrew/bin:$PATH make` is a quick
+  one-shot fix.
+- Hemlock supports both Intel (x86_64) and Apple Silicon (arm64) architectures.
 
 **Ubuntu/Debian:**
 ```bash
