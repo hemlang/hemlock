@@ -1,0 +1,7 @@
+let s = "Hello World";
+assert(s.upper() == s.to_upper(), "upper() should alias to_upper()");
+assert(s.lower() == s.to_lower(), "lower() should alias to_lower()");
+
+let s2 = "ABC123xyz";
+print(s2.upper());
+print(s2.lower());

@@ -72,6 +72,11 @@ CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr) {
 
         case EXPR_IDENT: {
             const char *name = expr->as.ident.name;
+            char *key = type_check_expr_key(expr);
+            CheckedType *narrowed = type_check_lookup_narrowing(ctx, key);
+            free(key);
+            if (narrowed) return checked_type_clone(narrowed);
+
             CheckedType *type = type_check_lookup(ctx, name);
             if (type) {
                 return checked_type_clone(type);
