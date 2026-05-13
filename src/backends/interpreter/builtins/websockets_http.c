@@ -1000,7 +1000,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     return val_ptr(resp);
 }
 
-// __lws_http_post_timeout(url: string, body: string, content_type: string, timeout_ms: i32): ptr
+// __lws_http_post_timeout(url: string, body: string, content_type: string, timeout_ms: i32, headers?: array): ptr
 // HTTP POST with configurable timeout
 Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext *ctx) {
     // SANDBOX: Check if network is allowed
@@ -1011,9 +1011,9 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
 
     lws_init_logging();
 
-    if (num_args != 4) {
+    if (num_args < 4 || num_args > 5) {
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_post_timeout() expects 4 arguments (url, body, content_type, timeout_ms)");
+        ctx->exception_state.exception_value = val_string("__lws_http_post_timeout() expects 4-5 arguments (url, body, content_type, timeout_ms, headers?)");
         return val_null();
     }
 
@@ -1060,9 +1060,15 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
         return val_null();
     }
 
+    // Parse optional custom headers
+    if (num_args == 5) {
+        parse_headers_into_resp(resp, args[4]);
+    }
+
     resp->body_capacity = 4096;
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
@@ -1079,6 +1085,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     struct lws_context *context = lws_create_context(&info);
     if (!context) {
         free(resp->body);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
@@ -1110,6 +1117,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     if (attach_request_body(resp, post_body, content_type) < 0) {
         if (!ssl) lws_context_destroy(context);
         free(resp->body);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to allocate request body");
@@ -1120,6 +1128,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
         if (!ssl) lws_context_destroy(context);
         free(resp->body);
         free_request_body(resp);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to connect");
@@ -1141,6 +1150,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
@@ -1150,7 +1160,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     return val_ptr(resp);
 }
 
-// __lws_http_request_timeout(method: string, url: string, body: string, content_type: string, timeout_ms: i32): ptr
+// __lws_http_request_timeout(method: string, url: string, body: string, content_type: string, timeout_ms: i32, headers?: array): ptr
 // Generic HTTP request with configurable timeout
 Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionContext *ctx) {
     // SANDBOX: Check if network is allowed
@@ -1161,9 +1171,9 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
 
     lws_init_logging();
 
-    if (num_args != 5) {
+    if (num_args < 5 || num_args > 6) {
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_request_timeout() expects 5 arguments (method, url, body, content_type, timeout_ms)");
+        ctx->exception_state.exception_value = val_string("__lws_http_request_timeout() expects 5-6 arguments (method, url, body, content_type, timeout_ms, headers?)");
         return val_null();
     }
 
@@ -1212,9 +1222,15 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
         return val_null();
     }
 
+    // Parse optional custom headers
+    if (num_args == 6) {
+        parse_headers_into_resp(resp, args[5]);
+    }
+
     resp->body_capacity = 4096;
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
@@ -1231,6 +1247,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     struct lws_context *context = lws_create_context(&info);
     if (!context) {
         free(resp->body);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
@@ -1262,6 +1279,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     if (attach_request_body(resp, post_body, content_type) < 0) {
         if (!ssl) lws_context_destroy(context);
         free(resp->body);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to allocate request body");
@@ -1272,6 +1290,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
         if (!ssl) lws_context_destroy(context);
         free(resp->body);
         free_request_body(resp);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to connect");
@@ -1293,6 +1312,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");

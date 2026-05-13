@@ -1,0 +1,86 @@
+// Regression test for the compiled-binary HTTP POST/PUT/DELETE headers bug.
+//
+// Before the fix, hml_lws_http_post / hml_lws_http_request took a
+// content_type scalar but no headers list, so the stdlib wrapper at
+// stdlib/http.hml scanned the user-supplied headers array for
+// Content-Type and dropped the rest. Authorization, X-Request-Id,
+// custom headers, etc. never reached the wire on POST/PUT/DELETE/PATCH.
+//
+// This test boots a tiny TCP listener, fires post() with custom headers
+// at it, and verifies that the headers actually arrived.
+
+import { TcpListener } from "@stdlib/net";
+import { post, request } from "@stdlib/http";
+import { sleep } from "@stdlib/time";
+
+async fn server_task(port: i32): string {
+	let listener = TcpListener("127.0.0.1", port);
+	let stream = listener.accept();
+	let captured = "";
+	let i = 0;
+	while (i < 200) {
+		let line = stream.read_line();
+		if (line == null) { break; }
+		captured = captured + line + "\n";
+		if (line.trim().length == 0) { break; }
+		i = i + 1;
+	}
+	let lc = captured.to_lower();
+	let cl_idx = lc.find("content-length:");
+	if (cl_idx >= 0) {
+		let after = captured.substr(cl_idx + 15, captured.length - cl_idx - 15);
+		let nl = after.find("\n");
+		let n_str = "0";
+		if (nl > 0) { n_str = after.substr(0, nl).trim(); }
+		let n = i32(n_str);
+		if (n > 0) {
+			let buf = stream.read(n);
+			let j = 0;
+			while (j < buf.length) {
+				let r: rune = buf[j];
+				captured = captured + r;
+				j = j + 1;
+			}
+		}
+	}
+	stream.write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+	stream.close();
+	return captured;
+}
+
+let port = 28766;
+let task = spawn(server_task, port);
+sleep(0.1);
+
+let resp = post("http://127.0.0.1:" + port + "/", "body data", [
+	"Content-Type: application/json",
+	"Authorization: Bearer secret-token-xyz",
+	"X-Request-Id: req-42",
+]);
+print("status: " + resp.status_code);
+
+let captured = await task;
+let lc = captured.to_lower();
+
+// Custom headers should reach the wire alongside Content-Type
+print("has authorization: " + (lc.find("authorization: bearer secret-token-xyz") >= 0));
+print("has x-request-id: " + (lc.find("x-request-id: req-42") >= 0));
+print("has content-type: " + (lc.find("content-type: application/json") >= 0));
+print("has body: " + (captured.find("body data") >= 0));
+
+// Now exercise __lws_http_request (PUT path) — same bug, same fix
+let port2 = 28767;
+let task2 = spawn(server_task, port2);
+sleep(0.1);
+
+let resp2 = request("PUT", "http://127.0.0.1:" + port2 + "/", "put-body", [
+	"Content-Type: text/plain",
+	"X-Custom: put-header",
+]);
+print("put status: " + resp2.status_code);
+
+let captured2 = await task2;
+let lc2 = captured2.to_lower();
+print("put has PUT line: " + (captured2.find("PUT / HTTP/1.1") >= 0));
+print("put has x-custom: " + (lc2.find("x-custom: put-header") >= 0));
+print("put has body: " + (captured2.find("put-body") >= 0));
