@@ -21,6 +21,28 @@
 #ifdef HML_HAVE_LIBWEBSOCKETS
 
 #include <libwebsockets.h>
+#include <unistd.h>
+
+
+#define HEMLOCK_MACOS_OPENSSL_CERT_FILE "/opt/homebrew/etc/openssl@3/cert.pem"
+
+static void hml_lws_configure_macos_ca_file(void) {
+#ifdef __APPLE__
+    const char *cert_file = getenv("SSL_CERT_FILE");
+    if ((!cert_file || cert_file[0] == '\0') &&
+        access(HEMLOCK_MACOS_OPENSSL_CERT_FILE, R_OK) == 0) {
+        setenv("SSL_CERT_FILE", HEMLOCK_MACOS_OPENSSL_CERT_FILE, 0);
+    }
+#endif
+}
+
+static const char *hml_lws_context_error_message(void) {
+#ifdef __APPLE__
+    return "Failed to create libwebsockets context; on macOS, install openssl@3 with Homebrew or set SSL_CERT_FILE=/opt/homebrew/etc/openssl@3/cert.pem";
+#else
+    return "Failed to create libwebsockets context";
+#endif
+}
 
 // Suppress libwebsockets startup banner. Without this, every lws_create_context
 // emits a NOTICE-level line ("LWS: 4.3.3-... NET CLI SRV H1 H2 WS ...") to
@@ -502,10 +524,10 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
     };
     info.protocols = protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -597,10 +619,10 @@ HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
     };
     info.protocols = protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -693,10 +715,10 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
     };
     info.protocols = post_protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -797,10 +819,10 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
     };
     info.protocols = req_protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -905,10 +927,10 @@ HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
     };
     info.protocols = protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -1003,10 +1025,10 @@ HmlValue hml_lws_http_post_timeout(HmlValue url_val, HmlValue body_val, HmlValue
     };
     info.protocols = protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -1106,10 +1128,10 @@ HmlValue hml_lws_http_request_timeout(HmlValue method_val, HmlValue url_val, Hml
     };
     info.protocols = protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -1561,14 +1583,14 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
     };
     info.protocols = stream_protocols;
 
-    stream->context = lws_create_context(&info);
+    stream->context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!stream->context) {
         if (stream->post_body) free(stream->post_body);
         if (stream->content_type) free(stream->content_type);
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -2108,10 +2130,10 @@ HmlValue hml_lws_ws_connect(HmlValue url_val) {
     };
     info.protocols = ws_protocols;
 
-    conn->context = lws_create_context(&info);
+    conn->context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!conn->context) {
         free(conn);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -2416,11 +2438,11 @@ HmlValue hml_lws_ws_server_create(HmlValue host_val, HmlValue port_val) {
     };
     info.protocols = server_protocols;
 
-    server->context = lws_create_context(&info);
+    server->context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!server->context) {
         pthread_mutex_destroy(&server->pending_mutex);
         free(server);
-        hml_runtime_error("Failed to create WebSocket server context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     server->shutdown = 0;

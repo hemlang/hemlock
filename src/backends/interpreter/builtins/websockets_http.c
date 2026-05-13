@@ -380,7 +380,7 @@ static struct lws_context* get_http_context(int needs_ssl) {
             info.port = CONTEXT_PORT_NO_LISTEN;
             info.max_http_header_data = 16384;
             info.protocols = shared_http_protocols;
-            ssl_http_context = lws_create_context(&info);
+            ssl_http_context = (lws_configure_macos_ca_file(), lws_create_context(&info));
         }
         return ssl_http_context;
     }
@@ -391,7 +391,7 @@ static struct lws_context* get_http_context(int needs_ssl) {
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;
     info.protocols = shared_http_protocols;
-    return lws_create_context(&info);
+    return (lws_configure_macos_ca_file(), lws_create_context(&info));
 }
 
 // Helper: parse a Hemlock array of strings into C header strings stored in resp
@@ -528,7 +528,7 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
         free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        ctx->exception_state.exception_value = val_string(lws_context_error_message());
         return val_null();
     }
 
@@ -654,7 +654,7 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
         free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        ctx->exception_state.exception_value = val_string(lws_context_error_message());
         return val_null();
     }
 
@@ -796,12 +796,12 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     info.max_http_header_data = 16384;
     info.protocols = shared_http_protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
         free(resp->body);
         free(resp);
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        ctx->exception_state.exception_value = val_string(lws_context_error_message());
         return val_null();
     }
 
@@ -949,12 +949,12 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     info.max_http_header_data = 16384;
     info.protocols = shared_http_protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
         free(resp->body);
         free(resp);
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        ctx->exception_state.exception_value = val_string(lws_context_error_message());
         return val_null();
     }
 
@@ -1084,12 +1084,12 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     info.max_http_header_data = 16384;
     info.protocols = shared_http_protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
         free(resp->body);
         free(resp);
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        ctx->exception_state.exception_value = val_string(lws_context_error_message());
         return val_null();
     }
 
@@ -1235,12 +1235,12 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     info.max_http_header_data = 16384;
     info.protocols = shared_http_protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
         free(resp->body);
         free(resp);
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        ctx->exception_state.exception_value = val_string(lws_context_error_message());
         return val_null();
     }
 
