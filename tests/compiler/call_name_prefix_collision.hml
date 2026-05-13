@@ -1,0 +1,10 @@
+fn cp_post_json(url: string): string {
+    let echoed = "post:" + url;
+    return echoed;
+}
+
+fn port_free_on_agent(agent_url: string, port: i32): string {
+    return cp_post_json(agent_url + ":" + to_string(port));
+}
+
+print(port_free_on_agent("http://agent", 8080));

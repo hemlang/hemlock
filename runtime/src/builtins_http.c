@@ -21,6 +21,28 @@
 #ifdef HML_HAVE_LIBWEBSOCKETS
 
 #include <libwebsockets.h>
+#include <unistd.h>
+
+
+#define HEMLOCK_MACOS_OPENSSL_CERT_FILE "/opt/homebrew/etc/openssl@3/cert.pem"
+
+static void hml_lws_configure_macos_ca_file(void) {
+#ifdef __APPLE__
+    const char *cert_file = getenv("SSL_CERT_FILE");
+    if ((!cert_file || cert_file[0] == '\0') &&
+        access(HEMLOCK_MACOS_OPENSSL_CERT_FILE, R_OK) == 0) {
+        setenv("SSL_CERT_FILE", HEMLOCK_MACOS_OPENSSL_CERT_FILE, 0);
+    }
+#endif
+}
+
+static const char *hml_lws_context_error_message(void) {
+#ifdef __APPLE__
+    return "Failed to create libwebsockets context; on macOS, install openssl@3 with Homebrew or set SSL_CERT_FILE=/opt/homebrew/etc/openssl@3/cert.pem";
+#else
+    return "Failed to create libwebsockets context";
+#endif
+}
 
 // Suppress libwebsockets startup banner. Without this, every lws_create_context
 // emits a NOTICE-level line ("LWS: 4.3.3-... NET CLI SRV H1 H2 WS ...") to
@@ -38,6 +60,17 @@ static void hml_lws_init_logging(void) {
             lws_set_log_level(LLL_ERR, NULL);
         }
     }
+}
+
+// Default timeout for the non-*_timeout one-shot LWS HTTP helpers.
+// The service loop below polls in ~10ms increments, so 5000ms maps to
+// 500 iterations instead of the previous 3000 iterations (~30000ms).
+#define HML_LWS_HTTP_DEFAULT_TIMEOUT_MS 5000
+#define HML_LWS_HTTP_SERVICE_POLL_MS 10
+
+static int hml_lws_timeout_iterations_from_ms(int timeout_ms) {
+    int iterations = timeout_ms / HML_LWS_HTTP_SERVICE_POLL_MS;
+    return iterations < 1 ? 1 : iterations;
 }
 
 // HTTP response structure
@@ -491,10 +524,10 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
     };
     info.protocols = protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -528,9 +561,9 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
         hml_runtime_error("Failed to connect");
     }
 
-    int timeout = 3000;
+    int timeout = hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS);
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
 
     lws_context_destroy(context);
@@ -586,10 +619,10 @@ HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
     };
     info.protocols = protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -619,9 +652,9 @@ HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
         hml_runtime_error("Failed to connect");
     }
 
-    int timeout = 3000;
+    int timeout = hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS);
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
 
     lws_context_destroy(context);
@@ -691,10 +724,10 @@ static HmlValue hml_lws_http_perform(const char *method,
     };
     info.protocols = protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -726,7 +759,7 @@ static HmlValue hml_lws_http_perform(const char *method,
 
     int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
 
     lws_context_destroy(context);
@@ -751,7 +784,7 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
                                  body_val.as.as_string->data,
                                  content_type_val.as.as_string->data,
                                  hml_val_null(),
-                                 3000,
+                                 hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS),
                                  /*force_body=*/1);
 }
 
@@ -767,7 +800,7 @@ HmlValue hml_lws_http_post_with_headers(HmlValue url_val, HmlValue body_val,
                                  body_val.as.as_string->data,
                                  content_type_val.as.as_string->data,
                                  headers_val,
-                                 3000,
+                                 hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS),
                                  /*force_body=*/1);
 }
 
@@ -783,7 +816,7 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
                                  body_val.as.as_string->data,
                                  content_type_val.as.as_string->data,
                                  hml_val_null(),
-                                 3000,
+                                 hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS),
                                  /*force_body=*/0);
 }
 
@@ -801,7 +834,7 @@ HmlValue hml_lws_http_request_with_headers(HmlValue method_val, HmlValue url_val
                                  body_val.as.as_string->data,
                                  content_type_val.as.as_string->data,
                                  headers_val,
-                                 3000,
+                                 hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS),
                                  /*force_body=*/0);
 }
 
@@ -817,11 +850,9 @@ static int hml_extract_timeout_ms(HmlValue timeout_val) {
     } else if (timeout_val.type == HML_VAL_F64) {
         timeout_ms = (int)timeout_val.as.as_f64;
     } else {
-        timeout_ms = 30000;  // Default 30 seconds
+        timeout_ms = HML_LWS_HTTP_DEFAULT_TIMEOUT_MS;
     }
-    // Convert to iterations (each ~10ms)
-    int iterations = timeout_ms / 10;
-    return iterations < 1 ? 1 : iterations;
+    return hml_lws_timeout_iterations_from_ms(timeout_ms);
 }
 
 // HTTP GET with configurable timeout
@@ -866,10 +897,10 @@ HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
     };
     info.protocols = protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -901,7 +932,7 @@ HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
 
     int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
 
     lws_context_destroy(context);
@@ -1401,14 +1432,14 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
     };
     info.protocols = stream_protocols;
 
-    stream->context = lws_create_context(&info);
+    stream->context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!stream->context) {
         if (stream->post_body) free(stream->post_body);
         if (stream->content_type) free(stream->content_type);
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -1948,10 +1979,10 @@ HmlValue hml_lws_ws_connect(HmlValue url_val) {
     };
     info.protocols = ws_protocols;
 
-    conn->context = lws_create_context(&info);
+    conn->context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!conn->context) {
         free(conn);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -2256,11 +2287,11 @@ HmlValue hml_lws_ws_server_create(HmlValue host_val, HmlValue port_val) {
     };
     info.protocols = server_protocols;
 
-    server->context = lws_create_context(&info);
+    server->context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!server->context) {
         pthread_mutex_destroy(&server->pending_mutex);
         free(server);
-        hml_runtime_error("Failed to create WebSocket server context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     server->shutdown = 0;

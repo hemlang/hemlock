@@ -40,6 +40,42 @@ static Value throw_runtime_error_at(ExecutionContext *ctx, int line, const char 
 // Line number for error reporting (set by caller)
 static __thread int current_line = 0;
 
+static Value string_to_upper(String *str, ExecutionContext *ctx, const char *method) {
+    char *upper = malloc(str->length + 1);
+    if (upper == NULL) {
+        return throw_runtime_error(ctx, "%s() out of memory", method);
+    }
+    for (int i = 0; i < str->length; i++) {
+        char c = str->data[i];
+        if (c >= 'a' && c <= 'z') {
+            upper[i] = c - HML_ASCII_CASE_OFFSET;  // Convert to uppercase
+        } else {
+            upper[i] = c;
+        }
+    }
+    upper[str->length] = '\0';
+
+    return val_string_take(upper, str->length, str->length + 1);
+}
+
+static Value string_to_lower(String *str, ExecutionContext *ctx, const char *method) {
+    char *lower = malloc(str->length + 1);
+    if (lower == NULL) {
+        return throw_runtime_error(ctx, "%s() out of memory", method);
+    }
+    for (int i = 0; i < str->length; i++) {
+        char c = str->data[i];
+        if (c >= 'A' && c <= 'Z') {
+            lower[i] = c + HML_ASCII_CASE_OFFSET;  // Convert to lowercase
+        } else {
+            lower[i] = c;
+        }
+    }
+    lower[str->length] = '\0';
+
+    return val_string_take(lower, str->length, str->length + 1);
+}
+
 // ========== STRING METHOD HANDLING ==========
 
 Value call_string_method(String *str, const char *method, Value *args, int num_args, int line, ExecutionContext *ctx) {
@@ -538,6 +574,28 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         }
         break;
 
+    case 'l':
+        // lower() - alias for to_lower()
+        if (method[1] == 'o' && method[2] == 'w' && strcmp(method, "lower") == 0) {
+            if (num_args != 0) {
+                return throw_runtime_error(ctx, "lower() expects no arguments");
+            }
+
+            return string_to_lower(str, ctx, method);
+        }
+        break;
+
+    case 'u':
+        // upper() - alias for to_upper()
+        if (method[1] == 'p' && method[2] == 'p' && strcmp(method, "upper") == 0) {
+            if (num_args != 0) {
+                return throw_runtime_error(ctx, "upper() expects no arguments");
+            }
+
+            return string_to_upper(str, ctx, method);
+        }
+        break;
+
     case 't':
         // trim() - remove whitespace from both ends
         if (method[1] == 'r' && strcmp(method, "trim") == 0) {
@@ -632,21 +690,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                 return throw_runtime_error(ctx, "to_upper() expects no arguments");
             }
 
-            char *upper = malloc(str->length + 1);
-            if (upper == NULL) {
-                return throw_runtime_error(ctx, "to_upper() out of memory");
-            }
-            for (int i = 0; i < str->length; i++) {
-                char c = str->data[i];
-                if (c >= 'a' && c <= 'z') {
-                    upper[i] = c - HML_ASCII_CASE_OFFSET;  // Convert to uppercase
-                } else {
-                    upper[i] = c;
-                }
-            }
-            upper[str->length] = '\0';
-
-            return val_string_take(upper, str->length, str->length + 1);
+            return string_to_upper(str, ctx, method);
         }
         // to_lower() - convert to lowercase
         if (method[1] == 'o' && method[2] == '_' && method[3] == 'l' && strcmp(method, "to_lower") == 0) {
@@ -654,21 +698,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                 return throw_runtime_error(ctx, "to_lower() expects no arguments");
             }
 
-            char *lower = malloc(str->length + 1);
-            if (lower == NULL) {
-                return throw_runtime_error(ctx, "to_lower() out of memory");
-            }
-            for (int i = 0; i < str->length; i++) {
-                char c = str->data[i];
-                if (c >= 'A' && c <= 'Z') {
-                    lower[i] = c + HML_ASCII_CASE_OFFSET;  // Convert to lowercase
-                } else {
-                    lower[i] = c;
-                }
-            }
-            lower[str->length] = '\0';
-
-            return val_string_take(lower, str->length, str->length + 1);
+            return string_to_lower(str, ctx, method);
         }
         // to_bytes() - convert string to buffer
         if (method[1] == 'o' && method[2] == '_' && method[3] == 'b' && strcmp(method, "to_bytes") == 0) {

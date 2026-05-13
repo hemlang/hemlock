@@ -351,6 +351,7 @@ Convert string to uppercase.
 **Signature:**
 ```hemlock
 string.to_upper(): string
+string.upper(): string      // alias
 ```
 
 **Returns:** New string in uppercase
@@ -359,6 +360,7 @@ string.to_upper(): string
 ```hemlock
 let s = "hello world";
 let upper = s.to_upper();       // "HELLO WORLD"
+let upper_alias = s.upper();    // "HELLO WORLD"
 
 let mixed = "HeLLo";
 let upper2 = mixed.to_upper();  // "HELLO"
@@ -373,6 +375,7 @@ Convert string to lowercase.
 **Signature:**
 ```hemlock
 string.to_lower(): string
+string.lower(): string      // alias
 ```
 
 **Returns:** New string in lowercase
@@ -381,6 +384,7 @@ string.to_lower(): string
 ```hemlock
 let s = "HELLO WORLD";
 let lower = s.to_lower();       // "hello world"
+let lower_alias = s.lower();    // "hello world"
 
 let mixed = "HeLLo";
 let lower2 = mixed.to_lower();  // "hello"
@@ -775,7 +779,9 @@ let cleaned = "  HELLO  "
 | `trim_start`   | `()`                                         | `string`  | Remove leading whitespace             |
 | `trim_end`     | `()`                                         | `string`  | Remove trailing whitespace            |
 | `to_upper`     | `()`                                         | `string`  | Convert to uppercase                  |
+| `upper`        | `()`                                         | `string`  | Alias for `to_upper`                  |
 | `to_lower`     | `()`                                         | `string`  | Convert to lowercase                  |
+| `lower`        | `()`                                         | `string`  | Alias for `to_lower`                  |
 | `starts_with`  | `(prefix: string)`                           | `bool`    | Check if starts with prefix           |
 | `ends_with`    | `(suffix: string)`                           | `bool`    | Check if ends with suffix             |
 | `replace`      | `(old: string, new: string)`                 | `string`  | Replace first occurrence              |

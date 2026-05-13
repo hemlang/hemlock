@@ -50,6 +50,8 @@ char* type_check_expr_key(Expr *expr);
 
 // Record and query flow-sensitive non-null expression narrowings.
 void type_check_add_narrowing(TypeCheckContext *ctx, const char *key, CheckedType *type);
+void type_check_remove_narrowing(TypeCheckContext *ctx, const char *key);
+void type_check_clear_narrowings_for_assignment(TypeCheckContext *ctx, const char *name);
 CheckedType* type_check_lookup_narrowing(TypeCheckContext *ctx, const char *key);
 
 // Infer declared custom-object property types.
