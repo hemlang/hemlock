@@ -2821,6 +2821,18 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // Stabilize the callee identifier before generating argument code.
+        // Argument codegen can traverse identifiers from the call-site context;
+        // keeping an owned copy here prevents later code from accidentally
+        // emitting a symbol name derived from an in-scope argument/receiver name.
+        char *stable_call_name = strdup(fn_name);
+        if (!stable_call_name) {
+            codegen_error(ctx, 0, "Memory allocation failed for function call name");
+            free(result);
+            return strdup("hml_val_null()");
+        }
+        const char *call_name = stable_call_name;
+
         // Handle user-defined function by name (hml_fn_<name>)
         // Main file functions should use generic call path (hml_call_function)
         // to properly handle optional parameters with defaults
@@ -2828,9 +2840,9 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         // Check if this is an imported function first (even if registered as local)
         ImportBinding *import_binding = NULL;
         if (ctx->current_module) {
-            import_binding = module_find_import(ctx->current_module, fn_name);
+            import_binding = module_find_import(ctx->current_module, call_name);
         } else {
-            import_binding = codegen_find_main_import(ctx, fn_name);
+            import_binding = codegen_find_main_import(ctx, call_name);
         }
 
         // OPTIMIZATION: Function inlining for small pure functions
@@ -2838,10 +2850,10 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         // Multi-level inlining (up to HML_MAX_INLINE_DEPTH) allows nested helpers
         // like rotr() inside ep0() to be fully inlined in hot loops
         if (ctx->optimize && ctx->inline_depth < HML_MAX_INLINE_DEPTH && !import_binding && !ctx->current_module &&
-            codegen_is_main_func_inlinable(ctx, fn_name) &&
-            expr->as.call.num_args == codegen_get_main_func_params(ctx, fn_name)) {
+            codegen_is_main_func_inlinable(ctx, call_name) &&
+            expr->as.call.num_args == codegen_get_main_func_params(ctx, call_name)) {
 
-            Expr *func_ast = codegen_get_main_func_ast(ctx, fn_name);
+            Expr *func_ast = codegen_get_main_func_ast(ctx, call_name);
             if (func_ast && func_ast->type == EXPR_FUNCTION) {
                 // Get the return expression (we know it's just "return expr")
                 Stmt *body = func_ast->as.function.body;
@@ -2858,7 +2870,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 codegen_writeln(ctx, "HmlValue %s;", result);
 
                 // Create a scope block for the inlined code
-                codegen_writeln(ctx, "{ // INLINE: %s", fn_name);
+                codegen_writeln(ctx, "{ // INLINE: %s", call_name);
                 codegen_indent_inc(ctx);
 
                 // Track inlining depth to prevent excessive code bloat
@@ -2947,18 +2959,19 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 codegen_writeln(ctx, "}");
                 codegen_restore_consumed(ctx, consumed_checkpoint);
 
+                free(stable_call_name);
                 return result;
             }
         }
         skip_inline:
 
-        if (codegen_is_main_func(ctx, fn_name) && !import_binding && !ctx->current_module &&
+        if (codegen_is_main_func(ctx, call_name) && !import_binding && !ctx->current_module &&
             expr->as.call.arg_names == NULL) {  // Skip direct call when named args are used
             // OPTIMIZATION: Main file function definition - call directly
             // This is safe because we know the function signature at compile time
-            int expected_params = codegen_get_main_func_params(ctx, fn_name);
-            int has_rest = codegen_get_main_func_has_rest(ctx, fn_name);
-            int *param_is_ref = codegen_get_main_func_param_is_ref(ctx, fn_name);
+            int expected_params = codegen_get_main_func_params(ctx, call_name);
+            int has_rest = codegen_get_main_func_has_rest(ctx, call_name);
+            int *param_is_ref = codegen_get_main_func_param_is_ref(ctx, call_name);
             char **arg_temps = NULL;
             int *arg_is_ref = NULL;
             if (expr->as.call.num_args > 0) {
@@ -2968,6 +2981,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                     free(arg_temps);
                     free(arg_is_ref);
                     codegen_error(ctx, 0, "Memory allocation failed for function call arguments");
+                    free(stable_call_name);
                     free(result);
                     return strdup("hml_val_null()");
                 }
@@ -2995,7 +3009,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             }
 
             codegen_indent(ctx);
-            fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, fn_name);
+            fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, call_name);
             // Pass regular args (up to expected_params)
             int regular_args = has_rest ? (expr->as.call.num_args < expected_params ? expr->as.call.num_args : expected_params) : expr->as.call.num_args;
             for (int i = 0; i < regular_args && arg_temps; i++) {
@@ -3029,19 +3043,20 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             }
             free(arg_temps);
             free(arg_is_ref);
+            free(stable_call_name);
             return result;
-        } else if (codegen_is_main_var(ctx, fn_name) && !import_binding &&
+        } else if (codegen_is_main_var(ctx, call_name) && !import_binding &&
                    expr->as.call.arg_names == NULL) {  // Skip direct call when named args are used
             // Main file variable that's NOT a function definition (e.g., assigned closure)
             // Use generic call path to properly handle closures
             // Fall through to generic handling
-        } else if (codegen_is_local(ctx, fn_name) && !import_binding &&
+        } else if (codegen_is_local(ctx, call_name) && !import_binding &&
                    expr->as.call.arg_names == NULL) {  // Skip direct call when named args are used
             // Check if this local is actually a captured main file function - use direct call
-            if (codegen_is_main_func(ctx, fn_name) && !ctx->current_module) {
-                int expected_params = codegen_get_main_func_params(ctx, fn_name);
-                int has_rest = codegen_get_main_func_has_rest(ctx, fn_name);
-                int *param_is_ref = codegen_get_main_func_param_is_ref(ctx, fn_name);
+            if (codegen_is_main_func(ctx, call_name) && !ctx->current_module) {
+                int expected_params = codegen_get_main_func_params(ctx, call_name);
+                int has_rest = codegen_get_main_func_has_rest(ctx, call_name);
+                int *param_is_ref = codegen_get_main_func_param_is_ref(ctx, call_name);
                 char **arg_temps = NULL;
                 int *arg_is_ref = NULL;
                 if (expr->as.call.num_args > 0) {
@@ -3051,6 +3066,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                         free(arg_temps);
                         free(arg_is_ref);
                         codegen_error(ctx, 0, "Memory allocation failed for function call arguments");
+                        free(stable_call_name);
                         free(result);
                         return strdup("hml_val_null()");
                     }
@@ -3078,7 +3094,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 }
 
                 codegen_indent(ctx);
-                fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, fn_name);
+                fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, call_name);
                 // Pass regular args (up to expected_params)
                 int regular_args = has_rest ? (expr->as.call.num_args < expected_params ? expr->as.call.num_args : expected_params) : expr->as.call.num_args;
                 for (int i = 0; i < regular_args && arg_temps; i++) {
@@ -3112,6 +3128,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 }
                 free(arg_temps);
                 free(arg_is_ref);
+                free(stable_call_name);
                 return result;
             }
             // It's a true local function variable (not a main func) - call through hml_call_function
@@ -3131,7 +3148,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 expected_params = import_binding->num_params;
             } else if (ctx->current_module && !import_binding) {
                 // Look up export in current module for self-calls
-                ExportedSymbol *exp = module_find_export(ctx->current_module, fn_name);
+                ExportedSymbol *exp = module_find_export(ctx->current_module, call_name);
                 if (exp && exp->is_function && exp->num_params > 0) {
                     expected_params = exp->num_params;
                 }
@@ -3143,6 +3160,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 arg_temps = malloc(expr->as.call.num_args * sizeof(char*));
                 if (!arg_temps) {
                     codegen_error(ctx, 0, "Memory allocation failed for function call arguments");
+                    free(stable_call_name);
                     free(result);
                     return strdup("hml_val_null()");
                 }
@@ -3166,16 +3184,16 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 }
             } else if (ctx->current_module) {
                 // Check if this is an extern function - externs don't get module prefix
-                if (module_is_extern_fn(ctx->current_module, fn_name)) {
-                    fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, fn_name);
+                if (module_is_extern_fn(ctx->current_module, call_name)) {
+                    fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, call_name);
                 } else {
                     // Function in current module - use module prefix
                     fprintf(ctx->output, "HmlValue %s = %sfn_%s(NULL", result,
-                            ctx->current_module->module_prefix, fn_name);
+                            ctx->current_module->module_prefix, call_name);
                 }
             } else {
                 // Main file function definition - call directly
-                fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, fn_name);
+                fprintf(ctx->output, "HmlValue %s = hml_fn_%s(NULL", result, call_name);
             }
             // Output provided arguments
             for (int i = 0; i < expr->as.call.num_args; i++) {
@@ -3192,8 +3210,10 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 free(arg_temps[i]);
             }
             free(arg_temps);
+            free(stable_call_name);
             return result;
         }
+        free(stable_call_name);
     }
 
     // Handle method calls: obj.method(args)
