@@ -236,6 +236,23 @@ else
     ((FAILED++))
 fi
 
+# Test 17: Positional argument type errors identify argument index and parameter name
+echo "Test 17: Positional function argument mismatch names parameter"
+cat > /tmp/test_fn_arg_label.hml << 'EOF'
+define Profile { default_model: string? }
+fn pick_placement(model: string, profile: Profile): string { return model; }
+let x = pick_placement("fast", "not a profile");
+EOF
+ARG_LABEL_OUTPUT=$($HEMLOCKC --check /tmp/test_fn_arg_label.hml 2>&1)
+if echo "$ARG_LABEL_OUTPUT" | grep -q "argument 2 ('profile')" && ! echo "$ARG_LABEL_OUTPUT" | grep -q "argument 'positional'"; then
+    echo "  PASSED: Positional mismatch includes argument index and parameter name"
+    ((PASSED++))
+else
+    echo "  FAILED: Positional mismatch did not include useful argument label"
+    echo "$ARG_LABEL_OUTPUT"
+    ((FAILED++))
+fi
+
 echo ""
 echo "=== Type Check Test Results ==="
 echo "Passed: $PASSED"
