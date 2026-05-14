@@ -26,12 +26,60 @@
 
 #define HEMLOCK_MACOS_OPENSSL_CERT_FILE "/opt/homebrew/etc/openssl@3/cert.pem"
 
+static const char *hml_macos_homebrew_ca_filepath(void) {
+#ifdef __APPLE__
+    if (access(HEMLOCK_MACOS_OPENSSL_CERT_FILE, R_OK) == 0) {
+        return HEMLOCK_MACOS_OPENSSL_CERT_FILE;
+    }
+#endif
+    return NULL;
+}
+
 static void hml_lws_configure_macos_ca_file(void) {
 #ifdef __APPLE__
     const char *cert_file = getenv("SSL_CERT_FILE");
     if ((!cert_file || cert_file[0] == '\0') &&
         access(HEMLOCK_MACOS_OPENSSL_CERT_FILE, R_OK) == 0) {
         setenv("SSL_CERT_FILE", HEMLOCK_MACOS_OPENSSL_CERT_FILE, 0);
+    }
+#endif
+}
+
+// Configure default lws context options for an HTTP/HTTPS request.
+// `ssl` is 1 when the URL scheme is https (full TLS init + CA bundle),
+// 0 when it's plain http. The ssl arg is currently advisory — lws sets
+// up the default vhost's client SSL_CTX regardless of whether *this*
+// request needs TLS, so we have to make that init path succeed even
+// for plain-http calls.
+//
+// LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT must be set only ONCE per
+// process. Setting it on every context creation works on Linux but
+// is broken on macOS: the second context's lws_context_init_client_ssl
+// fails ("Failed to create default vhost") because OpenSSL global
+// init/cleanup races between the destroyed first context and the new
+// one being built. The vhost teardown then closes file descriptors
+// via a shared fd table cleanup, which corrupts an unrelated
+// TcpListener fd in another thread — its accept() throws ECONNABORTED,
+// then EBADF forever, killing the whole HTTP server in the process.
+//
+// Gate the flag behind a once-flag so we pay the global init exactly
+// once per process. On macOS we additionally point at Homebrew
+// openssl@3's cert.pem (system OpenSSL's compile-time default paths
+// don't match the Homebrew layout, so lws's CA load fails without
+// an explicit filepath).
+static void hml_lws_configure_options(struct lws_context_creation_info *info, int ssl) {
+    (void)ssl;
+    static int ssl_global_init_done = 0;
+    if (!ssl_global_init_done) {
+        info->options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+        ssl_global_init_done = 1;
+    } else {
+        info->options = 0;
+    }
+#ifdef __APPLE__
+    if (!info->client_ssl_ca_filepath) {
+        const char *p = hml_macos_homebrew_ca_filepath();
+        if (p) info->client_ssl_ca_filepath = p;
     }
 #endif
 }
@@ -514,7 +562,7 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    hml_lws_configure_options(&info, ssl);
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;  // 16KB for large headers (e.g., GitHub API)
 
@@ -609,7 +657,7 @@ HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    hml_lws_configure_options(&info, ssl);
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;
 
@@ -714,7 +762,7 @@ static HmlValue hml_lws_http_perform(const char *method,
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    hml_lws_configure_options(&info, ssl);
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;
 
@@ -887,7 +935,7 @@ HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    hml_lws_configure_options(&info, ssl);
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;
 
@@ -1422,7 +1470,7 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    hml_lws_configure_options(&info, ssl);
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;
 
@@ -1970,7 +2018,7 @@ HmlValue hml_lws_ws_connect(HmlValue url_val) {
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    hml_lws_configure_options(&info, ssl);
     info.port = CONTEXT_PORT_NO_LISTEN;
 
     static const struct lws_protocols ws_protocols[] = {

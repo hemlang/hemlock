@@ -29,6 +29,25 @@ HmlValue hml_socket_create(HmlValue domain, HmlValue sock_type, HmlValue protoco
         hml_runtime_error("Failed to create socket: %s", strerror(errno));
     }
 
+    // Push the socket above the standard fd range (0=stdin, 1=stdout,
+    // 2=stderr). socket() returns the lowest free fd, so if anything
+    // upstream closed stdin (libwebsockets' builtin SSH-server demo
+    // plugin does this on macOS via Homebrew's LWS_WITH_PLUGINS_BUILTIN
+    // build, when the demo's expected key/fifo paths are missing) the
+    // next socket lands on fd 0. Then the *next* thing that thinks
+    // fd 0 is stdin (another lws context init, a printf, anything that
+    // closes stdin again) silently obliterates the server's listening
+    // socket — accept() starts returning ECONNABORTED then EBADF
+    // forever, and the whole HTTP server is dead. The classic daemon
+    // workaround: never let a real fd sit on 0/1/2.
+    if (fd < 3) {
+        int safe_fd = fcntl(fd, F_DUPFD, 3);
+        if (safe_fd >= 0) {
+            close(fd);
+            fd = safe_fd;
+        }
+    }
+
     // FD_CLOEXEC so this socket doesn't get inherited by posix_spawn'd
     // children. Without this, a server's listening socket leaks into
     // every spawned process; if the parent then crashes, the kernel
@@ -143,6 +162,15 @@ HmlValue hml_socket_accept(HmlValue socket_val) {
     int client_fd = accept(sock->fd, (struct sockaddr *)&client_addr, &client_len);
     if (client_fd < 0) {
         hml_runtime_error("Failed to accept connection: %s", strerror(errno));
+    }
+
+    // Push above stdin/stdout/stderr — same reasoning as hml_socket_create.
+    if (client_fd < 3) {
+        int safe_fd = fcntl(client_fd, F_DUPFD, 3);
+        if (safe_fd >= 0) {
+            close(client_fd);
+            client_fd = safe_fd;
+        }
     }
 
     // Same CLOEXEC reasoning as hml_socket_create — accepted client

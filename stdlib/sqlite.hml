@@ -71,6 +71,18 @@ export let SQLITE_NULL = 5;
 export let SQLITE_OPEN_READONLY = 1;
 export let SQLITE_OPEN_READWRITE = 2;
 export let SQLITE_OPEN_CREATE = 4;
+// Threading mode flags. FULLMUTEX makes the connection safe for use
+// across threads (the connection has its own mutex; SQLite serializes
+// access internally). NOMUTEX is the opposite — caller responsible
+// for never sharing the connection. Without either, the default is
+// platform-dependent (Linux glibc libsqlite3 typically defaults to
+// serialized; macOS system libsqlite3 defaults to multithread, which
+// crashes when the same connection is used from a spawned task).
+// open_db() always sets FULLMUTEX so cross-thread use is safe by
+// default — code that wants a faster connection can use open_db_flags
+// with NOMUTEX explicitly.
+export let SQLITE_OPEN_NOMUTEX = 32768;       // 0x00008000
+export let SQLITE_OPEN_FULLMUTEX = 65536;     // 0x00010000
 
 // ============================================================================
 // SQLite3 FFI Bindings
@@ -208,35 +220,21 @@ export fn sqlite_version_number(): i32 {
 	return sqlite3_libversion_number();
 }
 
-// Open a database connection
+// Open a database connection.
 // path: Path to database file (use ":memory:" for in-memory database)
 // Returns: Database object
+//
+// Always opens with READWRITE | CREATE | FULLMUTEX. The FULLMUTEX
+// flag is the load-bearing one for any program that touches the
+// connection from more than one thread (HTTP server with spawned
+// per-connection handlers, async tasks, etc.) — without it macOS's
+// system libsqlite3 returns a "multithread" connection that crashes
+// with SIGSEGV in sqlite3DbMallocRawNN when used cross-thread.
+// open_db_flags() is the escape hatch for callers who want a non-
+// FULLMUTEX connection (single-thread, opt-in via SQLITE_OPEN_NOMUTEX).
 export fn open_db(path: string): Database {
-	let path_cstr = __string_to_cstr(path);
-	let db_ptr_holder = alloc(8);  // Pointer to pointer (sqlite3**)
-
-	let result = sqlite3_open(path_cstr, db_ptr_holder);
-
-	if (result != SQLITE_OK) {
-		let db_handle = __read_ptr(db_ptr_holder);
-		let err_msg = "";
-		if (db_handle != null) {
-			let err_ptr = sqlite3_errmsg(db_handle);
-			err_msg = __cstr_to_string(err_ptr);
-			sqlite3_close(db_handle);
-		}
-		free(path_cstr);
-		free(db_ptr_holder);
-		throw "Failed to open database '" + path + "': " + err_msg;
-	}
-
-	let db_handle = __read_ptr(db_ptr_holder);
-	free(path_cstr);
-	free(db_ptr_holder);
-
-	let db: Database = { _handle: db_handle, _path: path, _closed: false };
-
-	return db;
+	let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
+	return open_db_flags(path, flags);
 }
 
 // Open a database with flags
