@@ -139,8 +139,10 @@ done_warning:
 
 // exec_argv() - Safe command execution without shell interpretation
 // Takes an array of strings: [program, arg1, arg2, ...]
+// Optional second argument: options object with optional fields:
+//   stdin: string or buffer to pipe into the child's stdin
 // Uses fork/execvp directly, preventing shell injection attacks
-HmlValue hml_exec_argv(HmlValue args_array) {
+HmlValue hml_exec_argv(HmlValue args_array, HmlValue opts) {
     // SANDBOX: Check if process spawning is allowed
     if (hml_sandbox_check(HML_SANDBOX_RESTRICT_PROCESS)) {
         hml_sandbox_error("command execution");
@@ -153,6 +155,20 @@ HmlValue hml_exec_argv(HmlValue args_array) {
     HmlArray *arr = args_array.as.as_array;
     if (arr->length == 0) {
         hml_runtime_error("exec_argv() array must not be empty");
+    }
+
+    // Extract stdin data from opts (string or buffer)
+    const char *stdin_data = NULL;
+    size_t stdin_len = 0;
+    if (opts.type == HML_VAL_OBJECT && opts.as.as_object) {
+        HmlValue stdin_val = hml_object_get_field(opts, "stdin");
+        if (stdin_val.type == HML_VAL_STRING && stdin_val.as.as_string) {
+            stdin_data = stdin_val.as.as_string->data;
+            stdin_len = (size_t)stdin_val.as.as_string->length;
+        } else if (stdin_val.type == HML_VAL_BUFFER && stdin_val.as.as_buffer) {
+            stdin_data = (const char *)stdin_val.as.as_buffer->data;
+            stdin_len = (size_t)stdin_val.as.as_buffer->length;
+        }
     }
 
     // Build argv array for execvp
@@ -180,13 +196,21 @@ HmlValue hml_exec_argv(HmlValue args_array) {
     }
     argv[arr->length] = NULL;
 
-    // Create pipes for stdout and stderr
+    // Create pipes for stdout, stderr, and optionally stdin
     int stdout_pipe[2];
     int stderr_pipe[2];
+    int stdin_pipe[2] = {-1, -1};
     if (pipe(stdout_pipe) != 0 || pipe(stderr_pipe) != 0) {
         for (int64_t i = 0; i < arr->length; i++) free(argv[i]);
         free(argv);
         hml_runtime_error("exec_argv() pipe creation failed: %s", strerror(errno));
+    }
+    if (stdin_data != NULL && pipe(stdin_pipe) != 0) {
+        for (int64_t i = 0; i < arr->length; i++) free(argv[i]);
+        free(argv);
+        close(stdout_pipe[0]); close(stdout_pipe[1]);
+        close(stderr_pipe[0]); close(stderr_pipe[1]);
+        hml_runtime_error("exec_argv() stdin pipe creation failed: %s", strerror(errno));
     }
 
     pid_t pid = fork();
@@ -195,11 +219,17 @@ HmlValue hml_exec_argv(HmlValue args_array) {
         free(argv);
         close(stdout_pipe[0]); close(stdout_pipe[1]);
         close(stderr_pipe[0]); close(stderr_pipe[1]);
+        if (stdin_pipe[0] != -1) { close(stdin_pipe[0]); close(stdin_pipe[1]); }
         hml_runtime_error("exec_argv() fork failed: %s", strerror(errno));
     }
 
     if (pid == 0) {
         // Child process
+        if (stdin_pipe[0] != -1) {
+            close(stdin_pipe[1]);
+            dup2(stdin_pipe[0], STDIN_FILENO);
+            close(stdin_pipe[0]);
+        }
         close(stdout_pipe[0]);  // Close read end
         close(stderr_pipe[0]);
         dup2(stdout_pipe[1], STDOUT_FILENO);
@@ -214,6 +244,7 @@ HmlValue hml_exec_argv(HmlValue args_array) {
     }
 
     // Parent process
+    if (stdin_pipe[0] != -1) close(stdin_pipe[0]);  // Close read end in parent
     close(stdout_pipe[1]);  // Close write end
     close(stderr_pipe[1]);
 
@@ -222,6 +253,7 @@ HmlValue hml_exec_argv(HmlValue args_array) {
     free(argv);
 
     // Read output from child (both stdout and stderr using poll to avoid deadlock)
+    // Also write stdin data if provided.
     char *output_buffer = NULL;
     size_t output_size = 0;
     size_t output_capacity = 4096;
@@ -237,23 +269,47 @@ HmlValue hml_exec_argv(HmlValue args_array) {
         free(stderr_buffer);
         close(stdout_pipe[0]);
         close(stderr_pipe[0]);
+        if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
         hml_runtime_error("exec_argv() memory allocation failed");
     }
 
-    struct pollfd fds[2];
+    // fds[0]=stdout_read, fds[1]=stderr_read, fds[2]=stdin_write (optional)
+    struct pollfd fds[3];
     fds[0].fd = stdout_pipe[0];
     fds[0].events = POLLIN;
     fds[1].fd = stderr_pipe[0];
     fds[1].events = POLLIN;
+    fds[2].fd = stdin_pipe[1];
+    fds[2].events = (stdin_pipe[1] != -1) ? POLLOUT : 0;
+    int num_poll_fds = (stdin_pipe[1] != -1) ? 3 : 2;
 
+    size_t stdin_written = 0;
     int open_fds = 2;
     char chunk[4096];
 
-    while (open_fds > 0) {
-        int ret = poll(fds, 2, -1);
+    while (open_fds > 0 || fds[2].fd != -1) {
+        int ret = poll(fds, num_poll_fds, -1);
         if (ret < 0) {
             if (errno == EINTR) continue;
             break;
+        }
+
+        // Write stdin data if the write end is ready
+        if (fds[2].fd != -1 && (fds[2].revents & (POLLOUT | POLLERR | POLLHUP))) {
+            if (stdin_written < stdin_len) {
+                size_t remaining = stdin_len - stdin_written;
+                size_t to_write = remaining < sizeof(chunk) ? remaining : sizeof(chunk);
+                ssize_t written = write(stdin_pipe[1], stdin_data + stdin_written, to_write);
+                if (written > 0) {
+                    stdin_written += (size_t)written;
+                }
+            }
+            if (stdin_written >= stdin_len || (fds[2].revents & (POLLERR | POLLHUP))) {
+                close(stdin_pipe[1]);
+                stdin_pipe[1] = -1;
+                fds[2].fd = -1;
+                fds[2].events = 0;
+            }
         }
 
         // Read from stdout if available
@@ -266,6 +322,7 @@ HmlValue hml_exec_argv(HmlValue args_array) {
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
+                        if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
                         hml_runtime_error("exec_argv() output too large");
                     }
                     output_capacity *= 2;
@@ -275,6 +332,7 @@ HmlValue hml_exec_argv(HmlValue args_array) {
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
+                        if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
                         hml_runtime_error("exec_argv() memory allocation failed");
                     }
                     output_buffer = new_buffer;
@@ -297,6 +355,7 @@ HmlValue hml_exec_argv(HmlValue args_array) {
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
+                        if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
                         hml_runtime_error("exec_argv() stderr too large");
                     }
                     stderr_capacity *= 2;
@@ -306,6 +365,7 @@ HmlValue hml_exec_argv(HmlValue args_array) {
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
+                        if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
                         hml_runtime_error("exec_argv() memory allocation failed");
                     }
                     stderr_buffer = new_buffer;
@@ -320,6 +380,7 @@ HmlValue hml_exec_argv(HmlValue args_array) {
     }
     close(stdout_pipe[0]);
     close(stderr_pipe[0]);
+    if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
 
     // Wait for child
     int status;
@@ -628,9 +689,9 @@ HmlValue hml_builtin_exec_with_args(HmlClosureEnv *env, HmlValue command, HmlVal
     return hml_exec_with_args(command, args_array);
 }
 
-HmlValue hml_builtin_exec_argv(HmlClosureEnv *env, HmlValue args_array) {
+HmlValue hml_builtin_exec_argv(HmlClosureEnv *env, HmlValue args_array, HmlValue opts) {
     (void)env;
-    return hml_exec_argv(args_array);
+    return hml_exec_argv(args_array, opts);
 }
 
 // Process ID builtins

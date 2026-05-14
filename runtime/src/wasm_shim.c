@@ -31,8 +31,8 @@ HmlValue hml_exec(HmlValue command) {
     WASM_STUB_PANIC_RETURN("exec");
 }
 
-HmlValue hml_exec_argv(HmlValue args_array) {
-    (void)args_array;
+HmlValue hml_exec_argv(HmlValue args_array, HmlValue opts) {
+    (void)args_array; (void)opts;
     WASM_STUB_PANIC_RETURN("exec_argv");
 }
 
@@ -156,9 +156,9 @@ HmlValue hml_builtin_exec_with_args(HmlClosureEnv *env, HmlValue command, HmlVal
     return hml_exec_with_args(command, args_array);
 }
 
-HmlValue hml_builtin_exec_argv(HmlClosureEnv *env, HmlValue args_array) {
+HmlValue hml_builtin_exec_argv(HmlClosureEnv *env, HmlValue args_array, HmlValue opts) {
     (void)env;
-    return hml_exec_argv(args_array);
+    return hml_exec_argv(args_array, opts);
 }
 
 HmlValue hml_builtin_getppid(HmlClosureEnv *env) { (void)env; return hml_getppid(); }

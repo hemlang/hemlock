@@ -563,6 +563,8 @@ done_warning:
 
 // exec_argv() - Safe command execution without shell interpretation
 // Takes an array of strings: [program, arg1, arg2, ...]
+// Optional second argument: options object with optional fields:
+//   stdin: string or buffer to pipe into the child's stdin
 // Uses fork/execvp directly, preventing shell injection attacks
 Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     // SANDBOX: Check if process spawning is allowed
@@ -571,14 +573,32 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    if (num_args != 1) {
-        runtime_error(ctx, "exec_argv() expects 1 argument (array of strings), got %d", num_args);
+    if (num_args < 1 || num_args > 2) {
+        runtime_error(ctx, "exec_argv() expects 1-2 arguments, got %d", num_args);
         return val_null();
     }
 
     if (args[0].type != VAL_ARRAY) {
         runtime_error(ctx, "exec_argv() argument must be an array of strings, got %s", value_type_name(args[0].type));
         return val_null();
+    }
+
+    // Extract stdin data from opts (string or buffer)
+    const char *stdin_data = NULL;
+    size_t stdin_len = 0;
+    if (num_args == 2 && args[1].type == VAL_OBJECT && args[1].as.as_object) {
+        Object *opts = args[1].as.as_object;
+        int idx = object_lookup_field(opts, "stdin");
+        if (idx >= 0) {
+            Value stdin_val = opts->fields[idx].value;
+            if (stdin_val.type == VAL_STRING && stdin_val.as.as_string) {
+                stdin_data = stdin_val.as.as_string->data;
+                stdin_len = (size_t)stdin_val.as.as_string->length;
+            } else if (stdin_val.type == VAL_BUFFER && stdin_val.as.as_buffer) {
+                stdin_data = (const char *)stdin_val.as.as_buffer->data;
+                stdin_len = (size_t)stdin_val.as.as_buffer->length;
+            }
+        }
     }
 
     Array *arr = args[0].as.as_array;
@@ -614,14 +634,26 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     }
     argv[arr->length] = NULL;
 
-    // Create pipes for stdout and stderr
+    // Create pipes for stdout, stderr, and optionally stdin
     int stdout_pipe[2];
     int stderr_pipe[2];
+    int stdin_pipe[2] = {-1, -1};
     if (pipe(stdout_pipe) != 0 || pipe(stderr_pipe) != 0) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "exec_argv() pipe creation failed: %s", strerror(errno));
         for (int i = 0; i < arr->length; i++) free(argv[i]);
         free(argv);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+    if (stdin_data != NULL && pipe(stdin_pipe) != 0) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "exec_argv() stdin pipe creation failed: %s", strerror(errno));
+        for (int i = 0; i < arr->length; i++) free(argv[i]);
+        free(argv);
+        close(stdout_pipe[0]); close(stdout_pipe[1]);
+        close(stderr_pipe[0]); close(stderr_pipe[1]);
         ctx->exception_state.exception_value = val_string(error_msg);
         ctx->exception_state.is_throwing = 1;
         return val_null();
@@ -635,6 +667,7 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
         free(argv);
         close(stdout_pipe[0]); close(stdout_pipe[1]);
         close(stderr_pipe[0]); close(stderr_pipe[1]);
+        if (stdin_pipe[0] != -1) { close(stdin_pipe[0]); close(stdin_pipe[1]); }
         ctx->exception_state.exception_value = val_string(error_msg);
         ctx->exception_state.is_throwing = 1;
         return val_null();
@@ -642,6 +675,11 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
 
     if (pid == 0) {
         // Child process
+        if (stdin_pipe[0] != -1) {
+            close(stdin_pipe[1]);
+            dup2(stdin_pipe[0], STDIN_FILENO);
+            close(stdin_pipe[0]);
+        }
         close(stdout_pipe[0]);  // Close read end
         close(stderr_pipe[0]);
         dup2(stdout_pipe[1], STDOUT_FILENO);
@@ -656,6 +694,7 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     // Parent process
+    if (stdin_pipe[0] != -1) close(stdin_pipe[0]);  // Close read end in parent
     close(stdout_pipe[1]);  // Close write end
     close(stderr_pipe[1]);
 
@@ -664,6 +703,7 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     free(argv);
 
     // Read output from child (both stdout and stderr using poll to avoid deadlock)
+    // Also write stdin data if provided.
     char *output_buffer = NULL;
     size_t output_size = 0;
     size_t output_capacity = 4096;
@@ -679,24 +719,48 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
         free(stderr_buffer);
         close(stdout_pipe[0]);
         close(stderr_pipe[0]);
+        if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
         runtime_error(ctx, "exec_argv() memory allocation failed");
         return val_null();
     }
 
-    struct pollfd fds[2];
+    // fds[0]=stdout_read, fds[1]=stderr_read, fds[2]=stdin_write (optional)
+    struct pollfd fds[3];
     fds[0].fd = stdout_pipe[0];
     fds[0].events = POLLIN;
     fds[1].fd = stderr_pipe[0];
     fds[1].events = POLLIN;
+    fds[2].fd = stdin_pipe[1];
+    fds[2].events = (stdin_pipe[1] != -1) ? POLLOUT : 0;
+    int num_poll_fds = (stdin_pipe[1] != -1) ? 3 : 2;
 
+    size_t stdin_written = 0;
     int open_fds = 2;
     char chunk[4096];
 
-    while (open_fds > 0) {
-        int ret = poll(fds, 2, -1);
+    while (open_fds > 0 || fds[2].fd != -1) {
+        int ret = poll(fds, num_poll_fds, -1);
         if (ret < 0) {
             if (errno == EINTR) continue;
             break;
+        }
+
+        // Write stdin data if the write end is ready
+        if (fds[2].fd != -1 && (fds[2].revents & (POLLOUT | POLLERR | POLLHUP))) {
+            if (stdin_written < stdin_len) {
+                size_t remaining = stdin_len - stdin_written;
+                size_t to_write = remaining < sizeof(chunk) ? remaining : sizeof(chunk);
+                ssize_t written = write(stdin_pipe[1], stdin_data + stdin_written, to_write);
+                if (written > 0) {
+                    stdin_written += (size_t)written;
+                }
+            }
+            if (stdin_written >= stdin_len || (fds[2].revents & (POLLERR | POLLHUP))) {
+                close(stdin_pipe[1]);
+                stdin_pipe[1] = -1;
+                fds[2].fd = -1;
+                fds[2].events = 0;
+            }
         }
 
         // Read from stdout if available
@@ -709,6 +773,7 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
+                        if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
                         runtime_error(ctx, "exec_argv() output too large");
                         return val_null();
                     }
@@ -719,6 +784,7 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
+                        if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
                         runtime_error(ctx, "exec_argv() memory allocation failed");
                         return val_null();
                     }
@@ -742,6 +808,7 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
+                        if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
                         runtime_error(ctx, "exec_argv() stderr output too large");
                         return val_null();
                     }
@@ -752,6 +819,7 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
+                        if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
                         runtime_error(ctx, "exec_argv() memory allocation failed");
                         return val_null();
                     }
@@ -767,6 +835,7 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     }
     close(stdout_pipe[0]);
     close(stderr_pipe[0]);
+    if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
 
     // Wait for child
     int status;
