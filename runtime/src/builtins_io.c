@@ -405,6 +405,134 @@ HmlValue hml_file_read_bytes(HmlValue file, HmlValue size) {
     return (HmlValue){ .type = HML_VAL_BUFFER, .as.as_buffer = buf };
 }
 
+HmlValue hml_file_read_binary_all(HmlValue file) {
+    if (file.type != HML_VAL_FILE) {
+        hml_throw(hml_val_string("read_binary() expects file object"));
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed) {
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Cannot read from closed file '%s'", fh->path);
+        hml_throw(hml_val_string(_err_buf));
+    }
+
+    FILE *fp = (FILE*)fh->fp;
+    long start_pos = ftell(fp);
+    long size = -1;
+    int is_seekable = (start_pos != -1 && fseek(fp, 0, SEEK_END) == 0);
+    if (is_seekable) {
+        long end_pos = ftell(fp);
+        fseek(fp, start_pos, SEEK_SET);
+        if (end_pos >= 0) size = end_pos - start_pos;
+    }
+
+    void *data;
+    size_t total_read;
+
+    if (size > 0) {
+        data = malloc(size);
+        if (!data) hml_throw(hml_val_string("Memory allocation failed"));
+        total_read = fread(data, 1, size, fp);
+        if (ferror(fp)) {
+            free(data);
+            char _err_buf[512];
+            snprintf(_err_buf, sizeof(_err_buf), "Read error on file '%s'", fh->path);
+            hml_throw(hml_val_string(_err_buf));
+        }
+    } else {
+        size_t capacity = 4096;
+        total_read = 0;
+        data = malloc(capacity);
+        if (!data) hml_throw(hml_val_string("Memory allocation failed"));
+
+        while (1) {
+            if (total_read + 4096 > capacity) {
+                capacity *= 2;
+                void *new_data = realloc(data, capacity);
+                if (!new_data) {
+                    free(data);
+                    hml_throw(hml_val_string("Memory allocation failed"));
+                }
+                data = new_data;
+            }
+            size_t bytes = fread((char *)data + total_read, 1, 4096, fp);
+            total_read += bytes;
+            if (bytes < 4096) {
+                if (ferror(fp)) {
+                    free(data);
+                    char _err_buf[512];
+                    snprintf(_err_buf, sizeof(_err_buf), "Read error on file '%s'", fh->path);
+                    hml_throw(hml_val_string(_err_buf));
+                }
+                break;
+            }
+        }
+    }
+
+    HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
+    buf->data = data;
+    buf->length = (int)total_read;
+    buf->capacity = (int)(total_read > 0 ? total_read : 1);
+    buf->ref_count = 1;
+    atomic_store(&buf->freed, 0);
+    buf->parent = NULL;
+    return (HmlValue){ .type = HML_VAL_BUFFER, .as.as_buffer = buf };
+}
+
+HmlValue hml_file_read_binary(HmlValue file, HmlValue size) {
+    if (file.type != HML_VAL_FILE) {
+        hml_throw(hml_val_string("read_binary() expects file object"));
+    }
+
+    int32_t read_size = 0;
+    if (size.type == HML_VAL_I32) {
+        read_size = size.as.as_i32;
+    } else if (size.type == HML_VAL_I64) {
+        read_size = (int32_t)size.as.as_i64;
+    }
+
+    if (read_size < 0) { return hml_file_read_binary_all(file); }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed) {
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Cannot read from closed file '%s'", fh->path);
+        hml_throw(hml_val_string(_err_buf));
+    }
+
+    if (read_size == 0) {
+        HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
+        buf->data = malloc(1);
+        buf->length = 0;
+        buf->capacity = 0;
+        buf->ref_count = 1;
+        atomic_store(&buf->freed, 0);
+        buf->parent = NULL;
+        return (HmlValue){ .type = HML_VAL_BUFFER, .as.as_buffer = buf };
+    }
+
+    void *data = malloc(read_size);
+    if (!data) hml_throw(hml_val_string("Memory allocation failed in read_binary()"));
+
+    size_t bytes_read = fread(data, 1, read_size, (FILE*)fh->fp);
+    if (ferror((FILE*)fh->fp)) {
+        free(data);
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Read error on file '%s': %s", fh->path, strerror(errno));
+        hml_throw(hml_val_string(_err_buf));
+    }
+
+    HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
+    buf->data = data;
+    buf->length = (int)bytes_read;
+    buf->capacity = read_size;
+    buf->ref_count = 1;
+    atomic_store(&buf->freed, 0);
+    buf->parent = NULL;
+    return (HmlValue){ .type = HML_VAL_BUFFER, .as.as_buffer = buf };
+}
+
 HmlValue hml_file_write_bytes(HmlValue file, HmlValue data) {
     if (file.type != HML_VAL_FILE) {
         hml_throw(hml_val_string("write_bytes() expects file object"));

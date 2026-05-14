@@ -1,0 +1,35 @@
+// read_binary() returns a buffer preserving null bytes (0x00).
+// Mirrors the stream.read_binary() fix from 2.3.1.
+import { open } from "@stdlib/fs";
+
+// Write a 5-byte payload: 'A', 0x00, 'B', 0x00, 'C'
+let buf = buffer(5);
+buf[0] = 65;
+buf[1] = 0;
+buf[2] = 66;
+buf[3] = 0;
+buf[4] = 67;
+
+let fw = open("tests/temp/read_binary_test.dat", "w");
+fw.write_bytes(buf);
+fw.close();
+free(buf);
+
+// read_binary() with no args: should return all 5 bytes, not truncate at first 0x00
+let f = open("tests/temp/read_binary_test.dat", "r");
+let data = f.read_binary();
+f.close();
+print(data.length);
+print(data[0]);
+print(data[1]);
+print(data[2]);
+print(data[4]);
+free(data);
+
+// read_binary(n) reads exactly n bytes as a buffer
+let g = open("tests/temp/read_binary_test.dat", "r");
+let chunk = g.read_binary(3);
+g.close();
+print(chunk.length);
+print(chunk[2]);
+free(chunk);

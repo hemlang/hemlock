@@ -514,6 +514,10 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
         if (strcmp(method, "read_bytes") == 0 && num_args == 1) {
             return hml_file_read_bytes(obj, args[0]);
         }
+        if (strcmp(method, "read_binary") == 0 && (num_args == 0 || num_args == 1)) {
+            HmlValue size = (num_args == 1) ? args[0] : hml_val_i32(-1);
+            return hml_file_read_binary(obj, size);
+        }
         if (strcmp(method, "write") == 0 && num_args == 1) {
             return hml_file_write(obj, args[0]);
         }

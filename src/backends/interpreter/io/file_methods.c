@@ -195,6 +195,110 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
         return (Value){ .type = VAL_BUFFER, .as.as_buffer = buf };
     }
 
+    // read_binary(size?: i32): buffer - read binary data preserving null bytes
+    if (strcmp(method, "read_binary") == 0) {
+        if (file->closed) {
+            return throw_runtime_error(ctx, "Cannot read from closed file '%s'", file->path);
+        }
+
+        if (num_args == 0) {
+            // Read entire file into a buffer (same seek/chunked logic as read())
+            long current_pos = ftell(file->fp);
+            long size = -1;
+            int is_seekable = (current_pos != -1 && fseek(file->fp, 0, SEEK_END) == 0);
+            if (is_seekable) {
+                long end_pos = ftell(file->fp);
+                fseek(file->fp, current_pos, SEEK_SET);
+                if (end_pos >= 0) size = end_pos - current_pos;
+            }
+
+            void *data;
+            size_t total_read;
+
+            if (size > 0) {
+                data = malloc(size);
+                if (!data) return throw_runtime_error(ctx, "Memory allocation failed");
+                total_read = fread(data, 1, size, file->fp);
+                if (ferror(file->fp)) {
+                    free(data);
+                    return throw_runtime_error(ctx, "Read error on file '%s': %s",
+                            file->path, strerror(errno));
+                }
+            } else {
+                size_t capacity = 4096;
+                total_read = 0;
+                data = malloc(capacity);
+                if (!data) return throw_runtime_error(ctx, "Memory allocation failed");
+
+                while (1) {
+                    if (total_read + 4096 > capacity) {
+                        if (capacity > SIZE_MAX / 2) {
+                            free(data);
+                            return throw_runtime_error(ctx, "File too large to read into memory");
+                        }
+                        capacity *= 2;
+                        void *new_data = realloc(data, capacity);
+                        if (!new_data) {
+                            free(data);
+                            return throw_runtime_error(ctx, "Memory allocation failed");
+                        }
+                        data = new_data;
+                    }
+                    size_t bytes = fread((char *)data + total_read, 1, 4096, file->fp);
+                    total_read += bytes;
+                    if (bytes < 4096) {
+                        if (ferror(file->fp)) {
+                            free(data);
+                            return throw_runtime_error(ctx, "Read error on file '%s': %s",
+                                    file->path, strerror(errno));
+                        }
+                        break;
+                    }
+                }
+            }
+
+            Buffer *buf = calloc(1, sizeof(Buffer));
+            buf->data = data;
+            buf->length = total_read;
+            buf->capacity = total_read > 0 ? total_read : 1;
+            buf->ref_count = 1;
+            atomic_store(&buf->freed, 0);
+            return (Value){ .type = VAL_BUFFER, .as.as_buffer = buf };
+
+        } else if (num_args == 1) {
+            if (!is_integer(args[0])) {
+                return throw_runtime_error(ctx, "read_binary() size must be integer");
+            }
+            int size = value_to_int(args[0]);
+            if (size <= 0) {
+                Buffer *buf = calloc(1, sizeof(Buffer));
+                buf->data = malloc(1);
+                buf->length = 0;
+                buf->capacity = 0;
+                buf->ref_count = 1;
+                atomic_store(&buf->freed, 0);
+                return (Value){ .type = VAL_BUFFER, .as.as_buffer = buf };
+            }
+            void *data = malloc(size);
+            if (!data) return throw_runtime_error(ctx, "Memory allocation failed");
+            size_t read_bytes = fread(data, 1, size, file->fp);
+            if (ferror(file->fp)) {
+                free(data);
+                return throw_runtime_error(ctx, "Read error on file '%s': %s",
+                        file->path, strerror(errno));
+            }
+            Buffer *buf = calloc(1, sizeof(Buffer));
+            buf->data = data;
+            buf->length = read_bytes;
+            buf->capacity = size;
+            buf->ref_count = 1;
+            atomic_store(&buf->freed, 0);
+            return (Value){ .type = VAL_BUFFER, .as.as_buffer = buf };
+        } else {
+            return throw_runtime_error(ctx, "read_binary() expects 0-1 arguments");
+        }
+    }
+
     // write(data: string): i32 - write string to file
     if (strcmp(method, "write") == 0) {
         if (file->closed) {
