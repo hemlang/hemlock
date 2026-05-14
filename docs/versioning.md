@@ -30,9 +30,9 @@ The version is defined in `include/version.h`:
 ```c
 #define HEMLOCK_VERSION_MAJOR 2
 #define HEMLOCK_VERSION_MINOR 4
-#define HEMLOCK_VERSION_PATCH 0
+#define HEMLOCK_VERSION_PATCH 1
 
-#define HEMLOCK_VERSION "2.4.0"
+#define HEMLOCK_VERSION "2.4.1"
 ```
 
 ### Checking Versions
@@ -93,6 +93,7 @@ import { sin, cos } from "@stdlib/math";
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **2.4.1** | 2026-05-14 | TCP listener + accepted-client socket fds set `FD_CLOEXEC` so `posix_spawn`'d children don't inherit (and pin) the parent's listener after a crash; new `file.read_binary()` returns a buffer preserving 0x00 bytes (mirrors `stream.read_binary` from 2.3.1); `exec_argv()` gained a `stdin` option that pipes a string into the child via `pipe(2)`; macOS Makefile pkg-config-fallback patch from `mac-build-docs` |
 | **2.4.0** | 2026-05-13 | `@stdlib/http` POST/PUT/DELETE/PATCH thread custom headers; interpreter named-module imports are live bindings (post-init reassignments visible to spawned tasks); flow null-narrowing follows `?.`; type-error labels name the parameter; `string.lower()`/`upper()` aliases; `get_binary` follows 3xx; codegen call-symbol stability; macOS LWS auto-finds Homebrew CA bundles; default LWS HTTP timeout dropped 30s → 5s |
 | **2.3.1** | 2026-05-12 | Binary HTTP fixes: `@stdlib/http.download()` actually writes the buffer body; new `download_streaming(url, path)` for bounded-memory large pulls; new `stream.read_binary()` + `__lws_http_stream_read_binary` preserving 0x00 bytes |
 | **2.3.0** | 2026-05-12 | Streaming HTTP support: `stream()`, `stream_get()`, `stream_post()`, `post_json_stream()`, `stream_sse()`; compiler runtime sends POST bodies for streaming requests with full interpreter parity on catchable errors |

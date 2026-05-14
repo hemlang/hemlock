@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-05-14
+
+Patch release covering three issues surfaced while building Witchgrid's agent-restart adoption path. All three have direct repros and concrete operator pain — fast follow on top of 2.4.0.
+
+### Added
+
+- **`file.read_binary()`** on `@stdlib/fs.open(...)` — returns a buffer instead of going through `val_string`'s strlen-truncate, so reading nul-containing files (e.g. `/proc/<pid>/cmdline`, binary blobs) preserves every byte. Mirrors the `stream.read_binary()` shipped in 2.3.1.
+- **`exec_argv(...)` `stdin` option** — accepts a string that gets piped into the child's stdin via `pipe(2)`. Removes the `sh -c "cmd < file"` wrapper pattern operators were using to feed data into a child without writing a temp file.
+
+### Fixed
+
+- **TCP listener and accepted-client socket fds now set `FD_CLOEXEC`.** Without this, sockets created via `@stdlib/net` (or any direct socket builtin) were inherited by `posix_spawn`'d children. Concrete failure mode: a long-lived child process held the parent's listening socket alive across the parent's death, so after a `kill -9` the listener stayed bound (kernel keeps the fd alive while any process holds a reference) and a fresh parent couldn't restart on the same port until every inheriting child also exited. `fcntl(fd, F_SETFD, FD_CLOEXEC)` runs immediately after `socket(2)` in `hml_socket_create` and after `accept(2)` in `hml_socket_accept`. `dup2` within `posix_spawn`'s file_actions block clears CLOEXEC on the duped fd per POSIX, so the existing "redirect log_fd to stdout" pattern keeps working.
+- **macOS Hemlock build path harden + clearer install docs** (originally on the `mac-build-docs` branch, cherry-picked onto main post-2.4.0). Runtime Makefile now probes `/opt/homebrew/include` and `/usr/local/include` when `pkg-config` is missing, and the install guide names the symptom of the "Undefined symbols: _hml_lws_http_stream_read_binary" link error so future operators on a fresh Apple Silicon checkout recognize it.
+
 ## [2.4.0] - 2026-05-13
 
 A batch release driven by ten issues surfaced during Witchgrid's CP↔agent shared-bearer auth bring-up. Most of the fixes unblock real-world HTTP and concurrency patterns; the rest are ergonomics that make the compiler easier to live with.
