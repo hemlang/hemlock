@@ -186,11 +186,21 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // Handle exec_argv builtin for safe command execution (no shell)
-        if ((strcmp(fn_name, "exec_argv") == 0 || strcmp(fn_name, "__exec_argv") == 0) && expr->as.call.num_args == 1) {
+        if ((strcmp(fn_name, "exec_argv") == 0 || strcmp(fn_name, "__exec_argv") == 0) &&
+                (expr->as.call.num_args == 1 || expr->as.call.num_args == 2)) {
             char *args = codegen_expr(ctx, expr->as.call.args[0]);
-            codegen_writeln(ctx, "HmlValue %s = hml_exec_argv(%s);", result, args);
-            codegen_writeln(ctx, "hml_release(&%s);", args);
-            free(args);
+            if (expr->as.call.num_args == 2) {
+                char *opts = codegen_expr(ctx, expr->as.call.args[1]);
+                codegen_writeln(ctx, "HmlValue %s = hml_exec_argv(%s, %s);", result, args, opts);
+                codegen_writeln(ctx, "hml_release(&%s);", args);
+                codegen_writeln(ctx, "hml_release(&%s);", opts);
+                free(args);
+                free(opts);
+            } else {
+                codegen_writeln(ctx, "HmlValue %s = hml_exec_argv(%s, hml_val_null());", result, args);
+                codegen_writeln(ctx, "hml_release(&%s);", args);
+                free(args);
+            }
             return result;
         }
 

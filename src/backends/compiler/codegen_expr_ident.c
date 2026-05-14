@@ -552,7 +552,7 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     } else if (strcmp(expr->as.ident.name, "__exec") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec, 1, 2, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__exec_argv") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec_argv, 1, 1, 0);", result);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec_argv, 1, 2, 0);", result);
     // Atomic operations (i32)
     } else if (strcmp(expr->as.ident.name, "atomic_load_i32") == 0 || strcmp(expr->as.ident.name, "__atomic_load_i32") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_load_i32, 1, 1, 0);", result);
