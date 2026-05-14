@@ -546,6 +546,8 @@ HmlValue hml_file_seek(HmlValue file, HmlValue position);
 HmlValue hml_file_tell(HmlValue file);
 void hml_file_close(HmlValue file);
 HmlValue hml_file_read_bytes(HmlValue file, HmlValue size);
+HmlValue hml_file_read_binary(HmlValue file, HmlValue size);
+HmlValue hml_file_read_binary_all(HmlValue file);
 HmlValue hml_file_write_bytes(HmlValue file, HmlValue data);
 
 // File I/O builtin wrappers

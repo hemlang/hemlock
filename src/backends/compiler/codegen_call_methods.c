@@ -306,6 +306,23 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
             codegen_writeln(ctx, "    %s = hml_call_method(%s, \"read\", NULL, 0);", result, obj_val);
         }
         codegen_writeln(ctx, "}");
+    } else if (strcmp(method, "read_binary") == 0 && (num_args == 0 || num_args == 1)) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_FILE) {", obj_val);
+        if (num_args == 1) {
+            codegen_writeln(ctx, "    %s = hml_file_read_binary(%s, %s);",
+                          result, obj_val, arg_temps[0]);
+        } else {
+            codegen_writeln(ctx, "    %s = hml_file_read_binary_all(%s);", result, obj_val);
+        }
+        codegen_writeln(ctx, "} else {");
+        if (num_args == 1) {
+            codegen_writeln(ctx, "    HmlValue _read_binary_args[1] = {%s};", arg_temps[0]);
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"read_binary\", _read_binary_args, 1);", result, obj_val);
+        } else {
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"read_binary\", NULL, 0);", result, obj_val);
+        }
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "write") == 0 && num_args == 1) {
         codegen_writeln(ctx, "HmlValue %s;", result);
         codegen_writeln(ctx, "if (%s.type == HML_VAL_FILE) {", obj_val);
