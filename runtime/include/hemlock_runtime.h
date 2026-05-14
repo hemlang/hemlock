@@ -19,6 +19,12 @@ typedef struct HmlClosureEnv HmlClosureEnv;
 // Initialize the Hemlock runtime (call at start of main)
 void hml_runtime_init(int argc, char **argv);
 
+// Re-pin /dev/null onto any of fds 0/1/2 that have been closed. Called
+// internally before lws_create_context to keep libwebsockets' Homebrew
+// builtin plugins (which close stdin on macOS) from causing later
+// open()/socket()/pipe() calls to land on the standard fd slots.
+void hml_runtime_pin_stdio(void);
+
 // Cleanup the Hemlock runtime (call at end of main)
 void hml_runtime_cleanup(void);
 

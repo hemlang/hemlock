@@ -112,7 +112,42 @@ void hml_sandbox_error(const char *operation) {
 
 // ========== RUNTIME INITIALIZATION ==========
 
+// Pin /dev/null to fds 0/1/2 if any of them are closed at process start.
+// macOS-only motivation: libwebsockets' Homebrew build pulls in
+// LWS_WITH_PLUGINS_BUILTIN, whose sshd / raw-test demo plugins close
+// stdin during their first lws_create_context() init. After that, every
+// open(), socket(), pipe() etc. that returns the lowest free fd lands
+// on fd 0 — which any code that thinks "fd 0 is stdin, ignore it"
+// (libwebsockets does this for /dev/urandom, emitting "ZERO RANDOM FD"
+// and falling back to a degraded-randomness path that intermittently
+// stalls SSL handshakes for minutes) silently mishandles. Worse, the
+// next thing that closes "stdin" obliterates whatever real fd landed
+// there. Pinning /dev/null on 0/1/2 makes the lowest free fd always be
+// >= 3, so the trap never closes.
+//
+// No-op when fds are already open (the common case under nohup / a TTY).
+// Linux unaffected — its libwebsockets is built without the demo
+// plugins, so stdin stays where it is.
+#ifndef __EMSCRIPTEN__
+#include <fcntl.h>
+#include <unistd.h>
+void hml_runtime_pin_stdio(void) {
+    for (int fd = 0; fd <= 2; fd++) {
+        if (fcntl(fd, F_GETFD) != -1) continue;  // already open
+        int devnull = open("/dev/null", (fd == 0) ? O_RDONLY : O_WRONLY);
+        if (devnull < 0) continue;
+        if (devnull != fd) {
+            dup2(devnull, fd);
+            close(devnull);
+        }
+    }
+}
+#endif
+
 void hml_runtime_init(int argc, char **argv) {
+#ifndef __EMSCRIPTEN__
+    hml_runtime_pin_stdio();
+#endif
     g_argc = argc;
     g_argv = argv;
     g_exception_stack = NULL;

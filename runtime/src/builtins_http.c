@@ -572,7 +572,7 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
     };
     info.protocols = protocols;
 
-    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
         hml_runtime_error("%s", hml_lws_context_error_message());
@@ -667,7 +667,7 @@ HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
     };
     info.protocols = protocols;
 
-    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
         hml_runtime_error("%s", hml_lws_context_error_message());
@@ -772,7 +772,7 @@ static HmlValue hml_lws_http_perform(const char *method,
     };
     info.protocols = protocols;
 
-    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
         hml_runtime_error("%s", hml_lws_context_error_message());
@@ -945,7 +945,7 @@ HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
     };
     info.protocols = protocols;
 
-    struct lws_context *context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
         hml_runtime_error("%s", hml_lws_context_error_message());
@@ -1480,7 +1480,7 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
     };
     info.protocols = stream_protocols;
 
-    stream->context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
+    stream->context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!stream->context) {
         if (stream->post_body) free(stream->post_body);
         if (stream->content_type) free(stream->content_type);
@@ -2027,7 +2027,7 @@ HmlValue hml_lws_ws_connect(HmlValue url_val) {
     };
     info.protocols = ws_protocols;
 
-    conn->context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
+    conn->context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!conn->context) {
         free(conn);
         hml_runtime_error("%s", hml_lws_context_error_message());
@@ -2335,7 +2335,7 @@ HmlValue hml_lws_ws_server_create(HmlValue host_val, HmlValue port_val) {
     };
     info.protocols = server_protocols;
 
-    server->context = (hml_lws_configure_macos_ca_file(), lws_create_context(&info));
+    server->context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!server->context) {
         pthread_mutex_destroy(&server->pending_mutex);
         free(server);
