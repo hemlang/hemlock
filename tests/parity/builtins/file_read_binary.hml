@@ -13,7 +13,6 @@ buf[4] = 67;
 let fw = open("/tmp/hemlock_read_binary_test.dat", "w");
 fw.write_bytes(buf);
 fw.close();
-free(buf);
 
 // read_binary() with no args: should return all 5 bytes, not truncate at first 0x00
 let f = open("/tmp/hemlock_read_binary_test.dat", "r");
@@ -24,7 +23,6 @@ print(data[0]);
 print(data[1]);
 print(data[2]);
 print(data[4]);
-free(data);
 
 // read_binary(n) reads exactly n bytes as a buffer
 let g = open("/tmp/hemlock_read_binary_test.dat", "r");
@@ -32,4 +30,8 @@ let chunk = g.read_binary(3);
 g.close();
 print(chunk.length);
 print(chunk[2]);
+
+// free after all operations so heap is not reused before end-of-function
+free(buf);
+free(data);
 free(chunk);
