@@ -29,6 +29,15 @@ HmlValue hml_socket_create(HmlValue domain, HmlValue sock_type, HmlValue protoco
         hml_runtime_error("Failed to create socket: %s", strerror(errno));
     }
 
+    // FD_CLOEXEC so this socket doesn't get inherited by posix_spawn'd
+    // children. Without this, a server's listening socket leaks into
+    // every spawned process; if the parent then crashes, the kernel
+    // keeps the listener alive (a child still holds a reference) and
+    // the parent can't restart on the same port until every inheriting
+    // child also exits. Atomic SOCK_CLOEXEC at create time would be
+    // tighter but is Linux-only since 2.6.27; fcntl works everywhere.
+    fcntl(fd, F_SETFD, FD_CLOEXEC);
+
     HmlSocket *sock = malloc(sizeof(HmlSocket));
     sock->fd = fd;
     sock->address = NULL;
@@ -135,6 +144,11 @@ HmlValue hml_socket_accept(HmlValue socket_val) {
     if (client_fd < 0) {
         hml_runtime_error("Failed to accept connection: %s", strerror(errno));
     }
+
+    // Same CLOEXEC reasoning as hml_socket_create — accepted client
+    // sockets must not leak to children either. accept4(SOCK_CLOEXEC)
+    // would set this atomically on Linux but isn't portable.
+    fcntl(client_fd, F_SETFD, FD_CLOEXEC);
 
     HmlSocket *client_sock = malloc(sizeof(HmlSocket));
     client_sock->fd = client_fd;
