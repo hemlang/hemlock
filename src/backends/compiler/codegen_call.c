@@ -2184,6 +2184,20 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             free(timeout_ms);
             return result;
         }
+        // __lws_http_get_timeout(url, timeout_ms, headers)
+        if (strcmp(fn_name, "__lws_http_get_timeout") == 0 && expr->as.call.num_args == 3) {
+            char *url = codegen_expr(ctx, expr->as.call.args[0]);
+            char *timeout_ms = codegen_expr(ctx, expr->as.call.args[1]);
+            char *headers = codegen_expr(ctx, expr->as.call.args[2]);
+            codegen_writeln(ctx, "HmlValue %s = hml_lws_http_get_timeout_with_headers(%s, %s, %s);", result, url, timeout_ms, headers);
+            codegen_writeln(ctx, "hml_release(&%s);", url);
+            codegen_writeln(ctx, "hml_release(&%s);", timeout_ms);
+            codegen_writeln(ctx, "hml_release(&%s);", headers);
+            free(url);
+            free(timeout_ms);
+            free(headers);
+            return result;
+        }
 
         // __lws_http_post_timeout(url, body, content_type, timeout_ms)
         if (strcmp(fn_name, "__lws_http_post_timeout") == 0 && expr->as.call.num_args == 4) {

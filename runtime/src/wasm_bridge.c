@@ -207,6 +207,11 @@ HmlValue hml_lws_http_get_timeout(HmlValue url, HmlValue t) {
     return hml_lws_http_get(url);
 }
 
+HmlValue hml_lws_http_get_timeout_with_headers(HmlValue url, HmlValue t, HmlValue h) {
+    (void)t; (void)h;
+    return hml_lws_http_get(url);
+}
+
 HmlValue hml_lws_http_post_timeout(HmlValue url, HmlValue body, HmlValue ct, HmlValue t) {
     (void)t;
     return hml_lws_http_post(url, body, ct);

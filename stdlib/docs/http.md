@@ -204,7 +204,9 @@ Check if status code indicates server error (500-599).
 
 ### Timeout Functions
 
-All HTTP functions have corresponding `*_timeout` versions that accept a custom timeout in milliseconds. The default timeout is 30000ms (30 seconds).
+The base HTTP functions (`get`, `post`, `put`, `delete`, `request`) use a **5-second default timeout**. This is intentional for short ad-hoc calls, but will cause failures for any request that legitimately blocks longer — LLM inference, model downloads, large uploads, or any endpoint that proxies slow work. If your call may take more than 5 seconds, use the corresponding `*_timeout` variant with an explicit budget.
+
+All HTTP functions have corresponding `*_timeout` versions that accept a custom timeout in milliseconds. The `*_timeout` variants default to 30000ms (30 seconds) when no `timeout_ms` is supplied.
 
 #### `get_timeout(url: string, headers?: array<string>, timeout_ms?: i32): object`
 

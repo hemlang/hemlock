@@ -931,6 +931,7 @@ HmlValue hml_lws_http_request_with_headers(HmlValue method, HmlValue url, HmlVal
 
 // HTTP requests with configurable timeout (timeout_ms in milliseconds)
 HmlValue hml_lws_http_get_timeout(HmlValue url, HmlValue timeout_ms);
+HmlValue hml_lws_http_get_timeout_with_headers(HmlValue url, HmlValue timeout_ms, HmlValue headers);
 HmlValue hml_lws_http_post_timeout(HmlValue url, HmlValue body, HmlValue content_type, HmlValue timeout_ms);
 HmlValue hml_lws_http_post_timeout_with_headers(HmlValue url, HmlValue body, HmlValue content_type, HmlValue timeout_ms, HmlValue headers);
 HmlValue hml_lws_http_request_timeout(HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue timeout_ms);

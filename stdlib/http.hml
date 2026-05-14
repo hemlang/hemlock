@@ -366,10 +366,7 @@ fn http_request_timeout_with_redirects(method, url, body, headers, redirect_coun
 
 	if (method == "GET") {
 		if (has_headers) {
-			// __lws_http_get_timeout doesn't yet accept headers; fall back
-			// to the non-timeout path which does. Same approximate semantics
-			// for GET since headers travel on the request line.
-			resp_ptr = __lws_http_get(url, headers);
+			resp_ptr = __lws_http_get_timeout(url, timeout_ms, headers);
 		} else {
 			resp_ptr = __lws_http_get_timeout(url, timeout_ms);
 		}
