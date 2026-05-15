@@ -518,6 +518,14 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
         obj->capacity = capacity;
         obj->ref_count = 1;
         atomic_store(&obj->freed, 0);
+        // Hand-built (not via obj_pool_alloc): must mark non-pooled.
+        // Otherwise is_pooled is indeterminate malloc garbage and
+        // object_free() can take the obj_pool_free() branch on a
+        // foreign block — the object is never freed and the pool
+        // freelist is corrupted. Every parsed JSON object leaked its
+        // entire tree this way (multi-GB on a server that parses a
+        // response per request).
+        obj->is_pooled = 0;
         obj->hash_table = NULL;  // Lazy initialization
         obj->hash_capacity = 0;
         HmlValue result;
@@ -614,6 +622,14 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
     obj->capacity = capacity;
     obj->ref_count = 1;
     atomic_store(&obj->freed, 0);
+    // Hand-built (not via obj_pool_alloc): must mark non-pooled, or
+    // is_pooled is indeterminate malloc garbage and object_free() can
+    // route this foreign block through obj_pool_free() — never freeing
+    // it and corrupting the pool freelist. This is the leak that grew
+    // a Witchgrid control-plane multiple GB: it parses a JSON response
+    // per agent per dashboard poll, and every parsed object tree
+    // leaked in full.
+    obj->is_pooled = 0;
     obj->hash_table = NULL;  // Lazy initialization
     obj->hash_capacity = 0;
 
