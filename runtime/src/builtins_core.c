@@ -131,6 +131,10 @@ void hml_sandbox_error(const char *operation) {
 #ifndef __EMSCRIPTEN__
 #include <fcntl.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <pthread.h>
+#include <sys/resource.h>
+#endif
 void hml_runtime_pin_stdio(void) {
     for (int fd = 0; fd <= 2; fd++) {
         if (fcntl(fd, F_GETFD) != -1) continue;  // already open
@@ -147,6 +151,20 @@ void hml_runtime_pin_stdio(void) {
 void hml_runtime_init(int argc, char **argv) {
 #ifndef __EMSCRIPTEN__
     hml_runtime_pin_stdio();
+#endif
+#if defined(__APPLE__) && !defined(__EMSCRIPTEN__)
+    // macOS auto-downgrades the QoS of any process whose nice value
+    // is positive — and `nohup` raises nice by 5, which silently
+    // pushes a daemonized Hemlock program into a coalesced-timer
+    // class where sleep(30) routinely runs 4-7 minutes long. Reset
+    // nice to 0 BEFORE pinning QoS so the QoS choice actually
+    // sticks. Errors ignored: setpriority() to a non-negative value
+    // can't fail in practice (a positive nice can always be lowered;
+    // we don't try to go negative which would need root). See the
+    // task_thread_wrapper comment for why this matters for any
+    // long-running heartbeat / poll loop.
+    setpriority(PRIO_PROCESS, 0, 0);
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
 #endif
     g_argc = argc;
     g_argv = argv;

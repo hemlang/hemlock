@@ -115,6 +115,20 @@ static void* task_thread_wrapper(void* arg) {
     }
 #endif
 
+    // macOS aggressively coalesces timers on threads inheriting a low QoS
+    // class — a process launched from launchd / nohup / a background shell
+    // can end up with QOS_CLASS_BACKGROUND or QOS_CLASS_UTILITY, in which
+    // case nanosleep() can run anywhere from 30s up to ~5 minutes for the
+    // *same* requested 30-second sleep. That's death for any heartbeat /
+    // poll loop that depends on punctual wakeups (e.g. a worker phoning
+    // home to a control plane every N seconds — the CP marks it stale,
+    // even though the process is healthy and the sleep eventually returns).
+    // Pin spawn'd-task threads to USER_INITIATED so timer coalescing stays
+    // off and sleep() means roughly what it says.
+#if defined(__APPLE__) && !defined(__EMSCRIPTEN__)
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
+#endif
+
     // Mark as running
     pthread_mutex_lock(&task->sync->mutex);
     task->state = HML_TASK_RUNNING;
