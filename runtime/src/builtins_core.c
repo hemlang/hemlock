@@ -131,6 +131,9 @@ void hml_sandbox_error(const char *operation) {
 #ifndef __EMSCRIPTEN__
 #include <fcntl.h>
 #include <unistd.h>
+#include <signal.h>
+#include <execinfo.h>
+#include <string.h>
 #ifdef __APPLE__
 #include <pthread.h>
 #include <sys/resource.h>
@@ -146,11 +149,71 @@ void hml_runtime_pin_stdio(void) {
         }
     }
 }
+
+// Fatal-signal backtrace handler. Hemlock binaries are built with
+// debug_info and not stripped, so glibc's backtrace_symbols_fd()
+// resolves to real function names with zero external tooling — the
+// difference between "status=11/SEGV, no idea where" and a stack on
+// the very first crash, which matters for long-running daemons on
+// boxes without gdb/valgrind installed.
+//
+// The handler is intentionally minimal and async-signal-safe-ish:
+// backtrace()/backtrace_symbols_fd() are documented safe to call from
+// a signal handler. After dumping, it restores the default disposition
+// and re-raises so the original signal still produces the normal
+// exit status / core-dump behavior (systemd still sees 11/SEGV or
+// 6/ABRT, restart policy unaffected).
+//
+// Opt out with HML_NO_CRASH_HANDLER=1 (e.g. if a program installs its
+// own SIGSEGV handler via the signal() builtin and they'd conflict).
+static void hml_fatal_signal_handler(int sig) {
+    static volatile sig_atomic_t in_handler = 0;
+    if (in_handler) { _exit(128 + sig); }  // crashed inside the handler
+    in_handler = 1;
+
+    const char *name = "signal";
+    switch (sig) {
+        case SIGSEGV: name = "SIGSEGV (invalid memory access)"; break;
+        case SIGABRT: name = "SIGABRT (abort / heap corruption detected)"; break;
+        case SIGBUS:  name = "SIGBUS (bad memory alignment/access)"; break;
+        case SIGFPE:  name = "SIGFPE (arithmetic exception)"; break;
+        case SIGILL:  name = "SIGILL (illegal instruction)"; break;
+        default: break;
+    }
+    char hdr[160];
+    int n = snprintf(hdr, sizeof(hdr),
+        "\n*** Hemlock runtime: fatal %s — backtrace follows ***\n", name);
+    if (n > 0) { ssize_t w = write(STDERR_FILENO, hdr, (size_t)n); (void)w; }
+
+    void *frames[64];
+    int nframes = backtrace(frames, 64);
+    backtrace_symbols_fd(frames, nframes, STDERR_FILENO);
+
+    // Restore default and re-raise so the real exit status is preserved.
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+static void hml_runtime_install_crash_handler(void) {
+    const char *off = getenv("HML_NO_CRASH_HANDLER");
+    if (off && off[0] == '1') return;
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = hml_fatal_signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESETHAND;  // one-shot; re-raise hits default
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGABRT, &sa, NULL);
+    sigaction(SIGBUS,  &sa, NULL);
+    sigaction(SIGFPE,  &sa, NULL);
+    sigaction(SIGILL,  &sa, NULL);
+}
 #endif
 
 void hml_runtime_init(int argc, char **argv) {
 #ifndef __EMSCRIPTEN__
     hml_runtime_pin_stdio();
+    hml_runtime_install_crash_handler();
 #endif
 #if defined(__APPLE__) && !defined(__EMSCRIPTEN__)
     // macOS auto-downgrades the QoS of any process whose nice value

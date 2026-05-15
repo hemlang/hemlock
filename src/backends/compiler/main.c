@@ -601,7 +601,7 @@ static int compile_c(const Options *opts, const char *c_file) {
         // macOS: Can't use -static, use .a files directly or fall back to dynamic
         // System frameworks are always dynamic on macOS
         n = snprintf(cmd, sizeof(cmd),
-            "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi%s%s%s",
+            "%s %s -rdynamic -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi%s%s%s",
             opts->cc, opt_flag, opts->output_file, c_file,
             include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
 #else
@@ -611,7 +611,7 @@ static int compile_c(const Options *opts, const char *c_file) {
         if (websockets_flag[0]) {
             // libwebsockets requires: libssl, libcrypto (static), libcap, libuv, libev (dynamic)
             n = snprintf(cmd, sizeof(cmd),
-                "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s "
+                "%s %s -rdynamic -o %s %s -I%s %s/libhemlock_runtime.a%s "
                 "-Wl,-Bstatic -lffi%s -lwebsockets -lssl -lcrypto "
                 "-Wl,-Bdynamic -lcap -luv -lev -lm -lpthread",
                 opts->cc, opt_flag, opts->output_file, c_file,
@@ -619,7 +619,7 @@ static int compile_c(const Options *opts, const char *c_file) {
         } else {
             // No websockets, just static link libffi, libz, libssl, libcrypto
             n = snprintf(cmd, sizeof(cmd),
-                "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s "
+                "%s %s -rdynamic -o %s %s -I%s %s/libhemlock_runtime.a%s "
                 "-Wl,-Bstatic -lffi%s -lssl -lcrypto "
                 "-Wl,-Bdynamic -lm -lpthread",
                 opts->cc, opt_flag, opts->output_file, c_file,
@@ -629,7 +629,7 @@ static int compile_c(const Options *opts, const char *c_file) {
     } else {
         // Dynamic linking (default): link against shared libraries
         n = snprintf(cmd, sizeof(cmd),
-            "%s %s -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi -ldl%s%s%s",
+            "%s %s -rdynamic -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi -ldl%s%s%s",
             opts->cc, opt_flag, opts->output_file, c_file,
             include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
     }
