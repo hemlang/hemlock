@@ -778,34 +778,28 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             // Evaluate the iterable.
             //
-            // The loop holds one reference to the iterable for its
-            // duration and releases it at the end. How we get that
-            // reference depends on what the iterable expression is:
+            // codegen_expr ALWAYS hands back an owned (+1) temporary
+            // for every iterable shape: idents/index/member get an
+            // hml_retain_if_needed'd copy, calls return their owned
+            // result, literals are freshly built. That +1 is exactly
+            // the reference the loop needs — it keeps the collection
+            // alive for the whole loop even if the body reassigns the
+            // source variable (the temp is an independent reference) —
+            // and the single hml_release(&iter_val) at loop end
+            // balances it.
             //
-            //  - A CALL (`for k in obj.keys()`, `for v in m.values()`,
-            //    `for x in f()`): codegen_expr already produced a
-            //    freshly-owned (+1) temporary that nothing else holds.
-            //    That +1 IS the loop's reference — do NOT retain again,
-            //    or the end-release leaves it at +1 forever and the
-            //    array, every element, and the backing store leak on
-            //    every iteration of the enclosing code. (A dashboard
-            //    render calling caps_data.keys() per request bled
-            //    multiple MB/min exactly here.) Nothing aliases the
-            //    temporary, so it can't be freed mid-loop without the
-            //    extra retain.
-            //
-            //  - Anything else (`for x in somevar`): codegen_expr
-            //    returned a BORROW still owned by somevar. Retain so a
-            //    reassignment of somevar in the loop body can't free
-            //    the value out from under the iteration; the end
-            //    release balances it.
+            // The for-in must therefore NOT add its own retain. It
+            // used to (`hml_retain(&iter_val)` unconditionally), which
+            // is a second retain against codegen_expr's already-owned
+            // temp with only one matching release: every for-in over a
+            // non-call iterable leaked the whole collection + contents
+            // on each execution (e.g. `for tk in ts` in a request
+            // loop bled MB/s; a Witchgrid CP grew GB). 2.4.7 fixed
+            // only the EXPR_CALL subcase; the leak for idents/literals/
+            // index/member remained. Dropping the retain entirely is
+            // the correct general fix and subsumes the 2.4.7 special
+            // case.
             char *iter_val = codegen_expr(ctx, stmt->as.for_in.iterable);
-            int forin_iter_is_owned_call =
-                stmt->as.for_in.iterable &&
-                stmt->as.for_in.iterable->type == EXPR_CALL;
-            if (!forin_iter_is_owned_call) {
-                codegen_writeln(ctx, "hml_retain(&%s);", iter_val);
-            }
 
             // Check for valid iterable type (array, object, or string)
             codegen_writeln(ctx, "if (%s.type != HML_VAL_ARRAY && %s.type != HML_VAL_OBJECT && %s.type != HML_VAL_STRING) {",
