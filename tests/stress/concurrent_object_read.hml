@@ -1,0 +1,30 @@
+// Regression: object_lookup_field() used to lazily build the hash
+// table on first lookup. JSON-parsed objects reach readers with
+// hash_table == NULL, so N threads doing obj[key] on the same shared
+// object all entered object_hash_rebuild() and raced on
+// free()+malloc — "free(): double free / unaligned chunk", SIGSEGV.
+// Fixed in 2.4.5 (read path is now a lock-free linear scan when no
+// hash table is present).
+//
+// Mirrors the Witchgrid control-plane crash: a JSON-parsed config
+// map indexed concurrently by spawn-per-request handler threads.
+
+import { parse } from "@stdlib/json";
+
+let shared = parse("{\"a\":1,\"b\":2,\"c\":3,\"d\":4,\"e\":5,\"f\":6,\"g\":7,\"h\":8,\"i\":9,\"j\":10}");
+
+async fn worker(id: i64): i64 {
+	let n = 0;
+	while (n < 60000) {
+		let s = shared["a"] + shared["e"] + shared["h"] + shared["j"];
+		if (s < 1) { print("unexpected"); }
+		n = n + 1;
+	}
+	return n;
+}
+
+let tasks = [];
+let t = 0;
+while (t < 8) { tasks.push(spawn(worker, i64(t))); t = t + 1; }
+for (tk in tasks) { let r = await tk; }
+print("concurrent_object_read: ok");

@@ -1,0 +1,63 @@
+name: Sanitizers
+
+# Concurrency / lifetime regression guard.
+#
+# tests/stress/*.hml are compiled to native binaries and run under
+# AddressSanitizer and ThreadSanitizer. Each is a regression test for
+# a concrete crash diagnosed from a long-running Hemlock service:
+#   - immortal ASCII string pool freed after ~1M releases (UAF)      [2.4.6]
+#   - concurrent obj[key] on a shared JSON object (heap corruption)   [2.4.5]
+#   - concurrent string build over shared nested objects
+#
+# ASan catches single-threaded memory-safety bugs (the refcount
+# exhaustion class); TSan catches data races (the shared-object class).
+# Together they cover the whole bug family that single-threaded parity
+# tests cannot see.
+
+on:
+  push:
+    branches: [ main, master, 'claude/**' ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  sanitizers:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [asan, tsan]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc make \
+            libwebsockets-dev libffi-dev zlib1g-dev libssl-dev util-linux
+
+      - name: Build compiler + stdlib
+        run: make clean && make compiler stdlib
+
+      - name: Stress (${{ matrix.mode }})
+        env:
+          STRESS_TIMEOUT: "600"
+        run: make stress-${{ matrix.mode }}
+
+  # Fast plain run on every push too — catches a hard crash/regression
+  # in seconds without waiting for the slow sanitizer matrix.
+  stress-plain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc make \
+            libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
+      - name: Build compiler + stdlib
+        run: make clean && make compiler stdlib
+      - name: Stress (plain)
+        env:
+          STRESS_TIMEOUT: "240"
+        run: make stress

@@ -368,6 +368,38 @@ leak-regression-quick: asan
 	@echo ""
 	@./tests/memory/regression/run_leak_tests.sh --quick
 
+# ========== CONCURRENCY / LIFETIME STRESS HARNESS ==========
+#
+# tests/stress/*.hml are compiled as NATIVE binaries (these bugs —
+# refcount exhaustion, concurrent object/string heap corruption —
+# only exist in the compiled runtime, not the interpreter) and run
+# under an optional sanitizer. Each .hml is a regression test for a
+# concrete crash diagnosed from a long-running Hemlock service.
+#
+#   make stress        plain build, crash/exit check (fast)
+#   make stress-asan    AddressSanitizer: use-after-free / double-free
+#   make stress-tsan    ThreadSanitizer: data races
+#   make stress-all     all three
+#
+# Requires the compiler (hemlockc + stdlib). The harness builds its
+# own sanitizer runtime into a temp dir; it never touches the normal
+# ./libhemlock_runtime.a.
+
+.PHONY: stress
+stress: compiler stdlib
+	@bash tests/stress/run_stress.sh none
+
+.PHONY: stress-asan
+stress-asan: compiler stdlib
+	@bash tests/stress/run_stress.sh asan
+
+.PHONY: stress-tsan
+stress-tsan: compiler stdlib
+	@bash tests/stress/run_stress.sh tsan
+
+.PHONY: stress-all
+stress-all: stress stress-asan stress-tsan
+
 # ========== CLANG STATIC ANALYSIS ==========
 
 # Check if clang-tidy and scan-build are installed

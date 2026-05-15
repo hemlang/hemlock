@@ -1,0 +1,20 @@
+// Regression: the immortal single-char ASCII string pool was freed
+// after ~1,000,000 releases (ref_count=1000000 sentinel was a
+// countdown, not a freeze). Every `"x" + s` materializes the pooled
+// "x" then releases it; ~1e6 iterations drove the count to 0 and
+// string_free()'d a pooled string the global cache still pointed at,
+// then the next single-char string use was a heap-use-after-free in
+// hml_string_concat. Fixed in 2.4.6 (HML_REFCOUNT_IMMORTAL freeze).
+//
+// This runs well past the old ~1-2M crash threshold. Single-threaded
+// on purpose: the bug is not a data race, it's refcount exhaustion.
+
+let base = "prefix-string-value-long-enough-to-be-heap";
+let n = 0;
+while (n < 6000000) {
+	let a = "x" + base;
+	let b = base + "-y";
+	let c = "a" + "b";
+	n = n + 1;
+}
+print("immortal_string_pool: ok");

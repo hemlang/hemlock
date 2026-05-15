@@ -1,0 +1,86 @@
+// Stress: many threads concurrently building large strings from a
+// shared read-only nested object via an esc()-style replace_all
+// chain — the faithful shape of the Witchgrid dashboard's
+// render_capabilities() that surfaced the concurrency + refcount
+// bugs. Exercises hml_string_concat / replace_all / object index /
+// retain-release under contention.
+
+fn esc(s): string {
+	if (s == null) { return ""; }
+	let t = "" + s;
+	t = t.replace_all("&", "&amp;");
+	t = t.replace_all("<", "&lt;");
+	t = t.replace_all(">", "&gt;");
+	t = t.replace_all("\"", "&quot;");
+	return t;
+}
+
+fn build() {
+	let caps = {};
+	let ni = 0;
+	while (ni < 3) {
+		let bins = {};
+		let bi = 0;
+		while (bi < 4) {
+			let flags = {};
+			let fi = 0;
+			while (fi < 20) {
+				flags["flag" + fi] = {
+					longs: ["--flag-" + fi, "--alias-" + fi],
+					value: "val<" + fi + ">&x",
+					description: "desc \"" + fi + "\" <b> & text " + fi,
+				};
+				fi = fi + 1;
+			}
+			bins["bin" + bi] = flags;
+			bi = bi + 1;
+		}
+		caps["node" + ni] = bins;
+		ni = ni + 1;
+	}
+	return caps;
+}
+
+let caps_data = build();
+
+fn render(cd): string {
+	let html = "";
+	for (node in cd.keys()) {
+		html = html + "<h3>" + esc(node) + "</h3>";
+		let bins = cd[node];
+		for (b in bins.keys()) {
+			let flags = bins[b];
+			let fnames = flags.keys();
+			html = html + "<details><summary>" + esc(b) + " " + fnames.length + "</summary>";
+			for (fn_name in fnames) {
+				let f = flags[fn_name];
+				let i = 0;
+				let al = "";
+				while (i < f.longs.length) {
+					al = al + "<code>" + esc(f.longs[i]) + "</code>";
+					i = i + 1;
+				}
+				html = html + "<tr><td>" + al + "</td><td>" + esc(f.value)
+					+ "</td><td>" + esc(f.description) + "</td></tr>";
+			}
+			html = html + "</details>";
+		}
+	}
+	return html;
+}
+
+async fn worker(id: i64): i64 {
+	let n = 0;
+	while (n < 1500) {
+		let h = render(caps_data);
+		if (h.length < 10) { print("short render"); }
+		n = n + 1;
+	}
+	return n;
+}
+
+let tasks = [];
+let t = 0;
+while (t < 8) { tasks.push(spawn(worker, i64(t))); t = t + 1; }
+for (tk in tasks) { let r = await tk; }
+print("concurrent_string_build: ok");
