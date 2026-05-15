@@ -1,0 +1,45 @@
+// Regression: a function parameter name leaked into the top-level
+// codegen_is_func_param() set (func_params was never restored after
+// a function body), which silently disabled the while-loop unboxing
+// optimisation for a top-level loop counter sharing that name. The
+// loop then read the never-updated boxed _main_n -> infinite loop.
+// Fixed 2.4.8 by saving/restoring func_params in FuncGenState.
+//
+// `f` is defined (param `n`) but the collision must not affect the
+// unrelated top-level `n` loop. Also covers the call-in-loop and
+// call-result-as-arg shapes that originally surfaced it.
+
+fn f(n: i64): i64 {
+	return n + 1;
+}
+
+fn make_pair(n: i64): array {
+	return [n, n + 1];
+}
+
+let n = 0;
+while (n < 5) {
+	let r = f(n);
+	n = n + 1;
+}
+print(n);          // 5
+
+let total = 0;
+let i = 0;
+while (i < 4) {
+	let bucket = [];
+	bucket.push(make_pair(i));
+	total = total + bucket.length;
+	i = i + 1;
+}
+print(total);      // 4
+
+// param-shadowed loop var still terminates and computes correctly
+let n2 = 0;
+let acc = 0;
+while (n2 < 10) {
+	acc = acc + f(n2);
+	n2 = n2 + 1;
+}
+print(acc);        // sum(1..10) = 55
+print("done");

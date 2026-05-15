@@ -70,6 +70,16 @@ typedef struct {
     int loop_body_depth;      // Saved ctx->loop_body_depth
     int loop_depth;           // Saved ctx->loop_depth
     int try_body_depth;       // Saved ctx->try_body_depth
+    // Saved ctx->func_params et al. Without restoring these, a
+    // function's parameter names leak into the enclosing / top-level
+    // scope's codegen_is_func_param() checks, which silently disables
+    // the while-loop unboxing optimisation for an unrelated top-level
+    // loop counter that happens to share a name: e.g. defining
+    // `fn f(n: i64)` makes a later top-level `while (n < 5) { n = n+1 }`
+    // read the never-updated boxed _main_n and spin forever.
+    char **func_params;       // Saved ctx->func_params
+    int num_func_params;      // Saved ctx->num_func_params
+    int *func_param_is_ref;   // Saved ctx->func_param_is_ref
 } FuncGenState;
 
 // Save function generation state before entering a function body

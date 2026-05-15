@@ -1447,6 +1447,9 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     state->loop_body_depth = ctx->loop_body_depth;
     state->loop_depth = ctx->loop_depth;
     state->try_body_depth = ctx->try_body_depth;
+    state->func_params = ctx->func_params;
+    state->num_func_params = ctx->num_func_params;
+    state->func_param_is_ref = ctx->func_param_is_ref;
 
     // Initialize for new function
     ctx->defer_stack = NULL;
@@ -1460,6 +1463,12 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->loop_body_depth = 0;
     ctx->loop_depth = 0;
     ctx->try_body_depth = 0;
+    // funcgen_add_params() sets these for the new function; clear
+    // here so an early return / a param-less function can't observe
+    // the previous function's params.
+    ctx->func_params = NULL;
+    ctx->num_func_params = 0;
+    ctx->func_param_is_ref = NULL;
 }
 
 void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
@@ -1495,6 +1504,9 @@ void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->loop_body_depth = state->loop_body_depth;
     ctx->loop_depth = state->loop_depth;
     ctx->try_body_depth = state->try_body_depth;
+    ctx->func_params = state->func_params;
+    ctx->num_func_params = state->num_func_params;
+    ctx->func_param_is_ref = state->func_param_is_ref;
     shared_env_clear(ctx);
 }
 
