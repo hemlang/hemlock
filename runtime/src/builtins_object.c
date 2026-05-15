@@ -49,30 +49,60 @@ static void object_hash_rebuild(HmlObject *obj) {
     }
 }
 
-// Look up field index by name using hash table, returns -1 if not found
+// Look up field index by name, returns -1 if not found.
+//
+// THREAD SAFETY: this is a read-only operation and MUST NOT mutate
+// `obj`. It used to lazily build the hash table here ("if no hash
+// table, object_hash_rebuild(obj)"), which is a data race the moment
+// the same object is read from more than one thread: JSON-parsed and
+// some literal-constructed objects reach readers with hash_table ==
+// NULL (see builtins_serialization.c "Lazy initialization"), so N
+// concurrent obj[key] readers all enter the rebuild and race on
+// free(obj->hash_table)+malloc — manifesting as "free(): double free
+// / unaligned chunk" and SIGSEGV far from the cause. (Observed in a
+// Hemlock HTTP server doing spawn-per-request: a shared parsed config
+// object indexed concurrently by request-handler threads core-dumped
+// the process every ~73 min.)
+//
+// Fix: when no hash table is present, fall back to a lock-free linear
+// scan instead of building one. Pure concurrent reads of a shared
+// object are then safe with zero locking. The hash table is still
+// built eagerly by hml_object_set_field / hml_object_delete_field for
+// the mutation path's own lookup speed; objects that are only ever
+// read (the common shared-data case) just pay O(n) per lookup, which
+// is fine — they're typically small, and correctness beats a micro-
+// optimization that corrupts the heap.
 static int object_lookup_field(HmlObject *obj, const char *name) {
-    // Lazy hash table creation: if no hash table and we have fields, build it
-    if ((!obj->hash_table || obj->hash_capacity == 0) && obj->num_fields > 0) {
-        object_hash_rebuild(obj);
-    }
-
-    if (!obj->hash_table || obj->hash_capacity == 0) {
+    if (obj->num_fields <= 0) {
         return -1;  // Empty object
     }
 
-    uint32_t hash = djb2_hash(name);
-    int slot = hash % obj->hash_capacity;
-    int start_slot = slot;
+    // Fast path: hash table already built (by set/delete). Read-only.
+    if (obj->hash_table && obj->hash_capacity > 0) {
+        uint32_t hash = djb2_hash(name);
+        int slot = hash % obj->hash_capacity;
+        int start_slot = slot;
 
-    // Linear probing (using unified field storage)
-    while (obj->hash_table[slot] != -1) {
-        int idx = obj->hash_table[slot];
-        if (strcmp(obj->fields[idx].name, name) == 0) {
-            return idx;  // Found
+        // Linear probing (using unified field storage)
+        while (obj->hash_table[slot] != -1) {
+            int idx = obj->hash_table[slot];
+            if (strcmp(obj->fields[idx].name, name) == 0) {
+                return idx;  // Found
+            }
+            slot = (slot + 1) % obj->hash_capacity;
+            if (slot == start_slot) {
+                break;  // Full circle, not found
+            }
         }
-        slot = (slot + 1) % obj->hash_capacity;
-        if (slot == start_slot) {
-            break;  // Full circle, not found
+        return -1;  // Not found
+    }
+
+    // No hash table: linear scan. Does NOT mutate obj, so safe under
+    // concurrent reads. (Deliberately does not lazily build the hash
+    // here — see the thread-safety note above.)
+    for (int i = 0; i < obj->num_fields; i++) {
+        if (strcmp(obj->fields[i].name, name) == 0) {
+            return i;
         }
     }
     return -1;  // Not found
