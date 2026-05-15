@@ -264,7 +264,7 @@ static void init_ascii_strings(void) {
         ascii_strings[i]->char_length = 1;
         ascii_strings[i]->capacity = HML_SSO_THRESHOLD + 1;
         ascii_strings[i]->is_sso = 1;
-        ascii_strings[i]->ref_count = 1000000;  // Immortal - never freed
+        ascii_strings[i]->ref_count = HML_REFCOUNT_IMMORTAL;  // frozen: retain/release never touch it
     }
     initialized = 1;
 }
@@ -607,7 +607,10 @@ void hml_retain(HmlValue *val) {
 
     switch (val->type) {
         case HML_VAL_STRING:
-            if (val->as.as_string) atomic_fetch_add(&val->as.as_string->ref_count, 1);
+            if (val->as.as_string &&
+                atomic_load(&val->as.as_string->ref_count) < HML_REFCOUNT_IMMORTAL_MIN) {
+                atomic_fetch_add(&val->as.as_string->ref_count, 1);
+            }
             break;
         case HML_VAL_BUFFER:
             if (val->as.as_buffer) atomic_fetch_add(&val->as.as_buffer->ref_count, 1);
@@ -770,8 +773,12 @@ void hml_release(HmlValue *val) {
     switch (val->type) {
         case HML_VAL_STRING:
             if (val->as.as_string) {
-                if (atomic_fetch_sub(&val->as.as_string->ref_count, 1) <= 1) {
-                    string_free(val->as.as_string);
+                // Frozen (immortal pool) strings: never decrement, never free.
+                // Checked before the atomic sub so the count can't underflow.
+                if (atomic_load(&val->as.as_string->ref_count) < HML_REFCOUNT_IMMORTAL_MIN) {
+                    if (atomic_fetch_sub(&val->as.as_string->ref_count, 1) <= 1) {
+                        string_free(val->as.as_string);
+                    }
                 }
                 val->as.as_string = NULL;
             }

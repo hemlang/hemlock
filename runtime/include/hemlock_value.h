@@ -96,6 +96,26 @@ typedef struct HmlValue {
 // Small String Optimization threshold (strings up to this size are stored inline)
 #define HML_SSO_THRESHOLD 23
 
+// Immortal-refcount sentinel. Objects whose ref_count is set to this are
+// "frozen": hml_retain / hml_release must never modify the count and never
+// free them. Used for the pre-allocated single-char ASCII string pool,
+// which is shared process-wide and must outlive everything.
+//
+// Why a sentinel + threshold instead of the old bare 1000000: the pool
+// strings were set to ref_count = 1000000 but retain/release still did the
+// normal atomic add/sub. A long-running program that releases single-char
+// strings ~1e6 times (trivially reached by a busy HTTP server: every
+// `"x" + s` materializes the pooled "x" then releases it) drove the count
+// to 0 and string_free()'d a pooled string the global cache still points
+// at — heap-use-after-free in hml_string_concat, crashing the process.
+// Freezing at a sentinel that's checked *before* the atomic op makes the
+// count permanently immovable, so it can neither underflow (crash) nor
+// drift upward. The threshold is far above any real live-reference count
+// (a string with 256M simultaneous references is not a real scenario) and
+// at/below the sentinel, so a frozen string always reads as immortal.
+#define HML_REFCOUNT_IMMORTAL   (1 << 28)   // 268435456
+#define HML_REFCOUNT_IMMORTAL_MIN (1 << 27) // anything >= this is "frozen"
+
 // String struct (UTF-8, with Small String Optimization)
 // Small strings (<=23 bytes) are stored inline in inline_data to reduce allocations.
 // The `data` pointer always points to valid string data (either inline_data or heap).
