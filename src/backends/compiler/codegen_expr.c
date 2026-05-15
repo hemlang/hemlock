@@ -585,10 +585,24 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             }
+            // The expression value of `obj[idx] = v` is v; hand the
+            // caller an independent owned reference.
             codegen_writeln(ctx, "HmlValue %s = %s;", result, value);
             codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
             codegen_writeln(ctx, "hml_release_if_needed(&%s);", obj);
             codegen_writeln(ctx, "hml_release_if_needed(&%s);", idx);
+            // Release the RHS temp. codegen_expr returned it owned (+1);
+            // every setter above (hml_object_set_field / array_set /
+            // buffer_set / ...) takes its OWN reference, so without
+            // this the RHS's creation reference is orphaned and every
+            // `obj[key] = value` leaks `value`. This is pervasive —
+            // e.g. @stdlib/sqlite's query() does `row[col] = val` per
+            // column per row, so a server querying its DB per request
+            // (a dashboard control-plane) bled GB. Mirrors the
+            // array-literal `hml_array_push(...); hml_release(&elem)`
+            // pattern just below. `result` already holds an
+            // independent ref for the expression's value.
+            codegen_writeln(ctx, "hml_release_if_needed(&%s);", value);
             free(obj);
             free(idx);
             free(value);
