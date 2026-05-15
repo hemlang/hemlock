@@ -397,8 +397,15 @@ stress-asan: compiler stdlib
 stress-tsan: compiler stdlib
 	@bash tests/stress/run_stress.sh tsan
 
+# Leak regression guard. Runs only the dedicated *_leak.hml tests
+# under LeakSanitizer (the broader concurrency tests have separate
+# pre-existing leaks under audit and would mask a real regression).
+.PHONY: stress-lsan
+stress-lsan: compiler stdlib
+	@bash tests/stress/run_stress.sh lsan
+
 .PHONY: stress-all
-stress-all: stress stress-asan stress-tsan
+stress-all: stress stress-asan stress-lsan stress-tsan
 
 # ========== CLANG STATIC ANALYSIS ==========
 

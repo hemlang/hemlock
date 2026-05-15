@@ -38,13 +38,15 @@ case "$MODE" in
   none)  SAN_CFLAGS="";                                     SAN_ENV="" ;;
   asan)  SAN_CFLAGS="-fsanitize=address -fno-omit-frame-pointer";
          SAN_ENV="ASAN_OPTIONS=detect_leaks=0:halt_on_error=1:abort_on_error=1" ;;
+  lsan)  SAN_CFLAGS="-fsanitize=address -fno-omit-frame-pointer";
+         SAN_ENV="ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 LSAN_OPTIONS=suppressions=$STRESS_DIR/lsan.supp" ;;
   tsan)  SAN_CFLAGS="-fsanitize=thread -fno-omit-frame-pointer -no-pie -fno-pie";
          SAN_ENV="TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1"
          if command -v setarch >/dev/null 2>&1 && \
             setarch "$(uname -m)" -R true >/dev/null 2>&1; then
            RUN_WRAP="setarch $(uname -m) -R"
          fi ;;
-  *) echo "usage: $0 [none|asan|tsan]" >&2; exit 2 ;;
+  *) echo "usage: $0 [none|asan|lsan|tsan]" >&2; exit 2 ;;
 esac
 
 echo "=== stress harness (mode=$MODE) ==="
@@ -82,7 +84,20 @@ LIBS="-lm -lpthread -lffi -ldl -lz -lwebsockets -lssl -lcrypto"
 fail=0
 pass=0
 
-for src in "$STRESS_DIR"/*.hml; do
+# lsan mode runs ONLY the dedicated *_leak.hml regression tests.
+# LeakSanitizer on the broader concurrency stress tests surfaces a
+# pile of *separate, pre-existing* refcount leaks (tracked for the
+# ongoing codegen audit) that would make this lane permanently red
+# and drown out a real regression. The leak guard's job is "the
+# bugs we fixed stay fixed"; crash/race coverage of the other tests
+# lives in asan/tsan.
+if [ "$MODE" = "lsan" ]; then
+  glob="$STRESS_DIR"/*_leak.hml
+else
+  glob="$STRESS_DIR"/*.hml
+fi
+
+for src in $glob; do
   name="$(basename "$src" .hml)"
   cfile="$WORK/$name.c"
   bin="$WORK/$name"

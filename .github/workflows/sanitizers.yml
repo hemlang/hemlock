@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [asan, tsan]
+        mode: [asan, lsan, tsan]
     steps:
       - uses: actions/checkout@v4
 

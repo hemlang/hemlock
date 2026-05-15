@@ -1,0 +1,9 @@
+# LeakSanitizer suppressions for the stress harness.
+#
+# hml_get_args() allocates the argv-backed args array once at process
+# startup and intentionally keeps it for the process lifetime (script
+# args are globally reachable). It is a single fixed allocation, not
+# unbounded growth — legitimately "still reachable at exit", not a
+# leak. Suppress so `run_stress.sh lsan` measures only per-iteration
+# leaks (the bug class this guard exists for).
+leak:hml_get_args

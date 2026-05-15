@@ -776,9 +776,36 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             }
             codegen_push_for_continue(ctx, continue_label);
 
-            // Evaluate the iterable
+            // Evaluate the iterable.
+            //
+            // The loop holds one reference to the iterable for its
+            // duration and releases it at the end. How we get that
+            // reference depends on what the iterable expression is:
+            //
+            //  - A CALL (`for k in obj.keys()`, `for v in m.values()`,
+            //    `for x in f()`): codegen_expr already produced a
+            //    freshly-owned (+1) temporary that nothing else holds.
+            //    That +1 IS the loop's reference — do NOT retain again,
+            //    or the end-release leaves it at +1 forever and the
+            //    array, every element, and the backing store leak on
+            //    every iteration of the enclosing code. (A dashboard
+            //    render calling caps_data.keys() per request bled
+            //    multiple MB/min exactly here.) Nothing aliases the
+            //    temporary, so it can't be freed mid-loop without the
+            //    extra retain.
+            //
+            //  - Anything else (`for x in somevar`): codegen_expr
+            //    returned a BORROW still owned by somevar. Retain so a
+            //    reassignment of somevar in the loop body can't free
+            //    the value out from under the iteration; the end
+            //    release balances it.
             char *iter_val = codegen_expr(ctx, stmt->as.for_in.iterable);
-            codegen_writeln(ctx, "hml_retain(&%s);", iter_val);
+            int forin_iter_is_owned_call =
+                stmt->as.for_in.iterable &&
+                stmt->as.for_in.iterable->type == EXPR_CALL;
+            if (!forin_iter_is_owned_call) {
+                codegen_writeln(ctx, "hml_retain(&%s);", iter_val);
+            }
 
             // Check for valid iterable type (array, object, or string)
             codegen_writeln(ctx, "if (%s.type != HML_VAL_ARRAY && %s.type != HML_VAL_OBJECT && %s.type != HML_VAL_STRING) {",
@@ -902,7 +929,12 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
 
-            // Cleanup
+            // Cleanup: release the iterable. Paired with the retain
+            // emitted right after it was evaluated (see the gated
+            // hml_retain below the codegen_expr call). For a borrowed
+            // iterable that pair is net-zero; for an owned call
+            // temporary the retain is skipped so this release consumes
+            // the call's original +1 instead of leaking it.
             codegen_writeln(ctx, "hml_release(&%s);", iter_val);
 
             codegen_indent_dec(ctx);

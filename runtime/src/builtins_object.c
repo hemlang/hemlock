@@ -318,9 +318,17 @@ HmlValue hml_object_keys(HmlValue obj) {
     // Create a new array to hold the keys
     HmlValue arr = hml_val_array();
 
-    // Add each field name to the array (using unified storage)
+    // Add each field name to the array. hml_array_push() RETAINS the
+    // value it's given, so the fresh rc=1 string from hml_val_string()
+    // must be released here — otherwise its creation reference is
+    // orphaned (array holds rc=1, temp's rc=1 never balanced) and every
+    // key string leaks even after the array itself is freed. `obj.keys()`
+    // is extremely hot (every `for k in m.keys()`), so this leaked
+    // multiple MB/min in a dashboard render loop.
     for (int i = 0; i < o->num_fields; i++) {
-        hml_array_push(arr, hml_val_string(o->fields[i].name));
+        HmlValue key = hml_val_string(o->fields[i].name);
+        hml_array_push(arr, key);
+        hml_release(&key);
     }
 
     return arr;
