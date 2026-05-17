@@ -1,0 +1,18 @@
+// Single construct: heap locals allocated inside a try scope, then
+// an exception thrown past them. The unwind path must release
+// try-scope locals (the classic exception-safety leak class). If
+// the throw branch skips cleanup, every caught exception leaks the
+// array + object built before the throw.
+fn boom(r: i64): i64 {
+	let big = ["a-" + r, "b-" + r, "c-" + r];
+	let o = { data: big, tag: "t-" + r };
+	if (r >= 0) { throw "x"; }
+	return big.length + o.tag.length;
+}
+let round = 0;
+let caught = 0;
+while (round < 2000) {
+	try { let z = boom(round); } catch (e) { caught = caught + 1; }
+	round = round + 1;
+}
+print("try_unwind_leak: ok caught=" + caught);

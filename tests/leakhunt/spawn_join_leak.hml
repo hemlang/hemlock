@@ -1,0 +1,18 @@
+// Single construct: spawn a task that builds a heap value, await
+// its result, drop. The task object, its captured args, and the
+// result must all be released after await. A missing release on any
+// leaks per spawned task. Bounded; nothing live at exit.
+async fn mk(r: i64): i64 {
+	let a = ["r-" + r, "s-" + r];
+	let o = { v: a, n: r };
+	return a.length + o.n;
+}
+let round = 0;
+let sink = 0;
+while (round < 1200) {
+	let t = spawn(mk, i64(round));
+	let r = await t;
+	sink = sink + r;
+	round = round + 1;
+}
+print("spawn_join_leak: ok sink=" + sink);

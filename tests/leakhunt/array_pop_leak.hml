@@ -1,0 +1,14 @@
+// Single construct: push heap elements then pop them all. pop()
+// hands ownership to the caller; the array slot must not retain a
+// dangling +1. If either the popped temp or the vacated slot isn't
+// released, every element leaks. Array empty + dropped at exit.
+let round = 0;
+let sink = 0;
+while (round < 2000) {
+	let a = [];
+	let i = 0;
+	while (i < 8) { a.push({ n: i, s: "e-" + i }); i = i + 1; }
+	while (a.length > 0) { let x = a.pop(); sink = sink + x.n; }
+	round = round + 1;
+}
+print("array_pop_leak: ok sink=" + sink);

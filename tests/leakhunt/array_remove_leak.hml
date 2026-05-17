@@ -1,0 +1,14 @@
+// Single construct: build an array then remove(idx) every element.
+// The removed value must be released by remove codegen; if it only
+// shifts the backing store, each removed object leaks. Array empty
+// + dropped at exit.
+let round = 0;
+let sink = 0;
+while (round < 2000) {
+	let a = [];
+	let i = 0;
+	while (i < 8) { a.push({ n: i, s: "r-" + i }); i = i + 1; }
+	while (a.length > 0) { a.remove(0); sink = sink + a.length; }
+	round = round + 1;
+}
+print("array_remove_leak: ok sink=" + sink);
