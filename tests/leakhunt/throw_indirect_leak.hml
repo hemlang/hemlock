@@ -1,0 +1,26 @@
+// Probe: does a throw leak heap locals in INTERMEDIATE frames the
+// longjmp skips? `boom` throws (its own locals are released by the
+// STMT_THROW fix). `relay` calls boom and has its own live heap
+// local `pad` — but hml_throw longjmps straight past relay's frame
+// to main's try, so relay's normal-path cleanup never runs. If
+// intermediate-frame locals aren't released, `pad` leaks per call.
+// This is a HARDER class than the throwing-frame fix (needs
+// per-frame unwind, not a throw-site emit). Honest characterization
+// of the throw fix's scope.
+fn boom(r: i64): i64 {
+	let big = ["a-" + r, "b-" + r];
+	if (r >= 0) { throw "x"; }
+	return big.length;
+}
+fn relay(r: i64): i64 {
+	let pad = ["p-" + r, "q-" + r, "z-" + r];
+	let acc = { hops: pad };
+	return boom(r) + pad.length + acc.hops.length;
+}
+let round = 0;
+let caught = 0;
+while (round < 2000) {
+	try { let z = relay(round); } catch (e) { caught = caught + 1; }
+	round = round + 1;
+}
+print("throw_indirect_leak: ok caught=" + caught);

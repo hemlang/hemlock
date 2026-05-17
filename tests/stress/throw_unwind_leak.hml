@@ -1,0 +1,33 @@
+// Regression: `throw` leaked every live heap local in the throwing
+// function. STMT_THROW codegen emitted `hml_throw(v)` directly —
+// hml_throw longjmps to the nearest try and never returns, so the
+// function's normal-path local releases (codegen_emit_local_cleanup,
+// which STMT_RETURN runs) were skipped. Every array/object/string
+// built before the throw leaked, on every throw. This is the
+// exception-unwind leak class and the per-request shape that bled
+// the Witchgrid control plane (a `throw` on a hot error path).
+//
+// Fixed by emitting codegen_emit_local_cleanup(ctx, NULL) before
+// hml_throw, mirroring STMT_RETURN — codegen_expr already returns a
+// retained copy of the thrown value, so it survives the cleanup and
+// ownership passes to hml_throw -> the catch binding.
+//
+// Scope: this guards the THROWING function's own locals (the proven
+// fix). Locals in intermediate frames the longjmp skips are a
+// separate, harder case tracked as throw_indirect in tests/leakhunt.
+//
+// Found by tests/leakhunt. Bounded + finite so LeakSanitizer reports
+// at exit; run via `run_stress.sh lsan`. Must leak nothing per throw.
+fn boom(r: i64): i64 {
+	let big = ["a-" + r, "b-" + r, "c-" + r];
+	let o = { data: big, tag: "t-" + r };
+	if (r >= 0) { throw "x"; }
+	return big.length + o.tag.length;
+}
+let round = 0;
+let caught = 0;
+while (round < 2000) {
+	try { let z = boom(round); } catch (e) { caught = caught + 1; }
+	round = round + 1;
+}
+print("throw_unwind_leak: ok caught=" + caught);
