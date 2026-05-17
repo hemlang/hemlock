@@ -152,12 +152,65 @@ Two models:
     cleanup records; `hml_throw` walks+runs them up to the target.
     Cleaner conceptually but adds normal-path register/deregister
     cost and a runtime ABI change.
-  Recommendation: the setjmp-shim — it composes with the now-unified
-  `codegen_emit_local_cleanup` and needs no runtime change. Scope it
-  to functions that (have heap locals OR captures OR a shared env)
-  AND contain a call that can throw. Verify with
-  `tests/leakhunt/throw_indirect_leak.hml` + a full sweep + a full
-  `make stress-lsan`.
+  Recommendation: the setjmp-shim. FULL SPEC (mechanical, not
+  research — the hard part, exception-value ownership across the
+  re-throw, is solved below):
+
+  1. New runtime primitive (runtime/src/builtins_func.c +
+     hemlock_runtime.h), a move-semantics sibling of hml_throw —
+     hml_throw RETAINS its arg (right for `throw expr`, wrong for a
+     re-throw where we own the in-flight ref; retaining there leaks
+     the exception value once per propagated frame):
+
+       __attribute__((noreturn))
+       void hml_rethrow(HmlValue v) {
+           if (!g_exception_stack || !g_exception_stack->is_active) {
+               fprintf(stderr, "Uncaught exception: ");
+               print_value_to(stderr, v); fprintf(stderr, "\n");
+               exit(1);
+           }
+           g_exception_stack->exception_value = v;  // MOVE, no retain
+           longjmp(g_exception_stack->exception_buf, 1);
+       }
+
+  2. Shim prologue, emitted at each of the 3 function-gen sites in
+     codegen_program.c (~139, ~300, ~658) right AFTER HML_CALL_ENTER
+     and BEFORE funcgen_generate_body, ONLY when the function needs
+     it (gate: has body locals OR captures OR shared_env, AND its
+     body contains a call/throw that can propagate). Push FIRST so
+     it is the outermost ctx (inner `try`s nest inside it):
+
+       HmlExceptionContext *_ushim = hml_exception_push();
+       if (setjmp(_ushim->exception_buf) != 0) {
+           HmlValue _ev = _ushim->exception_value;   // own in-flight +1
+           _ushim->exception_value = hml_val_null();  // detach: pop must not release it
+           hml_exception_pop();                       // free our ctx
+           codegen_emit_local_cleanup(ctx, NULL);     // release THIS frame's locals/captures/env
+           hml_rethrow(_ev);                          // move ref to next ctx; no leak, no UAF
+       }
+
+  3. Normal-exit integration (the dangerous part — get it exactly
+     right): the shim ctx must be popped on EVERY normal exit before
+     the frame dies, exactly once, composing with
+     codegen_emit_return_try_pops. Cleanest: emit `hml_exception_pop()`
+     for the shim as the first thing in a single helper
+     `codegen_emit_unwind_shim_pop(ctx)` and call it at every site
+     that currently calls codegen_emit_return_try_pops AND at the
+     implicit fall-through return — gated on "this function has a
+     shim". Do NOT fold it into codegen_emit_local_cleanup (that
+     helper runs in non-shim contexts and the throw path already
+     popped). Audit every STMT_RETURN branch in codegen_stmt.c
+     (plain/defer/finally-goto/tail-call) + codegen_program.c
+     implicit returns.
+
+  4. Validation gates (ALL must pass — this is a control-flow
+     change, not just a leak fix): `tests/leakhunt` full sweep
+     (throw_indirect now PASS, nothing regressed) + `make stress-lsan`
+     + `make stress-asan` + `make test` + the parity suite + the
+     exception regression tests. A wrong ctx-pop corrupts the
+     exception stack invisibly to LSan — the non-leak suites are the
+     real guard. Land as ONE reviewed commit; revert cleanly if any
+     non-leak suite regresses.
 
 Shipped: `string_ops`, `try_unwind` (throwing-frame),
 `closure_capture`. Cut 2.5.0 once `throw_indirect` lands and a full
