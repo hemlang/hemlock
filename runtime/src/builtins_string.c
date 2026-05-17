@@ -155,6 +155,10 @@ HmlValue hml_string_split(HmlValue str, HmlValue delimiter) {
             c[1] = '\0';
             HmlValue part_val = hml_val_string_owned(c, 1, 2);
             hml_array_push(result, part_val);
+            // push() retained it; drop the creation ref so the array
+            // holds the sole reference (same orphaned-creation-ref
+            // class as the fixed hml_object_keys bug).
+            hml_release(&part_val);
         }
         return result;
     }
@@ -168,6 +172,7 @@ HmlValue hml_string_split(HmlValue str, HmlValue delimiter) {
             part[len] = '\0';
             HmlValue part_val = hml_val_string_owned(part, len, len + 1);
             hml_array_push(result, part_val);
+            hml_release(&part_val);
             i += d->length - 1;
             start = i + 1;
         }
@@ -180,6 +185,7 @@ HmlValue hml_string_split(HmlValue str, HmlValue delimiter) {
     part[len] = '\0';
     HmlValue part_val = hml_val_string_owned(part, len, len + 1);
     hml_array_push(result, part_val);
+    hml_release(&part_val);
 
     return result;
 }
