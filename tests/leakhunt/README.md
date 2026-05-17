@@ -100,19 +100,20 @@ exit except small fixed singletons (those are suppressed in
 - ✅ `string_ops` — `hml_string_split` orphaned creation refs (3 push
   sites). Fixed in `runtime/src/builtins_string.c`, regression-locked
   (`tests/stress/string_split_leak.hml`), committed.
-- ⏳ `try_unwind` — **codegen exception-unwind leak**, root-caused:
-  emitted `hml_fn_boom` allocates `big` (array) + `o` (object), then
-  on the throw branch emits `hml_throw(_tmp19)` with both still live
-  and **no release before it**. `hml_throw` longjmps, so the normal-
-  path local releases never run → `big`+`o`+contents leak per throw.
-  Fix: the `throw` codegen must emit the same live-local scope cleanup
-  that `return`/`break` do (see `codegen_stmt.c` `STMT_TRY` +
-  `codegen_emit_return_try_pops`/`codegen_emit_break_try_pops`; the
-  throw path needs the analogous release-then-unwind). Non-trivial
-  (needs the scope's live heap-local set at the throw point) — land it
-  deliberately as its own commit. The `tests/memory/regression`
-  "exception safety" tests show this class has prior partial work to
-  extend, not start from scratch.
+- ✅ `try_unwind` — **FIXED & shipped**. `STMT_THROW` codegen now
+  emits `codegen_emit_local_cleanup` before `hml_throw` (mirrors
+  `STMT_RETURN`). Verified PASS (was 11 blocks), no regression,
+  regression-locked `tests/stress/throw_unwind_leak.hml`. Scope: the
+  *throwing* function's own locals only.
+- ⏳ `throw_indirect` — **NEW, found while verifying try_unwind**:
+  locals in *intermediate* frames between the throw and the catch
+  leak (9 blocks) — `hml_throw` longjmps straight to the setjmp,
+  skipping every frame in between, so their normal-path cleanup never
+  runs. Harder class: a throw-site emit can't fix it (the throw site
+  doesn't know the callers' locals). Needs either per-call-site
+  setjmp + frame-local cleanup + re-throw, or a runtime scope-cleanup
+  registration stack that `hml_throw` unwinds. Real design effort —
+  land deliberately, not rushed. Repro: `throw_indirect_leak.hml`.
 - ⏳ `closure_capture` — leak is real (2000 `hml_val_array` per run)
   but a careful static refcount trace of the emitted C + the runtime
   closure-env path comes out **balanced**: codegen emits
@@ -129,8 +130,19 @@ exit except small fixed singletons (those are suppressed in
 - ✅ clean baseline: `array_pop`, `array_remove`, `map_overwrite`,
   `map_delete`, `nested_literal`, `spawn_join`.
 
-Next agent: `try_unwind` is the highest-yield next fix (clear root
-cause, visible in emitted C, big blast radius — exception unwind
-leaking is the Witchgrid-CP-per-request shape). Then instrument for
-`closure_capture`. Keep one-construct-per-commit; bump toward 2.5.0
-once the worklist is drained + a full `make stress-lsan` is green.
+Worklist for the next agent (both are real design effort — do NOT
+rush them; land each as its own deliberate commit):
+1. `throw_indirect` — intermediate-frame unwind leak. Decide the
+   model: per-call-site setjmp + frame cleanup + re-throw, vs a
+   runtime scope-cleanup registration stack `hml_throw` unwinds.
+   The latter is cleaner and also subsumes the throwing-frame fix.
+2. `closure_capture` — instrument first (env-gated retain/release
+   trace by type, or valgrind --massif) to pin whether the
+   `HmlClosureEnv` or the array is stuck and at what refcount;
+   suspect `HmlFunction` pooling (`value.c` fn_pool_*). Fix, then
+   the throwing-frame `try_unwind` fix already shipped means the
+   exception path is half-done — finishing `throw_indirect` closes
+   the big one.
+Shipped so far: `string_ops`, `try_unwind` (throwing-frame).
+Keep one-construct-per-commit; cut 2.5.0 once the worklist is
+drained and a full `make stress-lsan` is green.
