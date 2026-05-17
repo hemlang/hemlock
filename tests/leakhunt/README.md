@@ -114,35 +114,51 @@ exit except small fixed singletons (those are suppressed in
   setjmp + frame-local cleanup + re-throw, or a runtime scope-cleanup
   registration stack that `hml_throw` unwinds. Real design effort —
   land deliberately, not rushed. Repro: `throw_indirect_leak.hml`.
-- ⏳ `closure_capture` — leak is real (2000 `hml_val_array` per run)
-  but a careful static refcount trace of the emitted C + the runtime
-  closure-env path comes out **balanced**: codegen emits
-  `hml_release(&cap)` and `hml_release(&f)`; `hml_closure_env_set`
-  retains, `function_free` → `hml_closure_env_release` →
-  `hml_closure_env_free` releases captures. The imbalance is a subtle
-  runtime interaction (suspect: `HmlFunction` pooling — `fn_pool_*` in
-  `value.c` ~114-156 — recycling a pooled function without the env
-  fully released, or an env double-own). Static reading has hit
-  diminishing returns; next step is **empirical**: env-gated
-  retain/release tracing keyed by object type, or valgrind --massif,
-  to see whether it's the `HmlClosureEnv` or the array that's stuck
-  and at what refcount. Do this before more code reading.
+- ✅ `closure_capture` — **FIXED & shipped**. Closure-prologue
+  `hml_closure_env_get` retains each capture; its release was emitted
+  only by an explicit loop at the implicit fall-through return, so
+  explicit `return`/`throw` left it as dead code after `return`.
+  Instrumentation proved the env lifecycle was balanced
+  (env_new==env_free==2000) — the capture array was over-retained.
+  Fixed by releasing captures inside `codegen_emit_local_cleanup`
+  (the one helper all exit paths call), guarded by
+  `ctx->current_closure`; removed the redundant explicit loop.
+  Verified PASS, full sweep no regression, regression-locked
+  `tests/stress/closure_capture_leak.hml`. (commit 881b5c1b)
 - ✅ clean baseline: `array_pop`, `array_remove`, `map_overwrite`,
   `map_delete`, `nested_literal`, `spawn_join`.
 
-Worklist for the next agent (both are real design effort — do NOT
-rush them; land each as its own deliberate commit):
-1. `throw_indirect` — intermediate-frame unwind leak. Decide the
-   model: per-call-site setjmp + frame cleanup + re-throw, vs a
-   runtime scope-cleanup registration stack `hml_throw` unwinds.
-   The latter is cleaner and also subsumes the throwing-frame fix.
-2. `closure_capture` — instrument first (env-gated retain/release
-   trace by type, or valgrind --massif) to pin whether the
-   `HmlClosureEnv` or the array is stuck and at what refcount;
-   suspect `HmlFunction` pooling (`value.c` fn_pool_*). Fix, then
-   the throwing-frame `try_unwind` fix already shipped means the
-   exception path is half-done — finishing `throw_indirect` closes
-   the big one.
-Shipped so far: `string_ops`, `try_unwind` (throwing-frame).
-Keep one-construct-per-commit; cut 2.5.0 once the worklist is
-drained and a full `make stress-lsan` is green.
+Current sweep: **9 pass, 1 leak** (`throw_indirect` only).
+
+The one remaining item — a real design effort, land it as its own
+deliberate, reviewed change, NOT rushed:
+
+`throw_indirect` — intermediate-frame unwind leak. `hml_throw`
+longjmps straight to the nearest `try`'s setjmp, skipping every C
+frame in between, so heap locals in caller frames between the throw
+and the catch are never released. A throw-site or return-path emit
+*cannot* fix this (the throw site doesn't know callers' locals).
+Two models:
+  - **Per-function setjmp shim**: every function with cleanup that
+    can propagate a throw pushes its own HmlExceptionContext +
+    setjmp; on a propagating throw it runs codegen_emit_local_cleanup
+    then `hml_exception_pop()` + re-`hml_throw`. Frame-by-frame
+    unwind. Correct, localized to codegen, no runtime ABI change,
+    but a setjmp per such call. Mirrors the throwing-frame fix
+    pattern (codegen_emit_local_cleanup is already the one cleanup
+    home — closure captures + body locals + shared env all route
+    through it now, so the shim just calls it).
+  - **Runtime scope-cleanup registration stack**: scopes register
+    cleanup records; `hml_throw` walks+runs them up to the target.
+    Cleaner conceptually but adds normal-path register/deregister
+    cost and a runtime ABI change.
+  Recommendation: the setjmp-shim — it composes with the now-unified
+  `codegen_emit_local_cleanup` and needs no runtime change. Scope it
+  to functions that (have heap locals OR captures OR a shared env)
+  AND contain a call that can throw. Verify with
+  `tests/leakhunt/throw_indirect_leak.hml` + a full sweep + a full
+  `make stress-lsan`.
+
+Shipped: `string_ops`, `try_unwind` (throwing-frame),
+`closure_capture`. Cut 2.5.0 once `throw_indirect` lands and a full
+`make stress-lsan` is green. Keep one-construct-per-commit.
