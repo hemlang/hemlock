@@ -467,6 +467,26 @@ void codegen_emit_local_cleanup(CodegenContext *ctx, const char *skip_var) {
     if (ctx->shared_env_name) {
         codegen_writeln(ctx, "hml_closure_env_release(%s);", ctx->shared_env_name);
     }
+    // Release closure captures on EVERY function-exit path. Captures
+    // are env_get'd (retained) at the closure-body prologue and are
+    // marked no-cleanup, so the body-local loop above skips them.
+    // They were previously released only by an explicit loop at the
+    // implicit fall-through return in codegen_program.c — so any
+    // explicit `return` (or `throw`, which now also routes here)
+    // leaked every capture. codegen_emit_local_cleanup is called by
+    // all exit paths, and ctx->current_closure is non-NULL only while
+    // generating a closure body, so this is the correct single home.
+    // skip_var protects a captured value that is itself being
+    // returned (codegen_expr already returned a retained copy).
+    if (ctx->current_closure) {
+        for (int i = 0; i < ctx->current_closure->num_captured; i++) {
+            const char *cv = ctx->current_closure->captured_vars[i];
+            if (skip_var && strcmp(cv, skip_var) == 0) continue;
+            char *safe = codegen_sanitize_ident(cv);
+            codegen_writeln(ctx, "hml_release(&%s);", safe);
+            free(safe);
+        }
+    }
 }
 
 // Shadow variable tracking (locals that shadow main vars, like catch params)

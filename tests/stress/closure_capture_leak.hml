@@ -1,0 +1,32 @@
+// Regression: a closure leaked every captured value on each call.
+// The closure-body prologue emits `cap = hml_closure_env_get(env,i)`
+// which RETAINS the capture; its matching release was emitted only
+// by an explicit loop at the function's implicit fall-through return
+// (codegen_program.c). Any explicit `return` (or `throw`) hit
+// codegen_emit_local_cleanup and returned BEFORE that loop, so the
+// release was dead code after `return` — every closure invocation
+// orphaned one ref on each captured value. A `let f = fn() {...}`
+// called per request bled the Witchgrid control plane.
+//
+// Fixed by releasing captures inside codegen_emit_local_cleanup
+// (the single helper every exit path — return/throw/fall-through —
+// already calls), guarded by ctx->current_closure, and deleting the
+// now-redundant explicit loop. Also fixes captures leaking on throw.
+//
+// Found by tests/leakhunt. Bounded + finite so LeakSanitizer reports
+// at exit; run via `run_stress.sh lsan`. Must leak nothing per call.
+fn run(): i64 {
+	let cap = ["item", "tail"];
+	let tag = "id-" + cap.length;
+	let f = fn(): i64 { return cap.length + tag.length; };
+	// explicit return from the closure-capturing function AND the
+	// closure itself (both early-return paths that used to leak)
+	return f() + f();
+}
+let round = 0;
+let sink = 0;
+while (round < 2000) {
+	sink = sink + run();
+	round = round + 1;
+}
+print("closure_capture_leak: ok sink=" + sink);

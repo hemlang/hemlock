@@ -315,15 +315,13 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
         codegen_writeln(ctx, "hml_defer_execute_all();");
     }
 
-    // Release body-local variables before returning
+    // Release body-local variables, shared env, AND captures before
+    // returning. Captures used to be released by an explicit loop
+    // here, but that meant explicit `return`/`throw` (which call
+    // codegen_emit_local_cleanup but never reached this fall-through)
+    // leaked them. codegen_emit_local_cleanup now releases captures
+    // on all exit paths; the old loop here would double-free.
     codegen_emit_local_cleanup(ctx, NULL);
-
-    // Release captured variables before return
-    for (int i = 0; i < closure->num_captured; i++) {
-        char *safe_cap = codegen_sanitize_ident(closure->captured_vars[i]);
-        codegen_writeln(ctx, "hml_release(&%s);", safe_cap);
-        free(safe_cap);
-    }
 
     // Decrement call depth and return
     if (ctx->stack_check) {
