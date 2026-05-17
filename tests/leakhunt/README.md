@@ -97,12 +97,40 @@ exit except small fixed singletons (those are suppressed in
 
 ## Status (update as you go)
 
-- ✅ `string_ops` — `hml_string_split` orphaned creation refs. Fixed,
-  regression-locked (`tests/stress/string_split_leak.hml`).
-- ⏳ `closure_capture` — closure value + its `HmlClosureEnv` (holding
-  the captured array) never released at block exit. Root-caused;
-  codegen fix pending.
-- ⏳ `try_unwind` — `big`/`o` + contents not released on the `throw`
-  path (11 leak blocks). Pending.
+- ✅ `string_ops` — `hml_string_split` orphaned creation refs (3 push
+  sites). Fixed in `runtime/src/builtins_string.c`, regression-locked
+  (`tests/stress/string_split_leak.hml`), committed.
+- ⏳ `try_unwind` — **codegen exception-unwind leak**, root-caused:
+  emitted `hml_fn_boom` allocates `big` (array) + `o` (object), then
+  on the throw branch emits `hml_throw(_tmp19)` with both still live
+  and **no release before it**. `hml_throw` longjmps, so the normal-
+  path local releases never run → `big`+`o`+contents leak per throw.
+  Fix: the `throw` codegen must emit the same live-local scope cleanup
+  that `return`/`break` do (see `codegen_stmt.c` `STMT_TRY` +
+  `codegen_emit_return_try_pops`/`codegen_emit_break_try_pops`; the
+  throw path needs the analogous release-then-unwind). Non-trivial
+  (needs the scope's live heap-local set at the throw point) — land it
+  deliberately as its own commit. The `tests/memory/regression`
+  "exception safety" tests show this class has prior partial work to
+  extend, not start from scratch.
+- ⏳ `closure_capture` — leak is real (2000 `hml_val_array` per run)
+  but a careful static refcount trace of the emitted C + the runtime
+  closure-env path comes out **balanced**: codegen emits
+  `hml_release(&cap)` and `hml_release(&f)`; `hml_closure_env_set`
+  retains, `function_free` → `hml_closure_env_release` →
+  `hml_closure_env_free` releases captures. The imbalance is a subtle
+  runtime interaction (suspect: `HmlFunction` pooling — `fn_pool_*` in
+  `value.c` ~114-156 — recycling a pooled function without the env
+  fully released, or an env double-own). Static reading has hit
+  diminishing returns; next step is **empirical**: env-gated
+  retain/release tracing keyed by object type, or valgrind --massif,
+  to see whether it's the `HmlClosureEnv` or the array that's stuck
+  and at what refcount. Do this before more code reading.
 - ✅ clean baseline: `array_pop`, `array_remove`, `map_overwrite`,
   `map_delete`, `nested_literal`, `spawn_join`.
+
+Next agent: `try_unwind` is the highest-yield next fix (clear root
+cause, visible in emitted C, big blast radius — exception unwind
+leaking is the Witchgrid-CP-per-request shape). Then instrument for
+`closure_capture`. Keep one-construct-per-commit; bump toward 2.5.0
+once the worklist is drained + a full `make stress-lsan` is green.
