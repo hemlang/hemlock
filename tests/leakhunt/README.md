@@ -152,9 +152,36 @@ Two models:
     cleanup records; `hml_throw` walks+runs them up to the target.
     Cleaner conceptually but adds normal-path register/deregister
     cost and a runtime ABI change.
-  Recommendation: the setjmp-shim. FULL SPEC (mechanical, not
-  research — the hard part, exception-value ownership across the
-  re-throw, is solved below):
+  ⚠️ INFEASIBILITY FINDING (verified by attempting it): the
+  per-function setjmp-shim **does not work** with Hemlock's codegen.
+  Locals are declared at-use, frequently inside nested C blocks
+  (`if (c) { HmlValue _tmpN = ...; }`), and are never hoisted to
+  function top. A `setjmp` landing pad in the prologue cannot
+  reference them — the cleanup it would emit is textually *before*
+  the locals' declarations and in outer scope → does not compile.
+  Hoisting every local to function top to make it work is itself a
+  massive codegen change. So the setjmp-shim spec below is RETAINED
+  ONLY as a record of the dead end; do NOT pursue it.
+
+  CORRECTED DESIGN — runtime cleanup-registration stack. Key
+  enabling insight: `hml_throw` is a normal function call that runs
+  BEFORE its `longjmp`, so at that moment every intermediate C frame
+  is still alive and their locals are valid. So: maintain a
+  thread-local stack of cleanup records (each = address of a live
+  HmlValue slot, or a small per-scope batch). Codegen registers a
+  record when a cleanup-needing local goes live and deregisters on
+  normal scope exit (no run — normal cleanup already releases it).
+  `hml_throw`, before `longjmp`, walks the registration stack from
+  the top down to the target exception context and `hml_release`s
+  each registered slot. No landing pad, no locals-in-scope problem,
+  composes with the existing exception-context stack. Costs a
+  register/deregister per cleanup-needing local on the normal path
+  (batch per scope to amortize). This is a runtime-ABI + every-scope
+  codegen change — its own deliberate effort with the full
+  validation gate set below. `hml_rethrow` is NOT needed in this
+  design (no re-throw; cleanup happens in-place before the longjmp).
+
+  (DEAD-END REFERENCE — setjmp-shim, do not implement:)
 
   1. New runtime primitive (runtime/src/builtins_func.c +
      hemlock_runtime.h), a move-semantics sibling of hml_throw —
