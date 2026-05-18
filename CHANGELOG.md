@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.2] - 2026-05-18
+
+Regression fix. **2.5.0 and 2.5.1 are broken — upgrade to 2.5.2.** The closure-capture (`881b5c1b`) and throw-unwind (`a3f55089`) codegen leak fixes in 2.5.0 were validated only against the leak harness, not the parity/language suite, and generated invalid C (`hml_release(&x)` for identifiers not in lexical scope) for several exception / closure / scope constructs — the compiler **failed to compile** `exceptions`, `error_handling`, `error_catchable`, `nested_exceptions`, `try_early_exit`, `closure_scoping`, `nested_scopes`, `scope_shadowing` (CI red, notably macOS).
+
+### Fixed
+
+- **Reverted both mis-scoped codegen leak fixes** (`881b5c1b`, `a3f55089`). Root cause: both routed capture/local releases through `codegen_emit_local_cleanup`, which is called from many scopes — emitting `hml_release` for variables whose C declarations only exist inside the closure body / a different scope, so the generated C did not compile. Reverted to restore correctness; full parity re-validated at **259/259 (100%)**, zero compile failures, zero output differences.
+
+### Retained (unaffected by the revert)
+
+- The **`@stdlib/sqlite` bind-leak fix** (2.5.1) and the earlier 2.5.0 leak fixes (`for-in`/`obj.keys()`, indexed-assignment RHS temp, `string.split`, JSON `is_pooled`, immortal-string-pool UAF, concurrent `obj[key]` corruption) are stdlib/runtime or independent codegen fixes, not implicated in the compile failures, and remain — parity-clean.
+
+### Known issues
+
+- The closure-capture-on-explicit-return and throw-unwind local leaks are **back to known-issue status** (as before 2.5.0), alongside `throw_indirect`. They need a correctly-scoped reimplementation (release at the closure-body / throwing-function exit where the C vars are in scope, NOT in the universally-called cleanup helper) and **must be validated against the full parity suite**, not just the leak harness, before re-landing.
+
 ## [2.5.1] - 2026-05-18
 
 Patch on 2.5.0's memory-correctness work. After 2.5.0 the leakhunt synthetic corpus showed the common per-request *codegen* paths were clean, yet the Witchgrid control plane was still growing. Instrumenting the **real `cp.hml` binary** under LeakSanitizer (the synthetic loop was deliberately set aside as too generic for this) pinpointed the dominant remaining bleed in the stdlib, not codegen.
