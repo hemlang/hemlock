@@ -332,6 +332,20 @@ export fn total_changes(db: Database): i32 {
 // ============================================================================
 
 // Bind a value to a prepared statement
+// SQLite string/blob binds need the value to outlive sqlite3_step.
+// We were passing destructor=null (SQLITE_STATIC: SQLite neither
+// copies nor frees) and never freeing the malloc'd cstr/blob — a leak
+// on EVERY string/blob-bound parameter (the dominant Witchgrid CP
+// bleed: every parameterized query). Instead pass libc free, wrapped
+// once as a C-callable destructor: SQLite then calls it with the
+// pointer exactly when it's done with the value (after step / finalize
+// / reset / rebind), freeing it once at the correct time. This fixes
+// all bind_value callers (exec/query/query_value + the stmt_* API,
+// including stmt_bind's cross-call lifetime) with no caller changes
+// and no use-after-free (SQLite controls the timing).
+fn __sqlite_free_destructor(p: ptr): null { free(p); return null; }
+let SQLITE_FREE = __callback(__sqlite_free_destructor, ["ptr"], "void");
+
 fn bind_value(stmt, idx, value) {
 	let t = typeof(value);
 
@@ -376,8 +390,9 @@ fn bind_value(stmt, idx, value) {
 		let str_cstr = __string_to_cstr(value);
 		let bytes = value.bytes();
 		let len = bytes.length;
-		// Use SQLITE_STATIC (null) - the string will remain valid until sqlite3_step completes
-		let result = sqlite3_bind_text(stmt, idx, str_cstr, len, null);
+		// SQLite owns str_cstr now and frees it via SQLITE_FREE when
+		// the statement no longer needs it (after step/finalize/reset).
+		let result = sqlite3_bind_text(stmt, idx, str_cstr, len, SQLITE_FREE);
 		return result;
 	}
 
@@ -390,8 +405,9 @@ fn bind_value(stmt, idx, value) {
 			memset(blob_ptr + i, byte_val, 1);
 			i = i + 1;
 		}
-		// Use SQLITE_STATIC (null) - the blob will remain valid until sqlite3_step completes
-		let result = sqlite3_bind_blob(stmt, idx, blob_ptr, len, null);
+		// SQLite owns blob_ptr now and frees it via SQLITE_FREE when
+		// the statement no longer needs it (after step/finalize/reset).
+		let result = sqlite3_bind_blob(stmt, idx, blob_ptr, len, SQLITE_FREE);
 		return result;
 	}
 
