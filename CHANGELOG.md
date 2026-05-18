@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-05-18
+
+Patch on 2.5.0's memory-correctness work. After 2.5.0 the leakhunt synthetic corpus showed the common per-request *codegen* paths were clean, yet the Witchgrid control plane was still growing. Instrumenting the **real `cp.hml` binary** under LeakSanitizer (the synthetic loop was deliberately set aside as too generic for this) pinpointed the dominant remaining bleed in the stdlib, not codegen.
+
+### Fixed
+
+- **`@stdlib/sqlite` leaked a C string/blob on every parameterized query.** `bind_value` allocated a cstr via `__string_to_cstr` (or a blob via `alloc`) for each string/blob parameter and passed `destructor = null` to `sqlite3_bind_text`/`sqlite3_bind_blob` — that's `SQLITE_STATIC`: SQLite neither copies nor frees the buffer, and the binding never freed it. Every query with a string/blob parameter leaked. With a server hitting sqlite on essentially every request (the Witchgrid CP: `/register` upserts, resolve lookups, dashboard sample fetches) this was the dominant production bleed — LSan on the real CP under representative load showed `hml_string_to_cstr ← bind_value ← exec`/`query` as the top allocation site (~756 KB / ~40 K objects per 600 requests). Fixed by wrapping libc `free` once as a C-callable destructor (`__callback(__sqlite_free_destructor, ["ptr"], "void")`) and passing it as the bind destructor: SQLite now frees each value itself exactly when it's done with it (after step / finalize / reset / rebind). Fixes all six `bind_value` callers — `exec`, `query`, `query_value`, and the prepared-`Statement` API including the cross-call `stmt_bind` — with no caller changes, and ASan-verified to introduce no use-after-free / double-free.
+
+### Known issues (characterized, tracked)
+
+- The real-CP LSan run also pinpointed further **stdlib/runtime** ownership leaks (codegen ruled out — synthetic repros of the same shapes are clean): `@stdlib/http` leaks a string per request, `hml_spawn` leaks the `hml_value_deep_copy` of task args per spawned task, `@stdlib/net`'s `_TcpStream_from_socket` leaks an object per accepted connection, and `getenv` via `shared_secret` leaks per call. These are the subject of an in-progress stdlib-wide leak audit; each is a contained ownership fix in the same vein as the sqlite one. `throw_indirect` (intermediate-frame unwind) remains as in 2.5.0.
+
 ## [2.5.0] - 2026-05-17
 
 A memory-correctness release. Driven by the Witchgrid control plane bleeding hundreds of MB over days in production, this is a sustained refcount/ownership audit of the compiled runtime: a per-construct LeakSanitizer harness was built to isolate codegen leaks (generated C has no `#line` info, so whole-program leak reports are unactionable — each micro-repro exercises one construct so a hit maps to one codegen path), and the backlog was drained construct by construct. Net effect: the long-running per-request bleed is root-caused and fixed across the for-in, indexed-assignment, string, exception, and closure-capture paths, plus two concurrency UAF/corruption fixes. One exception-unwind leak remains, characterized and deferred (see Known limitations).
