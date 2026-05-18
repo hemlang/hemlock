@@ -74,14 +74,25 @@ void hml_free(HmlValue ptr_or_buffer) {
             free(ptr_or_buffer.as.as_ptr);
         }
     } else if (ptr_or_buffer.type == HML_VAL_BUFFER) {
-        if (ptr_or_buffer.as.as_buffer) {
-            if (ptr_or_buffer.as.as_buffer->parent) {
+        HmlBuffer *b = ptr_or_buffer.as.as_buffer;
+        if (b) {
+            if (b->parent) {
                 hml_runtime_error("cannot free() a buffer slice view");
             }
-            if (ptr_or_buffer.as.as_buffer->data) {
-                free(ptr_or_buffer.as.as_buffer->data);
+            // Free the (potentially large) backing allocation now, but do
+            // NOT free the HmlBuffer handle and do NOT touch ref_count: the
+            // value is still reachable by the refcount system (a top-level
+            // `let` released via hml_release_statics at exit, or ordinary
+            // local scope cleanup), and that path calls buffer_free() on
+            // this same struct. Freeing it here too is a double-free +
+            // use-after-free — silent under glibc, fatal under macOS
+            // libsystem_malloc. Nulling data makes the later buffer_free()
+            // a safe no-op and a repeated free() idempotent.
+            if (b->data) {
+                free(b->data);
+                b->data = NULL;
             }
-            free(ptr_or_buffer.as.as_buffer);
+            b->length = 0;
         }
     } else if (ptr_or_buffer.type == HML_VAL_ARRAY) {
         if (ptr_or_buffer.as.as_array) {

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.3] - 2026-05-18
+
+macOS heap-corruption fix. Explicit `free()` of a refcount-managed buffer was a **double-free + use-after-free**: `hml_free()` on a `HML_VAL_BUFFER` freed both the backing data *and* the `HmlBuffer` struct, but the value is still owned by the refcount system — a top-level `let buf = buffer(N)` is released by `hml_release_statics()` at process exit (and locals by ordinary scope cleanup), and that path calls `buffer_free()` on the same struct, freeing `buf->data` and `buf` a second time. glibc silently tolerates it (Linux parity stayed green, masking the bug); macOS `libsystem_malloc` (`find_zone_and_free`) aborts with `SIGABRT`. The 2.5.2 fatal-signal backtrace handler made it loud, so it surfaced as parity divergence: programs printed the correct output, then dumped a crash trace on exit.
+
+### Fixed
+
+- **`runtime/src/builtins_memory.c` — `hml_free()` buffer branch.** Now frees only the backing allocation, sets `data = NULL` / `length = 0`, and leaves the `HmlBuffer` handle to the refcount system. The later `buffer_free()` (and any repeated `free()`) becomes a safe no-op — the struct is freed exactly once, the backing exactly once. No semantic change: explicit `free(buf)` still releases the large allocation immediately; the small handle is reclaimed at end of life.
+- Eliminated all 8 macOS interpreter-only parity divergences (`buffers`, `memory`, `buffer_slice`, `buffer_typed_rw`, `file_read_binary`, `ptr_buffer_direct`, `type_checking`, `write_file_buffer`). Linux full parity unchanged at **259/259, 0 interpreter-only**; macOS interpreter-only **8 → 0**. Found by building 2.5.2 on macOS arm64 and reading the `SIGABRT` backtrace (`buffer_free ← hml_release ← hml_release_statics ← main`).
+
 ## [2.5.2] - 2026-05-18
 
 Regression fix. **2.5.0 and 2.5.1 are broken — upgrade to 2.5.2.** The closure-capture (`881b5c1b`) and throw-unwind (`a3f55089`) codegen leak fixes in 2.5.0 were validated only against the leak harness, not the parity/language suite, and generated invalid C (`hml_release(&x)` for identifiers not in lexical scope) for several exception / closure / scope constructs — the compiler **failed to compile** `exceptions`, `error_handling`, `error_catchable`, `nested_exceptions`, `try_early_exit`, `closure_scoping`, `nested_scopes`, `scope_shadowing` (CI red, notably macOS).
