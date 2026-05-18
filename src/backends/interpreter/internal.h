@@ -202,6 +202,13 @@ int object_lookup_field_with_hash(Object *obj, const char *name, uint32_t hash);
 int object_validate_ic(Object *obj, int cached_idx, const char *name);  // Validate IC cache entry
 int object_hash_insert(Object *obj, const char *name, int field_index);  // Insert field into hash table
 
+// Set to 1 (monotonic, never reset) the first time any async task is
+// spawned. The per-AST-node property inline cache is shared across all
+// spawned task threads and is unsynchronized; once concurrency is
+// possible the cache fast-path must be bypassed. Accessed via
+// __atomic_* (SEQ_CST). Defined in builtins/concurrency.c.
+extern int g_interp_has_spawned;
+
 // Value cleanup and reference counting
 void value_free(Value val);
 

@@ -769,29 +769,44 @@ static void object_hash_rebuild(Object *obj) {
 
 // Look up field index by name, returns -1 if not found
 int object_lookup_field(Object *obj, const char *name) {
-    // Lazy hash table creation: if no hash table and we have fields, build it
-    if ((!obj->hash_table || obj->hash_capacity == 0) && obj->num_fields > 0) {
-        object_hash_rebuild(obj);
+    if (obj->num_fields <= 0) {
+        return -1;  // Empty object
     }
 
-    if (!obj->hash_table || obj->hash_capacity == 0) {
-        // Still no hash table (empty object) - return not found
-        return -1;
-    }
+    // Fast path: hash table already built. Read-only — safe under
+    // concurrent reads.
+    if (obj->hash_table && obj->hash_capacity > 0) {
+        uint32_t hash = djb2_hash(name);
+        int slot = hash % obj->hash_capacity;
+        int start_slot = slot;
 
-    uint32_t hash = djb2_hash(name);
-    int slot = hash % obj->hash_capacity;
-    int start_slot = slot;
-
-    // Linear probing (using unified field storage)
-    while (obj->hash_table[slot] != -1) {
-        int idx = obj->hash_table[slot];
-        if (strcmp(obj->fields[idx].name, name) == 0) {
-            return idx;  // Found
+        // Linear probing (using unified field storage)
+        while (obj->hash_table[slot] != -1) {
+            int idx = obj->hash_table[slot];
+            if (strcmp(obj->fields[idx].name, name) == 0) {
+                return idx;  // Found
+            }
+            slot = (slot + 1) % obj->hash_capacity;
+            if (slot == start_slot) {
+                break;  // Full circle, not found
+            }
         }
-        slot = (slot + 1) % obj->hash_capacity;
-        if (slot == start_slot) {
-            break;  // Full circle, not found
+        return -1;  // Not found
+    }
+
+    // No hash table: lock-free linear scan. Does NOT mutate obj, so it
+    // is safe under concurrent reads. Deliberately does NOT lazily call
+    // object_hash_rebuild() here: object literals / JSON reach readers
+    // with hash_table == NULL, so N spawned task threads reading the
+    // same shared object would all enter object_hash_rebuild() and race
+    // on free(obj->hash_table)+malloc() — heap corruption surfacing as a
+    // bogus "key not found" (then "X has no properties") deep in a
+    // worker. This mirrors the 2.4.5 fix already applied to the compiled
+    // runtime; the interpreter copy was missed. The hash table is still
+    // built eagerly by the mutation path for the fast lookups above.
+    for (int i = 0; i < obj->num_fields; i++) {
+        if (strcmp(obj->fields[i].name, name) == 0) {
+            return i;
         }
     }
     return -1;  // Not found
@@ -800,28 +815,37 @@ int object_lookup_field(Object *obj, const char *name) {
 // Look up field index by name with pre-computed hash (for inline cache)
 // Returns field index or -1 if not found
 int object_lookup_field_with_hash(Object *obj, const char *name, uint32_t hash) {
-    // Lazy hash table creation: if no hash table and we have fields, build it
-    if ((!obj->hash_table || obj->hash_capacity == 0) && obj->num_fields > 0) {
-        object_hash_rebuild(obj);
+    if (obj->num_fields <= 0) {
+        return -1;  // Empty object
     }
 
-    if (!obj->hash_table || obj->hash_capacity == 0) {
-        // Still no hash table (empty object) - return not found
-        return -1;
-    }
+    // Fast path: hash table already built. Read-only — safe under
+    // concurrent reads.
+    if (obj->hash_table && obj->hash_capacity > 0) {
+        int slot = hash % obj->hash_capacity;
+        int start_slot = slot;
 
-    int slot = hash % obj->hash_capacity;
-    int start_slot = slot;
-
-    // Linear probing (using unified field storage)
-    while (obj->hash_table[slot] != -1) {
-        int idx = obj->hash_table[slot];
-        if (strcmp(obj->fields[idx].name, name) == 0) {
-            return idx;  // Found
+        // Linear probing (using unified field storage)
+        while (obj->hash_table[slot] != -1) {
+            int idx = obj->hash_table[slot];
+            if (strcmp(obj->fields[idx].name, name) == 0) {
+                return idx;  // Found
+            }
+            slot = (slot + 1) % obj->hash_capacity;
+            if (slot == start_slot) {
+                break;  // Full circle, not found
+            }
         }
-        slot = (slot + 1) % obj->hash_capacity;
-        if (slot == start_slot) {
-            break;  // Full circle, not found
+        return -1;  // Not found
+    }
+
+    // No hash table: lock-free linear scan — see object_lookup_field()
+    // for why we must NOT lazily object_hash_rebuild() on the read path
+    // (concurrent-reader heap corruption; the 2.4.5 compiled-runtime fix
+    // mirrored here).
+    for (int i = 0; i < obj->num_fields; i++) {
+        if (strcmp(obj->fields[i].name, name) == 0) {
+            return i;
         }
     }
     return -1;  // Not found

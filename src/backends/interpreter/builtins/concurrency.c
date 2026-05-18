@@ -5,6 +5,12 @@
 // Global task ID counter (atomic for thread-safety in concurrent spawns)
 static atomic_int next_task_id = 1;
 
+// Set once (monotonic, never reset) the first time any task thread is
+// created. Lets the shared per-AST-node property inline cache bypass its
+// unsynchronized fast-path once concurrency is possible. See internal.h
+// and runtime/expressions.c.
+int g_interp_has_spawned = 0;
+
 // Global default stack size for spawned threads (atomic for thread-safety)
 // Initialized to HML_THREAD_STACK_SIZE (16 MB) from hemlock_limits.h
 static _Atomic size_t g_default_stack_size = HML_THREAD_STACK_SIZE;
@@ -162,6 +168,7 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     pthread_attr_setstacksize(&attr, atomic_load(&g_default_stack_size));
 
     // Create thread to execute task
+    __atomic_store_n(&g_interp_has_spawned, 1, __ATOMIC_SEQ_CST);
     int rc = pthread_create((pthread_t*)task->thread, &attr, task_thread_wrapper, task);
     pthread_attr_destroy(&attr);
     if (rc != 0) {
@@ -269,6 +276,7 @@ Value builtin_spawn_with(Value *args, int num_args, ExecutionContext *ctx) {
     pthread_attr_setstacksize(&attr, stack_size);
 
     // Create thread
+    __atomic_store_n(&g_interp_has_spawned, 1, __ATOMIC_SEQ_CST);
     int rc = pthread_create((pthread_t*)task->thread, &attr, task_thread_wrapper, task);
     pthread_attr_destroy(&attr);
     if (rc != 0) {
@@ -489,7 +497,8 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
         pthread_attr_setstacksize(&attr, atomic_load(&g_default_stack_size));
 
         // Create thread to execute task
-        int rc = pthread_create((pthread_t*)task->thread, &attr, task_thread_wrapper, task);
+        __atomic_store_n(&g_interp_has_spawned, 1, __ATOMIC_SEQ_CST);
+    int rc = pthread_create((pthread_t*)task->thread, &attr, task_thread_wrapper, task);
         pthread_attr_destroy(&attr);
         if (rc != 0) {
             runtime_error(ctx, "Failed to create thread: %d", rc);

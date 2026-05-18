@@ -286,51 +286,73 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             } else if (object.type == VAL_OBJECT) {
                 // Look up field in object using inline cache or hash table
                 Object *obj = object.as.as_object;
-                PropertyIC *ic = &expr->as.get_property.ic;
-                int idx = -1;
+                int idx;
 
-                // INLINE CACHE FAST PATH:
-                // If we're accessing the same object and the cache is valid, use cached index
-                if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
-                    ic->cached_object == (void*)obj &&
-                    ic->cached_field_index >= 0) {
-                    // Validate the cached index still points to the correct field
-                    if (object_validate_ic(obj, ic->cached_field_index, property)) {
-                        idx = ic->cached_field_index;  // Cache hit!
-                    } else {
-                        // Cache is stale (object was modified), invalidate
-                        ic->ic_state = HML_IC_STATE_UNINITIALIZED;
-                        ic->cached_object = NULL;
-                        ic->cached_field_index = -1;
+                // The per-AST-node property inline cache (expr->...ic) is
+                // SHARED across every spawned task thread — the interpreter
+                // runs async tasks as real pthreads over one AST — and is
+                // mutated on every access with no synchronization. Concurrent
+                // threads race on the (cached_object, cached_field_index,
+                // ic_state) group and resolve a TORN pair, so
+                // obj->fields[idx] reads the wrong/garbage field; it surfaces
+                // far away as e.g. "Only strings, buffers, arrays, and objects
+                // have properties" inside a worker. Once any task has been
+                // spawned, bypass the cache entirely and do the lock-free
+                // read-only lookup (object_lookup_field_with_hash does not
+                // mutate obj — see the 2.4.5 object-hash thread-safety work);
+                // we neither read nor write the shared IC, so no race.
+                // Single-threaded programs keep the fast path unchanged (no
+                // perf regression — the IC only matters single-threaded, and
+                // correctness wins over a micro-opt that corrupts results).
+                if (__atomic_load_n(&g_interp_has_spawned, __ATOMIC_SEQ_CST)) {
+                    idx = object_lookup_field_with_hash(obj, property, hash_string(property));
+                } else {
+                    PropertyIC *ic = &expr->as.get_property.ic;
+                    idx = -1;
+
+                    // INLINE CACHE FAST PATH:
+                    // If we're accessing the same object and the cache is valid, use cached index
+                    if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                        ic->cached_object == (void*)obj &&
+                        ic->cached_field_index >= 0) {
+                        // Validate the cached index still points to the correct field
+                        if (object_validate_ic(obj, ic->cached_field_index, property)) {
+                            idx = ic->cached_field_index;  // Cache hit!
+                        } else {
+                            // Cache is stale (object was modified), invalidate
+                            ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+                            ic->cached_object = NULL;
+                            ic->cached_field_index = -1;
+                        }
                     }
-                }
 
-                // CACHE MISS: Do full lookup and update cache
-                if (idx < 0) {
-                    // Compute hash if not cached
-                    if (ic->cached_hash == 0) {
-                        ic->cached_hash = hash_string(property);
-                    }
-                    idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
+                    // CACHE MISS: Do full lookup and update cache
+                    if (idx < 0) {
+                        // Compute hash if not cached
+                        if (ic->cached_hash == 0) {
+                            ic->cached_hash = hash_string(property);
+                        }
+                        idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
 
-                    // Update inline cache if not megamorphic
-                    if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
-                        if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
-                            // First access - initialize cache
-                            ic->cached_object = (void*)obj;
-                            ic->cached_field_index = idx;
-                            ic->ic_state = HML_IC_STATE_MONOMORPHIC;
-                            ic->miss_count = 0;
-                        } else if (ic->cached_object != (void*)obj) {
-                            // Different object - this is polymorphic
-                            ic->miss_count++;
-                            if (ic->miss_count >= HML_IC_MAX_MISSES) {
-                                // Too many different objects, go megamorphic
-                                ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
-                            } else {
-                                // Update cache to new object
+                        // Update inline cache if not megamorphic
+                        if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                            if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                                // First access - initialize cache
                                 ic->cached_object = (void*)obj;
                                 ic->cached_field_index = idx;
+                                ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                                ic->miss_count = 0;
+                            } else if (ic->cached_object != (void*)obj) {
+                                // Different object - this is polymorphic
+                                ic->miss_count++;
+                                if (ic->miss_count >= HML_IC_MAX_MISSES) {
+                                    // Too many different objects, go megamorphic
+                                    ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                                } else {
+                                    // Update cache to new object
+                                    ic->cached_object = (void*)obj;
+                                    ic->cached_field_index = idx;
+                                }
                             }
                         }
                     }
@@ -966,51 +988,65 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
 
             Object *obj = object.as.as_object;
-            PropertyIC *ic = &expr->as.set_property.ic;
-            int idx = -1;
+            int idx;
 
-            // INLINE CACHE FAST PATH:
-            // If we're accessing the same object and the cache is valid, use cached index
-            if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
-                ic->cached_object == (void*)obj &&
-                ic->cached_field_index >= 0) {
-                // Validate the cached index still points to the correct field
-                if (object_validate_ic(obj, ic->cached_field_index, property)) {
-                    idx = ic->cached_field_index;  // Cache hit!
-                } else {
-                    // Cache is stale (object was modified), invalidate
-                    ic->ic_state = HML_IC_STATE_UNINITIALIZED;
-                    ic->cached_object = NULL;
-                    ic->cached_field_index = -1;
+            // Same shared-AST-node inline-cache race as the property READ
+            // path above: expr->as.set_property.ic is shared across all
+            // spawned task threads and mutated unsynchronized. Once any
+            // task has been spawned, bypass the cache and do the lock-free
+            // read-only field lookup (the actual field store below is the
+            // caller's responsibility to serialize, exactly as before —
+            // this only removes the torn-IC misresolution). Single-threaded
+            // keeps the fast path unchanged.
+            if (__atomic_load_n(&g_interp_has_spawned, __ATOMIC_SEQ_CST)) {
+                idx = object_lookup_field_with_hash(obj, property, hash_string(property));
+            } else {
+                PropertyIC *ic = &expr->as.set_property.ic;
+                idx = -1;
+
+                // INLINE CACHE FAST PATH:
+                // If we're accessing the same object and the cache is valid, use cached index
+                if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                    ic->cached_object == (void*)obj &&
+                    ic->cached_field_index >= 0) {
+                    // Validate the cached index still points to the correct field
+                    if (object_validate_ic(obj, ic->cached_field_index, property)) {
+                        idx = ic->cached_field_index;  // Cache hit!
+                    } else {
+                        // Cache is stale (object was modified), invalidate
+                        ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+                        ic->cached_object = NULL;
+                        ic->cached_field_index = -1;
+                    }
                 }
-            }
 
-            // CACHE MISS: Do full lookup and update cache
-            if (idx < 0) {
-                // Compute hash if not cached
-                if (ic->cached_hash == 0) {
-                    ic->cached_hash = hash_string(property);
-                }
-                idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
+                // CACHE MISS: Do full lookup and update cache
+                if (idx < 0) {
+                    // Compute hash if not cached
+                    if (ic->cached_hash == 0) {
+                        ic->cached_hash = hash_string(property);
+                    }
+                    idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
 
-                // Update inline cache if field exists and not megamorphic
-                if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
-                    if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
-                        // First access - initialize cache
-                        ic->cached_object = (void*)obj;
-                        ic->cached_field_index = idx;
-                        ic->ic_state = HML_IC_STATE_MONOMORPHIC;
-                        ic->miss_count = 0;
-                    } else if (ic->cached_object != (void*)obj) {
-                        // Different object - this is polymorphic
-                        ic->miss_count++;
-                        if (ic->miss_count >= HML_IC_MAX_MISSES) {
-                            // Too many different objects, go megamorphic
-                            ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
-                        } else {
-                            // Update cache to new object
+                    // Update inline cache if field exists and not megamorphic
+                    if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                        if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                            // First access - initialize cache
                             ic->cached_object = (void*)obj;
                             ic->cached_field_index = idx;
+                            ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                            ic->miss_count = 0;
+                        } else if (ic->cached_object != (void*)obj) {
+                            // Different object - this is polymorphic
+                            ic->miss_count++;
+                            if (ic->miss_count >= HML_IC_MAX_MISSES) {
+                                // Too many different objects, go megamorphic
+                                ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                            } else {
+                                // Update cache to new object
+                                ic->cached_object = (void*)obj;
+                                ic->cached_field_index = idx;
+                            }
                         }
                     }
                 }
@@ -1056,11 +1092,16 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // Insert new field into hash table (grows table if needed, avoids full rebuild)
             object_hash_insert(obj, property, new_field_index);
 
-            // Update inline cache to point to the new field
-            ic->ic_state = HML_IC_STATE_MONOMORPHIC;
-            ic->cached_object = (void*)obj;
-            ic->cached_field_index = new_field_index;
-            ic->miss_count = 0;
+            // Update inline cache to point to the new field (single-threaded
+            // only — see the gate above; the shared IC must not be written
+            // once any task has been spawned).
+            if (!__atomic_load_n(&g_interp_has_spawned, __ATOMIC_SEQ_CST)) {
+                PropertyIC *ic = &expr->as.set_property.ic;
+                ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                ic->cached_object = (void*)obj;
+                ic->cached_field_index = new_field_index;
+                ic->miss_count = 0;
+            }
 
             // Return the value (retained for caller)
             VALUE_RETAIN(value);

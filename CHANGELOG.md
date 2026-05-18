@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.5] - 2026-05-18
+
+Interpreter concurrency fix — corrupted reads of a shared object from spawned tasks. A program that `spawn`s tasks which concurrently read a shared object tree (the Witchgrid dashboard's `render_capabilities()` shape — a stress test models it) intermittently threw `Only strings, buffers, arrays, and objects have properties` deep in a worker.
+
+### Fixed
+
+- **`src/backends/interpreter/values.c` — `object_lookup_field()` / `object_lookup_field_with_hash()` lazily rebuilt the hash table on the READ path.** Object literals / JSON reach readers with `hash_table == NULL`; N spawned task threads first reading the same shared object all entered `object_hash_rebuild()` and raced on `free(obj->hash_table)+malloc()` — heap corruption surfacing as a bogus "key not found", so `obj[key]` returned `null` and the next `.field` access threw. This is exactly the 2.4.5 bug — which was fixed **only in the compiled runtime**; the interpreter's copy was never given the same treatment. Fix: never rebuild on read; fall back to a lock-free, non-mutating linear scan when no hash table is present (the hash table is still built eagerly by the mutation path). Mirrors the 2.4.5 compiled-runtime fix.
+- **`src/backends/interpreter/runtime/expressions.c` (get/set property) — per-AST-node property inline cache (`PropertyIC`) is shared across all spawned task threads and was mutated unsynchronized.** Concurrent threads resolved a torn `(cached_object, cached_field_index, ic_state)` group → wrong field. Added a monotonic `g_interp_has_spawned` flag (set in `builtins/concurrency.c` before any `pthread_create`); once any task has been spawned the inline-cache fast-path is bypassed in favor of the lock-free lookup. Single-threaded programs keep the cache unchanged (no perf regression).
+
+### Validated
+
+- Repro (`tests/stress/concurrent_string_build.hml` via the interpreter): **~10% failure pre-fix → 0/50 post-fix**. Linux full parity **259/259** (0 interpreter-only, 0 compiler-only); macOS full parity at known baseline; stress suite **9/9** (`none` + `asan`). Compiled-runtime path unaffected (it already had the 2.4.5 fix). Process note: 2.5.4 validation ran parity + stress *lsan* only; the full stress suite (all modes) is now part of the gate.
+
 ## [2.5.4] - 2026-05-18
 
 Per-spawn argument leak fix — a dominant Witchgrid control-plane per-connection bleed. Every `spawn(fn, args…)` / `spawn_with(opts, fn, args…)` leaked each heap argument once per spawn.
