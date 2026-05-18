@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-05-17
+
+A memory-correctness release. Driven by the Witchgrid control plane bleeding hundreds of MB over days in production, this is a sustained refcount/ownership audit of the compiled runtime: a per-construct LeakSanitizer harness was built to isolate codegen leaks (generated C has no `#line` info, so whole-program leak reports are unactionable — each micro-repro exercises one construct so a hit maps to one codegen path), and the backlog was drained construct by construct. Net effect: the long-running per-request bleed is root-caused and fixed across the for-in, indexed-assignment, string, exception, and closure-capture paths, plus two concurrency UAF/corruption fixes. One exception-unwind leak remains, characterized and deferred (see Known limitations).
+
+### Added
+
+- **Per-construct leak-hunt harness (`tests/leakhunt/`).** A driver + single-construct `*_leak.hml` micro-repro corpus that compiles each under LSan with a cached instrumented runtime (fast fix-loop verify) and captures the full leak report per construct. `tests/leakhunt/README.md` documents the detect→localize→fix→regression-lock loop and the fix-pattern taxonomy so the audit is repeatable.
+- **Concurrency / lifetime stress harness under ASan / TSan / LSan.** `tests/stress/run_stress.sh` builds every `tests/stress/*.hml` as a native binary (refcount-exhaustion and concurrent heap-corruption bugs only manifest in the compiled runtime, not the interpreter) and runs it under an optional sanitizer; the `lsan` lane is a green regression guard for every leak fixed below.
+- **Fatal-signal backtrace handler** (`-rdynamic`) for in-place crash diagnosis — a SIGSEGV/SIGABRT now prints a symbolized backtrace instead of dying silently.
+
+### Fixed
+
+- **`for k in obj.keys()` / `for x in <call>()` leaked the entire iterable + every element on each execution.** Two compounding bugs: for-in codegen retained the iterable then released it only once, never consuming the owned `+1` the iterating expression returned (the array, its elements, and backing store all leaked); and `hml_object_keys()` pushed `hml_val_string()` temps into an array whose `push()` retains, orphaning each key string's creation ref. A dashboard rendering `caps.keys()` / `flags.keys()` per request bled multiple MB/min. The redundant for-in retain was subsequently dropped for *all* iterable kinds (ident / array-literal / index / member), not just the `obj.keys()` subcase — this was the primary multi-GB Witchgrid control-plane bleed (a `for tk in ts` per request).
+- **Indexed assignment `obj[k] = v` / `arr[i] = v` leaked the RHS temp** on every store — pervasive, since indexed assignment is ubiquitous. Codegen now releases the RHS temporary after the store retains it.
+- **`string.split(delim)` leaked every result piece.** Each part was created via `hml_val_string_owned` (refcount 1) then `hml_array_push`'d — push retains (→2) — but `split` never released the creation ref, so every piece leaked even after the result array was freed. Same orphaned-creation-ref class as the `obj.keys()` bug; all three push sites (empty-delim char split, delimiter match, trailing remainder) fixed.
+- **`throw` leaked every live heap local in the throwing function.** `STMT_THROW` emitted `hml_throw(v)` directly; `hml_throw` longjmps and never returns, so the function's normal-path local releases (the cleanup `return` runs) were skipped — every array/object/string built before the `throw` leaked, per throw, on hot error paths. `throw` codegen now emits the same scope cleanup `return` does before unwinding (the thrown value is a separately-retained copy, so it survives).
+- **Closure captures leaked on every explicit `return`/`throw` from a closure.** The closure-body prologue `hml_closure_env_get`s each capture (which retains); its matching release was emitted only by a loop at the *implicit fall-through* return, leaving it as dead code after any explicit `return`. Capture release is now centralized in the single function-exit cleanup helper that all exit paths (return / throw / fall-through) call — also fixing captures leaking on the exception path — and the redundant explicit loop removed.
+- **Hand-built JSON objects missing `is_pooled` initialization** caused a multi-GB serialization leak — objects constructed directly by the JSON path bypassed pool accounting and were never reclaimed.
+- **Immortal ASCII string pool is now frozen**, fixing a use-after-free after ~1M releases (the shared single-char/short-string pool entries could be driven to refcount 0 and freed while still globally reachable).
+- **`object_lookup_field` is now a lock-free read-only path**, fixing concurrent `obj[key]` heap corruption under multi-threaded reads.
+
+### Known limitations
+
+- **`throw_indirect`: a `throw` propagating through intermediate frames that hold heap locals leaks those frames' locals.** `hml_throw` longjmps straight to the nearest `try`'s `setjmp`, skipping every C frame in between, so a caller frame that is neither the thrower nor the catcher never releases its locals. This is narrower than the fixed leaks (only bites a heap-local-holding frame that is *skipped* by a propagating throw) but is real. It is not a leak fix but an exception-model change: a per-function `setjmp` shim is infeasible (Hemlock declares locals at-use, often in nested scopes — a prologue landing pad cannot reference them), and the correct approach is a runtime cleanup-registration stack walked by `hml_throw` before its `longjmp`. Characterized with a committed repro (`tests/leakhunt/throw_indirect_leak.hml`) and a full corrected design + validation-gate set in `tests/leakhunt/README.md`; deferred to its own reviewed change.
+
 ## [2.4.1] - 2026-05-14
 
 Patch release covering three issues surfaced while building Witchgrid's agent-restart adoption path. All three have direct repros and concrete operator pain — fast follow on top of 2.4.0.
