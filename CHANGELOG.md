@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.4] - 2026-05-18
+
+Per-spawn argument leak fix — a dominant Witchgrid control-plane per-connection bleed. Every `spawn(fn, args…)` / `spawn_with(opts, fn, args…)` leaked each heap argument once per spawn.
+
+### Fixed
+
+- **`src/backends/compiler/codegen_call_async.c` — `spawn`/`spawn_with` argument ownership.** `codegen_expr` returns an owned (+1) temporary for each argument expression; `hml_spawn()` / `hml_spawn_with()` **deep-copy** their args (the task owns the copies — see `task_free`), so they do **not** consume the caller's references. The codegen released `fn_val` (and `opts_val`) but never released the argument temporaries `_spawn_args[i]` / `_spawn_with_args[i]` — so every heap-typed spawn argument (strings, arrays, objects, request data) leaked once per spawn. For a server that does `spawn(handler, request…)` per accepted connection (the Witchgrid CP/agent pattern) this leaks per connection, unbounded. Fix: release each arg temporary after the `hml_spawn[_with]()` call, mirroring the existing `fn_val`/`opts_val` releases. Safe — `hml_spawn` deep-copies synchronously before returning, so the post-call release cannot race or double-free.
+- Found by the per-construct leakhunt harness: a new `tests/leakhunt/spawn_fireforget_leak.hml` (fire-and-forget spawn with a heap arg, the CP shape) leaked 56 B/spawn (`hml_val_string_owned ← hml_string_concat`, the arg temp) — `spawn_join_leak.hml` missed it only because its argument is a non-heap `i64`. Now PASS; `spawn_join_leak` still PASS. Validated full parity **259/259** on Linux and macOS, 0 interpreter-only / 0 compiler-only.
+
 ## [2.5.3] - 2026-05-18
 
 macOS heap-corruption fix. Explicit `free()` of a refcount-managed buffer was a **double-free + use-after-free**: `hml_free()` on a `HML_VAL_BUFFER` freed both the backing data *and* the `HmlBuffer` struct, but the value is still owned by the refcount system — a top-level `let buf = buffer(N)` is released by `hml_release_statics()` at process exit (and locals by ordinary scope cleanup), and that path calls `buffer_free()` on the same struct, freeing `buf->data` and `buf` a second time. glibc silently tolerates it (Linux parity stayed green, masking the bug); macOS `libsystem_malloc` (`find_zone_and_free`) aborts with `SIGABRT`. The 2.5.2 fatal-signal backtrace handler made it loud, so it surfaced as parity divergence: programs printed the correct output, then dumped a crash trace on exit.

@@ -1,0 +1,31 @@
+// Single construct: fire-and-forget spawn — the task result is
+// DISCARDED (no `let t =`, no await/join). This is the Witchgrid
+// per-connection pattern (spawn a handler per accepted connection,
+// never await it). spawn() returns an HML_VAL_TASK with ref_count=2
+// (caller + thread). The thread releases its ref on completion; the
+// CALLER's ref must be released by codegen because the result is
+// discarded. If it isn't, ref_count is stuck at 1, task_free() never
+// runs, and the task's deep-copied args + retained function/closure
+// + everything they reference leak — once per spawn.
+//
+// spawn_join_leak.hml only covers the await path (join consumes the
+// caller ref); this isolates the discarded-result path.
+//
+// Drain: workers are trivial and finish in microseconds; the final
+// sleep lets every thread complete so a correctly-released task is
+// fully reclaimed before the leak check (no in-flight false positives).
+import { sleep } from "@stdlib/time";
+
+async fn handler(req: string): i64 {
+	let parts = [req + "-a", req + "-b", req + "-c"];
+	let o = { path: req, tags: parts, n: parts.length };
+	return o.n;
+}
+
+let round = 0;
+while (round < 500) {
+	spawn(handler, "conn-" + round);
+	round = round + 1;
+}
+sleep(3.0);
+print("spawn_fireforget_leak: ok rounds=" + round);

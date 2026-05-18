@@ -28,6 +28,14 @@ int codegen_call_async(CodegenContext *ctx, Expr *expr, char *result,
             }
             codegen_writeln(ctx, "HmlValue %s = hml_spawn(%s, _spawn_args%d, %d);",
                           result, fn_val, args_counter, num_spawn_args);
+            // hml_spawn() deep-copies each arg (the task owns the copy);
+            // the original arg temporaries are still owned here and must
+            // be released, exactly like fn_val below. Omitting this leaks
+            // every heap spawn() argument once per spawn — the dominant
+            // Witchgrid per-connection bleed (spawn(handler, request…)).
+            for (int i = 0; i < num_spawn_args; i++) {
+                codegen_writeln(ctx, "hml_release(&_spawn_args%d[%d]);", args_counter, i);
+            }
         } else {
             codegen_writeln(ctx, "HmlValue %s = hml_spawn(%s, NULL, 0);", result, fn_val);
         }
@@ -52,6 +60,12 @@ int codegen_call_async(CodegenContext *ctx, Expr *expr, char *result,
             }
             codegen_writeln(ctx, "HmlValue %s = hml_spawn_with(%s, %s, _spawn_with_args%d, %d);",
                           result, opts_val, fn_val, args_counter, num_spawn_args);
+            // Same ownership rule as spawn(): hml_spawn_with() deep-copies
+            // each arg, so the original temporaries are still owned here
+            // and must be released (cf. opts_val / fn_val below).
+            for (int i = 0; i < num_spawn_args; i++) {
+                codegen_writeln(ctx, "hml_release(&_spawn_with_args%d[%d]);", args_counter, i);
+            }
         } else {
             codegen_writeln(ctx, "HmlValue %s = hml_spawn_with(%s, %s, NULL, 0);",
                           result, opts_val, fn_val);
