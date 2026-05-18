@@ -1,0 +1,18 @@
+// shared_secret() shape: a fn that early-returns a string literal on
+// one branch and returns a string-typed local on the other. If the
+// non-taken branch's value or the returned local leaks per call,
+// this is the CP resolve-path bleed (shared_secret is called per
+// cp_get per resolve).
+fn pick(r: i64): string {
+	let s = "secret-value-" + r;
+	if (r < 0) { return ""; }
+	return s;
+}
+let round = 0;
+let sink = 0;
+while (round < 3000) {
+	let v = pick(round);
+	sink = sink + v.length;
+	round = round + 1;
+}
+print("str_return_branch_leak: ok sink=" + sink);
