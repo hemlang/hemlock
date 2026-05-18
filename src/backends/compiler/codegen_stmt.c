@@ -1407,15 +1407,6 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             if (ctx->defer_stack) {
                 codegen_defer_execute_all(ctx);
             }
-            // Release body-local variables before the longjmp. hml_throw
-            // never returns, so the normal-path local releases below are
-            // skipped — every live heap local (arrays/objects/strings
-            // built before the throw) would leak on every throw. This
-            // mirrors STMT_RETURN: codegen_expr already returns a
-            // retained copy of the thrown value (hml_retain_if_needed
-            // for idents), so it survives this cleanup and ownership
-            // passes to hml_throw -> the catch binding.
-            codegen_emit_local_cleanup(ctx, NULL);
             codegen_writeln(ctx, "hml_throw(%s);", value);
             free(value);
             break;
