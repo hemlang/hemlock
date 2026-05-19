@@ -119,6 +119,48 @@ let r3 = join(t3);
 - Starts executing function immediately
 - Returns task handle for later joining
 - Tasks run in parallel on separate CPU cores
+- **Every argument is deep-copied** into the task before the thread
+  starts (so the new thread never shares mutable state with the
+  caller). Arrays and objects are copied recursively; **strings** are
+  copied; primitives are trivial. **Functions** (and therefore
+  closures) are the exception — they cross by reference (a refcount
+  bump, *not* a deep copy).
+
+**Best practice — don't pass large immutable structures as `spawn()` arguments.**
+
+Because every argument is deep-copied per `spawn()`, passing a big,
+read-only structure (a route table, a config tree, a loaded dataset)
+as an argument copies the *entire structure on every spawn*. In a
+server that does `spawn(handler, conn, routes, ...)` per accepted
+connection this deep-copies the whole `routes` table on every request
+— an unbounded, per-connection memory cost. (This was a real,
+multi-MB-per-minute control-plane bleed.)
+
+Instead, **capture the immutable data by closure** and pass only the
+per-task unique value. A function value crosses the `spawn()` boundary
+by reference, so the captured data is shared, not copied:
+
+```hemlock
+// ❌ routes (large, immutable) deep-copied on EVERY connection
+loop {
+    let conn = listener.accept();
+    detach(spawn(handle, conn, routes, auth));
+}
+
+// ✅ routes/auth shared by reference via closure; only `conn` is copied
+let worker = async fn(conn): null {
+    return handle_one(conn, routes, auth);   // normal call: no deep copy
+};
+loop {
+    let conn = listener.accept();
+    detach(spawn(worker, conn));
+}
+```
+
+This is safe when the captured data is read-only (concurrent reads of
+a shared object/array are fine — see also `@stdlib` thread-safety
+notes). If a task must *mutate* shared state, use a `channel` or an
+explicit lock instead of relying on the per-argument deep copy.
 
 ---
 
