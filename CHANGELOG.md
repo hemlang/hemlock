@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.6] - 2026-05-18
+
+Property-assignment RHS leak — the property-assign twin of the 2.4.11 indexed-assignment leak. `obj.field = <expr>` leaked `<expr>` on every assignment.
+
+### Fixed
+
+- **`src/backends/compiler/codegen_expr.c` — `EXPR_SET_PROPERTY`.** `codegen_expr` returns the RHS owned (+1); `hml_object_set_field()` takes its own reference and the assignment-expression result took an independent `hml_retain`, but the RHS creation reference was never released — so every `obj.field = value` orphaned `value`. 2.4.11 fixed exactly this for the indexed-assignment path (`obj[k] = v`) but the property-assignment path was missed. Added the matching `hml_release_if_needed(&value)`.
+- Real-world impact: Witchgrid's `samples_for_dashboard()` does `bundle.ram = fetch_samples(...)` (and similar) per node per dashboard request, leaking the returned array every time — the dominant residual after the per-connection `routes` deep-copy fix. LSan on the real control-plane binary: the `fetch_samples`-rooted leak (~750 KB / run, ~96% of the post-routes-fix residual) is eliminated by this; rebuilding any Hemlock service on 2.5.6 fixes it with no application change.
+
+### Validated
+
+- New leakhunt + CI stress guard `obj_assign_call_rhs_leak.hml`: property-assign and index-assign of an owned call result into object fields — **leaked 240,000 B / 1500 iters pre-fix → 0 post-fix**. Linux full parity **259/259** (0 interpreter-only, 0 compiler-only); macOS parity at known baseline; stress suite green (lsan/none/asan). Mirrors the 2.4.11 fix + its `objset_leak` guard.
+
 ## [2.5.5] - 2026-05-18
 
 Interpreter concurrency fix — corrupted reads of a shared object from spawned tasks. A program that `spawn`s tasks which concurrently read a shared object tree (the Witchgrid dashboard's `render_capabilities()` shape — a stress test models it) intermittently threw `Only strings, buffers, arrays, and objects have properties` deep in a worker.

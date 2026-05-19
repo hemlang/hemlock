@@ -429,6 +429,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             codegen_writeln(ctx, "HmlValue %s = %s;", result, value);
             codegen_writeln(ctx, "hml_retain(&%s);", result);
             codegen_writeln(ctx, "hml_release(&%s);", obj);
+            // Release the RHS temp: codegen_expr returned `value` owned
+            // (+1); hml_object_set_field() takes its OWN reference and
+            // `result` above took an independent one, so without this
+            // the RHS's creation reference is orphaned and every
+            // `obj.field = value` leaks `value`. Same bug/fix as the
+            // indexed-assignment path (`obj[k] = v`) above — that one
+            // was fixed in 2.4.11 but the property-assign path was
+            // missed, so e.g. `bundle.ram = fetch_samples(...)` leaked
+            // the returned array on every dashboard request.
+            codegen_writeln(ctx, "hml_release_if_needed(&%s);", value);
             free(obj);
             free(value);
             break;
