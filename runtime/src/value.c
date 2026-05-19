@@ -721,6 +721,13 @@ static void function_free(HmlFunction *fn) {
 
 static void task_free(HmlTask *task) {
     if (task) {
+        // If a task handle is dropped without an explicit join()/detach(),
+        // the pthread remains joinable and leaks thread resources even after
+        // task completion. Detach here as a final safety net before teardown.
+        if (!task->joined && !task->detached) {
+            pthread_detach(task->sync->thread);
+        }
+
         // Release the stored function
         hml_release(&task->function);
         // Release the result
