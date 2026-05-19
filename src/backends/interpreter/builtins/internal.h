@@ -190,6 +190,8 @@ Value builtin_dns_resolve(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx);
 Value val_socket(SocketHandle *sock);
 void socket_free(SocketHandle *sock);
+void socket_retain(SocketHandle *sock);
+void socket_release(SocketHandle *sock);
 Value get_socket_property(SocketHandle *sock, const char *property, ExecutionContext *ctx);
 Value call_socket_method(SocketHandle *sock, const char *method, Value *args, int num_args, ExecutionContext *ctx);
 

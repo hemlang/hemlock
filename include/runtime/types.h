@@ -93,6 +93,7 @@ typedef struct {
     int closed;          // Whether socket is closed
     int listening;       // Whether listening (server socket)
     int nonblocking;     // Whether socket is in non-blocking mode
+    int ref_count;       // Reference count for memory management
 } SocketHandle;
 
 // WebSocket handle struct (wraps libwebsockets connection/server)

@@ -1839,6 +1839,7 @@ static inline int value_needs_refcount(ValueType type) {
     // Only heap-allocated types need refcounting
     return type == VAL_STRING || type == VAL_BUFFER || type == VAL_ARRAY ||
            type == VAL_OBJECT || type == VAL_FUNCTION || type == VAL_TASK ||
+           type == VAL_SOCKET ||
            type == VAL_CHANNEL || type == VAL_REF;
 }
 
@@ -1876,6 +1877,11 @@ void value_retain(Value val) {
         case VAL_TASK:
             if (val.as.as_task) {
                 task_retain(val.as.as_task);
+            }
+            break;
+        case VAL_SOCKET:
+            if (val.as.as_socket) {
+                socket_retain(val.as.as_socket);
             }
             break;
         case VAL_CHANNEL:
@@ -1928,6 +1934,11 @@ void value_release(Value val) {
         case VAL_TASK:
             if (val.as.as_task) {
                 task_release(val.as.as_task);
+            }
+            break;
+        case VAL_SOCKET:
+            if (val.as.as_socket) {
+                socket_release(val.as.as_socket);
             }
             break;
         case VAL_CHANNEL:

@@ -59,6 +59,18 @@ void socket_free(SocketHandle *sock) {
     free(sock);
 }
 
+void socket_retain(SocketHandle *sock) {
+    if (!sock) return;
+    __atomic_add_fetch(&sock->ref_count, 1, __ATOMIC_SEQ_CST);
+}
+
+void socket_release(SocketHandle *sock) {
+    if (!sock) return;
+    if (__atomic_sub_fetch(&sock->ref_count, 1, __ATOMIC_SEQ_CST) == 0) {
+        socket_free(sock);
+    }
+}
+
 // ========== SOCKET CREATION ==========
 
 // socket_create(domain: i32, type: i32, protocol: i32) -> Socket
@@ -111,6 +123,7 @@ Value builtin_socket_create(Value *args, int num_args, ExecutionContext *ctx) {
     sock->closed = 0;
     sock->listening = 0;
     sock->nonblocking = 0;
+    sock->ref_count = 1;
 
     return val_socket(sock);
 }
@@ -263,6 +276,7 @@ static Value socket_method_accept(SocketHandle *sock, Value *args, int num_args,
     client_sock->closed = 0;
     client_sock->listening = 0;
     client_sock->nonblocking = 0;
+    client_sock->ref_count = 1;
 
     // Get client address and port based on address family
     if (sock->domain == AF_UNIX) {
