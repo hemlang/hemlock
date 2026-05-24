@@ -112,26 +112,32 @@ def load_hemlock_docs():
     return full, compact
 
 
-def load_tasks(level_filter: str = "", task_filter: str = "") :
+def load_tasks(level_filter: str = "", task_filter: str = ""):
     """Load all benchmark task JSON files, optionally filtered."""
+    level_dirs = [
+        level_dir
+        for level_dir in sorted(TASKS_DIR.iterdir())
+        if level_dir.is_dir()
+    ]
+
+    if level_filter:
+        level_dirs = [
+            level_dir
+            for level_dir in level_dirs
+            if level_dir.name.split("_")[0] == level_filter
+        ]
+
     tasks = []
-    for level_dir in sorted(TASKS_DIR.iterdir()):
-        if not level_dir.is_dir():
-            continue
-        level_name = level_dir.name.split("_")[0]  # "L1_syntax" -> "L1"
-
-        if level_filter and level_name != level_filter:
-            continue
-
+    for level_dir in level_dirs:
         for task_file in sorted(level_dir.glob("*.json")):
             with open(task_file) as f:
                 task = json.load(f)
             task["_file"] = str(task_file)
-
-            if task_filter and task["id"] != task_filter:
-                continue
-
             tasks.append(task)
+
+    if task_filter:
+        tasks = [task for task in tasks if task["id"] == task_filter]
+
     return tasks
 
 
@@ -187,10 +193,10 @@ def build_system_prompt(variant: str, docs: str, compact_docs: str, base_overrid
 def _get_few_shot_examples() -> str:
     """Load reference solutions as few-shot examples."""
     solutions_dir = SCRIPT_DIR / "solutions"
-    examples = []
-    for sol_file in sorted(solutions_dir.glob("*.hml"))[:3]:
-        code = sol_file.read_text()
-        examples.append(f"// Example: {sol_file.stem}\n{code}")
+    examples = [
+        f"// Example: {sol_file.stem}\n{sol_file.read_text()}"
+        for sol_file in sorted(solutions_dir.glob("*.hml"))[:3]
+    ]
     return "\n\n".join(examples) if examples else "(no examples available)"
 
 
