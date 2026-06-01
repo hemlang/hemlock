@@ -261,6 +261,8 @@ class LlamaServer:
             "--ctx-size", str(self.n_ctx),
             "--n-gpu-layers", str(self.n_gpu_layers),
             "--log-disable",
+            "--jinja",
+            "--reasoning-format", "auto",
         ]
 
         log(f"  Starting llama-server on port {self.port}...", C.DIM)
@@ -349,7 +351,11 @@ class LlamaServer:
         try:
             with urllib.request.urlopen(req, timeout=self.llm_timeout) as resp:
                 result = json.loads(resp.read())
-                content = result["choices"][0]["message"]["content"]
+                msg = result["choices"][0]["message"]
+                content = msg["content"] or ""
+                reasoning = msg.get("reasoning_content") or ""
+                if reasoning:
+                    content = f"<think>\n{reasoning}\n</think>\n\n{content}"
                 finish_reason = result["choices"][0].get("finish_reason", "unknown")
                 if verbose:
                     log(f"\n    ── raw LLM response ({len(content)} chars, finish: {finish_reason}) ──", C.DIM)
@@ -378,6 +384,10 @@ def _extract_code(raw: str) -> str:
     """
     raw = raw.strip()
 
+    if not raw:
+        return ""
+
+    raw = re.sub(r"<think>.*?</think>\s*", "", raw, flags=re.DOTALL).strip()
     if not raw:
         return ""
 
