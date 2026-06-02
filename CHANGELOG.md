@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.7] - 2026-06-02
+
+Two resource-leak fixes for long-running concurrent and server programs.
+
+### Fixed
+
+- **`runtime/src/value.c` — `task_free()` leaked joinable pthreads for dropped async tasks (#583).** A task handle dropped without an explicit `join()`/`detach()` left its pthread joinable, so the thread's resources were never reclaimed even after the task completed — a program that `spawn`s tasks and drops their handles slowly bled thread state. `task_free()` now `pthread_detach()`es the thread as a final safety net when it was neither joined nor detached. Applies to the compiled runtime. Surfaced by a ThreadSanitizer leak in the concurrency stress suite.
+- **`SocketHandle` refcount — accepted sockets leaked (#584).** `SocketHandle` had no ownership tracking, so the per-connection sockets returned by `accept()` were never freed. Added an atomic `ref_count` field plus `socket_retain()` / `socket_release()` (`include/runtime/types.h`, `include/runtime/memory.h`, `src/backends/interpreter/builtins/net.c`, `src/backends/interpreter/values.c`) and routed the accept path and socket value lifetimes through them. Closes the ~50 B/connection accepted-socket gap that the 2.4.10 / 2.4.11 notes tracked as "needs a socket-lifetime refcount change." Applies to the interpreter backend.
+
 ## [2.5.6] - 2026-05-18
 
 Property-assignment RHS leak — the property-assign twin of the 2.4.11 indexed-assignment leak. `obj.field = <expr>` leaked `<expr>` on every assignment.
