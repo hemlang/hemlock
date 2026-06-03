@@ -257,7 +257,8 @@ static void print_usage(const char *progname) {
     fprintf(stderr, "  --no-type-check Disable type checking (less safe, fewer optimizations)\n");
     fprintf(stderr, "  --strict-types  Strict type checking (warn on implicit any)\n");
     fprintf(stderr, "  --no-stack-check  Disable stack overflow checking (faster, but no protection)\n");
-    fprintf(stderr, "  --static        Static link all libraries (standalone binary)\n");
+    fprintf(stderr, "  --static        Static-link the volatile native libs (default on Linux)\n");
+    fprintf(stderr, "  --dynamic       Dynamic-link instead (default on macOS; needed for runtime FFI)\n");
     fprintf(stderr, "  --sandbox [DIR] Enable sandbox mode (restrict FFI, network, process, file writes)\n");
     fprintf(stderr, "                  If DIR provided, restricts file reads to that directory\n");
     fprintf(stderr, "  --target wasm   Compile for WebAssembly via Emscripten (emcc)\n");
@@ -294,6 +295,19 @@ static Options parse_args(int argc, char **argv) {
         .wasm_threads = 0
     };
 
+    // Static-by-default on Linux (since 2.6.0): the host's shared libraries —
+    // libwebsockets above all — are not ABI-stable across distro versions
+    // (its lws_context_creation_info struct reordered fields between 4.0 and
+    // 4.3), so a dynamically-linked binary built on one distro crashes on
+    // another. Static-linking the volatile native libs makes binaries
+    // self-contained and portable. macOS stays dynamic: its system libraries
+    // are versioned consistently, brew static archives are awkward, and the
+    // user explicitly accepts dynamic there. `--dynamic` opts out (required
+    // for runtime FFI: ffi_open/ffi_bind).
+#ifndef __APPLE__
+    opts.static_link = 1;
+#endif
+
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
@@ -328,7 +342,13 @@ static Options parse_args(int argc, char **argv) {
             opts.type_check = 1;  // Implies type checking
             opts.strict_types = 1;
         } else if (strcmp(argv[i], "--static") == 0) {
-            opts.static_link = 1;
+            opts.static_link = 1;   // default since 2.6.0; kept as an explicit no-op
+        } else if (strcmp(argv[i], "--dynamic") == 0) {
+            // Opt out of the 2.6.0 static-by-default linking (e.g. when a
+            // program needs runtime FFI, ffi_open/ffi_bind, which static
+            // linking can't support). On Linux this restores dynamic linking
+            // of libwebsockets/openssl/etc.
+            opts.static_link = 0;
         } else if (strcmp(argv[i], "--no-stack-check") == 0) {
             opts.stack_check = 0;
         } else if (strcmp(argv[i], "--sandbox") == 0) {

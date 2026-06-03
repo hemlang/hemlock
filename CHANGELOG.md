@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-06-03
+
+Static-by-default linking on Linux, so compiled binaries are self-contained and portable across distros.
+
+### Changed
+
+- **`hemlockc` now links statically by default on Linux.** The volatile native libraries (libffi, libwebsockets, libssl, libcrypto, libz) are linked statically (`-Wl,-Bstatic … -Wl,-Bdynamic` for the stable ones — glibc, libcap, libuv, libev); the result is a standalone binary that doesn't depend on the host's versions. macOS continues to link dynamically by default (its system libraries are versioned consistently). Opt out with the new **`--dynamic`** flag.
+
+### Fixed
+
+- **HTTP/WebSocket SIGSEGV when a Hemlock binary meets a different libwebsockets at runtime.** libwebsockets does *not* keep `lws_context_creation_info` ABI-stable across releases — between 4.0 (Ubuntu 22.04) and 4.3 (Ubuntu 24.04) it **reordered** fields (`port` 0→96, `options` 104→440, `protocols` 16→8, …). A dynamically-linked binary built against one version mis-reads the struct against another and crashes in `lws_create_vhost`/`lws_snprintf` on the *first* HTTP/WS call. Confirmed with `offsetof()` across both libraries and reproduced via Witchgrid (whose agent died on its first `/register` POST on a 24.04 runner). Static linking removes the runtime dependency on the host's libwebsockets entirely. (Over-zeroing the struct, attempted in an unreleased build, can't fix *reordered* offsets.)
+
+### Notes
+
+- Compile-time FFI (`extern fn`, e.g. `@stdlib/sqlite`) still works under static linking; the linked-by-FFI libraries (libsqlite3, …) stay dynamic, which is fine since they keep stable ABIs. Only **runtime FFI** (`ffi_open`/`ffi_bind`) is unavailable in static builds — use `--dynamic` for those.
+- A release built on one distro still static-links *that build host's* libwebsockets, so building on a host whose libwebsockets matches the release is the current guidance; bundling the release's own static libs (for full build-host independence) is a tracked follow-up.
+
 ## [2.5.7] - 2026-06-02
 
 Two resource-leak fixes for long-running concurrent and server programs.
