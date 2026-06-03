@@ -1,0 +1,38 @@
+// Regression: builtins used as first-class values (bound to a variable or
+// passed as an argument) must not shift their arguments.
+//
+// Bug: stdlib re-exports like `export let poll = __poll;` routed the call
+// through the function-value dispatch path, which invokes f(env, args...).
+// The raw builtins (hml_poll, hml_open, ...) take no env param, so every
+// argument shifted by one (env arrived as the first HmlValue). poll([], 0)
+// then reported "poll() expects array as first argument". On Linux the
+// resulting uncaught exception exited 0 (silently masking the bug); on macOS
+// it aborted (SIGABRT) — which is how CI surfaced it. Fixed with env-first
+// wrapper shims (hml_builtin_poll, hml_builtin_open, ...) in builtins_func.c.
+
+import { poll } from "@stdlib/net";
+import { open } from "@stdlib/fs";
+
+// 1. builtin bound to a local variable, then called (forces the value path)
+let p = poll;
+let r = p([], 0);
+assert(r.length == 0);
+print("PASS: poll bound to variable");
+
+// 2. builtin passed as a function argument and invoked indirectly
+fn invoke2(g, a, b) {
+    return g(a, b);
+}
+let r2 = invoke2(poll, [], 0);
+assert(r2.length == 0);
+print("PASS: poll passed as argument");
+
+// 3. a builtin whose first arg is NOT an array: open via the value path.
+//    If args shifted, hml_open would receive env as the path and fail to open.
+let o = open;
+let f = o("/etc/hosts", "r");
+assert(f != null);
+f.close();
+print("PASS: open bound to variable");
+
+print("All first-class builtin tests passed!");

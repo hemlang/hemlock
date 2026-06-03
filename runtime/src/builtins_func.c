@@ -65,6 +65,37 @@ void hml_runtime_error(const char *format, ...) {
     hml_throw(error_msg);
 }
 
+// ========== ENV-FIRST BUILTIN WRAPPERS ==========
+// When a builtin is used as a first-class value (e.g. the stdlib re-export
+// `export let poll = __poll;` then called through the `poll` binding), the
+// compiler wraps it as an HML_VAL_FUNCTION and hml_call_function dispatches it
+// as f(env, args...). User functions have that env-first C signature, but these
+// raw builtins do not — so the old wraps pointed straight at e.g. hml_poll and
+// every argument shifted by one (env was passed as the first HmlValue, the real
+// first arg as the second, ...). That mis-typed the first arg, producing errors
+// like "poll() expects array as first argument". On Linux the resulting uncaught
+// exception exited 0 (silently masked); on macOS it aborts (SIGABRT) — surfacing
+// the bug. These thin shims give each builtin the env-first signature the
+// function-value path expects. See codegen_expr_ident.c.
+HmlValue hml_builtin_poll(HmlClosureEnv *env, HmlValue fds, HmlValue timeout) {
+    (void)env; return hml_poll(fds, timeout);
+}
+HmlValue hml_builtin_open(HmlClosureEnv *env, HmlValue path, HmlValue mode) {
+    (void)env; return hml_open(path, mode);
+}
+HmlValue hml_builtin_raise(HmlClosureEnv *env, HmlValue signum) {
+    (void)env; return hml_raise(signum);
+}
+HmlValue hml_builtin_signal(HmlClosureEnv *env, HmlValue signum, HmlValue handler) {
+    (void)env; return hml_signal(signum, handler);
+}
+HmlValue hml_builtin_string_concat_many(HmlClosureEnv *env, HmlValue arr) {
+    (void)env; return hml_string_concat_many(arr);
+}
+HmlValue hml_builtin_task_debug_info(HmlClosureEnv *env, HmlValue task) {
+    (void)env; hml_task_debug_info(task); return hml_val_null();
+}
+
 // ========== DEFER SUPPORT ==========
 
 void hml_defer_push(HmlDeferFn fn, void *arg) {

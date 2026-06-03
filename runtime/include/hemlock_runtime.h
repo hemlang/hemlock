@@ -540,6 +540,17 @@ void hml_channel_close(HmlValue channel);
 HmlValue hml_select(HmlValue channels, HmlValue timeout);
 HmlValue hml_poll(HmlValue fds, HmlValue timeout);
 
+// Env-first wrappers for builtins used as first-class function values.
+// (Defined in builtins_func.c — see the comment there.) The function-value
+// dispatch path calls f(env, args...); these give the raw builtins that
+// signature so arguments don't shift by one.
+HmlValue hml_builtin_poll(HmlClosureEnv *env, HmlValue fds, HmlValue timeout);
+HmlValue hml_builtin_open(HmlClosureEnv *env, HmlValue path, HmlValue mode);
+HmlValue hml_builtin_raise(HmlClosureEnv *env, HmlValue signum);
+HmlValue hml_builtin_signal(HmlClosureEnv *env, HmlValue signum, HmlValue handler);
+HmlValue hml_builtin_string_concat_many(HmlClosureEnv *env, HmlValue arr);
+HmlValue hml_builtin_task_debug_info(HmlClosureEnv *env, HmlValue task);
+
 // ========== FILE I/O ==========
 
 HmlValue hml_open(HmlValue path, HmlValue mode);
