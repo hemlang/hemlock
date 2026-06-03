@@ -439,7 +439,7 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
     };
     info.protocols = ws_protocols;
 
-    conn->context = (lws_configure_macos_ca_file(), lws_create_context(&info));
+    conn->context = (lws_configure_macos_ca_file(), lws_create_context((struct lws_context_creation_info *)hml_ws_lws_info_forward_compat(&info, sizeof(info))));
     if (!conn->context) {
         free(conn);
         ctx->exception_state.is_throwing = 1;
@@ -882,7 +882,7 @@ Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *
     };
     info.protocols = server_protocols;
 
-    server->context = (lws_configure_macos_ca_file(), lws_create_context(&info));
+    server->context = (lws_configure_macos_ca_file(), lws_create_context((struct lws_context_creation_info *)hml_ws_lws_info_forward_compat(&info, sizeof(info))));
     if (!server->context) {
         pthread_mutex_destroy(&server->pending_mutex);
         free(server);
