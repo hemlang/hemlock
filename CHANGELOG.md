@@ -7,18 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.5.8] - 2026-06-03
-
-HTTP/WebSockets startup crash on newer libwebsockets (Ubuntu 24.04). Any outbound HTTP request — or websocket connection — `SIGSEGV`'d the moment it tried to create a libwebsockets context.
-
-### Fixed
-
-- **`runtime/src/builtins_http.c` + `src/backends/interpreter/builtins/websockets_{http,ws,stream}.c` — `lws_context_creation_info` ABI mismatch crashed every `lws_create_context` against libwebsockets 4.3.** The struct grew between libwebsockets releases (704 bytes on lws 4.x / Ubuntu 22.04, 744 on lws 4.3 / `.so.19` / Ubuntu 24.04). A Hemlock binary compiled against an older lws but **dynamically linked against a newer one at runtime** `memset`'d only the smaller compile-time struct; `lws_create_context` then read the extra trailing fields out of uninitialized stack and dereferenced a garbage pointer deep in `lws_create_vhost` → `lws_snprintf`. So a two-line `import { get } from "@stdlib/http"; get(url)` crashed on a stock Ubuntu 24.04 box. Fix: copy the compile-time struct into an over-allocated, fully-zeroed buffer before each `lws_create_context`, so a newer runtime lws reads any extra fields as `0`/`NULL` ("use default") instead of stack garbage. Compiled runtime uses a stack buffer (`hml_lws_info_forward_compat`); the interpreter uses a thread-local shim in `websockets_internal.h`.
-
-### Validated
-
-- Reproduced in an `ubuntu:24.04` container (lws 4.3 / `.so.19`): the official 2.5.7 build crashes on a 2-line HTTP program; a pure-C bisect pinned it — zeroing only the old (smaller) struct size + garbage → `SIGSEGV`, zeroing the full 4.3 size (or the padded-copy fix) → clean context creation. Witchgrid was the canary: its agent SIGSEGV'd on its first `/register` POST on a 24.04 CI runner.
-
 ## [2.5.7] - 2026-06-02
 
 Two resource-leak fixes for long-running concurrent and server programs.

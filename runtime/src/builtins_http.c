@@ -92,25 +92,6 @@ static const char *hml_lws_context_error_message(void) {
 #endif
 }
 
-// Forward-compat shim for libwebsockets' growing lws_context_creation_info.
-// A Hemlock binary is compiled against one libwebsockets version but is
-// dynamically linked against whatever libwebsockets.so the host provides at
-// runtime. The struct grew between releases (e.g. sizeof is 704 on lws 4.x
-// / Ubuntu 22.04 but 744 on lws 4.3 / Ubuntu 24.04). When the runtime lws is
-// newer, lws_create_context reads fields PAST the struct we memset — i.e.
-// uninitialized stack — and lws_create_vhost dereferences a garbage pointer
-// in lws_snprintf → SIGSEGV. Copy the compile-time struct into an
-// over-allocated, fully-zeroed buffer so any extra fields the runtime lws
-// reads come back 0 (NULL), which lws treats as "use the default". The
-// caller stack-allocates the backing buffer so it outlives the lws call.
-#define HML_LWS_INFO_ABI_PAD 512
-static struct lws_context_creation_info *hml_lws_info_forward_compat(
-        const struct lws_context_creation_info *src, char *buf, size_t bufsz) {
-    memset(buf, 0, bufsz);
-    memcpy(buf, src, sizeof(*src));
-    return (struct lws_context_creation_info *)buf;
-}
-
 // Suppress libwebsockets startup banner. Without this, every lws_create_context
 // emits a NOTICE-level line ("LWS: 4.3.3-... NET CLI SRV H1 H2 WS ...") to
 // stderr — which the parity test runner captures, breaking expected-output
@@ -591,8 +572,7 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
     };
     info.protocols = protocols;
 
-    char info_abi_buf[sizeof(info) + HML_LWS_INFO_ABI_PAD];
-    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(hml_lws_info_forward_compat(&info, info_abi_buf, sizeof(info_abi_buf))));
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
         hml_runtime_error("%s", hml_lws_context_error_message());
@@ -687,8 +667,7 @@ HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
     };
     info.protocols = protocols;
 
-    char info_abi_buf[sizeof(info) + HML_LWS_INFO_ABI_PAD];
-    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(hml_lws_info_forward_compat(&info, info_abi_buf, sizeof(info_abi_buf))));
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
         hml_runtime_error("%s", hml_lws_context_error_message());
@@ -793,8 +772,7 @@ static HmlValue hml_lws_http_perform(const char *method,
     };
     info.protocols = protocols;
 
-    char info_abi_buf[sizeof(info) + HML_LWS_INFO_ABI_PAD];
-    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(hml_lws_info_forward_compat(&info, info_abi_buf, sizeof(info_abi_buf))));
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
         hml_runtime_error("%s", hml_lws_context_error_message());
@@ -967,8 +945,7 @@ HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
     };
     info.protocols = protocols;
 
-    char info_abi_buf[sizeof(info) + HML_LWS_INFO_ABI_PAD];
-    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(hml_lws_info_forward_compat(&info, info_abi_buf, sizeof(info_abi_buf))));
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
         hml_runtime_error("%s", hml_lws_context_error_message());
@@ -1503,8 +1480,7 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
     };
     info.protocols = stream_protocols;
 
-    char info_abi_buf[sizeof(info) + HML_LWS_INFO_ABI_PAD];
-    stream->context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(hml_lws_info_forward_compat(&info, info_abi_buf, sizeof(info_abi_buf))));
+    stream->context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!stream->context) {
         if (stream->post_body) free(stream->post_body);
         if (stream->content_type) free(stream->content_type);
@@ -2051,8 +2027,7 @@ HmlValue hml_lws_ws_connect(HmlValue url_val) {
     };
     info.protocols = ws_protocols;
 
-    char info_abi_buf[sizeof(info) + HML_LWS_INFO_ABI_PAD];
-    conn->context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(hml_lws_info_forward_compat(&info, info_abi_buf, sizeof(info_abi_buf))));
+    conn->context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!conn->context) {
         free(conn);
         hml_runtime_error("%s", hml_lws_context_error_message());
@@ -2360,8 +2335,7 @@ HmlValue hml_lws_ws_server_create(HmlValue host_val, HmlValue port_val) {
     };
     info.protocols = server_protocols;
 
-    char info_abi_buf[sizeof(info) + HML_LWS_INFO_ABI_PAD];
-    server->context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(hml_lws_info_forward_compat(&info, info_abi_buf, sizeof(info_abi_buf))));
+    server->context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!server->context) {
         pthread_mutex_destroy(&server->pending_mutex);
         free(server);
