@@ -213,11 +213,16 @@ extern int g_interp_has_spawned;
 void value_free(Value val);
 
 // Fast path macro: check if type needs refcounting before calling
-// Types that need refcounting: STRING, BUFFER, ARRAY, OBJECT, FUNCTION, TASK, CHANNEL, REF
+// Types that need refcounting: STRING, BUFFER, ARRAY, OBJECT, FUNCTION, TASK, SOCKET, CHANNEL, REF
+// MUST stay in sync with the switch in value_retain()/value_release() (values.c).
+// VAL_SOCKET was historically missing here, so macro-based VALUE_RETAIN/RELEASE were
+// no-ops for sockets while object_free_internal/array_free_internal released them via
+// the value_release() function directly — a net over-release that freed sockets stored
+// in objects/arrays prematurely (flaky use-after-free, e.g. poll() result/input arrays).
 #define VALUE_NEEDS_REFCOUNT(type) \
     ((type) == VAL_STRING || (type) == VAL_BUFFER || (type) == VAL_ARRAY || \
      (type) == VAL_OBJECT || (type) == VAL_FUNCTION || (type) == VAL_TASK || \
-     (type) == VAL_CHANNEL || (type) == VAL_REF)
+     (type) == VAL_SOCKET || (type) == VAL_CHANNEL || (type) == VAL_REF)
 
 // Fast path macros - skip function call for primitives
 #define VALUE_RETAIN(val) do { if (VALUE_NEEDS_REFCOUNT((val).type)) value_retain(val); } while(0)
