@@ -417,6 +417,20 @@ HmlValue hml_builtin_cstr_to_string(HmlClosureEnv *env, HmlValue ptr) {
     return hml_cstr_to_string(ptr);
 }
 
+// Env-first wrappers for to_string / string_byte_length used as first-class
+// function values. The codegen value-wrap path (__to_string/__string_byte_length
+// in codegen_expr_ident.c) already referenced these names but they were never
+// defined — any program using either builtin as a value failed to link.
+HmlValue hml_builtin_to_string(HmlClosureEnv *env, HmlValue val) {
+    (void)env;
+    return hml_to_string(val);
+}
+
+HmlValue hml_builtin_string_byte_length(HmlClosureEnv *env, HmlValue str) {
+    (void)env;
+    return hml_string_byte_length(str);
+}
+
 // Convert an array of bytes or buffer to a UTF-8 string
 HmlValue hml_builtin_string_from_bytes(HmlClosureEnv *env, HmlValue arg) {
     (void)env;

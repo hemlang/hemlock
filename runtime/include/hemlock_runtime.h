@@ -680,6 +680,10 @@ HmlValue hml_builtin_dirent_name(HmlClosureEnv *env, HmlValue ptr);
 HmlValue hml_builtin_string_to_cstr(HmlClosureEnv *env, HmlValue str);
 HmlValue hml_builtin_cstr_to_string(HmlClosureEnv *env, HmlValue ptr);
 HmlValue hml_builtin_string_from_bytes(HmlClosureEnv *env, HmlValue arg);
+// Env-first wrappers so to_string / string_byte_length can be used as
+// first-class function values (the codegen value-wrap path calls f(env,...)).
+HmlValue hml_builtin_to_string(HmlClosureEnv *env, HmlValue val);
+HmlValue hml_builtin_string_byte_length(HmlClosureEnv *env, HmlValue str);
 
 // ========== DNS/NETWORKING OPERATIONS ==========
 

@@ -1,0 +1,19 @@
+// Compiler-only regression: to_string / string_byte_length used as first-class
+// function values. The codegen value-wrap path (__to_string /
+// __string_byte_length in codegen_expr_ident.c) emitted references to
+// hml_builtin_to_string / hml_builtin_string_byte_length, which were defined
+// nowhere -> the compiled program failed to LINK. Fixed by adding env-first
+// wrapper shims in runtime/src/builtins.c. (These __-prefixed internal names
+// are compiler-only, hence this lives in tests/compiler rather than the
+// dual-backend suite.)
+let ts = __to_string;
+print(ts(123));
+print(ts(true));
+
+let bl = __string_byte_length;
+print(bl("hello"));
+print(bl(""));
+
+// also pass one through a function (callback form)
+fn apply1(g, x) { return g(x); }
+print(apply1(__to_string, 42));
