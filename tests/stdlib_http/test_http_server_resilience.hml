@@ -1,0 +1,38 @@
+// Regression test: HttpServer must not crash on malformed/empty request lines.
+// A browser opening a speculative "preconnect" socket sends no data, which
+// used to throw "Array index out of bounds" in _parse_request.
+import { HttpServer } from "@stdlib/http";
+
+let srv = HttpServer("127.0.0.1", 0);
+let passed = 0;
+let failed = 0;
+
+fn check(name, cond) {
+    if (cond) {
+        passed = passed + 1;
+        print(`✓ ${name}`);
+    } else {
+        failed = failed + 1;
+        print(`✗ ${name}`);
+    }
+}
+
+// Empty request line (preconnect / closed socket) must parse without throwing.
+let empty = srv._parse_request("");
+check("empty request line does not crash", empty.method == "" && empty.path == "");
+
+// A single token with no path must not crash (parts[1] guard).
+let one = srv._parse_request("garbage\r\n\r\n");
+check("single-token request line does not crash", one.method == "garbage" && one.path == "");
+
+// A well-formed line still parses correctly.
+let ok = srv._parse_request("GET /foo HTTP/1.1\r\nHost: x\r\n\r\n");
+check("well-formed request line parses", ok.method == "GET" && ok.path == "/foo");
+
+srv.close();
+
+print("");
+print(`Resilience tests — passed: ${passed}, failed: ${failed}`);
+if (failed > 0) {
+    panic("resilience tests failed");
+}

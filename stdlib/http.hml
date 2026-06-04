@@ -728,7 +728,16 @@ export fn HttpServer(host: string, port: i32) {
 
 			// Read the request
 			let request_buf = stream.read(8192);
+			// A connection may send no data at all — e.g. a browser opening a
+			// speculative "preconnect" socket, or a health probe that closes
+			// immediately. Don't crash the server; just drop the connection.
+			if (request_buf == null) {
+				return;
+			}
 			let request_str = request_buf.to_string();
+			if (request_str.trim() == "") {
+				return;
+			}
 
 			// Parse request
 			let req = self._parse_request(request_str);
@@ -770,8 +779,10 @@ export fn HttpServer(host: string, port: i32) {
 			let first_line = lines[0];
 			let parts = first_line.split(" ");
 
-			let method = parts[0];
-			let path = parts[1];
+			// Guard against a malformed request line (fewer than "METHOD PATH"
+			// tokens) so we return a harmless 404 instead of crashing.
+			let method = parts.length > 0 ? parts[0] : "";
+			let path = parts.length > 1 ? parts[1] : "";
 			let version = "HTTP/1.1";
 			if (parts.length > 2) {
 				version = parts[2];
