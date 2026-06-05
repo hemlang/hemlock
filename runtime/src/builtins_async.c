@@ -15,6 +15,7 @@
 #include "builtins_internal.h"
 #include <pthread.h>
 #include <stdatomic.h>
+#include <signal.h>
 
 #ifndef __EMSCRIPTEN__
 #include <poll.h>
@@ -100,6 +101,22 @@ static HmlValue call_hemlock_function_ffi(void *fn_ptr, void *closure_env, HmlVa
 // Thread wrapper function
 static void* task_thread_wrapper(void* arg) {
     HmlTask *task = (HmlTask*)arg;
+
+    // Block all signals in worker threads so asynchronous signals
+    // (SIGINT/SIGTERM/SIGHUP, ...) are always delivered to the main thread.
+    // The C signal handler calls back into the VM (hml_call_function), which
+    // is not safe to run on an arbitrary worker that may be holding a malloc
+    // or runtime lock. Without this, a server whose accept loop runs in a
+    // spawned task (e.g. serve_async) could have the signal delivered to a
+    // worker and the registered shutdown handler would never run reliably,
+    // leaving the process to take the default (terminating) action. This
+    // matches the interpreter backend, which masks all signals in its task
+    // threads for the same reason.
+#ifndef __EMSCRIPTEN__
+    sigset_t block_set;
+    sigfillset(&block_set);
+    pthread_sigmask(SIG_BLOCK, &block_set, NULL);
+#endif
 
     // Set thread name if provided (must be called from within the thread for macOS)
     // Not available in Emscripten/WASM
