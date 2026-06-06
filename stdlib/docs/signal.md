@@ -45,6 +45,11 @@ Register a signal handler function.
 - `signum: i32` - Signal number (use constants like `SIGINT`, `SIGTERM`)
 - `handler: function | null` - Function to call when signal is received, or `null` to reset to default
 
+The handler may be declared with **one parameter** to receive the signal
+number (`fn(sig) { ... }`) or with **no parameters** if it does not need it
+(`fn() { ... }`). Both forms are valid; a zero-parameter handler simply does
+not receive the signal number.
+
 **Returns:** The previous handler function (or `null` if none was registered)
 
 ```hemlock

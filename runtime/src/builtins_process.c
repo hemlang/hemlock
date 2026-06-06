@@ -1083,10 +1083,20 @@ static void hml_c_signal_handler(int signum) {
     HmlValue handler = g_signal_handlers[signum];
     if (handler.type == HML_VAL_NULL) return;
 
-    if (handler.type == HML_VAL_FUNCTION) {
-        // Call the function with signal number as argument
-        HmlValue sig_arg = hml_val_i32(signum);
-        hml_call_function(handler, &sig_arg, 1);
+    if (handler.type == HML_VAL_FUNCTION && handler.as.as_function != NULL) {
+        // Invoke the handler respecting its declared arity. Handlers may be
+        // written either as fn(sig) {...} (receive the signal number) or as
+        // fn() {...} (no parameters). Always passing one argument would make
+        // a zero-parameter handler throw "expects 0 arguments, got 1" and
+        // crash the process. This mirrors the interpreter, which only binds
+        // the signal argument when the handler declares a parameter.
+        HmlFunction *func = handler.as.as_function;
+        if (func->num_params >= 1 || func->has_rest_param) {
+            HmlValue sig_arg = hml_val_i32(signum);
+            hml_call_function(handler, &sig_arg, 1);
+        } else {
+            hml_call_function(handler, NULL, 0);
+        }
     }
 }
 
