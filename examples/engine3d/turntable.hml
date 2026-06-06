@@ -1,0 +1,50 @@
+// turntable.hml - Render an orbiting model to a sequence of PNG frames.
+//
+//     ./hemlock examples/engine3d/gen_assets.hml   # once, to build assets
+//     ./hemlock examples/engine3d/turntable.hml    # writes frames/frame_NN.png
+//
+// Spins the OBJ-loaded crate in front of the camera and dumps one PNG per
+// frame. Stitch them into a gif/mp4 with your tool of choice, e.g.:
+//     ffmpeg -i frames/frame_%02d.png turntable.gif
+
+import { renderer_new, render_mesh } from "./engine.hml";
+import { fb_new, fb_clear_gradient, fb_save_png } from "./framebuffer.hml";
+import { load_obj } from "./mesh.hml";
+import { tex_load_ppm } from "./texture.hml";
+import { apply_retro } from "./postfx.hml";
+import { mat4_mul, mat4_rotate_y, mat4_rotate_x, vec3 } from "./vec.hml";
+import { PI } from "@stdlib/math";
+
+const RES_W = 320;
+const RES_H = 240;
+const FRAMES = 16;
+
+fn main() {
+    let r = renderer_new(RES_W, RES_H, 1.05, 0.1, 100.0);
+    r.cull = 1;
+
+    let mesh = load_obj("examples/engine3d/assets/cube.obj");
+    let tex = tex_load_ppm("examples/engine3d/assets/crate.ppm");
+
+    for (let f = 0; f < FRAMES; f++) {
+        let fb = fb_new(RES_W, RES_H);
+        fb_clear_gradient(fb, vec3(40.0, 50.0, 70.0), vec3(90.0, 100.0, 120.0));
+
+        let angle = (f * 2.0 * PI) / FRAMES;
+        let model = mat4_mul(mat4_rotate_y(angle), mat4_rotate_x(0.45));
+        render_mesh(fb, r, mesh, model, tex);
+        apply_retro(fb, 32, true);
+
+        let name = "examples/engine3d/frames/frame_" + pad2(f) + ".png";
+        fb_save_png(fb, name);
+        print("  " + name);
+    }
+    print("done: " + FRAMES + " frames");
+}
+
+fn pad2(n: i32): string {
+    if (n < 10) { return "0" + n; }
+    return "" + n;
+}
+
+main();

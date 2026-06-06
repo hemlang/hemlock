@@ -1,0 +1,108 @@
+// png.hml - Minimal PNG writer in pure Hemlock.
+//
+// Encodes a 24-bit RGB framebuffer to a valid .png file. The DEFLATE stream
+// uses only *stored* (uncompressed) blocks, so we never need a real
+// compressor -- just the zlib framing plus an Adler-32 trailer. Chunk CRCs and
+// the Adler-32 checksum come from @stdlib/hash, which implements the standard
+// algorithms (verified against known test vectors).
+//
+// This keeps the engine fully self-contained: no external image libraries.
+
+import { crc32, adler32 } from "@stdlib/hash";
+import { divi } from "@stdlib/math";
+
+const DEFLATE_BLOCK_MAX = 65535;   // max LEN for a stored deflate block
+
+fn put_u32_be(buf: buffer, off: i32, val: u32) {
+    buf[off]     = (val >> 24) & 255;
+    buf[off + 1] = (val >> 16) & 255;
+    buf[off + 2] = (val >> 8) & 255;
+    buf[off + 3] = val & 255;
+}
+
+// Build "type + data" then prepend length and append CRC32 into `out` at `cur`.
+// Returns the new cursor. `typed` must already hold the 4 type bytes + data.
+fn write_chunk(out: buffer, cur: i32, typed: buffer): i32 {
+    let data_len = typed.length - 4;
+    put_u32_be(out, cur, data_len);
+    cur = cur + 4;
+    let cp = buffer_ptr(typed);
+    memcpy(ptr_offset(buffer_ptr(out), cur, 1), cp, typed.length);
+    cur = cur + typed.length;
+    put_u32_be(out, cur, crc32(typed));
+    cur = cur + 4;
+    return cur;
+}
+
+// Encode an RGB color buffer (width*height*3 bytes, row-major) to a PNG file.
+export fn write_png(path: string, color: buffer, width: i32, height: i32) {
+    // --- 1. Filtered raw scanlines: each row prefixed with filter byte 0 ---
+    let stride = width * 3;
+    let raw_size = height * (1 + stride);
+    let raw = buffer(raw_size);
+    let colp = buffer_ptr(color);
+    let rawp = buffer_ptr(raw);
+    for (let y = 0; y < height; y++) {
+        let row = y * (1 + stride);
+        raw[row] = 0;  // filter type: None
+        memcpy(ptr_offset(rawp, row + 1, 1), ptr_offset(colp, y * stride, 1), stride);
+    }
+
+    // --- 2. zlib stream: header + stored blocks + adler32 ---
+    let nblocks = divi(raw_size + DEFLATE_BLOCK_MAX - 1, DEFLATE_BLOCK_MAX);
+    if (nblocks == 0) { nblocks = 1; }
+    let zlib_size = 2 + 5 * nblocks + raw_size + 4;
+    let zlib = buffer(zlib_size);
+    zlib[0] = 120;  // CMF = 0x78
+    zlib[1] = 1;    // FLG = 0x01  ((0x78*256+1) % 31 == 0)
+    let zp = buffer_ptr(zlib);
+    let cur = 2;
+    let off = 0;
+    while (off < raw_size) {
+        let len = raw_size - off;
+        if (len > DEFLATE_BLOCK_MAX) { len = DEFLATE_BLOCK_MAX; }
+        let bfinal = 0;
+        if (off + len >= raw_size) { bfinal = 1; }
+        zlib[cur] = bfinal;            // BTYPE=00 (stored) + BFINAL bit
+        zlib[cur + 1] = len & 255;     // LEN  (little-endian)
+        zlib[cur + 2] = (len >> 8) & 255;
+        zlib[cur + 3] = (~len) & 255;  // NLEN (one's complement)
+        zlib[cur + 4] = (~len >> 8) & 255;
+        cur = cur + 5;
+        memcpy(ptr_offset(zp, cur, 1), ptr_offset(rawp, off, 1), len);
+        cur = cur + len;
+        off = off + len;
+    }
+    put_u32_be(zlib, cur, adler32(raw));
+
+    // --- 3. Assemble the file ---
+    let file_size = 8 + (12 + 13) + (12 + zlib_size) + 12;
+    let out = buffer(file_size);
+    // Signature
+    out[0] = 137; out[1] = 80; out[2] = 78; out[3] = 71;
+    out[4] = 13;  out[5] = 10; out[6] = 26; out[7] = 10;
+    let c = 8;
+
+    // IHDR: "IHDR" + width, height, bitdepth=8, colortype=2, comp=0, filter=0, interlace=0
+    let ihdr = buffer(4 + 13);
+    ihdr[0] = 73; ihdr[1] = 72; ihdr[2] = 68; ihdr[3] = 82;  // "IHDR"
+    put_u32_be(ihdr, 4, width);
+    put_u32_be(ihdr, 8, height);
+    ihdr[12] = 8;   // bit depth
+    ihdr[13] = 2;   // color type: truecolor RGB
+    ihdr[14] = 0; ihdr[15] = 0; ihdr[16] = 0;
+    c = write_chunk(out, c, ihdr);
+
+    // IDAT: "IDAT" + zlib stream
+    let idat = buffer(4 + zlib_size);
+    idat[0] = 73; idat[1] = 68; idat[2] = 65; idat[3] = 84;  // "IDAT"
+    memcpy(ptr_offset(buffer_ptr(idat), 4, 1), zp, zlib_size);
+    c = write_chunk(out, c, idat);
+
+    // IEND
+    let iend = buffer(4);
+    iend[0] = 73; iend[1] = 69; iend[2] = 78; iend[3] = 68;  // "IEND"
+    c = write_chunk(out, c, iend);
+
+    __write_file(path, out);
+}

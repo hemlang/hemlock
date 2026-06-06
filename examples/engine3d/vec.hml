@@ -1,0 +1,182 @@
+// vec.hml - 3D vector and 4x4 matrix math for the Hemlock retro 3D engine.
+//
+// Conventions:
+//   - Vectors are plain objects { x, y, z } (and { x, y, z, w } for vec4).
+//   - Matrices are flat arrays of 16 numbers in ROW-MAJOR order:
+//         m[row * 4 + col]
+//   - Right-handed coordinate space, OpenGL-style perspective: the camera
+//     looks down -Z, the near plane maps clip.w = -z_eye.
+//
+// Only per-vertex math lives here, so readability wins over micro-optimization.
+
+import { sin, cos, sqrt, tan } from "@stdlib/math";
+
+// ---------------------------------------------------------------------------
+// vec3
+// ---------------------------------------------------------------------------
+
+export fn vec3(x: f64, y: f64, z: f64): object {
+    return { x: x, y: y, z: z };
+}
+
+export fn v_add(a: object, b: object): object {
+    return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
+}
+
+export fn v_sub(a: object, b: object): object {
+    return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+}
+
+export fn v_scale(a: object, s: f64): object {
+    return { x: a.x * s, y: a.y * s, z: a.z * s };
+}
+
+export fn v_dot(a: object, b: object): f64 {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+export fn v_cross(a: object, b: object): object {
+    return {
+        x: a.y * b.z - a.z * b.y,
+        y: a.z * b.x - a.x * b.z,
+        z: a.x * b.y - a.y * b.x
+    };
+}
+
+export fn v_length(a: object): f64 {
+    return sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+}
+
+export fn v_normalize(a: object): object {
+    let len = sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+    if (len < 0.000001) { return { x: 0.0, y: 0.0, z: 0.0 }; }
+    let inv = 1.0 / len;
+    return { x: a.x * inv, y: a.y * inv, z: a.z * inv };
+}
+
+// ---------------------------------------------------------------------------
+// mat4 (row-major, flat array of 16)
+// ---------------------------------------------------------------------------
+
+export fn mat4_identity(): array {
+    return [
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    ];
+}
+
+// C = A * B  (both row-major)
+export fn mat4_mul(a: array, b: array): array {
+    let r = [
+        0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0
+    ];
+    for (let i = 0; i < 4; i++) {
+        for (let j = 0; j < 4; j++) {
+            let sum = 0.0;
+            for (let k = 0; k < 4; k++) {
+                sum = sum + a[i * 4 + k] * b[k * 4 + j];
+            }
+            r[i * 4 + j] = sum;
+        }
+    }
+    return r;
+}
+
+// Multiply matrix by a vec4 { x, y, z, w }, returns vec4.
+export fn mat4_mul_vec4(m: array, v: object): object {
+    return {
+        x: m[0] * v.x + m[1] * v.y + m[2] * v.z + m[3] * v.w,
+        y: m[4] * v.x + m[5] * v.y + m[6] * v.z + m[7] * v.w,
+        z: m[8] * v.x + m[9] * v.y + m[10] * v.z + m[11] * v.w,
+        w: m[12] * v.x + m[13] * v.y + m[14] * v.z + m[15] * v.w
+    };
+}
+
+// Transform a direction (vec3) by the upper-left 3x3 (ignores translation).
+export fn mat4_mul_dir(m: array, v: object): object {
+    return {
+        x: m[0] * v.x + m[1] * v.y + m[2] * v.z,
+        y: m[4] * v.x + m[5] * v.y + m[6] * v.z,
+        z: m[8] * v.x + m[9] * v.y + m[10] * v.z
+    };
+}
+
+export fn mat4_translate(tx: f64, ty: f64, tz: f64): array {
+    return [
+        1.0, 0.0, 0.0, tx,
+        0.0, 1.0, 0.0, ty,
+        0.0, 0.0, 1.0, tz,
+        0.0, 0.0, 0.0, 1.0
+    ];
+}
+
+export fn mat4_scale(sx: f64, sy: f64, sz: f64): array {
+    return [
+        sx,  0.0, 0.0, 0.0,
+        0.0, sy,  0.0, 0.0,
+        0.0, 0.0, sz,  0.0,
+        0.0, 0.0, 0.0, 1.0
+    ];
+}
+
+export fn mat4_rotate_x(a: f64): array {
+    let c = cos(a);
+    let s = sin(a);
+    return [
+        1.0, 0.0, 0.0, 0.0,
+        0.0, c,  -s,   0.0,
+        0.0, s,   c,   0.0,
+        0.0, 0.0, 0.0, 1.0
+    ];
+}
+
+export fn mat4_rotate_y(a: f64): array {
+    let c = cos(a);
+    let s = sin(a);
+    return [
+        c,   0.0, s,   0.0,
+        0.0, 1.0, 0.0, 0.0,
+       -s,   0.0, c,   0.0,
+        0.0, 0.0, 0.0, 1.0
+    ];
+}
+
+export fn mat4_rotate_z(a: f64): array {
+    let c = cos(a);
+    let s = sin(a);
+    return [
+        c,  -s,   0.0, 0.0,
+        s,   c,   0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    ];
+}
+
+// OpenGL-style perspective. fov is the vertical field of view in radians.
+export fn mat4_perspective(fov: f64, aspect: f64, near: f64, far: f64): array {
+    let f = 1.0 / tan(fov / 2.0);
+    return [
+        f / aspect, 0.0, 0.0,                         0.0,
+        0.0,        f,   0.0,                         0.0,
+        0.0,        0.0, (far + near) / (near - far), (2.0 * far * near) / (near - far),
+        0.0,        0.0, -1.0,                        0.0
+    ];
+}
+
+// Right-handed look-at view matrix.
+export fn mat4_look_at(eye: object, target: object, up: object): array {
+    let f = v_normalize(v_sub(target, eye));   // forward
+    let s = v_normalize(v_cross(f, up));        // right
+    let u = v_cross(s, f);                       // true up
+    return [
+        s.x,  s.y,  s.z,  -v_dot(s, eye),
+        u.x,  u.y,  u.z,  -v_dot(u, eye),
+       -f.x, -f.y, -f.z,   v_dot(f, eye),
+        0.0,  0.0,  0.0,   1.0
+    ];
+}

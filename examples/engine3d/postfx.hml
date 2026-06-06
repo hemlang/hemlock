@@ -1,0 +1,42 @@
+// postfx.hml - Retro color crunch: ordered dithering + color-depth reduction.
+//
+// PS1/Saturn framebuffers were 15-bit (5 bits per channel) and games leaned on
+// ordered dithering to hide the banding. Running this as a full-screen pass
+// keeps the rasterizer's inner loop clean.
+
+// 4x4 Bayer threshold matrix, values 0..15.
+const BAYER = [
+     0,  8,  2, 10,
+    12,  4, 14,  6,
+     3, 11,  1,  9,
+    15,  7, 13,  5
+];
+
+fn quant(value: f64, step: f64): i32 {
+    let q = i32(value / step + 0.5) * i32(step + 0.5);
+    if (q > 255) { q = 255; }
+    if (q < 0) { q = 0; }
+    return q;
+}
+
+// Reduce to `levels` shades per channel with ordered dithering.
+//   levels = 32 emulates 5-bit PS1 color. dither_strength ~ one quant step.
+export fn apply_retro(fb: object, levels: i32, dither: bool) {
+    let w = fb.width; let h = fb.height;
+    let c = fb.color;
+    let step = 255.0 / (levels - 1);
+    for (let y = 0; y < h; y++) {
+        let brow = (y % 4) * 4;
+        for (let x = 0; x < w; x++) {
+            let o = (y * w + x) * 3;
+            let bias = 0.0;
+            if (dither) {
+                // Map Bayer 0..15 to roughly [-0.5,0.5] of a quant step.
+                bias = (BAYER[brow + (x % 4)] / 15.0 - 0.5) * step;
+            }
+            c[o]     = quant(c[o] + bias, step);
+            c[o + 1] = quant(c[o + 1] + bias, step);
+            c[o + 2] = quant(c[o + 2] + bias, step);
+        }
+    }
+}

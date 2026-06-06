@@ -1,0 +1,148 @@
+// mesh.hml - Mesh container, Wavefront OBJ loader, and a built-in cube.
+//
+// Mesh layout:
+//   positions : array of vec3 { x, y, z }
+//   uvs       : array of vec2 { x, y }
+//   normals   : array of vec3 { x, y, z }
+//   tris      : array of faces, each { p:[i,j,k], t:[i,j,k], n:[i,j,k] }
+//               indices are 0-based; t/n entries are -1 when absent.
+
+import { vec3 } from "./vec.hml";
+
+export fn mesh_new(): object {
+    return { positions: [], uvs: [], normals: [], tris: [] };
+}
+
+// Parse one OBJ face vertex token "p", "p/t", "p//n", or "p/t/n".
+// OBJ indices are 1-based; we convert to 0-based, -1 meaning "absent".
+fn parse_face_vert(tok: string): object {
+    let parts = tok.split("/");
+    let p = i32(parts[0]) - 1;
+    let t = -1;
+    let n = -1;
+    if (parts.length >= 2 && parts[1].length > 0) { t = i32(parts[1]) - 1; }
+    if (parts.length >= 3 && parts[2].length > 0) { n = i32(parts[2]) - 1; }
+    return { p: p, t: t, n: n };
+}
+
+// Load a Wavefront OBJ file. Polygons with >3 vertices are fan-triangulated.
+export fn load_obj(path: string): object {
+    let mesh = mesh_new();
+    let text = __read_file(path);
+    let lines = text.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trim();
+        if (line.length == 0) { continue; }
+        let tok = line.split(" ");
+        let kind = tok[0];
+        if (kind == "v") {
+            mesh.positions.push(vec3(f64(tok[1]), f64(tok[2]), f64(tok[3])));
+        } else if (kind == "vt") {
+            mesh.uvs.push({ x: f64(tok[1]), y: f64(tok[2]) });
+        } else if (kind == "vn") {
+            mesh.normals.push(vec3(f64(tok[1]), f64(tok[2]), f64(tok[3])));
+        } else if (kind == "f") {
+            // Collect the (non-empty) vertex tokens, then fan-triangulate.
+            let verts = [];
+            for (let j = 1; j < tok.length; j++) {
+                if (tok[j].length > 0) { verts.push(parse_face_vert(tok[j])); }
+            }
+            for (let k = 1; k < verts.length - 1; k++) {
+                let a = verts[0]; let b = verts[k]; let c = verts[k + 1];
+                mesh.tris.push({
+                    p: [a.p, b.p, c.p],
+                    t: [a.t, b.t, c.t],
+                    n: [a.n, b.n, c.n]
+                });
+            }
+        }
+    }
+    return mesh;
+}
+
+// A unit cube centered at the origin with per-face UVs (each face full 0..1).
+export fn make_cube(): object {
+    let mesh = mesh_new();
+    let p = mesh.positions;
+    p.push(vec3(-1.0, -1.0, -1.0)); // 0
+    p.push(vec3( 1.0, -1.0, -1.0)); // 1
+    p.push(vec3( 1.0,  1.0, -1.0)); // 2
+    p.push(vec3(-1.0,  1.0, -1.0)); // 3
+    p.push(vec3(-1.0, -1.0,  1.0)); // 4
+    p.push(vec3( 1.0, -1.0,  1.0)); // 5
+    p.push(vec3( 1.0,  1.0,  1.0)); // 6
+    p.push(vec3(-1.0,  1.0,  1.0)); // 7
+
+    let uv = mesh.uvs;
+    uv.push({ x: 0.0, y: 0.0 });  // 0
+    uv.push({ x: 1.0, y: 0.0 });  // 1
+    uv.push({ x: 1.0, y: 1.0 });  // 2
+    uv.push({ x: 0.0, y: 1.0 });  // 3
+
+    add_quad(mesh, 4, 5, 6, 7); // front (+z)
+    add_quad(mesh, 1, 0, 3, 2); // back  (-z)
+    add_quad(mesh, 0, 4, 7, 3); // left  (-x)
+    add_quad(mesh, 5, 1, 2, 6); // right (+x)
+    add_quad(mesh, 7, 6, 2, 3); // top   (+y)
+    add_quad(mesh, 0, 1, 5, 4); // bottom(-y)
+    return mesh;
+}
+
+// Add a quad (two CCW triangles) using shared UV corners 0,1,2,3.
+fn add_quad(mesh: object, a: i32, b: i32, c: i32, d: i32) {
+    mesh.tris.push({ p: [a, b, c], t: [0, 1, 2], n: [-1, -1, -1] });
+    mesh.tris.push({ p: [a, c, d], t: [0, 2, 3], n: [-1, -1, -1] });
+}
+
+// A flat ground plane in the XZ plane (y=0), 1x1 centered, facing +Y.
+// UVs run 0..tiles so the texture repeats `tiles` times per axis.
+export fn make_plane(tiles: f64): object {
+    let mesh = mesh_new();
+    let p = mesh.positions;
+    p.push(vec3(-0.5, 0.0, -0.5)); // 0
+    p.push(vec3( 0.5, 0.0, -0.5)); // 1
+    p.push(vec3( 0.5, 0.0,  0.5)); // 2
+    p.push(vec3(-0.5, 0.0,  0.5)); // 3
+    let uv = mesh.uvs;
+    uv.push({ x: 0.0,   y: 0.0 });
+    uv.push({ x: tiles, y: 0.0 });
+    uv.push({ x: tiles, y: tiles });
+    uv.push({ x: 0.0,   y: tiles });
+    let nrm = mesh.normals;
+    nrm.push(vec3(0.0, 1.0, 0.0));
+    // CCW when viewed from above (+Y), so it survives back-face culling.
+    mesh.tris.push({ p: [0, 3, 2], t: [0, 3, 2], n: [0, 0, 0] });
+    mesh.tris.push({ p: [0, 2, 1], t: [0, 2, 1], n: [0, 0, 0] });
+    return mesh;
+}
+
+// A gable (triangular-prism) roof. Unit footprint X,Z in -0.5..0.5, height 0..1,
+// ridge running along X at z=0. Two slopes + two gable end triangles.
+export fn make_roof(): object {
+    let mesh = mesh_new();
+    let p = mesh.positions;
+    p.push(vec3(-0.5, 0.0, -0.5)); // 0 A
+    p.push(vec3( 0.5, 0.0, -0.5)); // 1 B
+    p.push(vec3( 0.5, 0.0,  0.5)); // 2 C
+    p.push(vec3(-0.5, 0.0,  0.5)); // 3 D
+    p.push(vec3(-0.5, 1.0,  0.0)); // 4 R0 (ridge, -x)
+    p.push(vec3( 0.5, 1.0,  0.0)); // 5 R1 (ridge, +x)
+
+    let uv = mesh.uvs;
+    uv.push({ x: 0.0, y: 0.0 }); // 0
+    uv.push({ x: 1.0, y: 0.0 }); // 1
+    uv.push({ x: 1.0, y: 1.0 }); // 2
+    uv.push({ x: 0.0, y: 1.0 }); // 3
+    uv.push({ x: 0.5, y: 1.0 }); // 4 ridge apex UV
+
+    // Front slope (+z): D, C, R1, R0
+    mesh.tris.push({ p: [3, 2, 5], t: [0, 1, 2], n: [-1, -1, -1] });
+    mesh.tris.push({ p: [3, 5, 4], t: [0, 2, 3], n: [-1, -1, -1] });
+    // Back slope (-z): B, A, R0, R1
+    mesh.tris.push({ p: [1, 0, 4], t: [0, 1, 2], n: [-1, -1, -1] });
+    mesh.tris.push({ p: [1, 4, 5], t: [0, 2, 3], n: [-1, -1, -1] });
+    // Gable ends (triangles)
+    mesh.tris.push({ p: [0, 3, 4], t: [0, 1, 4], n: [-1, -1, -1] }); // -x end
+    mesh.tris.push({ p: [2, 1, 5], t: [0, 1, 4], n: [-1, -1, -1] }); // +x end
+    return mesh;
+}

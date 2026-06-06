@@ -1,0 +1,103 @@
+// raster.hml - Triangle rasterizer with a deliberately retro pipeline.
+//
+// What makes it look like a 1996 console:
+//   - AFFINE (screen-linear) interpolation of U/V. No perspective correction,
+//     so textures swim and warp across large polygons -- the PlayStation look.
+//   - Per-vertex (Gouraud) lighting baked into a single intensity per vertex.
+//   - Integer-snapped vertices (optional) for that jittery wobble.
+//   - A z-buffer for correct occlusion.
+//
+// Each vertex handed to raster_triangle is an object:
+//   { sx, sy, z, u, v, light }
+//   sx, sy : screen-space pixel coordinates (float)
+//   z      : NDC depth, smaller = nearer
+//   u, v   : texture coordinates
+//   light  : shading multiplier 0..1
+
+import { floor } from "@stdlib/math";
+import { tex_sample } from "./texture.hml";
+
+// Snap a coordinate to a coarse grid to emulate PS1 vertex jitter.
+fn snap(value: f64, grid: f64): f64 {
+    if (grid <= 0.0) { return value; }
+    return floor(value / grid + 0.5) * grid;
+}
+
+// Rasterize one textured, lit triangle into the framebuffer.
+//   cull: 0 = draw both sides, 1 = cull CW, -1 = cull CCW (screen space).
+//   jitter: vertex snap grid in pixels (0 = off).
+export fn raster_triangle(fb: object, tex: object, v0: object, v1: object, v2: object, cull: i32, jitter: f64) {
+    let w = fb.width; let h = fb.height;
+
+    let x0 = snap(v0.sx, jitter); let y0 = snap(v0.sy, jitter);
+    let x1 = snap(v1.sx, jitter); let y1 = snap(v1.sy, jitter);
+    let x2 = snap(v2.sx, jitter); let y2 = snap(v2.sy, jitter);
+
+    // Bounding box, clamped to the screen.
+    let minx = i32(floor(min3(x0, x1, x2)));
+    let maxx = i32(floor(max3(x0, x1, x2))) + 1;
+    let miny = i32(floor(min3(y0, y1, y2)));
+    let maxy = i32(floor(max3(y0, y1, y2))) + 1;
+    if (minx < 0) { minx = 0; }
+    if (miny < 0) { miny = 0; }
+    if (maxx > w) { maxx = w; }
+    if (maxy > h) { maxy = h; }
+    if (minx >= maxx || miny >= maxy) { return; }
+
+    // Edge function increments (linear in screen position).
+    let sx0 = y2 - y1; let sy0 = x1 - x2;   // edge v1->v2, weight for v0
+    let sx1 = y0 - y2; let sy1 = x2 - x0;   // edge v2->v0, weight for v1
+    let sx2 = y1 - y0; let sy2 = x0 - x1;   // edge v0->v1, weight for v2
+
+    let px = minx + 0.5; let py = miny + 0.5;
+    let w0_row = (px - x1) * sx0 + (py - y1) * sy0;
+    let w1_row = (px - x2) * sx1 + (py - y2) * sy1;
+    let w2_row = (px - x0) * sx2 + (py - y0) * sy2;
+
+    // The barycentric denominator is the (constant) sum of the edge weights.
+    // Its sign encodes winding, so we use it for both culling and normalization.
+    let denom = w0_row + w1_row + w2_row;
+    if (denom > -0.0001 && denom < 0.0001) { return; }
+    if (cull == 1 && denom > 0.0) { return; }
+    if (cull == -1 && denom < 0.0) { return; }
+    let inv_area = 1.0 / denom;
+
+    let color = fb.color;
+    let depth = fb.depth;
+
+    for (let y = miny; y < maxy; y++) {
+        let cw0 = w0_row; let cw1 = w1_row; let cw2 = w2_row;
+        let rowbase = y * w;
+        for (let x = minx; x < maxx; x++) {
+            // Inside test: all barycentrics share the sign of `area`.
+            let l0 = cw0 * inv_area;
+            let l1 = cw1 * inv_area;
+            let l2 = cw2 * inv_area;
+            if (l0 >= 0.0 && l1 >= 0.0 && l2 >= 0.0) {
+                let z = l0 * v0.z + l1 * v1.z + l2 * v2.z;
+                let idx = rowbase + x;
+                if (z < depth[idx]) {
+                    depth[idx] = z;
+                    // Affine UV + light -- no perspective divide on purpose.
+                    let u = l0 * v0.u + l1 * v1.u + l2 * v2.u;
+                    let vv = l0 * v0.v + l1 * v1.v + l2 * v2.v;
+                    let lit = l0 * v0.light + l1 * v1.light + l2 * v2.light;
+                    let s = tex_sample(tex, u, vv);
+                    let o = idx * 3;
+                    let r = i32(s.r * lit); let g = i32(s.g * lit); let b = i32(s.b * lit);
+                    if (r > 255) { r = 255; } if (g > 255) { g = 255; } if (b > 255) { b = 255; }
+                    color[o] = r; color[o + 1] = g; color[o + 2] = b;
+                }
+            }
+            cw0 = cw0 + sx0; cw1 = cw1 + sx1; cw2 = cw2 + sx2;
+        }
+        w0_row = w0_row + sy0; w1_row = w1_row + sy1; w2_row = w2_row + sy2;
+    }
+}
+
+fn min3(a: f64, b: f64, c: f64): f64 {
+    let m = a; if (b < m) { m = b; } if (c < m) { m = c; } return m;
+}
+fn max3(a: f64, b: f64, c: f64): f64 {
+    let m = a; if (b > m) { m = b; } if (c > m) { m = c; } return m;
+}

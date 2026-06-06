@@ -1,0 +1,59 @@
+// framebuffer.hml - Color + depth buffers for the software rasterizer.
+//
+// The framebuffer is { width, height, color, depth }:
+//   color : buffer of width*height*3 bytes, 24-bit RGB, row-major.
+//   depth : array<f64> of width*height. Smaller = nearer. Cleared to +1e30.
+//
+// We keep a low internal resolution on purpose -- the chunky pixels are half
+// the retro look.
+
+import { write_png } from "./png.hml";
+
+const DEPTH_FAR = 1.0e30;
+
+export fn fb_new(width: i32, height: i32): object {
+    let color = buffer(width * height * 3);
+    let depth = [];
+    let n = width * height;
+    for (let i = 0; i < n; i++) { depth.push(DEPTH_FAR); }
+    return { width: width, height: height, color: color, depth: depth };
+}
+
+// Fast clear to a single solid color, plus depth reset.
+export fn fb_clear(fb: object, r: i32, g: i32, b: i32) {
+    let cp = buffer_ptr(fb.color);
+    if (r == g && g == b) {
+        memset(cp, r & 255, fb.width * fb.height * 3);
+    } else {
+        let n = fb.width * fb.height;
+        let c = fb.color;
+        for (let i = 0; i < n; i++) {
+            let o = i * 3;
+            c[o] = r & 255; c[o + 1] = g & 255; c[o + 2] = b & 255;
+        }
+    }
+    fb.depth.fill(DEPTH_FAR);
+}
+
+// Vertical gradient sky (top color at y=0 fading to bottom color), depth reset.
+export fn fb_clear_gradient(fb: object, top: object, bot: object) {
+    let w = fb.width; let h = fb.height;
+    let c = fb.color;
+    for (let y = 0; y < h; y++) {
+        let t = y / (h - 1);
+        let r = top.x + (bot.x - top.x) * t;
+        let g = top.y + (bot.y - top.y) * t;
+        let b = top.z + (bot.z - top.z) * t;
+        let ri = i32(r) & 255; let gi = i32(g) & 255; let bi = i32(b) & 255;
+        let row = y * w * 3;
+        for (let x = 0; x < w; x++) {
+            let o = row + x * 3;
+            c[o] = ri; c[o + 1] = gi; c[o + 2] = bi;
+        }
+    }
+    fb.depth.fill(DEPTH_FAR);
+}
+
+export fn fb_save_png(fb: object, path: string) {
+    write_png(path, fb.color, fb.width, fb.height);
+}

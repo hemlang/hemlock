@@ -1,0 +1,109 @@
+// texture.hml - Textures + nearest-neighbour sampling for the retro look.
+//
+// A texture is { w, h, color } where color is a buffer of w*h*3 RGB bytes.
+// Sampling is nearest-neighbour with wrap, which (combined with affine UV
+// interpolation in the rasterizer) gives the classic blocky PS1 warp.
+
+import { floor } from "@stdlib/math";
+
+export fn tex_new(w: i32, h: i32): object {
+    return { w: w, h: h, color: buffer(w * h * 3) };
+}
+
+// Wrapped nearest-neighbour sample. Returns { r, g, b } as ints 0..255.
+export fn tex_sample(tex: object, u: f64, v: f64): object {
+    let w = tex.w; let h = tex.h;
+    let tx = i32(floor(u * w)) % w;
+    let ty = i32(floor(v * h)) % h;
+    if (tx < 0) { tx = tx + w; }
+    if (ty < 0) { ty = ty + h; }
+    let o = (ty * w + tx) * 3;
+    let c = tex.color;
+    return { r: c[o], g: c[o + 1], b: c[o + 2] };
+}
+
+// --- Procedural generators -------------------------------------------------
+
+export fn tex_checker(w: i32, h: i32, cell: i32, a: object, b: object): object {
+    let tex = tex_new(w, h);
+    let c = tex.color;
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            let on = ((i32(x / cell) + i32(y / cell)) % 2) == 0;
+            let col = a;
+            if (!on) { col = b; }
+            let o = (y * w + x) * 3;
+            c[o] = i32(col.x) & 255; c[o + 1] = i32(col.y) & 255; c[o + 2] = i32(col.z) & 255;
+        }
+    }
+    return tex;
+}
+
+export fn tex_solid(w: i32, h: i32, col: object): object {
+    let tex = tex_new(w, h);
+    let c = tex.color;
+    let n = w * h;
+    for (let i = 0; i < n; i++) {
+        let o = i * 3;
+        c[o] = i32(col.x) & 255; c[o + 1] = i32(col.y) & 255; c[o + 2] = i32(col.z) & 255;
+    }
+    return tex;
+}
+
+// --- PPM (P6 binary) loader ------------------------------------------------
+// Loads a binary PPM written by gen_assets.hml (or any P6 file). The header is
+// "P6\n<w> <h>\n<maxval>\n" followed by w*h*3 raw bytes.
+
+export fn tex_load_ppm(path: string): object {
+    let s = __read_file(path);
+    let bytes = s.to_bytes();
+    let n = bytes.length;
+    let pos = 0;
+
+    // Skip the "P6" magic (one non-whitespace token).
+    pos = skip_ws(bytes, n, pos);
+    while (pos < n && !is_ws(bytes[pos])) { pos = pos + 1; }
+
+    // Read three integers: width, height, maxval.
+    let w_res = read_int(bytes, n, pos); let w = w_res.value; pos = w_res.pos;
+    let h_res = read_int(bytes, n, pos); let h = h_res.value; pos = h_res.pos;
+    let m_res = read_int(bytes, n, pos); pos = m_res.pos;
+
+    // Exactly one whitespace byte separates the header from the pixel data.
+    pos = pos + 1;
+
+    let tex = tex_new(w, h);
+    memcpy(buffer_ptr(tex.color), ptr_offset(buffer_ptr(bytes), pos, 1), w * h * 3);
+    return tex;
+}
+
+fn is_ws(b: i32): bool {
+    return b == 32 || b == 10 || b == 13 || b == 9;
+}
+
+fn skip_ws(bytes: buffer, n: i32, pos: i32): i32 {
+    while (pos < n && is_ws(bytes[pos])) { pos = pos + 1; }
+    return pos;
+}
+
+// Parse a base-10 integer, returning { value, pos } with pos past the digits.
+fn read_int(bytes: buffer, n: i32, pos: i32): object {
+    pos = skip_ws(bytes, n, pos);
+    let val = 0;
+    while (pos < n && bytes[pos] >= 48 && bytes[pos] <= 57) {
+        val = val * 10 + (bytes[pos] - 48);
+        pos = pos + 1;
+    }
+    return { value: val, pos: pos };
+}
+
+// Save a texture as a binary PPM (P6) -- handy for generating reusable assets.
+export fn tex_save_ppm(tex: object, path: string) {
+    let header = "P6\n" + tex.w + " " + tex.h + "\n255\n";
+    let hb = header.to_bytes();
+    let body = tex.w * tex.h * 3;
+    let out = buffer(hb.length + body);
+    memcpy(buffer_ptr(out), buffer_ptr(hb), hb.length);
+    memcpy(ptr_offset(buffer_ptr(out), hb.length, 1), buffer_ptr(tex.color), body);
+    __write_file(path, out);
+}

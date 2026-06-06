@@ -1,0 +1,140 @@
+// engine.hml - The render pipeline: mesh + transform -> shaded triangles.
+//
+// Stages per triangle:
+//   1. Model -> world -> clip space via the MVP matrix.
+//   2. Per-vertex lighting (Gouraud) using world-space normals.
+//   3. Near-plane clipping (Sutherland-Hodgman against w >= epsilon) so polygons
+//      crossing the camera plane don't explode during the perspective divide.
+//   4. Perspective divide + viewport transform to screen pixels.
+//   5. Hand each resulting triangle to the rasterizer.
+
+import { mat4_mul, mat4_mul_vec4, mat4_mul_dir, mat4_perspective, mat4_look_at,
+         vec3, v_normalize, v_dot, v_sub, v_cross } from "./vec.hml";
+import { raster_triangle } from "./raster.hml";
+
+const W_NEAR = 0.0001;   // clip plane just in front of the camera
+
+// Build a renderer/camera config.
+//   light_dir is the direction light travels (will be normalized).
+export fn renderer_new(width: i32, height: i32, fov: f64, near: f64, far: f64): object {
+    let aspect = (width * 1.0) / height;
+    return {
+        width: width,
+        height: height,
+        proj: mat4_perspective(fov, aspect, near, far),
+        view: mat4_look_at(vec3(0.0, 0.0, 5.0), vec3(0.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0)),
+        light_dir: v_normalize(vec3(-0.4, -1.0, -0.6)),
+        ambient: 0.35,
+        cull: 1,
+        jitter: 0.0
+    };
+}
+
+export fn renderer_look_at(r: object, eye: object, target: object, up: object) {
+    r.view = mat4_look_at(eye, target, up);
+}
+
+// Linear interpolation of a clip-space vertex (used during near clipping).
+fn clip_lerp(a: object, b: object, t: f64): object {
+    return {
+        cx: a.cx + (b.cx - a.cx) * t,
+        cy: a.cy + (b.cy - a.cy) * t,
+        cz: a.cz + (b.cz - a.cz) * t,
+        cw: a.cw + (b.cw - a.cw) * t,
+        u:  a.u  + (b.u  - a.u)  * t,
+        v:  a.v  + (b.v  - a.v)  * t,
+        light: a.light + (b.light - a.light) * t
+    };
+}
+
+// Clip a polygon (array of clip verts) against w >= W_NEAR. Returns new array.
+fn clip_near(poly: array): array {
+    let out = [];
+    let n = poly.length;
+    for (let i = 0; i < n; i++) {
+        let cur = poly[i];
+        let nxt = poly[(i + 1) % n];
+        let dc = cur.cw - W_NEAR;
+        let dn = nxt.cw - W_NEAR;
+        let cur_in = dc >= 0.0;
+        let nxt_in = dn >= 0.0;
+        if (cur_in) { out.push(cur); }
+        if ((cur_in && !nxt_in) || (!cur_in && nxt_in)) {
+            let t = dc / (dc - dn);
+            out.push(clip_lerp(cur, nxt, t));
+        }
+    }
+    return out;
+}
+
+// Project a clip vertex to a screen-space raster vertex.
+fn to_screen(r: object, c: object): object {
+    let inv_w = 1.0 / c.cw;
+    let ndc_x = c.cx * inv_w;
+    let ndc_y = c.cy * inv_w;
+    let ndc_z = c.cz * inv_w;
+    return {
+        sx: (ndc_x * 0.5 + 0.5) * r.width,
+        sy: (1.0 - (ndc_y * 0.5 + 0.5)) * r.height,
+        z: ndc_z,
+        u: c.u,
+        v: c.v,
+        light: c.light
+    };
+}
+
+// Render a mesh with the given model matrix and texture.
+export fn render_mesh(fb: object, r: object, mesh: object, model: array, tex: object) {
+    let mvp = mat4_mul(r.proj, mat4_mul(r.view, model));
+    let ldir = r.light_dir;
+    let ambient = r.ambient;
+    let positions = mesh.positions;
+    let uvs = mesh.uvs;
+    let normals = mesh.normals;
+    let tris = mesh.tris;
+
+    for (let f = 0; f < tris.length; f++) {
+        let tri = tris[f];
+        let pi = tri.p;
+        let ti = tri.t;
+        let ni = tri.n;
+
+        let p0 = positions[pi[0]];
+        let p1 = positions[pi[1]];
+        let p2 = positions[pi[2]];
+
+        // Face normal fallback (flat shading) if vertex normals are absent.
+        let face_n = v_normalize(v_cross(v_sub(p1, p0), v_sub(p2, p0)));
+
+        let clip = [];
+        for (let k = 0; k < 3; k++) {
+            let p = positions[pi[k]];
+            let c = mat4_mul_vec4(mvp, { x: p.x, y: p.y, z: p.z, w: 1.0 });
+
+            // Lighting in world space.
+            let nrm = face_n;
+            if (ni[k] >= 0) { nrm = normals[ni[k]]; }
+            let wn = v_normalize(mat4_mul_dir(model, nrm));
+            let ndotl = -v_dot(wn, ldir);
+            if (ndotl < 0.0) { ndotl = 0.0; }
+            let light = ambient + (1.0 - ambient) * ndotl;
+            if (light > 1.0) { light = 1.0; }
+
+            let uv = { x: 0.0, y: 0.0 };
+            if (ti[k] >= 0) { uv = uvs[ti[k]]; }
+
+            clip.push({ cx: c.x, cy: c.y, cz: c.z, cw: c.w, u: uv.x, v: uv.y, light: light });
+        }
+
+        let cp = clip_near(clip);
+        if (cp.length < 3) { continue; }
+
+        // Fan-triangulate the (possibly clipped) polygon.
+        let s0 = to_screen(r, cp[0]);
+        for (let t = 1; t < cp.length - 1; t++) {
+            let s1 = to_screen(r, cp[t]);
+            let s2 = to_screen(r, cp[t + 1]);
+            raster_triangle(fb, tex, s0, s1, s2, r.cull, r.jitter);
+        }
+    }
+}
