@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.2] - 2026-06-05
+
 ### Fixed
 
 - **`to_string` / `string_byte_length` as first-class values failed to link.** Their codegen value-wrap path (`__to_string` / `__string_byte_length`) referenced `hml_builtin_to_string` / `hml_builtin_string_byte_length`, which were never defined — any compiled program using either builtin as a first-class value (not a direct call) failed at link time with undefined symbols. Added the missing env-first wrapper shims (matching the sibling `hml_builtin_cstr_to_string` / `hml_builtin_string_from_bytes`). Regression test: `tests/compiler/builtin_value_to_string.hml`.
