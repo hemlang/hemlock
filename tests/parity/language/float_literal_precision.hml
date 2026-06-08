@@ -1,0 +1,16 @@
+// Float literals must keep full f64 precision in BOTH backends.
+// Regression: the compiler emitted f64 literals with "%g" (6 significant
+// digits), so 3.141592653589793 became 3.14159 in compiled code. Scaled to
+// integers so the comparison is exact regardless of float formatting.
+let pi = 3.141592653589793;
+let e = 2.718281828459045;
+let third = 0.33333333;
+print(i64(pi * 1000000000000000.0));      // 3141592653589793
+print(i64(e * 1000000000000000.0));        // 2718281828459045
+print(i64(third * 100000000.0));           // 33333333
+
+// arithmetic on precise literals must also stay precise
+let a = 7.6;
+let b = 0.33333333;
+print(i64(a * b * 1000000000.0));          // 2533333307
+print(i64((pi - 3.0) * 1000000000000000.0)); // 141592653589793
