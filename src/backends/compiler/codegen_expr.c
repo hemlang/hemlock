@@ -40,7 +40,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
     switch (expr->type) {
         case EXPR_NUMBER:
             if (expr->as.number.is_float) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_f64(%g);", result, expr->as.number.float_value);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_f64(%.17g);", result, expr->as.number.float_value);
             } else if (expr->as.number.is_u64) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_u64(%" PRIu64 "ULL);", result, expr->as.number.uint_value);
             } else {
