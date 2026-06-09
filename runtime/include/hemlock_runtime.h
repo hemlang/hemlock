@@ -86,6 +86,8 @@ typedef enum {
 
 // Perform binary operation with automatic type promotion
 HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right);
+HmlValue hml_value_inc(HmlValue val);  // ++: preserves type, wraps on overflow
+HmlValue hml_value_dec(HmlValue val);  // --: preserves type, wraps on overflow
 
 // ========== UNARY OPERATIONS ==========
 
@@ -301,7 +303,9 @@ HmlValue hml_sizeof(HmlValue type_name);
 // ========== STRING OPERATIONS ==========
 
 HmlValue hml_string_concat(HmlValue a, HmlValue b);
+HmlValue hml_string_concat_display(HmlValue a, HmlValue b);  // Template strings: display formatting
 HmlValue hml_string_append_inplace(HmlValue *dest, HmlValue src);  // For x = x + y pattern
+HmlValue hml_to_string_concat(HmlValue val);  // `+` concat: arrays/objects JSON-serialized
 HmlValue hml_string_concat3(HmlValue a, HmlValue b, HmlValue c);
 HmlValue hml_string_concat4(HmlValue a, HmlValue b, HmlValue c, HmlValue d);
 HmlValue hml_string_concat5(HmlValue a, HmlValue b, HmlValue c, HmlValue d, HmlValue e);

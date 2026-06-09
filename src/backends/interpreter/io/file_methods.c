@@ -456,51 +456,16 @@ Value builtin_read_line(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_eprint(Value *args, int num_args, ExecutionContext *ctx) {
-    if (num_args != 1) {
-        ctx->exception_state.exception_value = val_string("eprint() expects 1 argument");
+    if (num_args < 1) {
+        ctx->exception_state.exception_value = val_string("eprint() expects at least 1 argument");
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
 
-    // Print to stderr
-    switch (args[0].type) {
-        case VAL_I8:
-            fprintf(stderr, "%d", args[0].as.as_i8);
-            break;
-        case VAL_I16:
-            fprintf(stderr, "%d", args[0].as.as_i16);
-            break;
-        case VAL_I32:
-            fprintf(stderr, "%d", args[0].as.as_i32);
-            break;
-        case VAL_U8:
-            fprintf(stderr, "%u", args[0].as.as_u8);
-            break;
-        case VAL_U16:
-            fprintf(stderr, "%u", args[0].as.as_u16);
-            break;
-        case VAL_U32:
-            fprintf(stderr, "%u", args[0].as.as_u32);
-            break;
-        case VAL_F32:
-            fprintf(stderr, "%g", args[0].as.as_f32);
-            break;
-        case VAL_F64:
-            fprintf(stderr, "%g", args[0].as.as_f64);
-            break;
-        case VAL_BOOL:
-            fprintf(stderr, "%s", args[0].as.as_bool ? "true" : "false");
-            break;
-        case VAL_STRING:
-            fprintf(stderr, "%s", args[0].as.as_string->data);
-            break;
-        case VAL_NULL:
-            fprintf(stderr, "null");
-            break;
-        default:
-            // For complex types, use simpler representation
-            fprintf(stderr, "<value>");
-            break;
+    // Print to stderr with the same formatting as print()
+    for (int i = 0; i < num_args; i++) {
+        if (i > 0) fprintf(stderr, " ");
+        fprint_value(stderr, args[i]);
     }
     fprintf(stderr, "\n");
     return val_null();

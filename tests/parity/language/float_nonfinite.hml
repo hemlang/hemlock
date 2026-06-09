@@ -1,0 +1,21 @@
+// Non-finite floats and negative zero must round-trip identically,
+// including through compile-time constant folding.
+// Note: NaN values are never printed directly - the sign of the default
+// quiet NaN is platform-specific (x86 prints "-nan" for 0.0/0.0, ARM
+// prints "nan"), so NaN coverage asserts properties instead.
+print(1.0 / 0.0);
+print(-1.0 / 0.0);
+print(-0.0);
+print(1.5e308 * 10.0);
+print(-1.5e308 * 10.0);
+let x: f64 = 2.0;
+print(x * 1.5e308 * 10.0);
+let inf = 1.0 / 0.0;
+print(inf == inf);
+let nan = 0.0 / 0.0;
+print(typeof(nan));
+print(nan == nan);
+print(nan != nan);
+print(nan < 0.0);
+print(nan > 0.0);
+print(0.0 == -0.0);

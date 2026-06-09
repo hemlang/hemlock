@@ -144,12 +144,32 @@ int values_equal(Value a, Value b) {
         case VAL_F32: return a.as.as_f32 == b.as.as_f32;
         case VAL_F64: return a.as.as_f64 == b.as.as_f64;
         case VAL_BOOL: return a.as.as_bool == b.as.as_bool;
+        case VAL_RUNE: return a.as.as_rune == b.as.as_rune;
         case VAL_STRING:
             return strcmp(a.as.as_string->data, b.as.as_string->data) == 0;
         case VAL_PTR: return a.as.as_ptr == b.as.as_ptr;
+        case VAL_OBJECT: return a.as.as_object == b.as.as_object;
+        case VAL_ARRAY: return a.as.as_array == b.as.as_array;
         case VAL_NULL: return 1;
-        default: return 0;  // Objects, arrays, functions compared by reference
+        default: return 0;  // Functions and other types never compare equal
     }
+}
+
+// Loose value equality with `==` operator semantics: numeric values compare
+// across types (2 == 2.0), runes only equal runes, objects/arrays compare by
+// reference. Used by switch cases and match literal patterns, which the docs
+// define in terms of value (==) equality.
+int values_equal_loose(Value a, Value b) {
+    if (a.type == VAL_NULL || b.type == VAL_NULL) {
+        return a.type == VAL_NULL && b.type == VAL_NULL;
+    }
+    if (is_numeric(a) && is_numeric(b)) {
+        return value_to_float(a) == value_to_float(b);
+    }
+    if (a.type != b.type) {
+        return 0;
+    }
+    return values_equal(a, b);
 }
 
 Value call_array_method(Array *arr, const char *method, Value *args, int num_args, int line, ExecutionContext *ctx) {

@@ -44,6 +44,8 @@ Value json_parse_value(JSONParser *p, ExecutionContext *ctx);
 
 // Value comparison for array methods
 int values_equal(Value a, Value b);
+// Loose (==) equality for switch cases and match literal patterns
+int values_equal_loose(Value a, Value b);
 
 // ========== METHOD HANDLERS ==========
 

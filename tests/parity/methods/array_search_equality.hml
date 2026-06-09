@@ -1,0 +1,22 @@
+// contains/indexOf/lastIndexOf use strict per-type equality:
+// 2.0 is not found among i32s, runes match runes at the right
+// index, and objects/arrays are compared by reference.
+print([1, 2, 3].contains(2));
+print([1, 2, 3].contains(2.0));
+print([1, 2, 3].indexOf(2.0));
+let v: i64 = 2;
+print([1, 2, 3].contains(v));
+print(['a', 'b'].contains('a'));
+print(['a', 'b'].contains('z'));
+print(['a', 'b'].indexOf('b'));
+print([10, 'a', 10].lastIndexOf(10));
+let o = {a: 1};
+let objs = [o, {b: 2}];
+print(objs.contains(o));
+print(objs.indexOf(o));
+print(objs.contains({a: 1}));
+let inner = [1];
+print([inner].contains(inner));
+print([[1]].contains([1]));
+print([1, null, 2].contains(null));
+print([true, false].indexOf(false));

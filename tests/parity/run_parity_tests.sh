@@ -54,7 +54,59 @@ echo "    Hemlock Parity Test Suite"
 echo "======================================"
 echo ""
 echo "Testing interpreter ($HEMLOCK) vs compiler ($HEMLOCKC)"
+
+# Optional filter: only run tests whose path matches the first argument
+FILTER="${1:-}"
+if [ -n "$FILTER" ]; then
+    echo "Filter: $FILTER"
+fi
 echo ""
+
+# ===== Capability detection =====
+# Tests can declare environment requirements with a directive comment:
+#     // REQUIRES: http
+# Tests whose requirements aren't met are skipped instead of being
+# reported as parity failures.
+
+# http: libwebsockets compiled into the interpreter/runtime. Stub builds
+# throw "... not available (libwebsockets not installed)" from every HTTP
+# builtin; probe one and inspect the exception text.
+HAS_HTTP=0
+HTTP_PROBE=$(mktemp --suffix=.hml)
+cat > "$HTTP_PROBE" <<'EOF'
+try {
+    __lws_http_stream_read("probe", 0);
+    print("yes");
+} catch (e) {
+    if (e.contains("not installed")) { print("no"); } else { print("yes"); }
+}
+EOF
+if [ "$(timeout 10 "$HEMLOCK" "$HTTP_PROBE" 2>/dev/null)" = "yes" ]; then
+    HAS_HTTP=1
+fi
+rm -f "$HTTP_PROBE"
+if [ "$HAS_HTTP" = "0" ]; then
+    echo "Capability 'http' unavailable (libwebsockets not installed) - HTTP tests will be skipped"
+    echo ""
+fi
+
+# Returns 0 if all REQUIRES directives in the test file are satisfied;
+# prints the first unmet requirement otherwise.
+check_requirements() {
+    local test_file="$1"
+    local req
+    for req in $(sed -n 's|^//[[:space:]]*REQUIRES:[[:space:]]*||p' "$test_file"); do
+        case "$req" in
+            http)
+                if [ "$HAS_HTTP" = "0" ]; then echo "http"; return 1; fi
+                ;;
+            *)
+                echo "$req (unknown)"; return 1
+                ;;
+        esac
+    done
+    return 0
+}
 
 run_test() {
     local test_file="$1"
@@ -62,23 +114,29 @@ run_test() {
     local expected_file="${test_file%.hml}.expected"
     local test_dir=$(dirname "$test_file")
 
-    # Check for expected output file
+    # Apply filter if given
+    if [ -n "$FILTER" ] && [[ "$test_file" != *"$FILTER"* ]]; then
+        return
+    fi
+
+    # Check for expected output file. Files imported by other tests in the
+    # same directory are module fixtures, not forgotten tests.
     if [ ! -f "$expected_file" ]; then
-        echo -e "${YELLOW}⊘${NC} $test_name (no .expected file)"
+        if grep -rlsE "(import|from).*[\"/]$test_name(\.hml)?\"" "$test_dir" --include="*.hml" >/dev/null 2>&1; then
+            echo -e "${YELLOW}⊘${NC} $test_name (module fixture)"
+        else
+            echo -e "${YELLOW}⊘${NC} $test_name (no .expected file)"
+        fi
         ((SKIPPED++))
         return
     fi
 
     local expected=$(cat "$expected_file")
 
-    # Tests that exercise libwebsockets-backed HTTP/WebSocket I/O require the
-    # optional stdlib/c/lws_wrapper.so helper.  When libwebsockets is not
-    # installed, `make stdlib` intentionally skips that helper; in that
-    # environment both backends throw the same "HTTP support not available"
-    # exception, which is an environment limitation rather than a parity
-    # regression.
-    if [[ "$test_file" == *"/http_post_body.hml" ]] && [ ! -f "$ROOT_DIR/stdlib/c/lws_wrapper.so" ]; then
-        echo -e "${YELLOW}⊘${NC} $test_name (libwebsockets not installed)"
+    # Skip tests whose environment requirements aren't met
+    local unmet
+    if ! unmet=$(check_requirements "$test_file"); then
+        echo -e "${YELLOW}⊘${NC} $test_name (requires $unmet)"
         ((SKIPPED++))
         return
     fi
@@ -139,28 +197,37 @@ run_test() {
                 echo -e "    ${RED}Compiler failed to compile${NC}"
             fi
         else
-            echo -e "    ${RED}Compiler output differs${NC}"
-            if [ -n "$compiler_output" ]; then
-                echo "    Expected: $(echo "$expected" | head -1)..."
-                echo "    Got:      $(echo "$compiler_output" | head -1)..."
-            fi
+            echo -e "    ${RED}Compiler output differs (expected vs compiled):${NC}"
+            print_diff "$expected" "$compiler_output"
         fi
         ((INTERP_ONLY++))
     elif [ "$interp_match" = false ] && [ "$compiler_match" = true ]; then
         echo -e "${YELLOW}◑${NC} $test_name (compiler only)"
-        echo -e "    ${RED}Interpreter output differs${NC}"
+        echo -e "    ${RED}Interpreter output differs (expected vs interpreter):${NC}"
+        print_diff "$expected" "$interp_output"
         ((COMPILER_ONLY++))
     else
         echo -e "${RED}✗${NC} $test_name (both fail)"
         ((FAILED++))
-        echo "    Expected: $(echo "$expected" | head -1)..."
-        if [ -n "$interp_output" ]; then
-            echo "    Interp:   $(echo "$interp_output" | head -1)..."
-        fi
-        if [ -n "$compiler_output" ]; then
-            echo "    Compiler: $(echo "$compiler_output" | head -1)..."
+        echo -e "    ${RED}Expected vs interpreter:${NC}"
+        print_diff "$expected" "$interp_output"
+        if [ $compile_exit -eq 0 ]; then
+            echo -e "    ${RED}Expected vs compiled:${NC}"
+            print_diff "$expected" "$compiler_output"
+        elif [ -n "$compiler_output" ]; then
+            echo -e "    ${RED}Compile error: $compiler_output${NC}"
+        else
+            echo -e "    ${RED}Compiler failed to compile${NC}"
         fi
     fi
+}
+
+# Print an indented unified diff between expected and actual output,
+# truncated to keep failure reports readable.
+print_diff() {
+    local expected="$1"
+    local actual="$2"
+    diff <(echo "$expected") <(echo "$actual") 2>/dev/null | head -20 | sed 's/^/    /'
 }
 
 # Find and run all tests

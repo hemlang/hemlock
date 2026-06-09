@@ -1,22 +1,28 @@
 #include "internal.h"
 
 Value builtin_print(Value *args, int num_args, ExecutionContext *ctx) {
-    if (num_args != 1) {
-        runtime_error(ctx, "print() expects 1 argument"); return val_null();
+    if (num_args < 1) {
+        runtime_error(ctx, "print() expects at least 1 argument"); return val_null();
     }
 
-    print_value(args[0]);
+    for (int i = 0; i < num_args; i++) {
+        if (i > 0) printf(" ");
+        print_value(args[i]);
+    }
     printf("\n");
     fflush(stdout);
     return val_null();
 }
 
 Value builtin_write(Value *args, int num_args, ExecutionContext *ctx) {
-    if (num_args != 1) {
-        runtime_error(ctx, "write() expects 1 argument"); return val_null();
+    if (num_args < 1) {
+        runtime_error(ctx, "write() expects at least 1 argument"); return val_null();
     }
 
-    print_value(args[0]);
+    for (int i = 0; i < num_args; i++) {
+        if (i > 0) printf(" ");
+        print_value(args[i]);
+    }
     fflush(stdout);
     return val_null();
 }

@@ -476,40 +476,37 @@ HmlValue hml_builtin_eprint(HmlClosureEnv *env, HmlValue val) {
 
 // ========== VALUE COMPARISON ==========
 
+// Strict per-type equality used by array search methods (contains, indexOf,
+// lastIndexOf). Matches the interpreter's values_equal: values of different
+// types are never equal (2 != 2.0 here), runes only equal runes, and
+// arrays/objects compare by reference.
 int hml_values_equal(HmlValue left, HmlValue right) {
-    // Null comparison
-    if (left.type == HML_VAL_NULL || right.type == HML_VAL_NULL) {
-        return (left.type == HML_VAL_NULL && right.type == HML_VAL_NULL);
+    if (left.type != right.type) {
+        return 0;
     }
 
-    // Boolean comparison
-    if (left.type == HML_VAL_BOOL && right.type == HML_VAL_BOOL) {
-        return (left.as.as_bool == right.as.as_bool);
+    switch (left.type) {
+        case HML_VAL_I8:   return left.as.as_i8 == right.as.as_i8;
+        case HML_VAL_I16:  return left.as.as_i16 == right.as.as_i16;
+        case HML_VAL_I32:  return left.as.as_i32 == right.as.as_i32;
+        case HML_VAL_I64:  return left.as.as_i64 == right.as.as_i64;
+        case HML_VAL_U8:   return left.as.as_u8 == right.as.as_u8;
+        case HML_VAL_U16:  return left.as.as_u16 == right.as.as_u16;
+        case HML_VAL_U32:  return left.as.as_u32 == right.as.as_u32;
+        case HML_VAL_U64:  return left.as.as_u64 == right.as.as_u64;
+        case HML_VAL_F32:  return left.as.as_f32 == right.as.as_f32;
+        case HML_VAL_F64:  return left.as.as_f64 == right.as.as_f64;
+        case HML_VAL_BOOL: return left.as.as_bool == right.as.as_bool;
+        case HML_VAL_RUNE: return left.as.as_rune == right.as.as_rune;
+        case HML_VAL_STRING:
+            if (!left.as.as_string || !right.as.as_string) return 0;
+            return strcmp(left.as.as_string->data, right.as.as_string->data) == 0;
+        case HML_VAL_PTR:    return left.as.as_ptr == right.as.as_ptr;
+        case HML_VAL_OBJECT: return left.as.as_object == right.as.as_object;
+        case HML_VAL_ARRAY:  return left.as.as_array == right.as.as_array;
+        case HML_VAL_NULL:   return 1;
+        default:             return 0;  // Functions and other types never compare equal
     }
-
-    // String comparison
-    if (left.type == HML_VAL_STRING && right.type == HML_VAL_STRING) {
-        if (!left.as.as_string || !right.as.as_string) return 0;
-        return (strcmp(left.as.as_string->data, right.as.as_string->data) == 0);
-    }
-
-    // Numeric comparison
-    if (hml_is_numeric(left) && hml_is_numeric(right)) {
-        double l = hml_to_f64(left);
-        double r = hml_to_f64(right);
-        return (l == r);
-    }
-
-    // Reference equality for arrays/objects
-    if (left.type == HML_VAL_ARRAY && right.type == HML_VAL_ARRAY) {
-        return (left.as.as_array == right.as.as_array);
-    }
-    if (left.type == HML_VAL_OBJECT && right.type == HML_VAL_OBJECT) {
-        return (left.as.as_object == right.as.as_object);
-    }
-
-    // Different types are not equal
-    return 0;
 }
 
 // ========== TYPE CHECKING ==========

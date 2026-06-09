@@ -1,3 +1,4 @@
+// REQUIRES: http
 // Regression test for the compiled-binary HTTP POST headers bug.
 //
 // Before the fix, hml_lws_http_post took a content_type scalar but no

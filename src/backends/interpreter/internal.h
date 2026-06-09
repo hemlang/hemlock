@@ -230,6 +230,7 @@ void value_free(Value val);
 
 // Printing
 void print_value(Value val);
+void fprint_value(FILE *out, Value val);
 char* value_to_string(Value val);  // Caller must free result
 
 // ========== TYPES (types.c) ==========

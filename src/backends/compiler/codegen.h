@@ -164,6 +164,11 @@ typedef struct {
     int num_main_imports;         // Count of main file imports
     int main_imports_capacity;    // Capacity of main_imports array
 
+    // Extern (FFI) function names with generated hml_fn_ wrappers
+    char **extern_fns;            // List of extern fn names
+    int num_extern_fns;           // Count of extern fns
+    int extern_fns_capacity;      // Capacity of extern_fns array
+
     // Shadow locals (like catch params that shadow main vars)
     char **shadow_vars;           // Variables that shadow main vars (use bare name)
     int num_shadow_vars;          // Count of shadow variables

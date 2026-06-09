@@ -1,0 +1,9 @@
+// print/write/eprint accept multiple arguments, space-separated,
+// with identical formatting in both backends (docs: print(value, ...)).
+print(1, 2.5, "x", true, null);
+print("a", 'B', [1, 2]);
+print({k: 1}, "after-object");
+write("no", "newline");
+print("");
+eprint("err", 42, [3, 4], {x: 1});
+print("done");

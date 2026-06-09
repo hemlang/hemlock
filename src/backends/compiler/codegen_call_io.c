@@ -10,6 +10,15 @@ int codegen_call_io(CodegenContext *ctx, Expr *expr, char *result,
                     const char *func_name, Expr **call_args, int num_args) {
     (void)expr;
 
+    // print/write/eprint require at least one argument
+    if (num_args == 0 &&
+        (strcmp(func_name, "print") == 0 || strcmp(func_name, "write") == 0 ||
+         strcmp(func_name, "eprint") == 0)) {
+        codegen_error(ctx, expr->line, "%s() expects at least 1 argument", func_name);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        return 1;
+    }
+
     // Handle print builtin (supports any number of arguments)
     if (strcmp(func_name, "print") == 0 && num_args >= 1) {
         // Print each argument, with space separator between them

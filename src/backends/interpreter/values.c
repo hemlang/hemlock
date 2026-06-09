@@ -1277,142 +1277,147 @@ Value val_null(void) {
     return v;
 }
 
-void print_value(Value val) {
+void fprint_value(FILE *out, Value val) {
     switch (val.type) {
         case VAL_I8:
-            printf("%d", val.as.as_i8);
+            fprintf(out, "%d", val.as.as_i8);
             break;
         case VAL_I16:
-            printf("%d", val.as.as_i16);
+            fprintf(out, "%d", val.as.as_i16);
             break;
         case VAL_I32:
-            printf("%d", val.as.as_i32);
+            fprintf(out, "%d", val.as.as_i32);
             break;
         case VAL_I64:
-            printf("%" PRId64, val.as.as_i64);
+            fprintf(out, "%" PRId64, val.as.as_i64);
             break;
         case VAL_U8:
-            printf("%u", val.as.as_u8);
+            fprintf(out, "%u", val.as.as_u8);
             break;
         case VAL_U16:
-            printf("%u", val.as.as_u16);
+            fprintf(out, "%u", val.as.as_u16);
             break;
         case VAL_U32:
-            printf("%u", val.as.as_u32);
+            fprintf(out, "%u", val.as.as_u32);
             break;
         case VAL_U64:
-            printf("%" PRIu64, val.as.as_u64);
+            fprintf(out, "%" PRIu64, val.as.as_u64);
             break;
         case VAL_F32:
-            printf("%g", val.as.as_f32);
+            fprintf(out, "%g", val.as.as_f32);
             break;
         case VAL_F64:
-            printf("%g", val.as.as_f64);
+            fprintf(out, "%g", val.as.as_f64);
             break;
         case VAL_BOOL:
-            printf("%s", val.as.as_bool ? "true" : "false");
+            fprintf(out, "%s", val.as.as_bool ? "true" : "false");
             break;
         case VAL_STRING:
-            printf("%s", val.as.as_string->data);
+            fprintf(out, "%s", val.as.as_string->data);
             break;
         case VAL_RUNE: {
             // Print rune as character if printable, otherwise as U+XXXX
             uint32_t r = val.as.as_rune;
             if (r >= HML_ASCII_PRINTABLE_START && r < HML_ASCII_PRINTABLE_END) {
-                printf("'%c'", (char)r);
+                fprintf(out, "'%c'", (char)r);
             } else {
-                printf("U+%04X", r);
+                fprintf(out, "U+%04X", r);
             }
             break;
         }
         case VAL_PTR:
-            printf("%p", val.as.as_ptr);
+            fprintf(out, "%p", val.as.as_ptr);
             break;
         case VAL_BUFFER:
-            printf("<buffer %p length=%d capacity=%d>",
+            fprintf(out, "<buffer %p length=%d capacity=%d>",
                    val.as.as_buffer->data,
                    val.as.as_buffer->length,
                    val.as.as_buffer->capacity);
             break;
         case VAL_ARRAY: {
             Array *arr = val.as.as_array;
-            printf("[");
+            fprintf(out, "[");
             for (int i = 0; i < arr->length; i++) {
-                if (i > 0) printf(", ");
-                print_value(arr->elements[i]);
+                if (i > 0) fprintf(out, ", ");
+                fprint_value(out, arr->elements[i]);
             }
-            printf("]");
+            fprintf(out, "]");
             break;
         }
         case VAL_FILE: {
             FileHandle *file = val.as.as_file;
             if (file->closed) {
-                printf("<file (closed)>");
+                fprintf(out, "<file (closed)>");
             } else {
-                printf("<file '%s' mode='%s'>", file->path, file->mode);
+                fprintf(out, "<file '%s' mode='%s'>", file->path, file->mode);
             }
             break;
         }
         case VAL_SOCKET: {
             SocketHandle *sock = val.as.as_socket;
             if (sock->closed) {
-                printf("<socket (closed)>");
+                fprintf(out, "<socket (closed)>");
             } else if (sock->address) {
-                printf("<socket %s:%d fd=%d%s>",
+                fprintf(out, "<socket %s:%d fd=%d%s>",
                        sock->address, sock->port, sock->fd,
                        sock->listening ? " listening" : "");
             } else {
-                printf("<socket fd=%d>", sock->fd);
+                fprintf(out, "<socket fd=%d>", sock->fd);
             }
             break;
         }
         case VAL_WEBSOCKET: {
             WebSocketHandle *ws = val.as.as_websocket;
             if (ws->closed) {
-                printf("<websocket (closed)>");
+                fprintf(out, "<websocket (closed)>");
             } else if (ws->is_server) {
-                printf("<websocket-server %s:%d>", ws->host ? ws->host : "0.0.0.0", ws->port);
+                fprintf(out, "<websocket-server %s:%d>", ws->host ? ws->host : "0.0.0.0", ws->port);
             } else {
-                printf("<websocket %s>", ws->url ? ws->url : "?");
+                fprintf(out, "<websocket %s>", ws->url ? ws->url : "?");
             }
             break;
         }
         case VAL_OBJECT:
             if (val.as.as_object->type_name) {
-                printf("<object:%s>", val.as.as_object->type_name);
+                fprintf(out, "<object:%s>", val.as.as_object->type_name);
             } else {
-                printf("<object>");
+                fprintf(out, "<object>");
             }
             break;
         case VAL_TYPE:
-            printf("<type>");
+            fprintf(out, "<type>");
             break;
         case VAL_BUILTIN_FN:
-            printf("<builtin function>");
+            fprintf(out, "<builtin function>");
             break;
         case VAL_FUNCTION:
-            printf("<function>");
+            fprintf(out, "<function>");
             break;
         case VAL_FFI_FUNCTION:
-            printf("<ffi function>");
+            fprintf(out, "<ffi function>");
             break;
         case VAL_TASK:
-            printf("<task id=%d state=%d>", val.as.as_task->id, val.as.as_task->state);
+            fprintf(out, "<task id=%d state=%d>", val.as.as_task->id, val.as.as_task->state);
             break;
         case VAL_CHANNEL:
-            printf("<channel capacity=%d count=%d%s>",
+            fprintf(out, "<channel capacity=%d count=%d%s>",
                    val.as.as_channel->capacity,
                    val.as.as_channel->count,
                    val.as.as_channel->closed ? " closed" : "");
             break;
         case VAL_REF:
-            printf("<ref>");
+            fprintf(out, "<ref>");
             break;
         case VAL_NULL:
-            printf("null");
+            fprintf(out, "null");
             break;
     }
 }
+
+void print_value(Value val) {
+    fprint_value(stdout, val);
+}
+
 
 
 static void format_float_for_string(char *buffer, size_t size, double value, int precision) {

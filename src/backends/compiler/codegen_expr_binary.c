@@ -33,7 +33,7 @@ char* codegen_native_expr(CodegenContext *ctx, Expr *expr, CheckedTypeKind *out_
         case EXPR_NUMBER: {
             char buf[64];
             if (expr->as.number.is_float) {
-                snprintf(buf, sizeof(buf), "%.17g", expr->as.number.float_value);
+                codegen_format_f64(buf, sizeof(buf), expr->as.number.float_value);
                 *out_type = CHECKED_F64;
             } else if (expr->as.number.is_u64) {
                 snprintf(buf, sizeof(buf), "%" PRIu64 "ULL", expr->as.number.uint_value);
@@ -668,49 +668,49 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
                     switch (expr->as.binary.op) {
                         case OP_ADD:
                             if (is_float) {
-                                codegen_writeln(ctx, "HmlValue %s = %s(%s + %.17g);", result, box_func, left_var, expr->as.binary.right->as.number.float_value);
+                                { char fbuf[64]; codegen_format_f64(fbuf, sizeof(fbuf), expr->as.binary.right->as.number.float_value); codegen_writeln(ctx, "HmlValue %s = %s(%s + %s);", result, box_func, left_var, fbuf); }
                             } else {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s + %lld%s);", result, box_func, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
                             }
                             break;
                         case OP_SUB:
                             if (is_float) {
-                                codegen_writeln(ctx, "HmlValue %s = %s(%s - %.17g);", result, box_func, left_var, expr->as.binary.right->as.number.float_value);
+                                { char fbuf[64]; codegen_format_f64(fbuf, sizeof(fbuf), expr->as.binary.right->as.number.float_value); codegen_writeln(ctx, "HmlValue %s = %s(%s - %s);", result, box_func, left_var, fbuf); }
                             } else {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s - %lld%s);", result, box_func, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
                             }
                             break;
                         case OP_MUL:
                             if (is_float) {
-                                codegen_writeln(ctx, "HmlValue %s = %s(%s * %.17g);", result, box_func, left_var, expr->as.binary.right->as.number.float_value);
+                                { char fbuf[64]; codegen_format_f64(fbuf, sizeof(fbuf), expr->as.binary.right->as.number.float_value); codegen_writeln(ctx, "HmlValue %s = %s(%s * %s);", result, box_func, left_var, fbuf); }
                             } else {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s * %lld%s);", result, box_func, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
                             }
                             break;
                         case OP_LESS:
                             if (is_float) {
-                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s < %.17g);", result, left_var, expr->as.binary.right->as.number.float_value);
+                                { char fbuf[64]; codegen_format_f64(fbuf, sizeof(fbuf), expr->as.binary.right->as.number.float_value); codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s < %s);", result, left_var, fbuf); }
                             } else {
                                 codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s < %lld%s);", result, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
                             }
                             break;
                         case OP_LESS_EQUAL:
                             if (is_float) {
-                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s <= %.17g);", result, left_var, expr->as.binary.right->as.number.float_value);
+                                { char fbuf[64]; codegen_format_f64(fbuf, sizeof(fbuf), expr->as.binary.right->as.number.float_value); codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s <= %s);", result, left_var, fbuf); }
                             } else {
                                 codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s <= %lld%s);", result, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
                             }
                             break;
                         case OP_GREATER:
                             if (is_float) {
-                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s > %.17g);", result, left_var, expr->as.binary.right->as.number.float_value);
+                                { char fbuf[64]; codegen_format_f64(fbuf, sizeof(fbuf), expr->as.binary.right->as.number.float_value); codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s > %s);", result, left_var, fbuf); }
                             } else {
                                 codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s > %lld%s);", result, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
                             }
                             break;
                         case OP_GREATER_EQUAL:
                             if (is_float) {
-                                codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s >= %.17g);", result, left_var, expr->as.binary.right->as.number.float_value);
+                                { char fbuf[64]; codegen_format_f64(fbuf, sizeof(fbuf), expr->as.binary.right->as.number.float_value); codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s >= %s);", result, left_var, fbuf); }
                             } else {
                                 codegen_writeln(ctx, "HmlValue %s = hml_val_bool(%s >= %lld%s);", result, left_var, (long long)expr->as.binary.right->as.number.int_value, literal_suffix);
                             }
@@ -781,7 +781,7 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
                 // Division always returns float - handle separately before the switch
                 if (expr->as.binary.op == OP_DIV) {
                     if (r != 0) {
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_f64(%.17g);", result, (double)l / (double)r);
+                        { char fbuf[64]; codegen_format_f64(fbuf, sizeof(fbuf), (double)l / (double)r); codegen_writeln(ctx, "HmlValue %s = hml_val_f64(%s);", result, fbuf); }
                         return result;  // Exit EXPR_BINARY case
                     }
                     // Division by zero with constants - emit runtime error

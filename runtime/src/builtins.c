@@ -106,7 +106,7 @@ HmlValue hml_string_append_inplace(HmlValue *dest, HmlValue src) {
     }
 
     // Get source string
-    HmlValue str_src = (src.type == HML_VAL_STRING) ? src : hml_to_string(src);
+    HmlValue str_src = (src.type == HML_VAL_STRING) ? src : hml_to_string_concat(src);
     HmlString *ss = str_src.as.as_string;
     int src_len = ss ? ss->length : 0;
 
@@ -181,8 +181,8 @@ HmlValue hml_string_concat(HmlValue a, HmlValue b) {
     }
 
     // Convert both to strings
-    HmlValue str_a = hml_to_string(a);
-    HmlValue str_b = hml_to_string(b);
+    HmlValue str_a = hml_to_string_concat(a);
+    HmlValue str_b = hml_to_string_concat(b);
 
     const char *s1 = hml_to_string_ptr(str_a);
     const char *s2 = hml_to_string_ptr(str_b);
@@ -270,11 +270,103 @@ HmlValue hml_to_string(HmlValue val) {
                 buffer[4] = '\0';
             }
             return hml_val_string(buffer);
+        case HML_VAL_ARRAY: {
+            // Match interpreter value_to_string: "[el, el]" with elements
+            // converted recursively (strings unquoted)
+            HmlArray *arr = val.as.as_array;
+            size_t cap = 64, len = 0;
+            char *out = malloc(cap);
+            if (!out) return hml_val_string("[]");
+            out[len++] = '[';
+            for (int i = 0; arr && i < arr->length; i++) {
+                HmlValue elem_str = hml_to_string(arr->elements[i]);
+                const char *es = elem_str.as.as_string ? elem_str.as.as_string->data : "";
+                size_t elen = strlen(es);
+                size_t need = len + elen + 4;  // ", " + "]" + NUL
+                if (need > cap) {
+                    while (cap < need) cap *= 2;
+                    char *grown = realloc(out, cap);
+                    if (!grown) {
+                        free(out);
+                        hml_release(&elem_str);
+                        return hml_val_string("[]");
+                    }
+                    out = grown;
+                }
+                if (i > 0) {
+                    out[len++] = ',';
+                    out[len++] = ' ';
+                }
+                memcpy(out + len, es, elen);
+                len += elen;
+                hml_release(&elem_str);
+            }
+            out[len++] = ']';
+            out[len] = '\0';
+            return hml_val_string_owned(out, len, cap);
+        }
+        case HML_VAL_OBJECT:
+            if (val.as.as_object && val.as.as_object->type_name) {
+                snprintf(buffer, sizeof(buffer), "<object:%s>", val.as.as_object->type_name);
+                return hml_val_string(buffer);
+            }
+            return hml_val_string("<object>");
+        case HML_VAL_PTR:
+            snprintf(buffer, sizeof(buffer), "%p", val.as.as_ptr);
+            break;
+        case HML_VAL_BUFFER:
+            snprintf(buffer, sizeof(buffer), "<buffer %p length=%d capacity=%d>",
+                     val.as.as_buffer ? val.as.as_buffer->data : NULL,
+                     val.as.as_buffer ? val.as.as_buffer->length : 0,
+                     val.as.as_buffer ? val.as.as_buffer->capacity : 0);
+            break;
+        case HML_VAL_FILE:
+            if (!val.as.as_file || val.as.as_file->closed) {
+                return hml_val_string("<file (closed)>");
+            }
+            snprintf(buffer, sizeof(buffer), "<file '%s' mode='%s'>",
+                     val.as.as_file->path, val.as.as_file->mode);
+            break;
+        case HML_VAL_FUNCTION:
+            return hml_val_string("<function>");
+        case HML_VAL_BUILTIN_FN:
+            return hml_val_string("<builtin function>");
+        case HML_VAL_TASK:
+            snprintf(buffer, sizeof(buffer), "<task %d>",
+                     val.as.as_task ? val.as.as_task->id : 0);
+            break;
+        case HML_VAL_CHANNEL:
+            snprintf(buffer, sizeof(buffer), "<channel capacity=%d count=%d%s>",
+                     val.as.as_channel ? val.as.as_channel->capacity : 0,
+                     val.as.as_channel ? val.as.as_channel->count : 0,
+                     (val.as.as_channel && val.as.as_channel->closed) ? " closed" : "");
+            break;
         default:
             return hml_val_string("<value>");
     }
 
     return hml_val_string(buffer);
+}
+
+// String conversion for `+` concatenation: the interpreter JSON-serializes
+// arrays and objects in concat context ("x" + [1,2] == "x[1,2]"), while
+// display contexts (template strings, join) use hml_to_string formatting.
+HmlValue hml_to_string_concat(HmlValue val) {
+    if (val.type == HML_VAL_ARRAY || val.type == HML_VAL_OBJECT) {
+        return hml_serialize(val);
+    }
+    return hml_to_string(val);
+}
+
+// Concat for template-string interpolation: `${[1,2]}` renders as "[1, 2]"
+// (display formatting), unlike `+` concat which JSON-serializes.
+HmlValue hml_string_concat_display(HmlValue a, HmlValue b) {
+    HmlValue str_a = hml_to_string(a);
+    HmlValue str_b = hml_to_string(b);
+    HmlValue result = hml_string_concat(str_a, str_b);
+    hml_release(&str_a);
+    hml_release(&str_b);
+    return result;
 }
 
 // ========== STRING METHODS ==========

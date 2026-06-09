@@ -3232,6 +3232,19 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             // Direct call path for imported functions and module functions
             // import_binding was already set above
 
+            // In the main file, a bare-name call that is not a builtin, local,
+            // import, main function, or extern fn is undefined. Report a clean
+            // compile-time error instead of emitting a call to a non-existent
+            // hml_fn_<name> C symbol (which fails with a cryptic GCC error).
+            if (!import_binding && !ctx->current_module &&
+                !codegen_is_main_func(ctx, call_name) &&
+                !codegen_is_extern_fn(ctx, call_name)) {
+                codegen_error(ctx, expr->line, "undefined function '%s'", call_name);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+                free(stable_call_name);
+                return result;
+            }
+
             // Determine the expected number of parameters for the function
             int expected_params = expr->as.call.num_args;  // Default to provided args
             if (import_binding && import_binding->is_function && import_binding->num_params > 0) {

@@ -824,7 +824,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                         break;
                     }
 
-                    if (values_equal(switch_value, case_value)) {
+                    if (values_equal_loose(switch_value, case_value)) {
                         VALUE_RELEASE(case_value);  // Release case value after comparison
                         matched_case = i;
                         break;

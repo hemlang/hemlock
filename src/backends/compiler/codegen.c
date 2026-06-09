@@ -76,6 +76,9 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->main_imports = NULL;
     ctx->num_main_imports = 0;
     ctx->main_imports_capacity = 0;
+    ctx->extern_fns = NULL;
+    ctx->num_extern_fns = 0;
+    ctx->extern_fns_capacity = 0;
     ctx->shadow_vars = NULL;
     ctx->num_shadow_vars = 0;
     ctx->shadow_vars_capacity = 0;
@@ -195,6 +198,14 @@ void codegen_free(CodegenContext *ctx) {
         }
         if (ctx->main_func_inlinable) {
             free(ctx->main_func_inlinable);
+        }
+
+        // Free extern fn tracking
+        if (ctx->extern_fns) {
+            for (int i = 0; i < ctx->num_extern_fns; i++) {
+                free(ctx->extern_fns[i]);
+            }
+            free(ctx->extern_fns);
         }
 
         // Free main file imports tracking
@@ -1050,6 +1061,47 @@ void codegen_add_main_func(CodegenContext *ctx, const char *name, int num_params
 int codegen_is_main_func(CodegenContext *ctx, const char *name) {
     for (int i = 0; i < ctx->num_main_funcs; i++) {
         if (strcmp(ctx->main_funcs[i], name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Format an f64 constant as a valid C expression. %.17g alone produces
+// "inf"/"nan" (not valid C) for non-finite values, and "-0" (an int constant
+// that loses the sign when converted to double) for negative zero.
+void codegen_format_f64(char *buf, size_t size, double value) {
+    if (isnan(value)) {
+        snprintf(buf, size, signbit(value) ? "(-NAN)" : "NAN");
+    } else if (isinf(value)) {
+        snprintf(buf, size, signbit(value) ? "(-INFINITY)" : "INFINITY");
+    } else if (value == 0.0 && signbit(value)) {
+        snprintf(buf, size, "-0.0");
+    } else {
+        snprintf(buf, size, "%.17g", value);
+    }
+}
+
+void codegen_add_extern_fn(CodegenContext *ctx, const char *name) {
+    if (codegen_is_extern_fn(ctx, name)) {
+        return;
+    }
+    if (ctx->num_extern_fns >= ctx->extern_fns_capacity) {
+        int new_cap = (ctx->extern_fns_capacity == 0) ? 16 : ctx->extern_fns_capacity * 2;
+        char **new_fns = realloc(ctx->extern_fns, new_cap * sizeof(char*));
+        if (!new_fns) {
+            fprintf(stderr, "error: Failed to expand extern function storage\n");
+            exit(1);
+        }
+        ctx->extern_fns = new_fns;
+        ctx->extern_fns_capacity = new_cap;
+    }
+    ctx->extern_fns[ctx->num_extern_fns++] = strdup(name);
+}
+
+int codegen_is_extern_fn(CodegenContext *ctx, const char *name) {
+    for (int i = 0; i < ctx->num_extern_fns; i++) {
+        if (strcmp(ctx->extern_fns[i], name) == 0) {
             return 1;
         }
     }
