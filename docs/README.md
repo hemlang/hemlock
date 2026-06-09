@@ -70,6 +70,7 @@ Welcome to the Hemlock programming language documentation!
 - [Testing Guide](contributing/testing.md) - Writing and running tests, including documentation checks
 
 ### Plans & Proposals
+- [Hemlock 3 Specification](hemlock3/README.md) - The 3.0 language, brand, and toolchain design
 - [HemlockScript WASM](plans/hemlockscript-wasm.md) - WebAssembly compilation plans
 - [Memory Leak Prevention Plan](plans/MEMORY_LEAK_PREVENTION_PLAN.md) - Memory leak detection and prevention strategy
 - [Compiler Helper Annotations](proposals/compiler-helper-annotations.md) - Compiler optimization annotations proposal
