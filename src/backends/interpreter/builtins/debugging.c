@@ -85,6 +85,18 @@ Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx) {
         case VAL_CHANNEL:
             type_name = "channel";
             break;
+        case VAL_SOCKET:
+            type_name = "socket";
+            break;
+        case VAL_WEBSOCKET:
+            type_name = "websocket";
+            break;
+        case VAL_FFI_FUNCTION:
+            type_name = "ffi function";
+            break;
+        case VAL_REF:
+            type_name = "ref";
+            break;
         default:
             type_name = "unknown";
             break;

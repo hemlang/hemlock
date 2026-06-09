@@ -1,0 +1,21 @@
+// Regression test: passing a buffer to an FFI parameter declared as ptr
+// must marshal the buffer's data pointer, not the Buffer struct itself.
+// Previously this passed the internal handle, so C wrote into interpreter
+// memory and crashed.
+
+import "libc.so.6";
+
+extern fn memset(p: ptr, c: i32, n: i64): ptr;
+
+let b = buffer(16);
+b[0] = 65;
+b[1] = 66;
+b[2] = 67;
+b[3] = 68;
+
+memset(b, 90, 3);
+
+print(b[0]);  // 90
+print(b[1]);  // 90
+print(b[2]);  // 90
+print(b[3]);  // 68 (untouched by memset)

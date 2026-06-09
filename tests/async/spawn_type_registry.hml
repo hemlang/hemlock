@@ -1,0 +1,25 @@
+// Regression test: the global type registries (define/enum/type) are
+// consulted from spawned task threads (type annotations on parameters,
+// convert_to_type). Registration and lookup must be synchronized so a
+// hash-table rebuild can't race with a concurrent lookup.
+
+define Point { x: i32, y: i32 }
+
+async fn make_point(x: i32, y: i32): i32 {
+    let p: Point = { x: x, y: y };
+    return p.x + p.y;
+}
+
+let tasks = [];
+let i = 0;
+while (i < 8) {
+    tasks.push(spawn(make_point, i, i));
+    i = i + 1;
+}
+
+let total = 0;
+for (t in tasks) {
+    total = total + join(t);
+}
+
+print(total);  // 2 * (0+1+...+7) = 56
