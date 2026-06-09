@@ -78,6 +78,37 @@ typedef struct {
 static CallbackState g_callback_state = {NULL, 0, 0};
 static atomic_int g_next_callback_id = 1;  // Atomic to prevent race conditions
 
+// Declared-function tracking for cleanup. VAL_FFI_FUNCTION values are not
+// reference counted (they can be copied freely between environments), so
+// this registry owns every FFIFunction and frees them in ffi_cleanup().
+typedef struct {
+    FFIFunction **functions;
+    int num_functions;
+    int functions_capacity;
+} FFIFunctionState;
+
+static FFIFunctionState g_function_state = {NULL, 0, 0};
+
+// Free the Type metadata owned by a callback (built via type_from_string in
+// builtin_callback). Must be called from every callback free path.
+static void ffi_callback_free_types(FFICallback *cb) {
+    if (cb->hemlock_params) {
+        for (int i = 0; i < cb->num_params; i++) {
+            if (cb->hemlock_params[i]) {
+                free(cb->hemlock_params[i]->type_name);
+                free(cb->hemlock_params[i]);
+            }
+        }
+        free(cb->hemlock_params);
+        cb->hemlock_params = NULL;
+    }
+    if (cb->hemlock_return) {
+        free(cb->hemlock_return->type_name);
+        free(cb->hemlock_return);
+        cb->hemlock_return = NULL;
+    }
+}
+
 // Thread-safety: Mutex for callback invocations
 // Note: Hemlock interpreter is not fully thread-safe, so callbacks must be serialized
 static pthread_mutex_t ffi_callback_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -897,11 +928,31 @@ static FFIFunction* ffi_declare_function(
         char err[512];
         snprintf(err, sizeof(err), "Failed to prepare FFI call interface for '%s'", name);
         ctx->exception_state.exception_value = val_string(err);
+        free(func->lib_path);
+        free(func->cif);
         free(func->arg_types);
         free(func->name);
         free(func);
         return NULL;
     }
+
+    // Register for cleanup - the registry owns the FFIFunction (FFI function
+    // values are not refcounted, so ffi_cleanup() is the single free site)
+    pthread_mutex_lock(&ffi_cache_mutex);
+    if (g_function_state.num_functions >= g_function_state.functions_capacity) {
+        int new_cap = g_function_state.functions_capacity == 0
+                          ? 8 : g_function_state.functions_capacity * 2;
+        FFIFunction **grown = realloc(g_function_state.functions,
+                                      sizeof(FFIFunction*) * new_cap);
+        if (grown) {
+            g_function_state.functions = grown;
+            g_function_state.functions_capacity = new_cap;
+        }
+    }
+    if (g_function_state.num_functions < g_function_state.functions_capacity) {
+        g_function_state.functions[g_function_state.num_functions++] = func;
+    }
+    pthread_mutex_unlock(&ffi_cache_mutex);
 
     return func;
 }
@@ -1350,10 +1401,8 @@ void ffi_free_callback(FFICallback *cb) {
         function_release(cb->hemlock_fn);
     }
 
-    // Free type arrays
-    if (cb->hemlock_params) {
-        free(cb->hemlock_params);
-    }
+    // Free type metadata (params array, Type structs, return type)
+    ffi_callback_free_types(cb);
     if (cb->arg_types) {
         free(cb->arg_types);
     }
@@ -1391,9 +1440,7 @@ int ffi_free_callback_by_ptr(void *code_ptr) {
             if (cb->hemlock_fn) {
                 function_release(cb->hemlock_fn);
             }
-            if (cb->hemlock_params) {
-                free(cb->hemlock_params);
-            }
+            ffi_callback_free_types(cb);
             if (cb->arg_types) {
                 free(cb->arg_types);
             }
@@ -1495,10 +1542,8 @@ void ffi_cleanup(void) {
             if (cb->hemlock_fn) {
                 function_release(cb->hemlock_fn);
             }
-            // Free type arrays
-            if (cb->hemlock_params) {
-                free(cb->hemlock_params);
-            }
+            // Free type metadata (params array, Type structs, return type)
+            ffi_callback_free_types(cb);
             if (cb->arg_types) {
                 free(cb->arg_types);
             }
@@ -1512,6 +1557,15 @@ void ffi_cleanup(void) {
     g_callback_state.callbacks = NULL;
     g_callback_state.num_callbacks = 0;
     g_callback_state.callbacks_capacity = 0;
+
+    // Clean up declared FFI functions (registry is the sole owner)
+    for (int i = 0; i < g_function_state.num_functions; i++) {
+        ffi_free_function(g_function_state.functions[i]);
+    }
+    free(g_function_state.functions);
+    g_function_state.functions = NULL;
+    g_function_state.num_functions = 0;
+    g_function_state.functions_capacity = 0;
 
     // Clean up libraries
     for (int i = 0; i < g_ffi_state.num_libraries; i++) {

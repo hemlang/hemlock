@@ -27,7 +27,6 @@ static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...)
     va_end(args);
 
     ctx->exception_state.exception_value = val_string(buffer);
-    value_retain(ctx->exception_state.exception_value);
     ctx->exception_state.is_throwing = 1;
     return val_null();
 }
@@ -944,21 +943,18 @@ static int get_fd_from_value(Value val) {
 Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
         ctx->exception_state.exception_value = val_string("poll() expects 2 arguments (fds, timeout_ms)");
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
 
     if (args[0].type != VAL_ARRAY) {
         ctx->exception_state.exception_value = val_string("poll() first argument must be array");
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
 
     if (!is_integer(args[1])) {
         ctx->exception_state.exception_value = val_string("poll() second argument must be integer (timeout_ms)");
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
@@ -975,7 +971,6 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
     struct pollfd *pfds = malloc(sizeof(struct pollfd) * fds_arr->length);
     if (!pfds) {
         ctx->exception_state.exception_value = val_string("poll() memory allocation failed");
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
@@ -985,7 +980,6 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
     if (!original_fds) {
         free(pfds);
         ctx->exception_state.exception_value = val_string("poll() memory allocation failed");
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
@@ -997,7 +991,6 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
             free(pfds);
             free(original_fds);
             ctx->exception_state.exception_value = val_string("poll() array elements must be objects with 'fd' and 'events'");
-            value_retain(ctx->exception_state.exception_value);
             ctx->exception_state.is_throwing = 1;
             return val_null();
         }
@@ -1020,7 +1013,6 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
             free(pfds);
             free(original_fds);
             ctx->exception_state.exception_value = val_string("poll() fd must be a socket or file");
-            value_retain(ctx->exception_state.exception_value);
             ctx->exception_state.is_throwing = 1;
             return val_null();
         }
@@ -1029,7 +1021,6 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
             free(pfds);
             free(original_fds);
             ctx->exception_state.exception_value = val_string("poll() events must be an integer");
-            value_retain(ctx->exception_state.exception_value);
             ctx->exception_state.is_throwing = 1;
             return val_null();
         }
@@ -1053,7 +1044,6 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
         char err_msg[256];
         snprintf(err_msg, sizeof(err_msg), "poll() failed: %s", strerror(errno));
         ctx->exception_state.exception_value = val_string(err_msg);
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }

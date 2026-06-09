@@ -278,7 +278,9 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
                     }
 
                     // Bind namespace to environment
-                    env_define(module_env, ns_name, val_object(ns), 1, ctx);  // immutable
+                    Value ns_val = val_object(ns);
+                    env_define(module_env, ns_name, ns_val, 1, ctx);  // immutable
+                    value_release(ns_val);  // Release temp reference (env_define retained it)
                 } else {
                     // Star import: import * from "module" - import all exports directly
                     // NOTE: matches the compiler's current star-import semantics, which

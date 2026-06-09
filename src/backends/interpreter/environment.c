@@ -102,6 +102,12 @@ static void env_pool_free(Environment *env) {
         free(env->hash_table);
         env->hash_table = env_pool.hash_table_storage[idx];
     }
+    // Reset capacities to match the pool storage the pointers now reference.
+    // Leaving a grown capacity here would make the next user of this slot
+    // write past the fixed-size pool arrays, corrupting neighboring
+    // environments' storage.
+    env->capacity = ENV_DEFAULT_CAPACITY;
+    env->hash_capacity = ENV_DEFAULT_CAPACITY * 2;
     // O(1) return to free list (thread-safe)
     pthread_mutex_lock(&env_pool.mutex);
     env_pool.free_list[env_pool.free_count++] = idx;

@@ -1781,9 +1781,9 @@ static void value_free_internal(Value val, VisitedSet *visited) {
             }
             break;
         case VAL_FFI_FUNCTION:
-            if (val.as.as_ffi_function) {
-                ffi_free_function((FFIFunction*)val.as.as_ffi_function);
-            }
+            // Owned by the FFI function registry; freed in ffi_cleanup().
+            // Freeing here would double-free (FFI values are not refcounted
+            // and may be referenced from multiple environments).
             break;
         case VAL_TASK:
             if (val.as.as_task) {

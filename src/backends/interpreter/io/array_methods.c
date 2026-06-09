@@ -12,7 +12,6 @@ static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...)
     va_end(args);
 
     ctx->exception_state.exception_value = val_string(buffer);
-    value_retain(ctx->exception_state.exception_value);
     ctx->exception_state.is_throwing = 1;
     return val_null();
 }
@@ -32,7 +31,6 @@ static Value throw_runtime_error_at(ExecutionContext *ctx, int line, const char 
     }
 
     ctx->exception_state.exception_value = val_string(full_buffer);
-    value_retain(ctx->exception_state.exception_value);
     ctx->exception_state.is_throwing = 1;
     return val_null();
 }
@@ -751,6 +749,10 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         if (method[1] == 'l' && strcmp(method, "clear") == 0) {
             if (num_args != 0) {
                 return throw_runtime_error(ctx, "clear() expects no arguments");
+            }
+            // Release the elements the array owned, or they leak
+            for (int i = 0; i < arr->length; i++) {
+                VALUE_RELEASE(arr->elements[i]);
             }
             arr->length = 0;
             return val_null();

@@ -185,15 +185,15 @@ Value builtin_assert(Value *args, int num_args, ExecutionContext *ctx) {
     if (!is_truthy) {
         Value exception_msg;
         if (num_args == 2) {
-            // Use provided message
+            // Use provided message - retain it so it survives past the caller
+            // releasing the argument values during unwinding
             exception_msg = args[1];
+            value_retain(exception_msg);
         } else {
-            // Use default message
+            // Use default message - val_string() already returns an owned reference
             exception_msg = val_string("assertion failed");
         }
 
-        // Retain the exception value so it survives past environment cleanups during unwinding
-        value_retain(exception_msg);
         ctx->exception_state.exception_value = exception_msg;
         ctx->exception_state.is_throwing = 1;
     }

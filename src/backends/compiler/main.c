@@ -438,6 +438,31 @@ static char* make_c_filename(const char *input) {
     return result;
 }
 
+// Quote a string for safe inclusion in a shell command line: wrap in single
+// quotes and escape embedded single quotes as '\''. Prevents filenames or
+// paths containing shell metacharacters from being interpreted by system().
+// Returns a malloc'd string, or NULL on allocation failure.
+static char* shell_quote(const char *s) {
+    size_t len = strlen(s);
+    char *out = malloc(len * 4 + 3);  // worst case: every char is a quote
+    if (!out) {
+        return NULL;
+    }
+    char *p = out;
+    *p++ = '\'';
+    for (size_t i = 0; i < len; i++) {
+        if (s[i] == '\'') {
+            memcpy(p, "'\\''", 4);
+            p += 4;
+        } else {
+            *p++ = s[i];
+        }
+    }
+    *p++ = '\'';
+    *p = '\0';
+    return out;
+}
+
 // Invoke the C compiler
 static int compile_c(const Options *opts, const char *c_file) {
     // Build command
@@ -467,11 +492,16 @@ static int compile_c(const Options *opts, const char *c_file) {
     size_t extra_lib_len = 0;  // SECURITY: Track length to prevent overflow
 
     // Get libffi path (fast: uses well-known paths, falls back to brew only if needed)
+    // Paths are shell-quoted: they come from env vars / brew output and are
+    // later embedded in system() command lines.
     const char *libffi_path = get_macos_lib_path("HEMLOCK_LIBFFI_PATH", "libffi");
     if (libffi_path[0]) {
-        char tmp[128];
-        int n = snprintf(tmp, sizeof(tmp), " -L%s/lib", libffi_path);
-        if (n > 0 && extra_lib_len + (size_t)n < sizeof(extra_lib_paths) - 1) {
+        char tmp[640];
+        char *q = shell_quote(libffi_path);
+        int n = q ? snprintf(tmp, sizeof(tmp), " -L%s/lib", q) : -1;
+        free(q);
+        if (n > 0 && (size_t)n < sizeof(tmp) &&
+            extra_lib_len + (size_t)n < sizeof(extra_lib_paths) - 1) {
             strcat(extra_lib_paths + extra_lib_len, tmp);
             extra_lib_len += (size_t)n;
         }
@@ -480,9 +510,12 @@ static int compile_c(const Options *opts, const char *c_file) {
     // Get libwebsockets path
     const char *lws_path = get_macos_lib_path("HEMLOCK_LWS_PATH", "libwebsockets");
     if (lws_path[0]) {
-        char tmp[128];
-        int n = snprintf(tmp, sizeof(tmp), " -L%s/lib", lws_path);
-        if (n > 0 && extra_lib_len + (size_t)n < sizeof(extra_lib_paths) - 1) {
+        char tmp[640];
+        char *q = shell_quote(lws_path);
+        int n = q ? snprintf(tmp, sizeof(tmp), " -L%s/lib", q) : -1;
+        free(q);
+        if (n > 0 && (size_t)n < sizeof(tmp) &&
+            extra_lib_len + (size_t)n < sizeof(extra_lib_paths) - 1) {
             strcat(extra_lib_paths + extra_lib_len, tmp);
             extra_lib_len += (size_t)n;
         }
@@ -491,9 +524,12 @@ static int compile_c(const Options *opts, const char *c_file) {
     // Get OpenSSL path
     const char *ssl_path = get_macos_lib_path("HEMLOCK_OPENSSL_PATH", "openssl@3");
     if (ssl_path[0]) {
-        char tmp[128];
-        int n = snprintf(tmp, sizeof(tmp), " -L%s/lib", ssl_path);
-        if (n > 0 && extra_lib_len + (size_t)n < sizeof(extra_lib_paths) - 1) {
+        char tmp[640];
+        char *q = shell_quote(ssl_path);
+        int n = q ? snprintf(tmp, sizeof(tmp), " -L%s/lib", q) : -1;
+        free(q);
+        if (n > 0 && (size_t)n < sizeof(tmp) &&
+            extra_lib_len + (size_t)n < sizeof(extra_lib_paths) - 1) {
             strcat(extra_lib_paths + extra_lib_len, tmp);
         }
     }
@@ -537,6 +573,24 @@ static int compile_c(const Options *opts, const char *c_file) {
     }
     include_path[sizeof(include_path) - 1] = '\0';
 
+    // Shell-quote user-controlled paths before embedding them in the
+    // system() command line: a filename like `foo$(cmd).hml` or an -o
+    // argument containing shell metacharacters must not execute commands.
+    char runtime_lib[PATH_MAX + 32];
+    snprintf(runtime_lib, sizeof(runtime_lib), "%s/libhemlock_runtime.a", runtime_path);
+    char *q_c = shell_quote(c_file);
+    char *q_inc = shell_quote(include_path);
+    char *q_runtime_lib = shell_quote(runtime_lib);
+    char *q_out = NULL;  // set per-branch (WASM may rewrite the output name)
+    char *q_wasm_runtime = NULL;
+    if (!q_c || !q_inc || !q_runtime_lib) {
+        free(q_c);
+        free(q_inc);
+        free(q_runtime_lib);
+        fprintf(stderr, "error: Out of memory building compiler command\n");
+        return 1;
+    }
+
     // Build the linker command
     int n;
     if (opts->target_wasm) {
@@ -568,9 +622,21 @@ static int compile_c(const Options *opts, const char *c_file) {
         size_t out_len = strlen(out_file);
         if (out_len < 3 ||
             (strcmp(out_file + out_len - 3, ".js") != 0 &&
-             strcmp(out_file + out_len - 5, ".html") != 0)) {
+             (out_len < 5 || strcmp(out_file + out_len - 5, ".html") != 0))) {
             snprintf(js_output, sizeof(js_output), "%s.js", out_file);
             out_file = js_output;
+        }
+
+        q_out = shell_quote(out_file);
+        q_wasm_runtime = shell_quote(wasm_runtime);
+        if (!q_out || !q_wasm_runtime) {
+            free(q_out);
+            free(q_wasm_runtime);
+            free(q_c);
+            free(q_inc);
+            free(q_runtime_lib);
+            fprintf(stderr, "error: Out of memory building compiler command\n");
+            return 1;
         }
 
         if (opts->wasm_threads) {
@@ -589,8 +655,8 @@ static int compile_c(const Options *opts, const char *c_file) {
                 "-sPTHREAD_POOL_SIZE=4 "
                 "-sPROXY_TO_PTHREAD "
                 "-D__HEMLOCK_WASM__=1",
-                opt_flag, out_file, c_file,
-                include_path, wasm_runtime);
+                opt_flag, q_out, q_c,
+                q_inc, q_wasm_runtime);
         } else {
             n = snprintf(cmd, sizeof(cmd),
                 "emcc %s -o %s %s -I%s %s "
@@ -599,8 +665,8 @@ static int compile_c(const Options *opts, const char *c_file) {
                 "-sALLOW_MEMORY_GROWTH=1 "
                 "-sSTACK_SIZE=1048576 "
                 "-D__HEMLOCK_WASM__=1",
-                opt_flag, out_file, c_file,
-                include_path, wasm_runtime);
+                opt_flag, q_out, q_c,
+                q_inc, q_wasm_runtime);
         }
     } else if (opts->static_link) {
         // Hybrid static/dynamic linking:
@@ -620,39 +686,52 @@ static int compile_c(const Options *opts, const char *c_file) {
 #ifdef __APPLE__
         // macOS: Can't use -static, use .a files directly or fall back to dynamic
         // System frameworks are always dynamic on macOS
-        n = snprintf(cmd, sizeof(cmd),
-            "%s %s -rdynamic -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi%s%s%s",
-            opts->cc, opt_flag, opts->output_file, c_file,
-            include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
+        q_out = shell_quote(opts->output_file);
+        n = q_out ? snprintf(cmd, sizeof(cmd),
+            "%s %s -rdynamic -o %s %s -I%s %s%s -lm -lpthread -lffi%s%s%s",
+            opts->cc, opt_flag, q_out, q_c,
+            q_inc, q_runtime_lib, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag)
+            : (int)sizeof(cmd);
 #else
         // Linux: Hybrid static/dynamic linking
         // Static: libffi, libz; Dynamic: glibc libs (lm, lpthread)
         // If websockets available, add it statically with its dynamic dependencies
+        q_out = shell_quote(opts->output_file);
         if (websockets_flag[0]) {
             // libwebsockets requires: libssl, libcrypto (static), libcap, libuv, libev (dynamic)
-            n = snprintf(cmd, sizeof(cmd),
-                "%s %s -rdynamic -o %s %s -I%s %s/libhemlock_runtime.a%s "
+            n = q_out ? snprintf(cmd, sizeof(cmd),
+                "%s %s -rdynamic -o %s %s -I%s %s%s "
                 "-Wl,-Bstatic -lffi%s -lwebsockets -lssl -lcrypto "
                 "-Wl,-Bdynamic -lcap -luv -lev -lm -lpthread",
-                opts->cc, opt_flag, opts->output_file, c_file,
-                include_path, runtime_path, extra_lib_paths, zlib_flag);
+                opts->cc, opt_flag, q_out, q_c,
+                q_inc, q_runtime_lib, extra_lib_paths, zlib_flag)
+                : (int)sizeof(cmd);
         } else {
             // No websockets, just static link libffi, libz, libssl, libcrypto
-            n = snprintf(cmd, sizeof(cmd),
-                "%s %s -rdynamic -o %s %s -I%s %s/libhemlock_runtime.a%s "
+            n = q_out ? snprintf(cmd, sizeof(cmd),
+                "%s %s -rdynamic -o %s %s -I%s %s%s "
                 "-Wl,-Bstatic -lffi%s -lssl -lcrypto "
                 "-Wl,-Bdynamic -lm -lpthread",
-                opts->cc, opt_flag, opts->output_file, c_file,
-                include_path, runtime_path, extra_lib_paths, zlib_flag);
+                opts->cc, opt_flag, q_out, q_c,
+                q_inc, q_runtime_lib, extra_lib_paths, zlib_flag)
+                : (int)sizeof(cmd);
         }
 #endif
     } else {
         // Dynamic linking (default): link against shared libraries
-        n = snprintf(cmd, sizeof(cmd),
-            "%s %s -rdynamic -o %s %s -I%s %s/libhemlock_runtime.a%s -lm -lpthread -lffi -ldl%s%s%s",
-            opts->cc, opt_flag, opts->output_file, c_file,
-            include_path, runtime_path, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag);
+        q_out = shell_quote(opts->output_file);
+        n = q_out ? snprintf(cmd, sizeof(cmd),
+            "%s %s -rdynamic -o %s %s -I%s %s%s -lm -lpthread -lffi -ldl%s%s%s",
+            opts->cc, opt_flag, q_out, q_c,
+            q_inc, q_runtime_lib, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag)
+            : (int)sizeof(cmd);
     }
+
+    free(q_out);
+    free(q_wasm_runtime);
+    free(q_c);
+    free(q_inc);
+    free(q_runtime_lib);
 
     if (n >= (int)sizeof(cmd)) {
         fprintf(stderr, "error: Compiler command too long (truncated)\n");

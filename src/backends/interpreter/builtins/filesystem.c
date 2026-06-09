@@ -634,7 +634,6 @@ Value builtin_open_fd(Value *args, int num_args, ExecutionContext *ctx) {
         snprintf(error_msg, sizeof(error_msg), "Failed to open '%s' with mode '%s': %s",
                  path, mode, strerror(errno));
         ctx->exception_state.exception_value = val_string(error_msg);
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
@@ -667,7 +666,6 @@ Value builtin_fileno(Value *args, int num_args, ExecutionContext *ctx) {
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "fileno() failed: %s", strerror(errno));
         ctx->exception_state.exception_value = val_string(error_msg);
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }

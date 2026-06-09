@@ -4,25 +4,25 @@ let caught_dest = false;
 let caught_src = false;
 
 // Test 1: null dest
+let src = alloc(16);
 try {
-    let src = alloc(16);
     memcpy(null, src, 8);
     print("ERROR: should have thrown");
-    free(src);
 } catch (e) {
     caught_dest = true;
 }
+free(src);
 print("memcpy null dest caught: " + caught_dest);
 
 // Test 2: null src
+let dest = alloc(16);
 try {
-    let dest = alloc(16);
     memcpy(dest, null, 8);
     print("ERROR: should have thrown");
-    free(dest);
 } catch (e) {
     caught_src = true;
 }
+free(dest);
 print("memcpy null src caught: " + caught_src);
 
 // Test 3: normal memcpy still works

@@ -12,7 +12,6 @@ static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...)
     va_end(args);
 
     ctx->exception_state.exception_value = val_string(buffer);
-    value_retain(ctx->exception_state.exception_value);
     ctx->exception_state.is_throwing = 1;
     return val_null();
 }
@@ -32,7 +31,6 @@ static Value throw_runtime_error_at(ExecutionContext *ctx, int line, const char 
     }
 
     ctx->exception_state.exception_value = val_string(full_buffer);
-    value_retain(ctx->exception_state.exception_value);
     ctx->exception_state.is_throwing = 1;
     return val_null();
 }
@@ -303,9 +301,13 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                 return val_string(str->data);
             }
 
-            // Build new string with replacement
-            int new_len = str->length - old->length + new->length;
-            char *result = malloc(new_len + 1);
+            // Build new string with replacement (64-bit math to avoid overflow)
+            int64_t new_len64 = (int64_t)str->length - old->length + new->length;
+            if (new_len64 > INT32_MAX) {
+                return throw_runtime_error(ctx, "replace() result string too large");
+            }
+            int new_len = (int)new_len64;
+            char *result = malloc((size_t)new_len + 1);
             if (result == NULL) {
                 return throw_runtime_error(ctx, "replace() out of memory");
             }
@@ -346,9 +348,16 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                 return val_string(str->data);  // No replacements needed
             }
 
-            // Build new string
-            int new_len = str->length - (count * old->length) + (count * new->length);
-            char *result = malloc(new_len + 1);
+            // Build new string (64-bit math: count * length products can
+            // overflow int, which would undersize the allocation and turn the
+            // copy loop below into a heap buffer overflow)
+            int64_t new_len64 = (int64_t)str->length +
+                                (int64_t)count * ((int64_t)new->length - old->length);
+            if (new_len64 > INT32_MAX) {
+                return throw_runtime_error(ctx, "replace_all() result string too large");
+            }
+            int new_len = (int)new_len64;
+            char *result = malloc((size_t)new_len + 1);
             if (result == NULL) {
                 return throw_runtime_error(ctx, "replace_all() out of memory");
             }

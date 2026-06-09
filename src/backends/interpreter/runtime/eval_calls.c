@@ -647,6 +647,9 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             Value stack_args[HML_MAX_STACK_ARGS];
             Value *args = NULL;
             int args_on_heap = 0;
+            // Number of slots in `args`. Stays num_args unless named-argument
+            // reordering swaps in a differently-sized array below.
+            int args_count = expr->as.call.num_args;
             if (expr->as.call.num_args > 0) {
                 if (expr->as.call.num_args <= HML_MAX_STACK_ARGS) {
                     args = stack_args;
@@ -700,11 +703,15 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 int original_args_on_heap = args_on_heap;
 
                 if (expr->as.call.arg_names != NULL) {
-                    // Allocate reordered array
-                    if (fn->num_params <= HML_MAX_STACK_ARGS) {
+                    // Allocate reordered array. Must be large enough for both
+                    // the parameter slots and any extra positional args
+                    // (which the rest-param logic reads at indices >= num_params).
+                    int reordered_size = fn->num_params > expr->as.call.num_args
+                                             ? fn->num_params : expr->as.call.num_args;
+                    if (reordered_size <= HML_MAX_STACK_ARGS) {
                         reordered_args = reordered_stack;
                     } else {
-                        reordered_args = malloc(sizeof(Value) * fn->num_params);
+                        reordered_args = malloc(sizeof(Value) * reordered_size);
                         if (!reordered_args) {
                             runtime_error(ctx, "Out of memory allocating reordered arguments");
                             if (args) {
@@ -720,7 +727,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     }
 
                     // Initialize reordered_args to null values
-                    for (int i = 0; i < fn->num_params; i++) {
+                    for (int i = 0; i < reordered_size; i++) {
                         reordered_args[i] = val_null();
                     }
 
@@ -784,6 +791,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                     // Second pass: place positional arguments in remaining slots
                     int next_positional_slot = 0;
+                    int next_extra_slot = fn->num_params;  // overflow area for rest params
                     for (int i = 0; i < expr->as.call.num_args; i++) {
                         if (!arg_used[i]) {
                             // Find the next unfilled slot
@@ -795,8 +803,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                 reordered_args[next_positional_slot] = args[i];
                                 arg_used[i] = 1;
                                 next_positional_slot++;
+                            } else if (next_extra_slot < reordered_size) {
+                                // Extra positional args go after the parameter
+                                // slots, where the rest-param logic reads them
+                                reordered_args[next_extra_slot++] = args[i];
+                                arg_used[i] = 1;
                             }
-                            // Extra positional args will be handled by rest param logic
                         }
                     }
 
@@ -810,6 +822,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     // Switch to use reordered_args instead of args for parameter binding
                     args = reordered_args;
                     args_on_heap = reordered_on_heap;
+                    args_count = reordered_size;
                 }
 
                 // Calculate number of required parameters (those without defaults)
@@ -842,7 +855,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         runtime_error(ctx, "Missing required parameter(s)");
                         VALUE_RELEASE(func);
                         // Release original evaluated args
-                        for (int i = 0; i < fn->num_params; i++) {
+                        for (int i = 0; i < args_count; i++) {
                             if (args[i].type != VAL_NULL) {
                                 VALUE_RELEASE(args[i]);
                             }
@@ -890,7 +903,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     // Release function and args before returning
                     VALUE_RELEASE(func);
                     if (args) {
-                        for (int i = 0; i < expr->as.call.num_args; i++) {
+                        for (int i = 0; i < args_count; i++) {
                             VALUE_RELEASE(args[i]);
                         }
                         if (args_on_heap) free(args);
@@ -1125,7 +1138,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Note: Must release BEFORE exiting this block because 'args' might point to
                 // 'reordered_stack' which is a local stack variable that will go out of scope.
                 if (args) {
-                    for (int i = 0; i < expr->as.call.num_args; i++) {
+                    for (int i = 0; i < args_count; i++) {
                         VALUE_RELEASE(args[i]);
                     }
                 }

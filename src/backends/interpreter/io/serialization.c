@@ -14,7 +14,6 @@ static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...)
     va_end(args);
 
     ctx->exception_state.exception_value = val_string(buffer);
-    value_retain(ctx->exception_state.exception_value);
     ctx->exception_state.is_throwing = 1;
     return val_null();
 }
@@ -625,6 +624,7 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
         atomic_store(&obj->freed, 0);  // Not freed
         obj->hash_table = NULL;  // No hash table for empty objects
         obj->hash_capacity = 0;
+        obj->is_pooled = 0;  // Heap-allocated, not from the object pool
         return val_object(obj);
     }
 
@@ -710,6 +710,7 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     atomic_store(&obj->freed, 0);  // Not freed
     obj->hash_table = NULL;  // No hash table - use linear search fallback
     obj->hash_capacity = 0;
+    obj->is_pooled = 0;  // Heap-allocated, not from the object pool
     return val_object(obj);
 }
 
@@ -740,6 +741,7 @@ Value json_parse_array(JSONParser *p, ExecutionContext *ctx) {
             return val_null();
         }
         array_push(arr, element);
+        VALUE_RELEASE(element);  // array_push retained it
 
         json_skip_whitespace(p);
 

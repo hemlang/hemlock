@@ -1635,6 +1635,7 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         // String to bool via type annotation is not allowed
         // Use explicit conversion: bool("true") or bool("false")
         runtime_error(ctx, "Cannot convert string to bool via type annotation. Use bool(\"...\") instead.");
+        VALUE_RELEASE(value);  // consume the value, matching the success paths
         return val_null();
     } else if (value.type == VAL_STRING && is_numeric_type(target_kind)) {
         // String to numeric via type annotation is not allowed
@@ -1642,6 +1643,7 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         const char *type_name = type_kind_to_string(target_kind);
         runtime_error(ctx, "Cannot convert string to %s via type annotation. Use %s(\"...\") instead.",
                 type_name, type_name);
+        VALUE_RELEASE(value);  // consume the value, matching the success paths
         return val_null();
     } else if (value.type == VAL_BOOL && target_kind == TYPE_BOOL) {
         return value;  // Bool to bool, ok
@@ -1658,6 +1660,7 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         return value;
     } else {
         runtime_error(ctx, "Cannot convert type to target type");
+        VALUE_RELEASE(value);  // consume the value, matching the success paths
         return val_null();
     }
 
