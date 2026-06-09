@@ -13,6 +13,7 @@
 //   collision detection, line clearing, game loop, raw terminal input
 
 import { sleep, time_ms } from "@stdlib/time";
+import { divi } from "@stdlib/math";
 import {
     GREEN, RED, YELLOW, CYAN, WHITE, MAGENTA, BLUE, RESET,
     BOLD, DIM, BG_RED, BG_GREEN, BG_BLUE, BG_YELLOW, BG_MAGENTA, BG_CYAN, BG_WHITE,

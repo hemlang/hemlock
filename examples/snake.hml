@@ -10,6 +10,7 @@
 //   raw terminal input, collision detection, random placement
 
 import { sleep, time_ms } from "@stdlib/time";
+import { divi } from "@stdlib/math";
 import {
     GREEN, RED, YELLOW, CYAN, WHITE, MAGENTA, RESET,
     BOLD, DIM, BG_RED, BG_GREEN,
