@@ -1005,6 +1005,12 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     FFIStructList ffi_structs = {NULL, 0, 0};
     collect_ffi_structs(stmts, stmt_count, &all_extern_fns, &ffi_structs);
 
+    // Register extern fn names so call sites can distinguish them from
+    // undefined functions (extern calls go through generated hml_fn_ wrappers)
+    for (int i = 0; i < all_extern_fns.count; i++) {
+        codegen_add_extern_fn(ctx, all_extern_fns.stmts[i]->as.extern_fn.function_name);
+    }
+
     // Generate module functions first (to collect closures)
     if (ctx->module_cache) {
         CompiledModule *mod = ctx->module_cache->modules;

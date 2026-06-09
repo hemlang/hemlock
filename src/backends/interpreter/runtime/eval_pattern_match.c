@@ -59,7 +59,7 @@ int match_pattern(Pattern *pattern, Value value, Environment *env, ExecutionCont
                 VALUE_RELEASE(literal);
                 return 0;
             }
-            int matched = values_equal(value, literal);
+            int matched = values_equal_loose(value, literal);
             VALUE_RELEASE(literal);
             return matched;
         }

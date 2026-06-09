@@ -463,9 +463,9 @@ HmlValue hml_string_repeat(HmlValue str, HmlValue count) {
 // OPTIMIZATION: Concatenate 3 strings in a single allocation
 HmlValue hml_string_concat3(HmlValue a, HmlValue b, HmlValue c) {
     // Convert all to strings if needed
-    HmlValue str_a = (a.type == HML_VAL_STRING) ? a : hml_to_string(a);
-    HmlValue str_b = (b.type == HML_VAL_STRING) ? b : hml_to_string(b);
-    HmlValue str_c = (c.type == HML_VAL_STRING) ? c : hml_to_string(c);
+    HmlValue str_a = (a.type == HML_VAL_STRING) ? a : hml_to_string_concat(a);
+    HmlValue str_b = (b.type == HML_VAL_STRING) ? b : hml_to_string_concat(b);
+    HmlValue str_c = (c.type == HML_VAL_STRING) ? c : hml_to_string_concat(c);
 
     HmlString *sa = str_a.as.as_string;
     HmlString *sb = str_b.as.as_string;
@@ -493,10 +493,10 @@ HmlValue hml_string_concat3(HmlValue a, HmlValue b, HmlValue c) {
 
 // OPTIMIZATION: Concatenate 4 strings in a single allocation
 HmlValue hml_string_concat4(HmlValue a, HmlValue b, HmlValue c, HmlValue d) {
-    HmlValue str_a = (a.type == HML_VAL_STRING) ? a : hml_to_string(a);
-    HmlValue str_b = (b.type == HML_VAL_STRING) ? b : hml_to_string(b);
-    HmlValue str_c = (c.type == HML_VAL_STRING) ? c : hml_to_string(c);
-    HmlValue str_d = (d.type == HML_VAL_STRING) ? d : hml_to_string(d);
+    HmlValue str_a = (a.type == HML_VAL_STRING) ? a : hml_to_string_concat(a);
+    HmlValue str_b = (b.type == HML_VAL_STRING) ? b : hml_to_string_concat(b);
+    HmlValue str_c = (c.type == HML_VAL_STRING) ? c : hml_to_string_concat(c);
+    HmlValue str_d = (d.type == HML_VAL_STRING) ? d : hml_to_string_concat(d);
 
     HmlString *sa = str_a.as.as_string;
     HmlString *sb = str_b.as.as_string;
@@ -527,11 +527,11 @@ HmlValue hml_string_concat4(HmlValue a, HmlValue b, HmlValue c, HmlValue d) {
 
 // OPTIMIZATION: Concatenate 5 strings in a single allocation
 HmlValue hml_string_concat5(HmlValue a, HmlValue b, HmlValue c, HmlValue d, HmlValue e) {
-    HmlValue str_a = (a.type == HML_VAL_STRING) ? a : hml_to_string(a);
-    HmlValue str_b = (b.type == HML_VAL_STRING) ? b : hml_to_string(b);
-    HmlValue str_c = (c.type == HML_VAL_STRING) ? c : hml_to_string(c);
-    HmlValue str_d = (d.type == HML_VAL_STRING) ? d : hml_to_string(d);
-    HmlValue str_e = (e.type == HML_VAL_STRING) ? e : hml_to_string(e);
+    HmlValue str_a = (a.type == HML_VAL_STRING) ? a : hml_to_string_concat(a);
+    HmlValue str_b = (b.type == HML_VAL_STRING) ? b : hml_to_string_concat(b);
+    HmlValue str_c = (c.type == HML_VAL_STRING) ? c : hml_to_string_concat(c);
+    HmlValue str_d = (d.type == HML_VAL_STRING) ? d : hml_to_string_concat(d);
+    HmlValue str_e = (e.type == HML_VAL_STRING) ? e : hml_to_string_concat(e);
 
     HmlString *sa = str_a.as.as_string;
     HmlString *sb = str_b.as.as_string;

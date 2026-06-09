@@ -12,6 +12,7 @@
 #include <stddef.h>
 #include <stdatomic.h>
 #include <pthread.h>
+#include <math.h>  // INFINITY/NAN for non-finite float literals in generated code
 
 // Forward declarations for heap-allocated types
 typedef struct HmlString HmlString;

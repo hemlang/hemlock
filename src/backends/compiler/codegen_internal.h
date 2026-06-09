@@ -21,6 +21,7 @@
 #include <libgen.h>
 #include <limits.h>
 #include <inttypes.h>
+#include <math.h>
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -161,6 +162,13 @@ int* codegen_get_main_func_param_is_ref(CodegenContext *ctx, const char *name);
 Expr* codegen_get_main_func_ast(CodegenContext *ctx, const char *name);
 int codegen_is_main_func_inlinable(CodegenContext *ctx, const char *name);
 int codegen_is_ref_param(CodegenContext *ctx, const char *name);
+
+// Extern (FFI) function tracking - names that have hml_fn_ wrappers generated
+void codegen_add_extern_fn(CodegenContext *ctx, const char *name);
+int codegen_is_extern_fn(CodegenContext *ctx, const char *name);
+
+// Format an f64 constant as a valid C expression (handles inf/nan/-0.0)
+void codegen_format_f64(char *buf, size_t size, double value);
 
 // Main file import tracking
 void codegen_add_main_import(CodegenContext *ctx, const char *local_name,

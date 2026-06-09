@@ -228,7 +228,10 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             equal = (left.as.as_object == right.as.as_object);
         } else if (left.type == HML_VAL_ARRAY && right.type == HML_VAL_ARRAY) {
             equal = (left.as.as_array == right.as.as_array);
-        } else if (hml_is_numeric(left) && hml_is_numeric(right)) {
+        } else if (hml_is_numeric(left) && hml_is_numeric(right) &&
+                   left.type != HML_VAL_RUNE && right.type != HML_VAL_RUNE) {
+            // Runes only compare equal to runes (handled above); the
+            // interpreter does not numerically coerce rune in ==
             double l = hml_to_f64(left);
             double r = hml_to_f64(right);
             equal = (l == r);

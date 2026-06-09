@@ -40,7 +40,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
     switch (expr->type) {
         case EXPR_NUMBER:
             if (expr->as.number.is_float) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_f64(%.17g);", result, expr->as.number.float_value);
+                char fbuf[64];
+                codegen_format_f64(fbuf, sizeof(fbuf), expr->as.number.float_value);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_f64(%s);", result, fbuf);
             } else if (expr->as.number.is_u64) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_u64(%" PRIu64 "ULL);", result, expr->as.number.uint_value);
             } else {
@@ -1314,9 +1316,10 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
 
                 // Add expression part (there are num_parts expression parts)
+                // Use display concat: ${[1,2]} renders "[1, 2]" like the interpreter
                 if (i < expr->as.string_interpolation.num_parts) {
                     char *expr_val = codegen_expr(ctx, expr->as.string_interpolation.expr_parts[i]);
-                    codegen_writeln(ctx, "HmlValue _concat%d = hml_string_concat(%s, %s);", ctx->temp_counter, result, expr_val);
+                    codegen_writeln(ctx, "HmlValue _concat%d = hml_string_concat_display(%s, %s);", ctx->temp_counter, result, expr_val);
                     codegen_writeln(ctx, "hml_release(&%s);", result);
                     codegen_writeln(ctx, "hml_release(&%s);", expr_val);
                     codegen_writeln(ctx, "%s = _concat%d;", result, ctx->temp_counter);
