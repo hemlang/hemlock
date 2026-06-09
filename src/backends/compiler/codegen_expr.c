@@ -978,7 +978,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     }
                 }
                 // Fast path for i32, fallback to generic binary_op
-                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", var, var, var, var);
+                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_value_inc(%s);", var, var, var, var);
                 // If captured variable, update closure environment
                 if (ctx->current_closure && ctx->current_closure->num_captured > 0) {
                     for (int i = 0; i < ctx->current_closure->num_captured; i++) {
@@ -1000,7 +1000,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *old_val = codegen_temp(ctx);
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, %s);", old_val, arr, idx);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_value_inc(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_array_set(%s, %s, %s);", arr, idx, new_val);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, new_val);
                 codegen_writeln(ctx, "hml_retain(&%s);", result);
@@ -1016,7 +1016,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *old_val = codegen_temp(ctx);
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"%s\");", old_val, obj, prop);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_value_inc(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);", obj, prop, new_val);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, new_val);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
@@ -1066,7 +1066,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     }
                 }
                 // Fast path for i32, fallback to generic binary_op
-                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", var, var, var, var);
+                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_value_dec(%s);", var, var, var, var);
                 // If captured variable, update closure environment
                 if (ctx->current_closure && ctx->current_closure->num_captured > 0) {
                     for (int i = 0; i < ctx->current_closure->num_captured; i++) {
@@ -1088,7 +1088,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *old_val = codegen_temp(ctx);
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, %s);", old_val, arr, idx);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_value_dec(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_array_set(%s, %s, %s);", arr, idx, new_val);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, new_val);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
@@ -1104,7 +1104,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *old_val = codegen_temp(ctx);
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"%s\");", old_val, obj, prop);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_value_dec(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);", obj, prop, new_val);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, new_val);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
@@ -1157,7 +1157,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
                 // Fast path for i32, fallback to generic binary_op
-                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", var, var, var, var);
+                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_value_inc(%s);", var, var, var, var);
                 // If captured variable, update closure environment
                 if (ctx->current_closure && ctx->current_closure->num_captured > 0) {
                     for (int i = 0; i < ctx->current_closure->num_captured; i++) {
@@ -1179,7 +1179,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, %s);", old_val, arr, idx);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, old_val);  // Return old value
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_value_inc(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_array_set(%s, %s, %s);", arr, idx, new_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", old_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", new_val);
@@ -1195,7 +1195,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"%s\");", old_val, obj, prop);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, old_val);  // Return old value
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_value_inc(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);", obj, prop, new_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", old_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", new_val);
@@ -1245,7 +1245,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
                 // Fast path for i32, fallback to generic binary_op
-                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", var, var, var, var);
+                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_value_dec(%s);", var, var, var, var);
                 // If captured variable, update closure environment
                 if (ctx->current_closure && ctx->current_closure->num_captured > 0) {
                     for (int i = 0; i < ctx->current_closure->num_captured; i++) {
@@ -1267,7 +1267,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, %s);", old_val, arr, idx);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, old_val);  // Return old value
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_value_dec(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_array_set(%s, %s, %s);", arr, idx, new_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", old_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", new_val);
@@ -1283,7 +1283,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"%s\");", old_val, obj, prop);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, old_val);  // Return old value
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_value_dec(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);", obj, prop, new_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", old_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", new_val);

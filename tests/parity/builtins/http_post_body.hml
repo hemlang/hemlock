@@ -1,3 +1,4 @@
+// REQUIRES: http
 // Regression test for the compiled-binary HTTP POST body bug.
 //
 // The runtime's hml_lws_http_post() used to `(void) body_val;` and

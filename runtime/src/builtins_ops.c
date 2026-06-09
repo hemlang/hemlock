@@ -74,6 +74,45 @@ HmlValue hml_sizeof(HmlValue type_name) {
     return hml_val_i32(size);
 }
 
+// ========== INCREMENT / DECREMENT ==========
+
+// ++/-- preserve the operand's type and wrap on overflow (u8 255++ -> 0),
+// unlike binary + which promotes (u8 + i32 -> i32). Matches the
+// interpreter's value_add_one/value_sub_one.
+HmlValue hml_value_inc(HmlValue val) {
+    switch (val.type) {
+        case HML_VAL_I8:  return hml_val_i8((int8_t)(val.as.as_i8 + 1));
+        case HML_VAL_I16: return hml_val_i16((int16_t)(val.as.as_i16 + 1));
+        case HML_VAL_I32: return hml_val_i32((int32_t)((uint32_t)val.as.as_i32 + 1u));
+        case HML_VAL_I64: return hml_val_i64((int64_t)((uint64_t)val.as.as_i64 + 1u));
+        case HML_VAL_U8:  return hml_val_u8((uint8_t)(val.as.as_u8 + 1));
+        case HML_VAL_U16: return hml_val_u16((uint16_t)(val.as.as_u16 + 1));
+        case HML_VAL_U32: return hml_val_u32(val.as.as_u32 + 1u);
+        case HML_VAL_U64: return hml_val_u64(val.as.as_u64 + 1u);
+        case HML_VAL_F32: return hml_val_f32(val.as.as_f32 + 1.0f);
+        case HML_VAL_F64: return hml_val_f64(val.as.as_f64 + 1.0);
+        default:
+            hml_runtime_error("Can only increment numeric values");
+    }
+}
+
+HmlValue hml_value_dec(HmlValue val) {
+    switch (val.type) {
+        case HML_VAL_I8:  return hml_val_i8((int8_t)(val.as.as_i8 - 1));
+        case HML_VAL_I16: return hml_val_i16((int16_t)(val.as.as_i16 - 1));
+        case HML_VAL_I32: return hml_val_i32((int32_t)((uint32_t)val.as.as_i32 - 1u));
+        case HML_VAL_I64: return hml_val_i64((int64_t)((uint64_t)val.as.as_i64 - 1u));
+        case HML_VAL_U8:  return hml_val_u8((uint8_t)(val.as.as_u8 - 1));
+        case HML_VAL_U16: return hml_val_u16((uint16_t)(val.as.as_u16 - 1));
+        case HML_VAL_U32: return hml_val_u32(val.as.as_u32 - 1u);
+        case HML_VAL_U64: return hml_val_u64(val.as.as_u64 - 1u);
+        case HML_VAL_F32: return hml_val_f32(val.as.as_f32 - 1.0f);
+        case HML_VAL_F64: return hml_val_f64(val.as.as_f64 - 1.0);
+        default:
+            hml_runtime_error("Can only decrement numeric values");
+    }
+}
+
 // ========== BINARY OPERATIONS ==========
 
 /*

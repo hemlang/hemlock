@@ -18,7 +18,7 @@ These are available everywhere without any `import` statement.
 | Function | Description |
 |----------|-------------|
 | `print(value, ...)` | Print values to stdout with newline |
-| `write(value)` | Print value to stdout without newline (flushes immediately) |
+| `write(value, ...)` | Print values to stdout without newline (flushes immediately) |
 | `eprint(value, ...)` | Print values to stderr with newline |
 | `read_line()` | Read a line from stdin; returns `string` or `null` on EOF |
 

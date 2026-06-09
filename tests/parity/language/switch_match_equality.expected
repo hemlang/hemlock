@@ -1,0 +1,9 @@
+rune literal
+rune var
+i32 matches f64 case
+i64 matches i32 case
+rune does not match int
+rune-c
+other
+loose
+f64 literal

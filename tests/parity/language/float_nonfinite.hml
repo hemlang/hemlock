@@ -1,0 +1,15 @@
+// Non-finite floats and negative zero must round-trip identically,
+// including through compile-time constant folding.
+print(1.0 / 0.0);
+print(-1.0 / 0.0);
+print(0.0 / 0.0);
+print(-0.0);
+print(1.5e308 * 10.0);
+print(-1.5e308 * 10.0);
+let x: f64 = 2.0;
+print(x * 1.5e308 * 10.0);
+let inf = 1.0 / 0.0;
+print(inf == inf);
+let nan = 0.0 / 0.0;
+print(nan == nan);
+print(0.0 == -0.0);

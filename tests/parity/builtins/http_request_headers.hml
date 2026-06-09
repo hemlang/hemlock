@@ -1,3 +1,4 @@
+// REQUIRES: http
 // Regression test for the compiled-binary HTTP PUT/DELETE/PATCH headers bug.
 //
 // Companion to http_post_headers.hml — exercises __lws_http_request

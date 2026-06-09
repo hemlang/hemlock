@@ -45,9 +45,11 @@ Value value_add_one(Value val, ExecutionContext *ctx) {
         double v = value_to_float(val);
         return (val.type == VAL_F32) ? val_f32((float)(v + 1.0)) : val_f64(v + 1.0);
     } else if (is_integer(val)) {
-        int64_t v = value_to_int(val);
+        // Use 64-bit arithmetic so i64/u64 values are not truncated;
+        // promote_value wraps back to the operand's type
+        int64_t v = value_to_int64(val);
         ValueType result_type = val.type;
-        return promote_value(val_i32((int32_t)(v + 1)), result_type);
+        return promote_value(val_i64(v + 1), result_type);
     } else {
         runtime_error(ctx, "Can only increment numeric values");
         return val_null();  // Unreachable
@@ -60,9 +62,11 @@ Value value_sub_one(Value val, ExecutionContext *ctx) {
         double v = value_to_float(val);
         return (val.type == VAL_F32) ? val_f32((float)(v - 1.0)) : val_f64(v - 1.0);
     } else if (is_integer(val)) {
-        int64_t v = value_to_int(val);
+        // Use 64-bit arithmetic so i64/u64 values are not truncated;
+        // promote_value wraps back to the operand's type
+        int64_t v = value_to_int64(val);
         ValueType result_type = val.type;
-        return promote_value(val_i32((int32_t)(v - 1)), result_type);
+        return promote_value(val_i64(v - 1), result_type);
     } else {
         runtime_error(ctx, "Can only decrement numeric values");
         return val_null();  // Unreachable

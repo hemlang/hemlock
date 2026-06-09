@@ -86,6 +86,8 @@ typedef enum {
 
 // Perform binary operation with automatic type promotion
 HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right);
+HmlValue hml_value_inc(HmlValue val);  // ++: preserves type, wraps on overflow
+HmlValue hml_value_dec(HmlValue val);  // --: preserves type, wraps on overflow
 
 // ========== UNARY OPERATIONS ==========
 
