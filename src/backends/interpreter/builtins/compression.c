@@ -96,7 +96,12 @@ Value builtin_zlib_decompress(Value *args, int num_args, ExecutionContext *ctx) 
     }
 
     Buffer *buf = args[0].as.as_buffer;
-    size_t max_size = (size_t)value_to_int(args[1]);
+    int32_t max_size_arg = value_to_int(args[1]);
+    if (max_size_arg <= 0) {
+        runtime_error(ctx, "zlib_decompress() max_size must be positive");
+        return val_null();
+    }
+    size_t max_size = (size_t)max_size_arg;
 
     // Handle empty input
     if (buf->length == 0) {
@@ -255,7 +260,12 @@ Value builtin_gzip_decompress(Value *args, int num_args, ExecutionContext *ctx) 
     }
 
     Buffer *buf = args[0].as.as_buffer;
-    size_t max_size = (size_t)value_to_int(args[1]);
+    int32_t max_size_arg = value_to_int(args[1]);
+    if (max_size_arg <= 0) {
+        runtime_error(ctx, "gzip_decompress() max_size must be positive");
+        return val_null();
+    }
+    size_t max_size = (size_t)max_size_arg;
 
     // Handle empty input
     if (buf->length == 0) {

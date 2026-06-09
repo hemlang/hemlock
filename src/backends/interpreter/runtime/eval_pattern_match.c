@@ -65,8 +65,8 @@ int match_pattern(Pattern *pattern, Value value, Environment *env, ExecutionCont
         }
 
         case PATTERN_BINDING: {
-            // Bind the value to the variable name
-            VALUE_RETAIN(value);
+            // Bind the value to the variable name (env_define retains it;
+            // the caller keeps ownership of its own reference)
             env_define(env, pattern->as.binding.name, value, 0, ctx);
             return 1;
         }
@@ -76,9 +76,8 @@ int match_pattern(Pattern *pattern, Value value, Environment *env, ExecutionCont
             if (!type_matches_value(pattern->as.typed.type_annotation, value)) {
                 return 0;
             }
-            // If name is provided, bind the value
+            // If name is provided, bind the value (env_define retains it)
             if (pattern->as.typed.name) {
-                VALUE_RETAIN(value);
                 env_define(env, pattern->as.typed.name, value, 0, ctx);
             }
             return 1;
@@ -92,8 +91,9 @@ int match_pattern(Pattern *pattern, Value value, Environment *env, ExecutionCont
                 int matched = match_pattern(pattern->as.or_pattern.alternatives[i], value, temp_env, ctx);
                 if (matched) {
                     // Copy bindings from temp_env into the real env
+                    // (env_define retains; temp_env's reference is released
+                    // by env_free below)
                     for (int j = 0; j < temp_env->count; j++) {
-                        VALUE_RETAIN(temp_env->values[j]);
                         env_define(env, temp_env->names[j], temp_env->values[j], 0, ctx);
                     }
                     env_free(temp_env);
@@ -132,7 +132,7 @@ int match_pattern(Pattern *pattern, Value value, Environment *env, ExecutionCont
                     }
                 } else {
                     // Shorthand: bind field value to field name
-                    VALUE_RETAIN(field_val);
+                    // (env_define retains it; the object keeps its reference)
                     env_define(env, field_pat->name, field_val, 0, ctx);
                 }
             }
@@ -235,8 +235,9 @@ int match_pattern(Pattern *pattern, Value value, Environment *env, ExecutionCont
                 // Create array with rest elements
                 Array *rest_arr = array_new();
                 for (int i = 0; i < rest_count; i++) {
+                    // array_get returns a borrowed reference; array_push
+                    // retains it, so no extra retain here (it would leak)
                     Value elem = array_get(arr, required_before_rest + i, ctx);
-                    VALUE_RETAIN(elem);
                     array_push(rest_arr, elem);
                 }
                 Value rest_val = val_array(rest_arr);

@@ -504,7 +504,6 @@ void runtime_error(ExecutionContext *ctx, const char *format, ...) {
         } else {
             ctx->exception_state.exception_value = val_string(buffer);
         }
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
     } else {
         // No context - print error and exit
@@ -532,7 +531,6 @@ void runtime_error_at(ExecutionContext *ctx, int line, const char *format, ...) 
     // Set exception state for catchable errors
     if (ctx) {
         ctx->exception_state.exception_value = val_string(full_buffer);
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
     } else {
         // No context - print error and exit
@@ -555,7 +553,6 @@ void runtime_error_with_context(ExecutionContext *ctx, const char *file, int lin
     // Set exception state for catchable errors
     if (ctx) {
         ctx->exception_state.exception_value = val_string(formatted);
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
     } else {
         // No context - print error and exit

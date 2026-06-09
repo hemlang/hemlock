@@ -61,8 +61,9 @@ Value builtin_callback(Value *args, int num_args, ExecutionContext *ctx) {
     // Create the callback
     FFICallback *cb = ffi_create_callback(fn, param_types, num_params, return_type, ctx);
 
-    // Note: param_types are now owned by FFICallback, so don't free them here
-    // But we do need to free return_type if callback creation failed
+    // The Type* elements and return_type are now owned by the FFICallback
+    // (freed when the callback is freed), but ffi_create_callback copies the
+    // element pointers into its own array, so the local array must be freed.
     if (cb == NULL) {
         for (int i = 0; i < num_params; i++) {
             free(param_types[i]);
@@ -71,6 +72,7 @@ Value builtin_callback(Value *args, int num_args, ExecutionContext *ctx) {
         free(return_type);
         return val_null();
     }
+    free(param_types);
 
     // Return the C-callable function pointer as a ptr
     return val_ptr(ffi_callback_get_ptr(cb));

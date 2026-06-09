@@ -379,7 +379,9 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
                     // Define variables in iter_env (not env_set, which walks up scope chain)
                     if (stmt->as.for_in.key_var) {
-                        env_define(iter_env, stmt->as.for_in.key_var, val_string(obj->fields[i].name), 0, ctx);
+                        Value key_val = val_string(obj->fields[i].name);
+                        env_define(iter_env, stmt->as.for_in.key_var, key_val, 0, ctx);
+                        VALUE_RELEASE(key_val);  // env_define retained it
                         if (ctx->exception_state.is_throwing) {
                             env_release(iter_env);
                             break;
@@ -699,6 +701,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             atomic_store(&obj->freed, 0);  // Not freed
             obj->hash_table = NULL;  // No hash table - use linear search fallback
             obj->hash_capacity = 0;
+            obj->is_pooled = 0;  // Heap-allocated, not from the object pool
 
             for (int i = 0; i < type->num_variants; i++) {
                 obj->fields[i].name = strdup(type->variant_names[i]);
@@ -768,6 +771,15 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     ctx->exception_state.exception_value = saved_exception;
                     ctx->loop_state.is_breaking = was_breaking;
                     ctx->loop_state.is_continuing = was_continuing;
+                } else {
+                    // Finally overrode the saved state (e.g. threw its own
+                    // exception) - release the discarded values it owned
+                    if (was_throwing) {
+                        VALUE_RELEASE(saved_exception);
+                    }
+                    if (was_returning) {
+                        VALUE_RELEASE(saved_return);
+                    }
                 }
             }
             break;

@@ -78,6 +78,8 @@ static void parse_annotation_arg_value(Parser *p, Annotation *a, const char *arg
     if (match(p, TOK_STRING)) {
         // String argument
         annotation_add_arg_string(a, arg_name, p->previous.string_value);
+        free(p->previous.string_value);  // Parser owns this memory from lexer
+        p->previous.string_value = NULL;
     } else if (match(p, TOK_NUMBER)) {
         // Number argument
         double value = p->previous.is_float ? p->previous.float_value
@@ -1262,9 +1264,15 @@ Stmt* define_statement(Parser *p) {
                 // Free fn_param_defaults array (elements were copied to default_param_defaults)
                 free(fn_param_defaults);
             } else {
-                // Just a signature, no default
+                // Just a signature, no default implementation. Default-value
+                // expressions (e.g. `fn f(x?: 2);`) are not transferred
+                // anywhere, so free them along with the array.
                 method_defaults[num_methods] = NULL;
-                // Free fn_param_defaults when no default impl (elements are NULL anyway)
+                for (int i = 0; i < fn_num_params; i++) {
+                    if (fn_param_defaults[i]) {
+                        expr_free(fn_param_defaults[i]);
+                    }
+                }
                 free(fn_param_defaults);
             }
 

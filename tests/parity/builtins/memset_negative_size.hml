@@ -4,27 +4,27 @@ let caught_memset = false;
 let caught_memcpy = false;
 
 // Test 1: memset with negative size
+let p = alloc(16);
 try {
-    let p = alloc(16);
     memset(p, 0, -1);
     print("ERROR: should have thrown");
-    free(p);
 } catch (e) {
     caught_memset = true;
 }
+free(p);
 print("memset negative size caught: " + caught_memset);
 
 // Test 2: memcpy with negative size
+let a = alloc(16);
+let b = alloc(16);
 try {
-    let a = alloc(16);
-    let b = alloc(16);
     memcpy(a, b, -5);
     print("ERROR: should have thrown");
-    free(a);
-    free(b);
 } catch (e) {
     caught_memcpy = true;
 }
+free(a);
+free(b);
 print("memcpy negative size caught: " + caught_memcpy);
 
 print("done");
