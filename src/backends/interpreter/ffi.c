@@ -775,10 +775,25 @@ static int hemlock_to_c_value_fast(Value val, Type *type, void *storage) {
             *(double*)storage = val.as.as_f64;
             return 1;
         case TYPE_PTR:
-            *(void**)storage = val.as.as_ptr;
+            if (val.type == VAL_BUFFER) {
+                // Buffers are passed as a pointer to their data, not the
+                // Buffer struct itself (mirrors ptr_read/ptr_write and
+                // struct-field marshaling)
+                *(void**)storage = val.as.as_buffer ? val.as.as_buffer->data : NULL;
+            } else if (val.type == VAL_STRING) {
+                *(void**)storage = val.as.as_string ? (void*)val.as.as_string->data : NULL;
+            } else if (val.type == VAL_NULL) {
+                *(void**)storage = NULL;
+            } else {
+                *(void**)storage = val.as.as_ptr;
+            }
             return 1;
         case TYPE_STRING:
-            *(char**)storage = val.as.as_string ? val.as.as_string->data : NULL;
+            if (val.type == VAL_NULL) {
+                *(char**)storage = NULL;
+            } else {
+                *(char**)storage = val.as.as_string ? val.as.as_string->data : NULL;
+            }
             return 1;
         case TYPE_BOOL:
             *(int*)storage = val.as.as_bool ? 1 : 0;

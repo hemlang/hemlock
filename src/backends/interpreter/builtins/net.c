@@ -253,7 +253,10 @@ static Value socket_method_accept(SocketHandle *sock, Value *args, int num_args,
     struct sockaddr_storage client_addr;
     socklen_t client_len = sizeof(client_addr);
 
-    int client_fd = accept(sock->fd, (struct sockaddr *)&client_addr, &client_len);
+    int client_fd;
+    do {
+        client_fd = accept(sock->fd, (struct sockaddr *)&client_addr, &client_len);
+    } while (client_fd < 0 && errno == EINTR);
     if (client_fd < 0) {
         // In non-blocking mode, EAGAIN/EWOULDBLOCK means no pending connections
         if (sock->nonblocking && (errno == EAGAIN || errno == EWOULDBLOCK)) {
@@ -412,7 +415,10 @@ static Value socket_method_send(SocketHandle *sock, Value *args, int num_args, E
         return throw_runtime_error(ctx, "send() expects string or buffer argument");
     }
 
-    ssize_t sent = send(sock->fd, data, len, 0);
+    ssize_t sent;
+    do {
+        sent = send(sock->fd, data, len, 0);
+    } while (sent < 0 && errno == EINTR);
     if (sent < 0) {
         // In non-blocking mode, EAGAIN/EWOULDBLOCK means socket buffer is full
         if (sock->nonblocking && (errno == EAGAIN || errno == EWOULDBLOCK)) {
@@ -462,7 +468,10 @@ static Value socket_method_recv(SocketHandle *sock, Value *args, int num_args, E
         return throw_runtime_error(ctx, "Memory allocation failed");
     }
 
-    ssize_t received = recv(sock->fd, data, size, 0);
+    ssize_t received;
+    do {
+        received = recv(sock->fd, data, size, 0);
+    } while (received < 0 && errno == EINTR);
     if (received < 0) {
         // In non-blocking mode, EAGAIN/EWOULDBLOCK means no data available (not an error)
         if (sock->nonblocking && (errno == EAGAIN || errno == EWOULDBLOCK)) {
@@ -553,8 +562,10 @@ static Value socket_method_sendto(SocketHandle *sock, Value *args, int num_args,
         }
         strncpy(dest_un.sun_path, address, sizeof(dest_un.sun_path) - 1);
 
-        sent = sendto(sock->fd, data, len, 0,
-                (struct sockaddr *)&dest_un, sizeof(dest_un));
+        do {
+            sent = sendto(sock->fd, data, len, 0,
+                    (struct sockaddr *)&dest_un, sizeof(dest_un));
+        } while (sent < 0 && errno == EINTR);
     } else if (sock->domain == AF_INET) {
         struct sockaddr_in dest_addr;
         memset(&dest_addr, 0, sizeof(dest_addr));
@@ -565,8 +576,10 @@ static Value socket_method_sendto(SocketHandle *sock, Value *args, int num_args,
             return throw_runtime_error(ctx, "Invalid IPv4 address: %s", address);
         }
 
-        sent = sendto(sock->fd, data, len, 0,
-                (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+        do {
+            sent = sendto(sock->fd, data, len, 0,
+                    (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+        } while (sent < 0 && errno == EINTR);
     } else if (sock->domain == AF_INET6) {
         struct sockaddr_in6 dest_addr6;
         memset(&dest_addr6, 0, sizeof(dest_addr6));
@@ -577,8 +590,10 @@ static Value socket_method_sendto(SocketHandle *sock, Value *args, int num_args,
             return throw_runtime_error(ctx, "Invalid IPv6 address: %s", address);
         }
 
-        sent = sendto(sock->fd, data, len, 0,
-                (struct sockaddr *)&dest_addr6, sizeof(dest_addr6));
+        do {
+            sent = sendto(sock->fd, data, len, 0,
+                    (struct sockaddr *)&dest_addr6, sizeof(dest_addr6));
+        } while (sent < 0 && errno == EINTR);
     } else {
         return throw_runtime_error(ctx, "Unsupported socket domain (use AF_INET, AF_INET6, or AF_UNIX)");
     }
@@ -718,13 +733,28 @@ Value builtin_dns_resolve(Value *args, int num_args, ExecutionContext *ctx) {
 
     const char *hostname = args[0].as.as_string->data;
 
-    struct hostent *host = gethostbyname(hostname);
-    if (!host) {
-        return throw_runtime_error(ctx, "Failed to resolve hostname '%s'", hostname);
+    // Use getaddrinfo (thread-safe) instead of gethostbyname, which uses
+    // static storage and can return entries with no addresses.
+    struct addrinfo hints, *result = NULL;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    int gai_err = getaddrinfo(hostname, NULL, &hints, &result);
+    if (gai_err != 0 || !result) {
+        if (result) freeaddrinfo(result);
+        return throw_runtime_error(ctx, "Failed to resolve hostname '%s': %s",
+                hostname, gai_err != 0 ? gai_strerror(gai_err) : "no addresses");
     }
 
-    // Return first IPv4 address
-    char *ip = inet_ntoa(*(struct in_addr *)host->h_addr_list[0]);
+    char ip[INET_ADDRSTRLEN];
+    struct sockaddr_in *addr = (struct sockaddr_in *)result->ai_addr;
+    if (!inet_ntop(AF_INET, &addr->sin_addr, ip, sizeof(ip))) {
+        freeaddrinfo(result);
+        return throw_runtime_error(ctx, "Failed to resolve hostname '%s'", hostname);
+    }
+    freeaddrinfo(result);
+
     return val_string(ip);
 }
 

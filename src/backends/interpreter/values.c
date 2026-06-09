@@ -999,6 +999,12 @@ void task_free(Task *task) {
             exec_context_free(task->ctx);
         }
         if (task->thread) {
+            // If the thread was never joined or detached (e.g. the caller
+            // dropped its handle racing with the worker's auto-detach check),
+            // detach it now so the pthread's resources are reclaimed.
+            if (!task->joined && !task->detached) {
+                pthread_detach(*(pthread_t*)task->thread);
+            }
             free(task->thread);
         }
         if (task->task_mutex) {
@@ -1839,7 +1845,7 @@ static inline int value_needs_refcount(ValueType type) {
     // Only heap-allocated types need refcounting
     return type == VAL_STRING || type == VAL_BUFFER || type == VAL_ARRAY ||
            type == VAL_OBJECT || type == VAL_FUNCTION || type == VAL_TASK ||
-           type == VAL_SOCKET ||
+           type == VAL_SOCKET || type == VAL_WEBSOCKET ||
            type == VAL_CHANNEL || type == VAL_REF;
 }
 
@@ -1882,6 +1888,11 @@ void value_retain(Value val) {
         case VAL_SOCKET:
             if (val.as.as_socket) {
                 socket_retain(val.as.as_socket);
+            }
+            break;
+        case VAL_WEBSOCKET:
+            if (val.as.as_websocket) {
+                websocket_retain(val.as.as_websocket);
             }
             break;
         case VAL_CHANNEL:
@@ -1939,6 +1950,11 @@ void value_release(Value val) {
         case VAL_SOCKET:
             if (val.as.as_socket) {
                 socket_release(val.as.as_socket);
+            }
+            break;
+        case VAL_WEBSOCKET:
+            if (val.as.as_websocket) {
+                websocket_release(val.as.as_websocket);
             }
             break;
         case VAL_CHANNEL:
@@ -2063,9 +2079,10 @@ Value value_deep_copy(Value val) {
                         }
                     }
                     dst->fields[dst->num_fields].name = strdup(src->fields[i].name);
-                    Value field_copy = value_deep_copy(src->fields[i].value);
-                    value_retain(field_copy);
-                    dst->fields[dst->num_fields].value = field_copy;
+                    // value_deep_copy returns an owned reference; storing it
+                    // transfers ownership to the field (released in
+                    // object_free), so no extra retain here.
+                    dst->fields[dst->num_fields].value = value_deep_copy(src->fields[i].value);
                     dst->num_fields++;
                 }
                 result.type = VAL_OBJECT;
@@ -2088,12 +2105,20 @@ Value value_deep_copy(Value val) {
 
         case VAL_SOCKET:
             // Socket handles are OS resources - kernel handles concurrent access
-            // We share by reference (no deep copy needed)
+            // We share by reference, but must retain: the copy is an owned
+            // reference (task_free releases task arguments)
+            if (val.as.as_socket) {
+                socket_retain(val.as.as_socket);
+            }
             return val;
 
         case VAL_WEBSOCKET:
             // WebSocket handles are OS resources - kernel handles concurrent access
-            // We share by reference (no deep copy needed)
+            // We share by reference, but must retain: the copy is an owned
+            // reference (task_free releases task arguments)
+            if (val.as.as_websocket) {
+                websocket_retain(val.as.as_websocket);
+            }
             return val;
 
         case VAL_FUNCTION:

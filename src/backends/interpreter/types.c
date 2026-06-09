@@ -7,6 +7,15 @@
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
+#include <pthread.h>
+
+// Protects the global object/enum/alias type registries. `define`, `enum`
+// and `type` statements register at eval time, and spawned task threads
+// perform lookups concurrently (type annotations, convert_to_type), so
+// unsynchronized access races with hash-table rebuilds. Registered type
+// structs are stable until process-exit cleanup, so returning a pointer
+// after releasing the lock is safe.
+static pthread_rwlock_t type_registry_lock = PTHREAD_RWLOCK_INITIALIZER;
 
 /* ========== TYPE CONVERSION HELPERS ==========
  *
@@ -147,6 +156,7 @@ void init_object_types(void) {
 }
 
 void register_object_type(ObjectType *type) {
+    pthread_rwlock_wrlock(&type_registry_lock);
     init_object_types();
     if (object_types.count >= object_types.capacity) {
         // SECURITY: Check for integer overflow before doubling capacity
@@ -179,13 +189,21 @@ void register_object_type(ObjectType *type) {
         }
         object_types.hash_table[slot] = idx;
     }
+    pthread_rwlock_unlock(&type_registry_lock);
 }
 
 ObjectType* lookup_object_type(const char *name) {
-    if (name == NULL || object_types.hash_table == NULL || object_types.hash_capacity == 0) {
+    if (name == NULL) {
         return NULL;
     }
 
+    pthread_rwlock_rdlock(&type_registry_lock);
+    if (object_types.hash_table == NULL || object_types.hash_capacity == 0) {
+        pthread_rwlock_unlock(&type_registry_lock);
+        return NULL;
+    }
+
+    ObjectType *found = NULL;
     uint32_t hash = type_hash(name);
     int slot = hash % object_types.hash_capacity;
     int start_slot = slot;
@@ -193,12 +211,14 @@ ObjectType* lookup_object_type(const char *name) {
     while (object_types.hash_table[slot] != -1) {
         int idx = object_types.hash_table[slot];
         if (strcmp(object_types.types[idx]->name, name) == 0) {
-            return object_types.types[idx];
+            found = object_types.types[idx];
+            break;
         }
         slot = (slot + 1) % object_types.hash_capacity;
         if (slot == start_slot) break;
     }
-    return NULL;
+    pthread_rwlock_unlock(&type_registry_lock);
+    return found;
 }
 
 void cleanup_object_types(void) {
@@ -303,6 +323,7 @@ void init_enum_types(void) {
 }
 
 void register_enum_type(EnumType *type) {
+    pthread_rwlock_wrlock(&type_registry_lock);
     init_enum_types();
     if (enum_types.count >= enum_types.capacity) {
         // SECURITY: Check for integer overflow before doubling capacity
@@ -335,13 +356,21 @@ void register_enum_type(EnumType *type) {
         }
         enum_types.hash_table[slot] = idx;
     }
+    pthread_rwlock_unlock(&type_registry_lock);
 }
 
 EnumType* lookup_enum_type(const char *name) {
-    if (name == NULL || enum_types.hash_table == NULL || enum_types.hash_capacity == 0) {
+    if (name == NULL) {
         return NULL;
     }
 
+    pthread_rwlock_rdlock(&type_registry_lock);
+    if (enum_types.hash_table == NULL || enum_types.hash_capacity == 0) {
+        pthread_rwlock_unlock(&type_registry_lock);
+        return NULL;
+    }
+
+    EnumType *found = NULL;
     uint32_t hash = type_hash(name);
     int slot = hash % enum_types.hash_capacity;
     int start_slot = slot;
@@ -349,12 +378,14 @@ EnumType* lookup_enum_type(const char *name) {
     while (enum_types.hash_table[slot] != -1) {
         int idx = enum_types.hash_table[slot];
         if (strcmp(enum_types.types[idx]->name, name) == 0) {
-            return enum_types.types[idx];
+            found = enum_types.types[idx];
+            break;
         }
         slot = (slot + 1) % enum_types.hash_capacity;
         if (slot == start_slot) break;
     }
-    return NULL;
+    pthread_rwlock_unlock(&type_registry_lock);
+    return found;
 }
 
 void cleanup_enum_types(void) {
@@ -436,6 +467,7 @@ void init_type_aliases(void) {
 }
 
 void register_type_alias(TypeAlias *alias) {
+    pthread_rwlock_wrlock(&type_registry_lock);
     init_type_aliases();
     if (type_aliases.count >= type_aliases.capacity) {
         // SECURITY: Check for integer overflow before doubling capacity
@@ -468,13 +500,21 @@ void register_type_alias(TypeAlias *alias) {
         }
         type_aliases.hash_table[slot] = idx;
     }
+    pthread_rwlock_unlock(&type_registry_lock);
 }
 
 TypeAlias* lookup_type_alias(const char *name) {
-    if (name == NULL || type_aliases.hash_table == NULL || type_aliases.hash_capacity == 0) {
+    if (name == NULL) {
         return NULL;
     }
 
+    pthread_rwlock_rdlock(&type_registry_lock);
+    if (type_aliases.hash_table == NULL || type_aliases.hash_capacity == 0) {
+        pthread_rwlock_unlock(&type_registry_lock);
+        return NULL;
+    }
+
+    TypeAlias *found = NULL;
     uint32_t hash = type_hash(name);
     int slot = hash % type_aliases.hash_capacity;
     int start_slot = slot;
@@ -482,12 +522,14 @@ TypeAlias* lookup_type_alias(const char *name) {
     while (type_aliases.hash_table[slot] != -1) {
         int idx = type_aliases.hash_table[slot];
         if (strcmp(type_aliases.aliases[idx]->name, name) == 0) {
-            return type_aliases.aliases[idx];
+            found = type_aliases.aliases[idx];
+            break;
         }
         slot = (slot + 1) % type_aliases.hash_capacity;
         if (slot == start_slot) break;
     }
-    return NULL;
+    pthread_rwlock_unlock(&type_registry_lock);
+    return found;
 }
 
 void cleanup_type_aliases(void) {
