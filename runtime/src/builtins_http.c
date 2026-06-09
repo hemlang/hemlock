@@ -2794,6 +2794,11 @@ HmlValue hml_lws_http_stream_read(HmlValue stream_val, HmlValue timeout_val) {
     hml_runtime_error("Streaming HTTP not available (libwebsockets not installed)");
 }
 
+HmlValue hml_lws_http_stream_read_binary(HmlValue stream_val, HmlValue timeout_val) {
+    (void)stream_val; (void)timeout_val;
+    hml_runtime_error("Streaming HTTP not available (libwebsockets not installed)");
+}
+
 HmlValue hml_lws_http_stream_status(HmlValue stream_val) {
     (void)stream_val;
     return hml_val_i32(0);
