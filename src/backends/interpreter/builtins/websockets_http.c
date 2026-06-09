@@ -256,6 +256,14 @@ static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
         case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
             // Accumulate response body - this is called after lws_http_client_read
             if (resp) {
+                // Guard against size_t overflow in the capacity computation
+                // ((body_len + len + 1) * 2 must not wrap)
+                if (len > SIZE_MAX / 2 - 1 ||
+                    resp->body_len > SIZE_MAX / 2 - 1 - len) {
+                    resp->failed = 1;
+                    resp->complete = 1;
+                    return -1;
+                }
                 if (resp->body_len + len >= resp->body_capacity) {
                     resp->body_capacity = (resp->body_len + len + 1) * 2;
                     char *new_body = realloc(resp->body, resp->body_capacity);
@@ -291,6 +299,16 @@ static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
     return 0;
 }
 
+// Parse and validate a port number from a URL. Returns -1 on invalid input.
+static int parse_url_port(const char *s) {
+    if (*s < '0' || *s > '9') return -1;
+    char *end = NULL;
+    long p = strtol(s, &end, 10);
+    if (p < 1 || p > 65535) return -1;
+    if (end && *end != '\0' && *end != '/') return -1;
+    return (int)p;
+}
+
 // Parse URL into components
 int parse_url(const char *url, char *host, int *port, char *path, int *ssl) {
     *ssl = 0;
@@ -311,7 +329,8 @@ int parse_url(const char *url, char *host, int *port, char *path, int *ssl) {
             if (host_len >= 256) return -1;
             strncpy(host, rest, host_len);
             host[host_len] = '\0';
-            *port = (int)strtol(colon + 1, NULL, 10);
+            *port = parse_url_port(colon + 1);
+            if (*port < 0) return -1;
             if (slash) {
                 strncpy(path, slash, 511);
                 path[511] = '\0';
@@ -337,7 +356,8 @@ int parse_url(const char *url, char *host, int *port, char *path, int *ssl) {
             if (host_len >= 256) return -1;
             strncpy(host, rest, host_len);
             host[host_len] = '\0';
-            *port = (int)strtol(colon + 1, NULL, 10);
+            *port = parse_url_port(colon + 1);
+            if (*port < 0) return -1;
             if (slash) {
                 strncpy(path, slash, 511);
                 path[511] = '\0';
@@ -394,6 +414,21 @@ static struct lws_context* get_http_context(int needs_ssl) {
     return (lws_configure_macos_ca_file(), lws_create_context(&info));
 }
 
+// Helper: validate a custom header. CR/LF anywhere except a single trailing
+// "\r\n" would let callers inject extra headers or smuggle a request body
+// (HTTP request splitting), so such headers are rejected.
+static int custom_header_is_safe(const char *hdr) {
+    size_t len = strlen(hdr);
+    // Allow one optional trailing CRLF
+    if (len >= 2 && hdr[len-2] == '\r' && hdr[len-1] == '\n') {
+        len -= 2;
+    }
+    for (size_t i = 0; i < len; i++) {
+        if (hdr[i] == '\r' || hdr[i] == '\n') return 0;
+    }
+    return 1;
+}
+
 // Helper: parse a Hemlock array of strings into C header strings stored in resp
 static void parse_headers_into_resp(http_response_t *resp, Value headers_val) {
     if (headers_val.type != VAL_ARRAY || !headers_val.as.as_array) return;
@@ -406,7 +441,8 @@ static void parse_headers_into_resp(http_response_t *resp, Value headers_val) {
     int count = 0;
     for (int i = 0; i < arr->length; i++) {
         Value item = arr->elements[i];
-        if (item.type == VAL_STRING && item.as.as_string && item.as.as_string->data) {
+        if (item.type == VAL_STRING && item.as.as_string && item.as.as_string->data &&
+            custom_header_is_safe(item.as.as_string->data)) {
             resp->custom_headers[count] = strdup(item.as.as_string->data);
             if (resp->custom_headers[count]) count++;
         }
@@ -575,7 +611,7 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
 
     if (!ssl) lws_context_destroy(context);
 
-    if (resp->failed || timeout <= 0) {
+    if (resp->failed || !resp->complete) {
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
@@ -716,7 +752,7 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     // Request body is no longer needed once the call completes.
     free_request_body(resp);
 
-    if (resp->failed || timeout <= 0) {
+    if (resp->failed || !resp->complete) {
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
@@ -783,6 +819,7 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     resp->body_capacity = 4096;
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
@@ -790,15 +827,10 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     }
     resp->body[0] = '\0';
 
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-    info.protocols = shared_http_protocols;
-
-    struct lws_context *context = (lws_configure_macos_ca_file(), lws_create_context(&info));
+    struct lws_context *context = get_http_context(ssl);
     if (!context) {
         free(resp->body);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string(lws_context_error_message());
@@ -863,7 +895,7 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     // Request body is no longer needed once the call completes.
     free_request_body(resp);
 
-    if (resp->failed || timeout <= 0) {
+    if (resp->failed || !resp->complete) {
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
@@ -936,6 +968,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     resp->body_capacity = 4096;
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
@@ -943,15 +976,10 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     }
     resp->body[0] = '\0';
 
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-    info.protocols = shared_http_protocols;
-
-    struct lws_context *context = (lws_configure_macos_ca_file(), lws_create_context(&info));
+    struct lws_context *context = get_http_context(ssl);
     if (!context) {
         free(resp->body);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string(lws_context_error_message());
@@ -996,7 +1024,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
 
     if (!ssl) lws_context_destroy(context);
 
-    if (resp->failed || timeout <= 0) {
+    if (resp->failed || !resp->complete) {
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
@@ -1084,13 +1112,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     }
     resp->body[0] = '\0';
 
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-    info.protocols = shared_http_protocols;
-
-    struct lws_context *context = (lws_configure_macos_ca_file(), lws_create_context(&info));
+    struct lws_context *context = get_http_context(ssl);
     if (!context) {
         free(resp->body);
         free_custom_headers(resp);
@@ -1154,7 +1176,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     // Request body is no longer needed once the call completes.
     free_request_body(resp);
 
-    if (resp->failed || timeout <= 0) {
+    if (resp->failed || !resp->complete) {
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
@@ -1245,13 +1267,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     }
     resp->body[0] = '\0';
 
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-    info.protocols = shared_http_protocols;
-
-    struct lws_context *context = (lws_configure_macos_ca_file(), lws_create_context(&info));
+    struct lws_context *context = get_http_context(ssl);
     if (!context) {
         free(resp->body);
         free_custom_headers(resp);
@@ -1315,7 +1331,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     // Request body is no longer needed once the call completes.
     free_request_body(resp);
 
-    if (resp->failed || timeout <= 0) {
+    if (resp->failed || !resp->complete) {
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
