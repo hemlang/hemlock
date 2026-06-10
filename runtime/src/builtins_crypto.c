@@ -385,9 +385,9 @@ HmlValue hml_builtin_adler32(HmlClosureEnv *env, HmlValue data) {
 
 #endif /* HML_HAVE_ZLIB */
 
-// ========== CRYPTOGRAPHIC HASH FUNCTIONS (OpenSSL) ==========
+// ========== CRYPTOGRAPHIC HASH FUNCTIONS (OpenSSL / Windows CNG) ==========
 
-#ifndef HEMLOCK_NO_OPENSSL
+#if !defined(HEMLOCK_NO_OPENSSL) || defined(_WIN32)
 
 // Helper: Convert bytes to hexadecimal string
 static HmlValue bytes_to_hex_string(const unsigned char *bytes, size_t len) {
@@ -405,6 +405,10 @@ static HmlValue bytes_to_hex_string(const unsigned char *bytes, size_t len) {
     free(hex);
     return result;
 }
+
+#endif /* !HEMLOCK_NO_OPENSSL || _WIN32 */
+
+#ifndef HEMLOCK_NO_OPENSSL
 
 // SHA-1 hash - returns hex string
 // WARNING: SHA-1 is cryptographically weak, use only for legacy compatibility
@@ -473,7 +477,46 @@ HmlValue hml_hash_md5(HmlValue input) {
     return bytes_to_hex_string(hash, MD5_DIGEST_LENGTH);
 }
 
-#else /* HEMLOCK_NO_OPENSSL */
+#elif defined(_WIN32)
+
+/* Windows without OpenSSL: hashes are backed by Windows CNG (bcrypt.dll)
+   via hml_win32_hash() in src/shared/platform_win32.c (compiled into the
+   runtime library). ECDSA stays stubbed below. */
+
+#include "hemlock_compat.h"
+
+static HmlValue cng_hash_value(const char *name, const char *alg, HmlValue input) {
+    if (input.type != HML_VAL_STRING) {
+        hml_runtime_error("%s() requires string argument", name);
+    }
+
+    HmlString *str = input.as.as_string;
+    unsigned char hash[HML_WIN32_DIGEST_MAX];
+    int digest_len = hml_win32_hash(alg, str->data, str->length, hash, sizeof(hash));
+    if (digest_len < 0) {
+        hml_runtime_error("%s() hashing failed", name);
+    }
+
+    return bytes_to_hex_string(hash, (size_t)digest_len);
+}
+
+HmlValue hml_hash_sha1(HmlValue input) {
+    return cng_hash_value("sha1", "sha1", input);
+}
+
+HmlValue hml_hash_sha256(HmlValue input) {
+    return cng_hash_value("sha256", "sha256", input);
+}
+
+HmlValue hml_hash_sha512(HmlValue input) {
+    return cng_hash_value("sha512", "sha512", input);
+}
+
+HmlValue hml_hash_md5(HmlValue input) {
+    return cng_hash_value("md5", "md5", input);
+}
+
+#else /* HEMLOCK_NO_OPENSSL && !_WIN32 */
 
 // Stub implementations when OpenSSL is not available
 HmlValue hml_hash_sha1(HmlValue input) {

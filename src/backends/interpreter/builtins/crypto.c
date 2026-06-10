@@ -360,4 +360,61 @@ Value builtin_ecdsa_verify(Value *args, int num_args, ExecutionContext *ctx) {
     return val_bool(result == 1);
 }
 
+#elif defined(_WIN32)
+/* Windows without OpenSSL: the hash builtins are backed by Windows CNG
+   (bcrypt.dll) via hml_win32_hash() in src/shared/platform_win32.c.
+   ECDSA has no CNG-backed implementation; its stubs stay in
+   wasm_interp_shim.c. */
+
+#include "hemlock_compat.h"
+
+static Value cng_hash_builtin(const char *name, const char *alg,
+                              Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "%s() expects 1 argument", name);
+        return val_null();
+    }
+
+    if (args[0].type != VAL_STRING) {
+        runtime_error(ctx, "%s() argument must be string", name);
+        return val_null();
+    }
+
+    String *str = args[0].as.as_string;
+    unsigned char hash[HML_WIN32_DIGEST_MAX];
+    int digest_len = hml_win32_hash(alg, str->data, str->length, hash, sizeof(hash));
+    if (digest_len < 0) {
+        runtime_error(ctx, "%s() hashing failed", name);
+        return val_null();
+    }
+
+    static const char hex_chars[] = "0123456789abcdef";
+    size_t hex_len = (size_t)digest_len * 2;
+    char *hex = malloc(hex_len + 1);
+    if (!hex) return val_null();
+    for (int i = 0; i < digest_len; i++) {
+        hex[i * 2] = hex_chars[(hash[i] >> 4) & 0x0F];
+        hex[i * 2 + 1] = hex_chars[hash[i] & 0x0F];
+    }
+    hex[hex_len] = '\0';
+
+    return val_string_take(hex, hex_len, hex_len + 1);
+}
+
+Value builtin_sha1(Value *args, int num_args, ExecutionContext *ctx) {
+    return cng_hash_builtin("__sha1", "sha1", args, num_args, ctx);
+}
+
+Value builtin_sha256(Value *args, int num_args, ExecutionContext *ctx) {
+    return cng_hash_builtin("__sha256", "sha256", args, num_args, ctx);
+}
+
+Value builtin_sha512(Value *args, int num_args, ExecutionContext *ctx) {
+    return cng_hash_builtin("__sha512", "sha512", args, num_args, ctx);
+}
+
+Value builtin_md5(Value *args, int num_args, ExecutionContext *ctx) {
+    return cng_hash_builtin("__md5", "md5", args, num_args, ctx);
+}
+
 #endif /* !__EMSCRIPTEN__ && !HEMLOCK_NO_OPENSSL */

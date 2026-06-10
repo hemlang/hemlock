@@ -37,6 +37,7 @@ jobs:
         import { platform, arch } from "@stdlib/os";
         import { stringify } from "@stdlib/json";
         import { write_file, read_file, remove_file } from "@stdlib/fs";
+        import { sha256, md5 } from "@stdlib/hash";
         async fn sq(n: i32): i32 { return n * n; }
         let t = spawn(sq, 9);
         print("async:", await t);
@@ -47,11 +48,15 @@ jobs:
         remove_file("native_test.txt");
         print("plat:", platform(), arch());
         print("json:", stringify({ ok: true }));
+        print("sha256:", sha256("hello"));
+        print("md5:", md5("hello"));
         EOF
         ./hemlock.exe smoke.hml | tee smoke.out
         grep -q "async: 81" smoke.out
         grep -q "file: 14" smoke.out
         grep -q "plat: windows" smoke.out
+        grep -q "sha256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" smoke.out
+        grep -q "md5: 5d41402abc4b2a76b9719d911017c592" smoke.out
 
     - name: TCP loopback test
       run: |
@@ -78,16 +83,19 @@ jobs:
     - name: Full hemlockc pipeline (invokes gcc via system())
       run: |
         cat > csm.hml << 'EOF'
+        import { sha256 } from "@stdlib/hash";
         async fn work(n: i32): i32 { return n * 3; }
         let t = spawn(work, 14);
         print("compiled:", await t);
         let arr = [3,1,2]; arr.sort();
         print("sorted:", arr.join(","));
+        print("sha256:", sha256("hello"));
         EOF
         ./hemlockc.exe -v -o csm.exe csm.hml
         ./csm.exe | tee csm.out
         grep -q "compiled: 42" csm.out
         grep -q "sorted: 1,2,3" csm.out
+        grep -q "sha256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" csm.out
 
     - name: FFI test (DLL loading, raylib-style bindings)
       run: |
@@ -166,6 +174,7 @@ jobs:
         cat > /tmp/smoke.hml << 'EOF'
         import { platform } from "@stdlib/os";
         import { stringify } from "@stdlib/json";
+        import { sha256 } from "@stdlib/hash";
         async fn sq(n: i32): i32 { return n * n; }
         let t = spawn(sq, 9);
         print("async:", await t);
@@ -173,24 +182,30 @@ jobs:
         let b = buffer(8); ptr_write_i32(b, 41); print("buf:", ptr_read_i32(b) + 1);
         print("plat:", platform());
         print("json:", stringify({ ok: true }));
+        print("sha256:", sha256("hello"));
         EOF
         wine ./hemlock.exe /tmp/smoke.hml | tee /tmp/smoke.out
         grep -q "async: 81" /tmp/smoke.out
         grep -q "plat: windows" /tmp/smoke.out
+        grep -q "sha256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" /tmp/smoke.out
 
     - name: Smoke-test compiled program under Wine
       run: |
         export WINEDEBUG=-all
         cat > /tmp/csm.hml << 'EOF'
+        import { sha256 } from "@stdlib/hash";
         async fn work(n: i32): i32 { return n * 3; }
         let t = spawn(work, 14);
         print("compiled:", await t);
+        print("sha256:", sha256("hello"));
         EOF
         wine ./hemlockc.exe -c /tmp/csm.hml
         x86_64-w64-mingw32-gcc-posix -O1 csm.c -Iruntime/include -Iinclude \
           -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 \
-          runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lz -o csm.exe
-        wine ./csm.exe | grep -q "compiled: 42"
+          runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lbcrypt -lz -o csm.exe
+        wine ./csm.exe | tee /tmp/csm.out
+        grep -q "compiled: 42" /tmp/csm.out
+        grep -q "sha256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" /tmp/csm.out
 
     - name: FFI test under Wine (DLL loading, raylib-style bindings)
       run: |
@@ -216,5 +231,5 @@ jobs:
         wine ./hemlockc.exe -c ffi.hml
         x86_64-w64-mingw32-gcc-posix -O1 ffi.c -Iruntime/include -Iinclude \
           -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 \
-          runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lz -o ffi.exe
+          runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lbcrypt -lz -o ffi.exe
         wine ./ffi.exe | grep -q "init 640x480 ffi"

@@ -766,7 +766,7 @@ static int compile_c(const Options *opts, const char *c_file) {
         q_out = shell_quote(opts->output_file);
         char *q_runtime_path_s = shell_quote(runtime_path);
         n = (q_out && q_runtime_path_s) ? snprintf(cmd, sizeof(cmd),
-            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32%s",
+            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32 -lbcrypt%s",
             opts->cc, opt_flag, q_out, q_c,
             q_inc, q_runtime_path_s, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag)
             : (int)sizeof(cmd);
@@ -809,13 +809,14 @@ static int compile_c(const Options *opts, const char *c_file) {
         // Dynamic linking (default): link against shared libraries
         q_out = shell_quote(opts->output_file);
 #ifdef _WIN32
-        // Windows host: no -rdynamic/-lffi/-ldl (FFI and OpenSSL builtins are
-        // stubbed in the Windows runtime); -static keeps winpthreads/libgcc
-        // out of the DLL dependencies. The second -I covers the development
-        // layout where hemlock_platform.h lives in <repo>/include.
+        // Windows host: no -rdynamic/-ldl; hash builtins use CNG (-lbcrypt),
+        // ECDSA is stubbed in the Windows runtime; -static keeps
+        // winpthreads/libgcc out of the DLL dependencies. The second -I
+        // covers the development layout where hemlock_platform.h lives in
+        // <repo>/include.
         char *q_runtime_path = shell_quote(runtime_path);
         n = (q_out && q_runtime_path) ? snprintf(cmd, sizeof(cmd),
-            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32%s",
+            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32 -lbcrypt%s",
             opts->cc, opt_flag, q_out, q_c,
             q_inc, q_runtime_path, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag)
             : (int)sizeof(cmd);

@@ -33,6 +33,13 @@ int mkstemps(char *template_path, int suffixlen);
 // on close.
 FILE *hml_win_tmpfile(void);
 
+// CNG-backed hashing (bcrypt.dll) for the hash builtins. alg is one of
+// "sha1", "sha256", "sha512", "md5"; writes the raw digest to out and
+// returns its length, or -1 (unknown alg, out_cap too small, CNG error).
+#define HML_WIN32_DIGEST_MAX 64  // SHA-512
+int hml_win32_hash(const char *alg, const void *data, size_t len,
+                   unsigned char *out, size_t out_cap);
+
 #endif // _WIN32
 
 #endif // HEMLOCK_COMPAT_H

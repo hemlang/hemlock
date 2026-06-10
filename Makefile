@@ -39,9 +39,10 @@ ifeq ($(HEMLOCK_WINDOWS),1)
     endif
     # __USE_MINGW_ANSI_STDIO: C99 printf (%zu, %lld) instead of msvcrt's.
     # HEMLOCK_NO_OPENSSL: OpenSSL is typically not available for MinGW
-    # cross builds; the affected builtins throw at runtime (see
+    # cross builds; the hash builtins (sha1/sha256/sha512/md5) fall back
+    # to Windows CNG (bcrypt.dll) and only ECDSA throws at runtime (see
     # wasm_interp_shim.c). Override with EXTRA_CFLAGS/EXTRA_LDFLAGS on
-    # MSYS2 where it is installable via pacman.
+    # MSYS2 where OpenSSL is installable via pacman.
     # Implicit declarations are hard errors so older cross toolchains
     # (GCC <= 13) catch what GCC 14+ on native Windows rejects by default
     CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Werror=implicit-function-declaration -Werror=int-conversion -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
@@ -107,10 +108,11 @@ endif
 
 # Base libraries (always required)
 ifeq ($(HEMLOCK_WINDOWS),1)
-# winpthreads for threading, ws2_32 for sockets; no -ldl/-lcrypto.
-# winpthreads, zlib, and (when present) libffi are linked statically so
-# hemlock.exe is self-contained (no extra DLLs needed beside it).
-LDFLAGS = -static-libgcc -Wl,-Bstatic -lpthread -lz $(WIN_FFI_LIB) -Wl,-Bdynamic -lm -lws2_32 $(EXTRA_LDFLAGS)
+# winpthreads for threading, ws2_32 for sockets, bcrypt for CNG hashing;
+# no -ldl/-lcrypto. winpthreads, zlib, and (when present) libffi are
+# linked statically so hemlock.exe is self-contained (ws2_32/bcrypt are
+# system DLLs present on every Windows install).
+LDFLAGS = -static-libgcc -Wl,-Bstatic -lpthread -lz $(WIN_FFI_LIB) -Wl,-Bdynamic -lm -lws2_32 -lbcrypt $(EXTRA_LDFLAGS)
 else
 LDFLAGS = $(LDFLAGS_LIBFFI) $(LDFLAGS_OPENSSL) -lm -lpthread -lffi -ldl -lz -lcrypto $(EXTRA_LDFLAGS)
 endif
@@ -602,12 +604,12 @@ endif
 compiler: $(BUILD_DIRS) runtime $(COMPILER_TARGET)
 
 # The driver itself needs no extra libs; on Windows platform_win32.o pulls
-# in winsock (WSAStartup) so ws2_32 must be linked
+# in winsock (WSAStartup) and CNG (BCrypt*) so ws2_32/bcrypt must be linked
 ifeq ($(HEMLOCK_WINDOWS),1)
 # -static keeps winpthreads/libgcc out of the DLL deps (the POSIX-flavor
 # toolchain appends a dynamic -lpthread on its own otherwise); system DLLs
-# (msvcrt, ws2_32) stay dynamic regardless
-COMPILER_LDFLAGS = -static -lm -lws2_32
+# (msvcrt, ws2_32, bcrypt) stay dynamic regardless
+COMPILER_LDFLAGS = -static -lm -lws2_32 -lbcrypt
 else
 COMPILER_LDFLAGS = -lm
 endif
@@ -664,8 +666,9 @@ compiler-clean:
 # POSIX host. Requirements (Debian/Ubuntu):
 #   apt-get install gcc-mingw-w64-x86-64 libz-mingw-w64-dev
 # The POSIX-threads flavor of MinGW-w64 (winpthreads) is required for the
-# async runtime. FFI and OpenSSL-backed builtins are stubbed out on Windows
-# (HEMLOCK_NO_FFI / HEMLOCK_NO_OPENSSL); see docs/advanced/windows.md.
+# async runtime. Hash builtins use Windows CNG (bcrypt.dll); FFI (without
+# libffi) and ECDSA are stubbed out (HEMLOCK_NO_FFI / HEMLOCK_NO_OPENSSL);
+# see docs/advanced/windows.md.
 # Native builds on MSYS2/MinGW are auto-detected via uname instead.
 MINGW_CC ?= x86_64-w64-mingw32-gcc-posix
 

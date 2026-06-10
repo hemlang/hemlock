@@ -395,6 +395,70 @@ const char *hml_sock_strerror(int err) {
     return buf;
 }
 
+// ---- CNG hashing (bcrypt.dll) ----
+// Backs the sha1/sha256/sha512/md5 builtins. OpenSSL is typically not
+// available for MinGW, but CNG ships with Windows, so hashing works with
+// no extra DLLs. ECDSA stays stubbed (CNG signatures are raw r||s while
+// the OpenSSL builtins produce DER; no compatible mapping).
+
+#include <bcrypt.h>
+#include <limits.h>
+
+int hml_win32_hash(const char *alg, const void *data, size_t len,
+                   unsigned char *out, size_t out_cap) {
+    const wchar_t *alg_id;
+    if (strcmp(alg, "sha256") == 0) {
+        alg_id = BCRYPT_SHA256_ALGORITHM;
+    } else if (strcmp(alg, "sha512") == 0) {
+        alg_id = BCRYPT_SHA512_ALGORITHM;
+    } else if (strcmp(alg, "sha1") == 0) {
+        alg_id = BCRYPT_SHA1_ALGORITHM;
+    } else if (strcmp(alg, "md5") == 0) {
+        alg_id = BCRYPT_MD5_ALGORITHM;
+    } else {
+        return -1;
+    }
+
+    BCRYPT_ALG_HANDLE provider = NULL;
+    if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(&provider, alg_id, NULL, 0))) {
+        return -1;
+    }
+
+    int result = -1;
+    BCRYPT_HASH_HANDLE hash = NULL;
+    DWORD digest_len = 0, got = 0;
+    if (!BCRYPT_SUCCESS(BCryptGetProperty(provider, BCRYPT_HASH_LENGTH,
+                                          (PUCHAR)&digest_len, sizeof(digest_len),
+                                          &got, 0))
+        || digest_len == 0 || (size_t)digest_len > out_cap
+        || !BCRYPT_SUCCESS(BCryptCreateHash(provider, &hash, NULL, 0, NULL, 0, 0))) {
+        goto done;
+    }
+
+    // BCryptHashData takes a ULONG byte count; feed huge inputs in chunks
+    const unsigned char *p = data;
+    size_t remaining = len;
+    do {
+        ULONG chunk = remaining > ULONG_MAX ? ULONG_MAX : (ULONG)remaining;
+        if (!BCRYPT_SUCCESS(BCryptHashData(hash, (PUCHAR)p, chunk, 0))) {
+            goto done;
+        }
+        p += chunk;
+        remaining -= chunk;
+    } while (remaining > 0);
+
+    if (BCRYPT_SUCCESS(BCryptFinishHash(hash, out, digest_len, 0))) {
+        result = (int)digest_len;
+    }
+
+done:
+    if (hash) {
+        BCryptDestroyHash(hash);
+    }
+    BCryptCloseAlgorithmProvider(provider, 0);
+    return result;
+}
+
 // ---- One-time platform initialization ----
 
 void hml_platform_init(void) {

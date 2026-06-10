@@ -5,6 +5,12 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.1] - 2026-06-10
+
+### Added
+
+- **Windows: native crypto hashing via CNG.** The `sha1`/`sha256`/`sha512`/`md5` builtins (and `@stdlib/hash` on top of them) now work on Windows in both backends, backed by Windows CNG (`bcrypt.dll` — a system DLL, so binaries stay self-contained) instead of throwing "not available (no OpenSSL)". The implementation is `hml_win32_hash()` in `src/shared/platform_win32.c` (declared in `hemlock_compat.h`), used by the interpreter's hash builtins and the compiled runtime's `hml_hash_*`; `-lbcrypt` is linked on all Windows builds, including hemlockc's generated link commands. Only the ECDSA builtins remain unavailable on Windows (`HEMLOCK_NO_OPENSSL` — CNG produces raw `r||s` signatures where the OpenSSL builtins produce DER, so there is no compatible mapping). Windows CI now asserts known `sha256`/`md5` digests in the interpreter and compiled smoke tests, native and under Wine.
+
 ## [2.8.0] - 2026-06-10
 
 ### Added
