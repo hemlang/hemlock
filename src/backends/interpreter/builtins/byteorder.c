@@ -10,6 +10,25 @@
 
 #include "internal.h"
 
+// Validate a [offset, offset+size) access for the byte-order read/write
+// builtins. Raw `ptr` arguments are unchecked (unsafe by design, like the rest
+// of the ptr_* family); `buffer` arguments are bounds-checked so they cannot be
+// used as an arbitrary OOB read/write primitive. Returns 1 if the access is
+// allowed, otherwise flags a runtime error and returns 0. 64-bit math avoids
+// offset+size overflow.
+static int bo_buffer_bounds_ok(Value *args, int offset, int size,
+                               ExecutionContext *ctx, const char *name) {
+    if (args[0].type == VAL_BUFFER && args[0].as.as_buffer) {
+        int blen = args[0].as.as_buffer->length;
+        if (offset < 0 || (int64_t)offset + size > (int64_t)blen) {
+            runtime_error(ctx, "%s: offset %d with size %d out of bounds (buffer length %d)",
+                          name, offset, size, blen);
+            return 0;
+        }
+    }
+    return 1;
+}
+
 // ========== BYTE SWAP BUILTINS ==========
 
 // bswap16(val: u16): u16 - Swap bytes of a 16-bit value
@@ -163,6 +182,7 @@ Value builtin_read_u16_be(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
     int offset = value_to_int(args[1]);
+    if (!bo_buffer_bounds_ok(args, offset, 2, ctx, "read_u16_be")) return val_null();
     uint8_t *bytes = (uint8_t *)p + offset;
     uint16_t result = ((uint16_t)bytes[0] << 8) | (uint16_t)bytes[1];
     return val_u16(result);
@@ -189,6 +209,7 @@ Value builtin_read_u16_le(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
     int offset = value_to_int(args[1]);
+    if (!bo_buffer_bounds_ok(args, offset, 2, ctx, "read_u16_le")) return val_null();
     uint8_t *bytes = (uint8_t *)p + offset;
     uint16_t result = (uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8);
     return val_u16(result);
@@ -215,6 +236,7 @@ Value builtin_read_u32_be(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
     int offset = value_to_int(args[1]);
+    if (!bo_buffer_bounds_ok(args, offset, 4, ctx, "read_u32_be")) return val_null();
     uint8_t *bytes = (uint8_t *)p + offset;
     uint32_t result = ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
                       ((uint32_t)bytes[2] << 8)  | (uint32_t)bytes[3];
@@ -242,6 +264,7 @@ Value builtin_read_u32_le(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
     int offset = value_to_int(args[1]);
+    if (!bo_buffer_bounds_ok(args, offset, 4, ctx, "read_u32_le")) return val_null();
     uint8_t *bytes = (uint8_t *)p + offset;
     uint32_t result = (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) |
                       ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
@@ -269,6 +292,7 @@ Value builtin_read_u64_be(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
     int offset = value_to_int(args[1]);
+    if (!bo_buffer_bounds_ok(args, offset, 8, ctx, "read_u64_be")) return val_null();
     uint8_t *bytes = (uint8_t *)p + offset;
     uint64_t result = ((uint64_t)bytes[0] << 56) | ((uint64_t)bytes[1] << 48) |
                       ((uint64_t)bytes[2] << 40) | ((uint64_t)bytes[3] << 32) |
@@ -298,6 +322,7 @@ Value builtin_read_u64_le(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
     int offset = value_to_int(args[1]);
+    if (!bo_buffer_bounds_ok(args, offset, 8, ctx, "read_u64_le")) return val_null();
     uint8_t *bytes = (uint8_t *)p + offset;
     uint64_t result = (uint64_t)bytes[0] | ((uint64_t)bytes[1] << 8) |
                       ((uint64_t)bytes[2] << 16) | ((uint64_t)bytes[3] << 24) |
@@ -327,6 +352,7 @@ Value builtin_write_u16_be(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
     int offset = value_to_int(args[1]);
+    if (!bo_buffer_bounds_ok(args, offset, 2, ctx, "write_u16_be")) return val_null();
     uint16_t val = (uint16_t)value_to_int(args[2]);
     uint8_t *bytes = (uint8_t *)p + offset;
     bytes[0] = (uint8_t)(val >> 8);
@@ -355,6 +381,7 @@ Value builtin_write_u16_le(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
     int offset = value_to_int(args[1]);
+    if (!bo_buffer_bounds_ok(args, offset, 2, ctx, "write_u16_le")) return val_null();
     uint16_t val = (uint16_t)value_to_int(args[2]);
     uint8_t *bytes = (uint8_t *)p + offset;
     bytes[0] = (uint8_t)(val & 0xFF);
@@ -383,6 +410,7 @@ Value builtin_write_u32_be(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
     int offset = value_to_int(args[1]);
+    if (!bo_buffer_bounds_ok(args, offset, 4, ctx, "write_u32_be")) return val_null();
     uint32_t val = (uint32_t)value_to_int(args[2]);
     uint8_t *bytes = (uint8_t *)p + offset;
     bytes[0] = (uint8_t)(val >> 24);
@@ -413,6 +441,7 @@ Value builtin_write_u32_le(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
     int offset = value_to_int(args[1]);
+    if (!bo_buffer_bounds_ok(args, offset, 4, ctx, "write_u32_le")) return val_null();
     uint32_t val = (uint32_t)value_to_int(args[2]);
     uint8_t *bytes = (uint8_t *)p + offset;
     bytes[0] = (uint8_t)(val & 0xFF);
@@ -443,6 +472,7 @@ Value builtin_write_u64_be(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
     int offset = value_to_int(args[1]);
+    if (!bo_buffer_bounds_ok(args, offset, 8, ctx, "write_u64_be")) return val_null();
     uint64_t val = (uint64_t)value_to_int64(args[2]);
     uint8_t *bytes = (uint8_t *)p + offset;
     bytes[0] = (uint8_t)(val >> 56);
@@ -477,6 +507,7 @@ Value builtin_write_u64_le(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
     int offset = value_to_int(args[1]);
+    if (!bo_buffer_bounds_ok(args, offset, 8, ctx, "write_u64_le")) return val_null();
     uint64_t val = (uint64_t)value_to_int64(args[2]);
     uint8_t *bytes = (uint8_t *)p + offset;
     bytes[0] = (uint8_t)(val & 0xFF);

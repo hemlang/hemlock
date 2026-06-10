@@ -226,12 +226,16 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                 return val_null();
                             }
                             Buffer *src = src_val.as.as_buffer;
-                            if (len < 0) { runtime_error(ctx, "write_bytes: length must be non-negative"); }
-                            if (off < 0 || off + len > buf->length) {
-                                runtime_error(ctx, "write_bytes: offset %d with size %d out of bounds (buffer length %d)", off, len, buf->length);
-                            }
-                            if (len > src->length) {
-                                runtime_error(ctx, "write_bytes: source buffer length %d less than requested %d", src->length, len);
+                            // Bounds checks MUST return: runtime_error() only flags an
+                            // exception, it does not abort, so falling through would do
+                            // the OOB memcpy anyway. 64-bit math avoids off+len overflow.
+                            if (len < 0 || off < 0 ||
+                                (int64_t)off + (int64_t)len > (int64_t)buf->length ||
+                                len > src->length) {
+                                runtime_error(ctx, "write_bytes: offset %d with size %d out of bounds (buffer length %d, source length %d)", off, len, buf->length, src->length);
+                                VALUE_RELEASE(off_val); VALUE_RELEASE(src_val); VALUE_RELEASE(len_val);
+                                VALUE_RELEASE(method_self);
+                                return val_null();
                             }
                             memcpy((uint8_t *)buf->data + off, src->data, len);
                             VALUE_RELEASE(off_val); VALUE_RELEASE(src_val); VALUE_RELEASE(len_val);
@@ -248,6 +252,16 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         Value off_val = eval_expr(expr->as.call.args[0], env, ctx);
                         Value val_arg = eval_expr(expr->as.call.args[1], env, ctx);
                         int32_t off = value_to_int(off_val);
+                        // Single sound bounds check up front. runtime_error() does not
+                        // abort, and the per-branch checks below lack returns, so this
+                        // guard (with 64-bit math to avoid off+size overflow) is what
+                        // actually prevents the OOB store.
+                        int wsize = strstr(suffix, "64") ? 8 : strstr(suffix, "32") ? 4 : strstr(suffix, "16") ? 2 : 1;
+                        if (off < 0 || (int64_t)off + wsize > (int64_t)buf->length) {
+                            runtime_error(ctx, "buffer.%s: offset %d with size %d out of bounds (buffer length %d)", method, off, wsize, buf->length);
+                            VALUE_RELEASE(off_val); VALUE_RELEASE(val_arg); VALUE_RELEASE(method_self);
+                            return val_null();
+                        }
                         uint8_t *p = (uint8_t *)buf->data + off;
 
                         if (strcmp(suffix, "u8") == 0) {
@@ -350,9 +364,14 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             Value len_val = eval_expr(expr->as.call.args[1], env, ctx);
                             int32_t off = value_to_int(off_val);
                             int32_t len = value_to_int(len_val);
-                            if (len < 0) { runtime_error(ctx, "read_bytes: length must be non-negative"); }
-                            if (off < 0 || off + len > buf->length) {
+                            // Must return on failure: otherwise the OOB memcpy below
+                            // runs and the copied bytes leak back to the caller.
+                            if (len < 0 || off < 0 ||
+                                (int64_t)off + (int64_t)len > (int64_t)buf->length) {
                                 runtime_error(ctx, "read_bytes: offset %d with size %d out of bounds (buffer length %d)", off, len, buf->length);
+                                VALUE_RELEASE(off_val); VALUE_RELEASE(len_val);
+                                VALUE_RELEASE(method_self);
+                                return val_null();
                             }
                             // Create new buffer with copied data
                             Buffer *new_buf = malloc(sizeof(Buffer));
@@ -379,6 +398,14 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
                         Value off_val = eval_expr(expr->as.call.args[0], env, ctx);
                         int32_t off = value_to_int(off_val);
+                        // Sound up-front bounds check (the per-branch checks below lack
+                        // returns); 64-bit math avoids off+size overflow.
+                        int rsize = strstr(suffix, "64") ? 8 : strstr(suffix, "32") ? 4 : strstr(suffix, "16") ? 2 : 1;
+                        if (off < 0 || (int64_t)off + rsize > (int64_t)buf->length) {
+                            runtime_error(ctx, "buffer.%s: offset %d with size %d out of bounds (buffer length %d)", method, off, rsize, buf->length);
+                            VALUE_RELEASE(off_val); VALUE_RELEASE(method_self);
+                            return val_null();
+                        }
                         uint8_t *p = (uint8_t *)buf->data + off;
                         Value result;
 
