@@ -1,0 +1,6 @@
+6
+[1, 2, null, null, null, 60]
+null-fill
+[0, null, 1, null, 2, null, 3]
+read oob throws
+negative write throws

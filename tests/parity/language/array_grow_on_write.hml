@@ -1,0 +1,18 @@
+// Writing past the end of an array grows it, filling the gap with nulls
+// (reads past the end still throw).
+let a = [1, 2];
+a[5] = 60;
+print(a.length);
+print(a);
+print(a[3] ?? "null-fill");
+
+// Fast path (i32 index on untyped array) grows too
+let b = [];
+for (let i = 0; i < 4; i++) {
+    b[i * 2] = i;
+}
+print(b);
+
+// Reads out of bounds still throw
+try { let x = a[99]; print("no throw"); } catch (e) { print("read oob throws"); }
+try { a[-1] = 0; print("no throw"); } catch (e) { print("negative write throws"); }

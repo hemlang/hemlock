@@ -1,0 +1,19 @@
+// for-in re-checks the live length each iteration, so elements appended
+// during iteration are visited (and clearing the array stops the loop).
+let s = 0;
+let arr = [10, 20];
+for (v in arr) {
+    arr.push(v);
+    if (arr.length > 5) { break; }
+    s += v;
+}
+print(s);
+print(arr.length);
+
+let visited = 0;
+let shrink = [1, 2, 3, 4];
+for (v in shrink) {
+    visited++;
+    if (v == 1) { shrink.pop(); shrink.pop(); }
+}
+print(visited);

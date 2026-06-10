@@ -1,0 +1,4 @@
+// Top-level defers run at normal program exit (LIFO)
+defer print("top defer 1");
+defer print("top defer 2");
+print("body");

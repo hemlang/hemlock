@@ -143,11 +143,14 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
         codegen_writeln(ctx, "HML_CALL_ENTER();");
     }
 
+    // Set up the defer frame + unwind context if the body contains defers
+    codegen_emit_defer_prologue(ctx, func->as.function.body);
+
     // OPTIMIZATION: Tail call elimination
     // Check if function is tail recursive and set up for tail call optimization
     // Tail call optimization converts: return func(args) -> reassign params; goto start
     // This is only safe when there are no defers and no rest params
-    if (ctx->optimize && !func->as.function.rest_param &&
+    if (ctx->optimize && !func->as.function.rest_param && !ctx->has_defers &&
         is_tail_recursive_function(func->as.function.body, name)) {
         ctx->tail_call_func_name = name;  // Borrowed reference
         ctx->tail_call_label = codegen_label(ctx);
@@ -167,9 +170,7 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
 
     // Execute defers before implicit return
     codegen_defer_execute_all(ctx);
-    if (ctx->has_defers) {
-        codegen_writeln(ctx, "hml_defer_execute_all();");
-    }
+    codegen_emit_defer_exit(ctx);
 
     // Release body-local variables and shared env before returning
     codegen_emit_local_cleanup(ctx, NULL);
@@ -303,6 +304,9 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
         codegen_writeln(ctx, "HML_CALL_ENTER();");
     }
 
+    // Set up the defer frame + unwind context if the body contains defers
+    codegen_emit_defer_prologue(ctx, func->as.function.body);
+
     // Set up shared environment for nested closures
     funcgen_setup_shared_env(ctx, func, closure);
 
@@ -311,9 +315,7 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
 
     // Execute defers before implicit return
     codegen_defer_execute_all(ctx);
-    if (ctx->has_defers) {
-        codegen_writeln(ctx, "hml_defer_execute_all();");
-    }
+    codegen_emit_defer_exit(ctx);
 
     // Release body-local variables before returning
     codegen_emit_local_cleanup(ctx, NULL);
@@ -658,11 +660,13 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, MemBuffer
             funcgen_add_params(ctx, func);
             funcgen_apply_defaults(ctx, func);
             ctx->locals_body_start = ctx->num_locals;
+            codegen_emit_defer_prologue(ctx, func->as.function.body);
             funcgen_setup_shared_env(ctx, func, NULL);
             funcgen_generate_body(ctx, func);
 
             // Execute defers, release locals, and return
             codegen_defer_execute_all(ctx);
+            codegen_emit_defer_exit(ctx);
             codegen_emit_local_cleanup(ctx, NULL);
             codegen_writeln(ctx, "return hml_val_null();");
 
@@ -1351,6 +1355,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         codegen_write(ctx, "#include \"hemlock_runtime.h\"\n");
         codegen_write(ctx, "#include <setjmp.h>\n");
         codegen_write(ctx, "#include <string.h>\n");
+        codegen_write(ctx, "#include <math.h>\n");
         codegen_write(ctx, "#include <emscripten.h>\n\n");
         // Signal constants still needed for enum values, but signals are stubbed
         codegen_write(ctx, "// Signal constants (stubbed in WASM)\n");
@@ -1358,6 +1363,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         codegen_write(ctx, "#include \"hemlock_runtime.h\"\n");
         codegen_write(ctx, "#include <setjmp.h>\n");
         codegen_write(ctx, "#include <string.h>\n");
+        codegen_write(ctx, "#include <math.h>\n");
         codegen_write(ctx, "#include <signal.h>\n");
         codegen_write(ctx, "#include <sys/socket.h>\n");
         codegen_write(ctx, "#include <sys/un.h>\n");

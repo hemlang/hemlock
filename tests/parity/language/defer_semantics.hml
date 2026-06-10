@@ -1,0 +1,58 @@
+// Defer evaluates the deferred expression at function exit, with the
+// variable values current at that time (not at registration).
+
+// 1. Late binding of locals
+fn late_binding() {
+    let x = 1;
+    defer print("defer sees x=" + x);
+    x = 2;
+}
+late_binding();
+
+// 2. Nested functions: a callee's return must not run the caller's defers
+fn inner_fn() {
+    defer print("inner defer");
+    print("inner body");
+}
+fn outer_fn() {
+    defer print("outer defer");
+    inner_fn();
+    print("after inner");
+}
+outer_fn();
+
+// 3. Defers run when an exception unwinds through the function (before catch)
+fn thrower() { throw "boom"; }
+fn unwound() {
+    defer print("unwind defer");
+    thrower();
+    print("never reached");
+}
+try { unwound(); } catch (e) { print("caught " + e); }
+
+// 4. Defer registered inside try stays pending when catch handles the error
+fn try_scoped() {
+    defer print("fn-level defer");
+    try {
+        defer print("try-scoped defer");
+        throw "err";
+    } catch (e) {
+        print("handled " + e);
+    }
+    print("after catch");
+}
+try_scoped();
+
+// 5. Defer captures across an early return path
+fn early(n: i32): i32 {
+    let label = "start";
+    defer print("cleanup " + label);
+    if (n < 0) {
+        label = "negative";
+        return -1;
+    }
+    label = "positive";
+    return 1;
+}
+print(early(5));
+print(early(-5));

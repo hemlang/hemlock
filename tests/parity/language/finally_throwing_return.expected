@@ -1,0 +1,5 @@
+finally ran
+caught kaboom, cleanups=1
+deep 5
+normal finally
+42

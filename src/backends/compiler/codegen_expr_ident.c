@@ -686,6 +686,19 @@ handle_variable:
         }
         }
 
+        // Captured locals: the shared environment is the source of truth
+        // (closures and defers write through it), so reads must come from it
+        // - the C local can be stale after a closure call.
+        {
+            int cap_idx = codegen_captured_var_env_index(ctx, expr->as.ident.name);
+            if (cap_idx >= 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_closure_env_get(%s, %d);",
+                              result, ctx->shared_env_name, cap_idx);
+                // hml_closure_env_get already retains - skip the common retain below
+                return result;
+            }
+        }
+
         // Check if this is an imported symbol
         ImportBinding *import_binding = NULL;
         if (ctx->current_module) {

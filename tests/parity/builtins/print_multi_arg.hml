@@ -1,0 +1,8 @@
+// print/write/eprint accept multiple arguments, separated by spaces
+print("a", "b", "c");
+print(1, 2.5, true, null);
+print("Script:", "value");
+write("x", "y");
+write("\n");
+let arr = [1, 2];
+print("arr:", arr);
