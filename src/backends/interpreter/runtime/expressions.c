@@ -1525,6 +1525,16 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             char **string_parts = expr->as.string_interpolation.string_parts;
             Expr **expr_parts = expr->as.string_interpolation.expr_parts;
 
+            if (num_parts < 0) {
+                runtime_error(ctx, "Invalid string interpolation");
+                return val_null();
+            }
+
+            // Fast path: no expression parts — just return the static string segment
+            if (num_parts == 0) {
+                return val_string(string_parts[0]);
+            }
+
             // Calculate total length needed
             int total_len = 0;
             for (int i = 0; i <= num_parts; i++) {
@@ -1532,7 +1542,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
 
             // Evaluate expression parts and convert to strings
-            char **expr_strings = malloc(sizeof(char*) * num_parts);
+            // Cast to size_t after the num_parts > 0 guard above to avoid
+            // -Walloc-size-larger-than triggering on the signed->size_t multiply.
+            char **expr_strings = malloc(sizeof(char*) * (size_t)num_parts);
             if (!expr_strings) {
                 runtime_error(ctx, "Out of memory in string interpolation");
                 return val_null();
