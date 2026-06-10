@@ -45,15 +45,17 @@ wine ./hemlock.exe examples/hello.hml
 
 ## Building natively on Windows (MSYS2)
 
-In a MINGW64 shell:
+In a UCRT64 shell (what CI uses; a MINGW64 shell with the
+`mingw-w64-x86_64-*` packages works too):
 
 ```bash
-pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-zlib make
+pacman -S make mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-zlib mingw-w64-ucrt-x86_64-libffi
 make
 ```
 
 The Makefile detects MSYS2/MinGW via `uname` and configures itself the
-same way as a cross build.
+same way as a cross build. `make mingw-clean` removes only cross-build
+artifacts and never touches a native build in the same checkout.
 
 ## How the port works
 
@@ -86,6 +88,18 @@ Calling any of these throws a runtime error on Windows:
 | Terminal | `@stdlib/termios` (raw mode) is POSIX-only. |
 | LSP | stdio transport works; `--lsp-tcp` mode is disabled. |
 
+Smaller quirks worth knowing:
+
+- `poll()` maps to `WSAPoll`, which only understands **sockets** —
+  polling regular file descriptors fails at runtime.
+- `hemlockc` refuses input/output paths containing `%`, `!`, or `"` on
+  Windows: its gcc invocation goes through cmd.exe, which expands those
+  even inside double quotes with no reliable escape.
+- AF_UNIX sockets need Windows 10 1803+ at runtime (`afunix.h`).
+- `os_version()` uses `GetVersionEx`, which under-reports on Windows
+  8.1+ unless the executable carries a compatibility manifest; treat the
+  value as informational.
+
 Everything else — the language core, async/channels/atomics, buffers and
 manual memory, TCP/UDP/Unix sockets, DNS, file and directory I/O, mmap,
 zlib compression, JSON/CSV/TOML/YAML, math, strings — works on Windows.
@@ -100,13 +114,16 @@ Getting libffi:
 
 - **MSYS2 (native):** `pacman -S mingw-w64-ucrt-x86_64-libffi` — done.
 - **Cross builds:** Debian/Ubuntu don't package a MinGW libffi; build it
-  from source once (~30 s):
+  from source once (~30 s). Use the release tarball — it ships a
+  pre-generated `configure`, whereas the git tag needs `autogen.sh`,
+  which is fragile across autotools versions:
 
   ```bash
-  git clone --depth 1 --branch v3.4.6 https://github.com/libffi/libffi
-  cd libffi && ./autogen.sh
+  curl -fsSLO https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz
+  tar -xzf libffi-3.4.6.tar.gz && cd libffi-3.4.6
   ./configure --host=x86_64-w64-mingw32 --prefix=/usr/x86_64-w64-mingw32 \
-      --disable-shared --enable-static CC=x86_64-w64-mingw32-gcc-posix
+      --disable-shared --enable-static --disable-docs \
+      CC=x86_64-w64-mingw32-gcc-posix
   make -j && sudo make install
   ```
 
