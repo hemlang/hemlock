@@ -121,7 +121,7 @@ jobs:
     - name: Install MinGW-w64 toolchain and Wine
       run: |
         sudo apt-get update
-        sudo apt-get install -y gcc-mingw-w64-x86-64 libz-mingw-w64-dev wine64 autoconf automake libtool
+        sudo apt-get install -y gcc-mingw-w64-x86-64 libz-mingw-w64-dev wine64
 
     - name: Cache MinGW libffi
       id: cache-libffi
@@ -133,9 +133,12 @@ jobs:
     - name: Build libffi for MinGW (enables Hemlock FFI on Windows)
       if: steps.cache-libffi.outputs.cache-hit != 'true'
       run: |
-        git clone --depth 1 --branch v3.4.6 https://github.com/libffi/libffi /tmp/libffi
-        cd /tmp/libffi
-        ./autogen.sh
+        # The release tarball ships a pre-generated configure (the git tag
+        # needs autogen.sh, which is fragile across autotools versions)
+        curl -fsSL -o /tmp/libffi.tar.gz \
+          https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz
+        tar -xzf /tmp/libffi.tar.gz -C /tmp
+        cd /tmp/libffi-3.4.6
         ./configure --host=x86_64-w64-mingw32 --prefix=$HOME/mingw-libffi \
           --disable-shared --enable-static --disable-docs \
           CC=x86_64-w64-mingw32-gcc-posix
