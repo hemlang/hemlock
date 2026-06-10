@@ -3,9 +3,20 @@
 CC = gcc
 LDFLAGS = -lm -lpthread -lffi
 
+# Windows (MinGW-w64) detection — mirrors the top-level Makefile
+ifneq (,$(findstring mingw,$(CC))$(findstring MINGW,$(shell uname))$(findstring MSYS,$(shell uname)))
+    HEMLOCK_WINDOWS = 1
+endif
+
 # Platform-specific settings
-ifeq ($(shell uname),Darwin)
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -fPIC -Iinclude -I../src/shared -D_DARWIN_C_SOURCE
+ifeq ($(HEMLOCK_WINDOWS),1)
+    # No -fPIC (PE is always position independent); FFI and OpenSSL builtins
+    # are stubbed (HEMLOCK_NO_FFI / HEMLOCK_NO_OPENSSL); winpthreads supplies
+    # pthreads; ws2_32 supplies sockets. -I../include for hemlock_platform.h.
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Iinclude -I../src/shared -I../include -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 -DHEMLOCK_NO_FFI -DHEMLOCK_NO_OPENSSL
+    LDFLAGS = -lm -lpthread -lws2_32
+else ifeq ($(shell uname),Darwin)
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -fPIC -Iinclude -I../src/shared -I../include -D_DARWIN_C_SOURCE
     # Detect libffi (Homebrew on macOS puts it in non-standard locations)
     BREW_LIBFFI := $(shell brew --prefix libffi 2>/dev/null)
     ifneq ($(BREW_LIBFFI),)
@@ -19,7 +30,7 @@ ifeq ($(shell uname),Darwin)
         LDFLAGS += -L$(BREW_OPENSSL)/lib
     endif
 else
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -fPIC -Iinclude -I../src/shared -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -fPIC -Iinclude -I../src/shared -I../include -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
     LIBFFI_CFLAGS := $(shell pkg-config --cflags libffi 2>/dev/null)
     LIBFFI_LIBS := $(shell pkg-config --libs libffi 2>/dev/null)
     ifneq ($(LIBFFI_CFLAGS),)
@@ -30,7 +41,10 @@ endif
 
 # OpenSSL is required for crypto builtins (SHA256, SHA512, MD5, ECDSA)
 # On macOS, -L path is set above; on Linux, system paths suffice
+# (not on Windows, where the crypto builtins are stubbed)
+ifneq ($(HEMLOCK_WINDOWS),1)
 LDFLAGS += -lssl -lcrypto
+endif
 
 # Check if zlib is available (both header AND library must exist)
 ZLIB_CHECK := $(shell echo 'int main(){return 0;}' | $(CC) -x c - -lz -o /dev/null 2>/dev/null && echo yes)
@@ -39,8 +53,13 @@ ifeq ($(ZLIB_CHECK),yes)
     LDFLAGS += -lz
 endif
 
-# Check if libwebsockets is available
+# Check if libwebsockets is available (host pkg-config is meaningless when
+# cross-compiling for Windows, so skip the probe there)
+ifeq ($(HEMLOCK_WINDOWS),1)
+LWS_CHECK :=
+else
 LWS_CHECK := $(shell pkg-config --exists libwebsockets 2>/dev/null && echo yes)
+endif
 ifeq ($(LWS_CHECK),yes)
     CFLAGS += -DHML_HAVE_LIBWEBSOCKETS $(shell pkg-config --cflags libwebsockets)
     LDFLAGS += $(shell pkg-config --libs libwebsockets)
@@ -76,6 +95,13 @@ endif
 
 SRC_DIR = src
 BUILD_DIR = build
+# Cross-compiling for Windows from a POSIX host: keep PE objects separate
+# (mirrors the top-level Makefile)
+ifeq ($(HEMLOCK_WINDOWS),1)
+ifeq (,$(findstring MINGW,$(shell uname))$(findstring MSYS,$(shell uname)))
+    BUILD_DIR = build-mingw
+endif
+endif
 INCLUDE_DIR = include
 SHARED_DIR = ../src/shared
 
@@ -87,7 +113,9 @@ SHARED_OBJS = $(patsubst $(SHARED_DIR)/%.c,$(BUILD_DIR)/shared_%.o,$(SHARED_SRCS
 
 # Library targets
 STATIC_LIB = libhemlock_runtime.a
-ifeq ($(shell uname),Darwin)
+ifeq ($(HEMLOCK_WINDOWS),1)
+    SHARED_LIB = libhemlock_runtime.dll
+else ifeq ($(shell uname),Darwin)
     SHARED_LIB = libhemlock_runtime.dylib
 else
     SHARED_LIB = libhemlock_runtime.so
@@ -170,7 +198,7 @@ $(BUILD_DIR)/$(WASM_THREAD_LIB): $(WASM_THREAD_OBJS) $(WASM_THREAD_SHARED_OBJS)
 	@echo "Built WASM threaded runtime library: $@"
 
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR) build build-mingw
 	rm -f ../$(STATIC_LIB) ../$(SHARED_LIB)
 
 # Auto header deps (-MMD -MP). Leading `-` makes a missing .d non-fatal

@@ -12,6 +12,7 @@
  */
 
 #include "codegen_internal.h"
+#include "hemlock_compat.h"
 
 // ========== SAFE CAPACITY GROWTH ==========
 
@@ -1950,7 +1951,13 @@ MemBuffer* membuf_new(void) {
     if (!buf) return NULL;
     buf->data = NULL;
     buf->size = 0;
+#ifdef _WIN32
+    // No open_memstream on Windows: back the stream with a self-deleting
+    // temp file; membuf_flush_to copies from it instead of buf->data.
+    buf->stream = hml_win_tmpfile();
+#else
     buf->stream = open_memstream(&buf->data, &buf->size);
+#endif
     if (!buf->stream) {
         free(buf);
         return NULL;
@@ -1964,10 +1971,29 @@ void membuf_flush_to(MemBuffer *buf, FILE *output) {
     if (buf->stream) {
         fflush(buf->stream);
     }
+#ifdef _WIN32
+    // Temp-file-backed stream: copy its contents, then restore the write
+    // position so further appends still land at the end
+    if (buf->stream) {
+        long end = ftell(buf->stream);
+        rewind(buf->stream);
+        char chunk[8192];
+        long remaining = end;
+        while (remaining > 0) {
+            size_t want = remaining > (long)sizeof(chunk) ? sizeof(chunk) : (size_t)remaining;
+            size_t got = fread(chunk, 1, want, buf->stream);
+            if (got == 0) break;
+            fwrite(chunk, 1, got, output);
+            remaining -= (long)got;
+        }
+        fseek(buf->stream, 0, SEEK_END);
+    }
+#else
     // Write all buffered data to output
     if (buf->data && buf->size > 0) {
         fwrite(buf->data, 1, buf->size, output);
     }
+#endif
 }
 
 void membuf_free(MemBuffer *buf) {

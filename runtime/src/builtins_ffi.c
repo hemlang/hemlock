@@ -12,6 +12,8 @@
 #include "builtins_internal.h"
 #include <pthread.h>
 
+#ifndef HEMLOCK_NO_FFI
+
 // ========== CIF CACHE FOR FFI OPTIMIZATION ==========
 //
 // The CIF (Call Interface) cache avoids calling ffi_prep_cif() on every
@@ -1259,6 +1261,90 @@ HmlValue hml_builtin_callback_free(HmlClosureEnv *env, HmlValue ptr) {
 
     return hml_val_null();
 }
+
+#else /* HEMLOCK_NO_FFI */
+
+// Stub implementations when libffi is not available. The ptr_read_*/
+// ptr_write_*/ptr_deref_* accessors below don't need libffi and stay live.
+HmlValue hml_ffi_load(const char *path) {
+    (void)path;
+    hml_runtime_error("ffi_open() is not available in this build (no FFI support)");
+}
+
+void hml_ffi_close(HmlValue lib) {
+    (void)lib;
+    hml_runtime_error("ffi_close() is not available in this build (no FFI support)");
+}
+
+void* hml_ffi_sym(HmlValue lib, const char *name) {
+    (void)lib; (void)name;
+    hml_runtime_error("ffi_sym() is not available in this build (no FFI support)");
+}
+
+HmlValue hml_ffi_call(void *func_ptr, HmlValue *args, int num_args, HmlFFIType *types) {
+    (void)func_ptr; (void)args; (void)num_args; (void)types;
+    hml_runtime_error("ffi_call() is not available in this build (no FFI support)");
+}
+
+HmlValue hml_ffi_call_with_structs(void *func_ptr, HmlValue *args, int num_args,
+                                    HmlFFIType *types, const char **struct_names) {
+    (void)func_ptr; (void)args; (void)num_args; (void)types; (void)struct_names;
+    hml_runtime_error("ffi_call() is not available in this build (no FFI support)");
+}
+
+HmlFFIStructType* hml_ffi_lookup_struct(const char *name) {
+    (void)name;
+    return NULL;
+}
+
+HmlFFIStructType* hml_ffi_register_struct(const char *name, const char **field_names,
+                                           HmlFFIType *field_types, int num_fields) {
+    (void)name; (void)field_names; (void)field_types; (void)num_fields;
+    hml_runtime_error("ffi_register_struct() is not available in this build (no FFI support)");
+}
+
+void* hml_ffi_object_to_struct(HmlValue obj, HmlFFIStructType *struct_type) {
+    (void)obj; (void)struct_type;
+    hml_runtime_error("ffi_object_to_struct() is not available in this build (no FFI support)");
+}
+
+HmlValue hml_ffi_struct_to_object(void *struct_ptr, HmlFFIStructType *struct_type) {
+    (void)struct_ptr; (void)struct_type;
+    hml_runtime_error("ffi_struct_to_object() is not available in this build (no FFI support)");
+}
+
+void hml_ffi_struct_cleanup(void) { /* no-op */ }
+
+HmlFFICallback* hml_ffi_callback_create(HmlValue fn, HmlFFIType *param_types, int num_params, HmlFFIType return_type) {
+    (void)fn; (void)param_types; (void)num_params; (void)return_type;
+    hml_runtime_error("callback() is not available in this build (no FFI support)");
+}
+
+void* hml_ffi_callback_ptr(HmlFFICallback *cb) {
+    (void)cb;
+    return NULL;
+}
+
+void hml_ffi_callback_free(HmlFFICallback *cb) {
+    (void)cb;
+}
+
+int hml_ffi_callback_free_by_ptr(void *ptr) {
+    (void)ptr;
+    return 0;
+}
+
+HmlValue hml_builtin_callback(HmlClosureEnv *env, HmlValue fn, HmlValue param_types, HmlValue return_type) {
+    (void)env; (void)fn; (void)param_types; (void)return_type;
+    hml_runtime_error("callback() is not available in this build (no FFI support)");
+}
+
+HmlValue hml_builtin_callback_free(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env; (void)ptr;
+    hml_runtime_error("callback_free() is not available in this build (no FFI support)");
+}
+
+#endif /* HEMLOCK_NO_FFI */
 
 // Helper: extract raw pointer from ptr or buffer value, validating that an
 // access of `access_size` bytes at offset 0 stays within a (safe) buffer. Raw

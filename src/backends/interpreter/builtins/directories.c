@@ -36,7 +36,7 @@ Value builtin_make_dir(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    if (mkdir(cpath, mode) != 0) {
+    if (hml_mkdir(cpath, mode) != 0) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to create directory '%s': %s", cpath, strerror(errno));
         free(cpath);
@@ -215,7 +215,11 @@ Value builtin_absolute_path(Value *args, int num_args, ExecutionContext *ctx) {
     cpath[path->length] = '\0';
 
     char buffer[PATH_MAX];
+#ifdef _WIN32
+    if (_fullpath(buffer, cpath, sizeof(buffer)) == NULL) {
+#else
     if (realpath(cpath, buffer) == NULL) {
+#endif
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to resolve path '%s': %s", cpath, strerror(errno));
         free(cpath);

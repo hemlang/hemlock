@@ -1365,12 +1365,17 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         codegen_write(ctx, "#include <string.h>\n");
         codegen_write(ctx, "#include <math.h>\n");
         codegen_write(ctx, "#include <signal.h>\n");
+        // Windows (MinGW): winsock/mmap/poll come from hemlock_platform.h
+        codegen_write(ctx, "#ifdef _WIN32\n");
+        codegen_write(ctx, "#include \"hemlock_platform.h\"\n");
+        codegen_write(ctx, "#else\n");
         codegen_write(ctx, "#include <sys/socket.h>\n");
         codegen_write(ctx, "#include <sys/un.h>\n");
         codegen_write(ctx, "#include <netinet/in.h>\n");
         codegen_write(ctx, "#include <arpa/inet.h>\n");
         codegen_write(ctx, "#include <poll.h>\n");
-        codegen_write(ctx, "#include <sys/mman.h>\n\n");
+        codegen_write(ctx, "#include <sys/mman.h>\n");
+        codegen_write(ctx, "#endif\n\n");
         codegen_write(ctx, "// Signal constants\n");
     }
 

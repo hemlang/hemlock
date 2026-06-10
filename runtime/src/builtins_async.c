@@ -17,7 +17,7 @@
 #include <stdatomic.h>
 #include <signal.h>
 
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && !defined(_WIN32)
 #include <poll.h>
 #endif
 
@@ -31,7 +31,7 @@ static _Atomic size_t g_default_stack_size = HML_THREAD_STACK_SIZE;
 // Native builds use libffi for calling functions with >8 parameters.
 // WASM builds use direct dispatch only (libffi not available in Emscripten).
 
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && !defined(HEMLOCK_NO_FFI)
 // Define ffi_type for HmlValue struct (16 bytes: 4 type + 4 padding + 8 union)
 static ffi_type *hml_value_elements[] = {
     &ffi_type_uint32,   // HmlValueType (enum)
@@ -96,7 +96,7 @@ static HmlValue call_hemlock_function_ffi(void *fn_ptr, void *closure_env, HmlVa
 
     return result;
 }
-#endif // !__EMSCRIPTEN__
+#endif // !__EMSCRIPTEN__ && !HEMLOCK_NO_FFI
 
 // Thread wrapper function
 static void* task_thread_wrapper(void* arg) {
@@ -112,7 +112,8 @@ static void* task_thread_wrapper(void* arg) {
     // leaving the process to take the default (terminating) action. This
     // matches the interpreter backend, which masks all signals in its task
     // threads for the same reason.
-#ifndef __EMSCRIPTEN__
+    // (POSIX only: Windows delivers console control events on its own thread)
+#if !defined(__EMSCRIPTEN__) && !defined(_WIN32)
     sigset_t block_set;
     sigfillset(&block_set);
     pthread_sigmask(SIG_BLOCK, &block_set, NULL);
@@ -153,7 +154,7 @@ static void* task_thread_wrapper(void* arg) {
 
     // Get function info
     HmlFunction *fn = task->function.as.as_function;
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && !defined(HEMLOCK_NO_FFI)
     void *fn_ptr = fn->fn_ptr;
     void *closure_env = fn->closure_env;
 #endif
@@ -177,9 +178,9 @@ static void* task_thread_wrapper(void* arg) {
         if (can_use_direct_call) {
             result = hml_call_function(task->function, task->args, task->num_args);
         } else {
-#ifdef __EMSCRIPTEN__
-            // WASM: libffi not available, direct dispatch only supports up to 8 params
-            hml_runtime_error("spawn(): functions with >8 parameters not supported in WASM");
+#if defined(__EMSCRIPTEN__) || defined(HEMLOCK_NO_FFI)
+            // libffi not available, direct dispatch only supports up to 8 params
+            hml_runtime_error("spawn(): functions with >8 parameters not supported in this build");
             result = hml_val_null();
 #else
             result = call_hemlock_function_ffi(fn_ptr, closure_env, task->args, task->num_args);
@@ -512,9 +513,10 @@ HmlValue hml_apply(HmlValue fn, HmlValue args_array) {
     HmlFunction *func = fn.as.as_function;
     HmlArray *arr = args_array.as.as_array;
 
-#ifdef __EMSCRIPTEN__
-    // WASM: use direct call dispatcher (no libffi available)
+#if defined(__EMSCRIPTEN__) || defined(HEMLOCK_NO_FFI)
+    // No libffi: use direct call dispatcher
     // Supports up to 8 parameters which covers virtually all real use cases
+    (void)func;
     return hml_call_function(fn, arr->elements, arr->length);
 #else
     // Native: use libffi for arbitrary parameter count

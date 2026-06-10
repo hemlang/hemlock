@@ -6,17 +6,13 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "../internal.h"
+#include "hemlock_platform.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <pthread.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <dirent.h>
 #include <unistd.h>
 #include <limits.h>
@@ -25,8 +21,15 @@
 #include <sys/time.h>
 #include <signal.h>
 #include <fcntl.h>  // For O_NOFOLLOW symlink protection
+#ifndef _WIN32
+#include <sys/wait.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <poll.h>   // For poll() in exec functions
 #include <spawn.h>  // For posix_spawn() / posix_spawnp()
+#endif
 
 // Define math constants if not available
 #ifndef M_PI

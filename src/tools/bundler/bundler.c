@@ -7,6 +7,7 @@
 #define _XOPEN_SOURCE 500
 #include "bundler.h"
 #include "frontend.h"
+#include "hemlock_compat.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

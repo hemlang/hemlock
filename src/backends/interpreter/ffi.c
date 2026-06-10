@@ -1,11 +1,15 @@
 #include "internal.h"
 
-#ifndef __EMSCRIPTEN__
-/* Native FFI implementation - excluded from WASM builds (no libffi/dlopen).
-   WASM stubs are provided in wasm_interp_shim.c. */
+#if !defined(__EMSCRIPTEN__) && !defined(HEMLOCK_NO_FFI)
+/* Native FFI implementation - excluded from WASM builds (no libffi/dlopen)
+   and HEMLOCK_NO_FFI builds (e.g. MinGW without libffi).
+   Stubs are provided in wasm_interp_shim.c. */
 
 #include <ffi.h>
+#ifndef _WIN32
 #include <dlfcn.h>
+#endif
+#include "hemlock_platform.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -1640,4 +1644,4 @@ void execute_extern_fn(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
     }
 }
 
-#endif /* __EMSCRIPTEN__ */
+#endif /* !__EMSCRIPTEN__ && !HEMLOCK_NO_FFI */

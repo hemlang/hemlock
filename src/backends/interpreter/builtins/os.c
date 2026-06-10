@@ -1,6 +1,8 @@
 #include "internal.h"
+#ifndef _WIN32
 #include <sys/utsname.h>
 #include <pwd.h>
+#endif
 
 #ifdef __linux__
 #include <sys/sysinfo.h>
@@ -41,6 +43,16 @@ Value builtin_arch(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "arch() expects no arguments"); return val_null();
     }
 
+#ifdef _WIN32
+    SYSTEM_INFO info;
+    GetNativeSystemInfo(&info);
+    switch (info.wProcessorArchitecture) {
+        case PROCESSOR_ARCHITECTURE_AMD64: return val_string("x86_64");
+        case PROCESSOR_ARCHITECTURE_ARM64: return val_string("aarch64");
+        case PROCESSOR_ARCHITECTURE_INTEL: return val_string("i686");
+        default:                           return val_string("unknown");
+    }
+#else
     struct utsname info;
     if (uname(&info) != 0) {
         char error_msg[256];
@@ -51,6 +63,7 @@ Value builtin_arch(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     return val_string(info.machine);
+#endif
 }
 
 // Get system hostname
@@ -60,6 +73,7 @@ Value builtin_hostname(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "hostname() expects no arguments"); return val_null();
     }
 
+    hml_platform_init();  // gethostname needs WSAStartup on Windows
     char hostname[256];
     if (gethostname(hostname, sizeof(hostname)) != 0) {
         char error_msg[256];
@@ -79,6 +93,19 @@ Value builtin_username(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "username() expects no arguments"); return val_null();
     }
 
+#ifdef _WIN32
+    char username[256];
+    DWORD username_len = sizeof(username);
+    if (GetUserNameA(username, &username_len)) {
+        return val_string(username);
+    }
+
+    // Fall back to environment variable
+    char *env_user = getenv("USERNAME");
+    if (env_user != NULL) {
+        return val_string(env_user);
+    }
+#else
     // Try getlogin_r first
     char username[256];
     if (getlogin_r(username, sizeof(username)) == 0) {
@@ -96,6 +123,7 @@ Value builtin_username(Value *args, int num_args, ExecutionContext *ctx) {
     if (env_user != NULL) {
         return val_string(env_user);
     }
+#endif
 
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "username() failed: could not determine username");
@@ -117,11 +145,18 @@ Value builtin_homedir(Value *args, int num_args, ExecutionContext *ctx) {
         return val_string(home);
     }
 
+#ifdef _WIN32
+    home = getenv("USERPROFILE");
+    if (home != NULL) {
+        return val_string(home);
+    }
+#else
     // Fall back to getpwuid
     struct passwd *pw = getpwuid(getuid());
     if (pw != NULL && pw->pw_dir != NULL) {
         return val_string(pw->pw_dir);
     }
+#endif
 
     char error_msg[256];
     snprintf(error_msg, sizeof(error_msg), "homedir() failed: could not determine home directory");
@@ -137,7 +172,13 @@ Value builtin_cpu_count(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "cpu_count() expects no arguments"); return val_null();
     }
 
+#ifdef _WIN32
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    long nprocs = (long)info.dwNumberOfProcessors;
+#else
     long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+#endif
     if (nprocs < 1) {
         nprocs = 1;  // Default to 1 if we can't determine
     }
@@ -152,7 +193,18 @@ Value builtin_total_memory(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "total_memory() expects no arguments"); return val_null();
     }
 
-#ifdef __linux__
+#ifdef _WIN32
+    MEMORYSTATUSEX status;
+    status.dwLength = sizeof(status);
+    if (!GlobalMemoryStatusEx(&status)) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "total_memory() failed: error %lu", (unsigned long)GetLastError());
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+    return val_i64((int64_t)status.ullTotalPhys);
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         char error_msg[256];
@@ -196,7 +248,18 @@ Value builtin_free_memory(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "free_memory() expects no arguments"); return val_null();
     }
 
-#ifdef __linux__
+#ifdef _WIN32
+    MEMORYSTATUSEX status;
+    status.dwLength = sizeof(status);
+    if (!GlobalMemoryStatusEx(&status)) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "free_memory() failed: error %lu", (unsigned long)GetLastError());
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+    return val_i64((int64_t)status.ullAvailPhys);
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         char error_msg[256];
@@ -260,6 +323,25 @@ Value builtin_os_version(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "os_version() expects no arguments"); return val_null();
     }
 
+#ifdef _WIN32
+    // GetVersionEx lies on Win 8.1+ without a manifest, but it is the only
+    // stable public API; the value is informational anyway
+    OSVERSIONINFOA info;
+    info.dwOSVersionInfoSize = sizeof(info);
+    if (!GetVersionExA(&info)) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "os_version() failed: error %lu", (unsigned long)GetLastError());
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+    char version[64];
+    snprintf(version, sizeof(version), "%lu.%lu.%lu",
+             (unsigned long)info.dwMajorVersion,
+             (unsigned long)info.dwMinorVersion,
+             (unsigned long)info.dwBuildNumber);
+    return val_string(version);
+#else
     struct utsname info;
     if (uname(&info) != 0) {
         char error_msg[256];
@@ -270,6 +352,7 @@ Value builtin_os_version(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     return val_string(info.release);
+#endif
 }
 
 // Get OS name (detailed, e.g., "Linux", "Darwin")
@@ -279,6 +362,9 @@ Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "os_name() expects no arguments"); return val_null();
     }
 
+#ifdef _WIN32
+    return val_string("Windows");
+#else
     struct utsname info;
     if (uname(&info) != 0) {
         char error_msg[256];
@@ -289,6 +375,7 @@ Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     return val_string(info.sysname);
+#endif
 }
 
 // Get temporary directory path
@@ -316,6 +403,14 @@ Value builtin_tmpdir(Value *args, int num_args, ExecutionContext *ctx) {
         return val_string(tmpdir);
     }
 
+#ifdef _WIN32
+    char temp_path[MAX_PATH + 1];
+    DWORD len = GetTempPathA(sizeof(temp_path), temp_path);
+    if (len > 0 && len < sizeof(temp_path)) {
+        return val_string(temp_path);
+    }
+#endif
+
     // Default to /tmp on Unix-like systems
     return val_string("/tmp");
 }
@@ -327,7 +422,9 @@ Value builtin_uptime(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "uptime() expects no arguments"); return val_null();
     }
 
-#ifdef __linux__
+#ifdef _WIN32
+    return val_i64((int64_t)(GetTickCount64() / 1000));
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         char error_msg[256];

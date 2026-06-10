@@ -1,19 +1,32 @@
 /*
- * Hemlock Interpreter - WASM Shim Layer
+ * Hemlock Interpreter - Feature Shim Layer
  *
- * Provides stub implementations for functions that are excluded from the
- * WASM build due to unavailable system libraries (libffi, OpenSSL).
+ * Provides stub implementations for functions that are excluded from
+ * builds lacking certain system libraries:
+ *   - __EMSCRIPTEN__ (WASM): no libffi/dlopen, no OpenSSL
+ *   - HEMLOCK_NO_FFI: build without libffi (e.g. MinGW/Windows)
+ *   - HEMLOCK_NO_OPENSSL: build without OpenSSL (e.g. MinGW/Windows)
  *
- * This file is ONLY compiled when targeting Emscripten (__EMSCRIPTEN__).
- * On native builds, the real implementations in ffi.c and crypto.c are used.
+ * On full native builds, the real implementations in ffi.c and crypto.c
+ * are used and this file compiles to nothing.
  */
 
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) || defined(HEMLOCK_NO_FFI) || defined(HEMLOCK_NO_OPENSSL)
 
 #include "internal.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef __EMSCRIPTEN__
+#define HML_SHIM_ENV_FFI "WebAssembly (no FFI support)"
+#define HML_SHIM_ENV_SSL "WebAssembly (no OpenSSL)"
+#else
+#define HML_SHIM_ENV_FFI "this build (no FFI support)"
+#define HML_SHIM_ENV_SSL "this build (no OpenSSL)"
+#endif
+
+#if defined(__EMSCRIPTEN__) || defined(HEMLOCK_NO_FFI)
 
 /* ========================================================================
  * FFI STUBS (replaces ffi.c)
@@ -34,21 +47,21 @@ void ffi_cleanup(void) {
 void execute_import_ffi(Stmt *stmt, ExecutionContext *ctx) {
     (void)stmt;
     /* In WASM, FFI imports are not available - warn but don't crash */
-    fprintf(stderr, "Warning: FFI import ignored in WebAssembly (no shared library support)\n");
+    fprintf(stderr, "Warning: FFI import ignored in " HML_SHIM_ENV_FFI "\n");
     (void)ctx;
 }
 
 void execute_extern_fn(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
     (void)stmt;
     (void)env;
-    runtime_error(ctx, "extern fn is not available in WebAssembly (no FFI support)");
+    runtime_error(ctx, "extern fn is not available in " HML_SHIM_ENV_FFI);
 }
 
 Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionContext *ctx) {
     (void)func;
     (void)args;
     (void)num_args;
-    runtime_error(ctx, "FFI calls are not available in WebAssembly");
+    runtime_error(ctx, "FFI calls are not available in " HML_SHIM_ENV_FFI);
     return val_null();
 }
 
@@ -67,7 +80,7 @@ FFICallback* ffi_create_callback(Function *fn, Type **param_types, int num_param
     (void)param_types;
     (void)num_params;
     (void)return_type;
-    runtime_error(ctx, "FFI callbacks are not available in WebAssembly");
+    runtime_error(ctx, "FFI callbacks are not available in " HML_SHIM_ENV_FFI);
     return NULL;
 }
 
@@ -91,7 +104,7 @@ FFIStructType* ffi_register_struct(const char *name, char **field_names,
     (void)field_names;
     (void)field_types;
     (void)num_fields;
-    fprintf(stderr, "Warning: FFI struct registration ignored in WebAssembly\n");
+    fprintf(stderr, "Warning: FFI struct registration ignored in " HML_SHIM_ENV_FFI "\n");
     return NULL;
 }
 
@@ -134,6 +147,10 @@ Type* type_from_string(const char *name) {
     return t;
 }
 
+#endif /* __EMSCRIPTEN__ || HEMLOCK_NO_FFI */
+
+#if defined(__EMSCRIPTEN__) || defined(HEMLOCK_NO_OPENSSL)
+
 /* ========================================================================
  * CRYPTO STUBS (replaces builtins/crypto.c)
  *
@@ -144,57 +161,59 @@ Type* type_from_string(const char *name) {
 Value builtin_sha1(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     (void)num_args;
-    runtime_error(ctx, "__sha1() is not available in WebAssembly (no OpenSSL)");
+    runtime_error(ctx, "__sha1() is not available in " HML_SHIM_ENV_SSL);
     return val_null();
 }
 
 Value builtin_sha256(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     (void)num_args;
-    runtime_error(ctx, "__sha256() is not available in WebAssembly (no OpenSSL)");
+    runtime_error(ctx, "__sha256() is not available in " HML_SHIM_ENV_SSL);
     return val_null();
 }
 
 Value builtin_sha512(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     (void)num_args;
-    runtime_error(ctx, "__sha512() is not available in WebAssembly (no OpenSSL)");
+    runtime_error(ctx, "__sha512() is not available in " HML_SHIM_ENV_SSL);
     return val_null();
 }
 
 Value builtin_md5(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     (void)num_args;
-    runtime_error(ctx, "__md5() is not available in WebAssembly (no OpenSSL)");
+    runtime_error(ctx, "__md5() is not available in " HML_SHIM_ENV_SSL);
     return val_null();
 }
 
 Value builtin_ecdsa_generate_key(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     (void)num_args;
-    runtime_error(ctx, "ecdsa_generate_key() is not available in WebAssembly (no OpenSSL)");
+    runtime_error(ctx, "ecdsa_generate_key() is not available in " HML_SHIM_ENV_SSL);
     return val_null();
 }
 
 Value builtin_ecdsa_free_key(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     (void)num_args;
-    runtime_error(ctx, "ecdsa_free_key() is not available in WebAssembly (no OpenSSL)");
+    runtime_error(ctx, "ecdsa_free_key() is not available in " HML_SHIM_ENV_SSL);
     return val_null();
 }
 
 Value builtin_ecdsa_sign(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     (void)num_args;
-    runtime_error(ctx, "ecdsa_sign() is not available in WebAssembly (no OpenSSL)");
+    runtime_error(ctx, "ecdsa_sign() is not available in " HML_SHIM_ENV_SSL);
     return val_null();
 }
 
 Value builtin_ecdsa_verify(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
     (void)num_args;
-    runtime_error(ctx, "ecdsa_verify() is not available in WebAssembly (no OpenSSL)");
+    runtime_error(ctx, "ecdsa_verify() is not available in " HML_SHIM_ENV_SSL);
     return val_null();
 }
 
-#endif /* __EMSCRIPTEN__ */
+#endif /* __EMSCRIPTEN__ || HEMLOCK_NO_OPENSSL */
+
+#endif /* __EMSCRIPTEN__ || HEMLOCK_NO_FFI || HEMLOCK_NO_OPENSSL */

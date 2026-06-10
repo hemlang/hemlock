@@ -1,7 +1,9 @@
 #include "internal.h"
 #include "hemlock_limits.h"
+#ifndef _WIN32
 #include <poll.h>
 #include <sys/mman.h>
+#endif
 
 // Structure to hold builtin function info
 typedef struct {

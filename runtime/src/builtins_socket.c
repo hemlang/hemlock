@@ -24,9 +24,10 @@ HmlValue hml_socket_create(HmlValue domain, HmlValue sock_type, HmlValue protoco
     int t = hml_to_i32(sock_type);
     int p = hml_to_i32(protocol);
 
+    hml_platform_init();  // WSAStartup on Windows; no-op elsewhere
     int fd = socket(d, t, p);
     if (fd < 0) {
-        hml_runtime_error("Failed to create socket: %s", strerror(errno));
+        hml_runtime_error("Failed to create socket: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
     // Push the socket above the standard fd range (0=stdin, 1=stdout,
@@ -40,6 +41,11 @@ HmlValue hml_socket_create(HmlValue domain, HmlValue sock_type, HmlValue protoco
     // socket — accept() starts returning ECONNABORTED then EBADF
     // forever, and the whole HTTP server is dead. The classic daemon
     // workaround: never let a real fd sit on 0/1/2.
+    //
+    // Not needed on Windows: SOCKETs live in their own handle space and
+    // never collide with the CRT's fd 0/1/2, and there is no exec() for
+    // FD_CLOEXEC to matter.
+#ifndef _WIN32
     if (fd < 3) {
         int safe_fd = fcntl(fd, F_DUPFD, 3);
         if (safe_fd >= 0) {
@@ -56,6 +62,7 @@ HmlValue hml_socket_create(HmlValue domain, HmlValue sock_type, HmlValue protoco
     // child also exits. Atomic SOCK_CLOEXEC at create time would be
     // tighter but is Linux-only since 2.6.27; fcntl works everywhere.
     fcntl(fd, F_SETFD, FD_CLOEXEC);
+#endif
 
     HmlSocket *sock = malloc(sizeof(HmlSocket));
     sock->fd = fd;
@@ -96,7 +103,7 @@ void hml_socket_bind(HmlValue socket_val, HmlValue address, HmlValue port) {
         strncpy(addr_un.sun_path, addr_str, sizeof(addr_un.sun_path) - 1);
 
         if (bind(sock->fd, (struct sockaddr *)&addr_un, sizeof(addr_un)) < 0) {
-            hml_runtime_error("bind() failed: %s", strerror(errno));
+            hml_runtime_error("bind() failed: %s", hml_sock_strerror(hml_sock_errno()));
         }
     } else if (sock->domain == AF_INET) {
         struct sockaddr_in addr;
@@ -111,7 +118,7 @@ void hml_socket_bind(HmlValue socket_val, HmlValue address, HmlValue port) {
         }
 
         if (bind(sock->fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-            hml_runtime_error("bind() failed: %s", strerror(errno));
+            hml_runtime_error("bind() failed: %s", hml_sock_strerror(hml_sock_errno()));
         }
     } else {
         hml_runtime_error("Unsupported socket domain for bind()");
@@ -135,7 +142,7 @@ void hml_socket_listen(HmlValue socket_val, HmlValue backlog) {
 
     int bl = hml_to_i32(backlog);
     if (listen(sock->fd, bl) < 0) {
-        hml_runtime_error("Failed to listen on socket: %s", strerror(errno));
+        hml_runtime_error("Failed to listen on socket: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
     sock->listening = 1;
@@ -161,9 +168,10 @@ HmlValue hml_socket_accept(HmlValue socket_val) {
 
     int client_fd = accept(sock->fd, (struct sockaddr *)&client_addr, &client_len);
     if (client_fd < 0) {
-        hml_runtime_error("Failed to accept connection: %s", strerror(errno));
+        hml_runtime_error("Failed to accept connection: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
+#ifndef _WIN32
     // Push above stdin/stdout/stderr — same reasoning as hml_socket_create.
     if (client_fd < 3) {
         int safe_fd = fcntl(client_fd, F_DUPFD, 3);
@@ -177,6 +185,7 @@ HmlValue hml_socket_accept(HmlValue socket_val) {
     // sockets must not leak to children either. accept4(SOCK_CLOEXEC)
     // would set this atomically on Linux but isn't portable.
     fcntl(client_fd, F_SETFD, FD_CLOEXEC);
+#endif
 
     HmlSocket *client_sock = malloc(sizeof(HmlSocket));
     client_sock->fd = client_fd;
@@ -231,7 +240,7 @@ void hml_socket_connect(HmlValue socket_val, HmlValue address, HmlValue port) {
 
         if (connect(sock->fd, (struct sockaddr *)&addr_un, sizeof(addr_un)) < 0) {
             hml_runtime_error("Failed to connect to unix socket '%s': %s",
-                    addr_str, strerror(errno));
+                    addr_str, hml_sock_strerror(hml_sock_errno()));
         }
     } else {
         struct hostent *host = gethostbyname(addr_str);
@@ -251,7 +260,7 @@ void hml_socket_connect(HmlValue socket_val, HmlValue address, HmlValue port) {
 
         if (connect(sock->fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
             hml_runtime_error("Failed to connect to %s:%d: %s",
-                    addr_str, p, strerror(errno));
+                    addr_str, p, hml_sock_strerror(hml_sock_errno()));
         }
     }
 
@@ -286,7 +295,7 @@ HmlValue hml_socket_send(HmlValue socket_val, HmlValue data) {
 
     ssize_t sent = send(sock->fd, buf, len, 0);
     if (sent < 0) {
-        hml_runtime_error("Failed to send data: %s", strerror(errno));
+        hml_runtime_error("Failed to send data: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
     return hml_val_i32((int32_t)sent);
@@ -312,7 +321,7 @@ HmlValue hml_socket_recv(HmlValue socket_val, HmlValue size) {
     ssize_t received = recv(sock->fd, buf, sz, 0);
     if (received < 0) {
         free(buf);
-        hml_runtime_error("Failed to receive data: %s", strerror(errno));
+        hml_runtime_error("Failed to receive data: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
     HmlBuffer *hbuf = calloc(1, sizeof(HmlBuffer));
@@ -389,7 +398,7 @@ HmlValue hml_socket_sendto(HmlValue socket_val, HmlValue address, HmlValue port,
 
     if (sent < 0) {
         fprintf(stderr, "Runtime error: Failed to sendto %s: %s\n",
-                addr_str, strerror(errno));
+                addr_str, hml_sock_strerror(hml_sock_errno()));
         exit(1);
     }
 
@@ -421,7 +430,7 @@ HmlValue hml_socket_recvfrom(HmlValue socket_val, HmlValue size) {
 
     if (received < 0) {
         free(buf);
-        hml_runtime_error("Failed to recvfrom: %s", strerror(errno));
+        hml_runtime_error("Failed to recvfrom: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
     // Create buffer for data
@@ -479,8 +488,8 @@ void hml_socket_setsockopt(HmlValue socket_val, HmlValue level, HmlValue option,
     int opt = hml_to_i32(option);
     int val = hml_to_i32(value);
 
-    if (setsockopt(sock->fd, lvl, opt, &val, sizeof(val)) < 0) {
-        hml_runtime_error("Failed to set socket option: %s", strerror(errno));
+    if (setsockopt(sock->fd, lvl, opt, (const void *)&val, sizeof(val)) < 0) {
+        hml_runtime_error("Failed to set socket option: %s", hml_sock_strerror(hml_sock_errno()));
     }
 }
 
@@ -497,17 +506,22 @@ void hml_socket_set_timeout(HmlValue socket_val, HmlValue seconds_val) {
 
     double seconds = hml_to_f64(seconds_val);
 
+#ifdef _WIN32
+    // Windows expects the timeout as a DWORD in milliseconds
+    DWORD timeout = (DWORD)(seconds * 1000.0);
+#else
     struct timeval timeout;
     timeout.tv_sec = (long)seconds;
     timeout.tv_usec = (long)((seconds - timeout.tv_sec) * 1000000);
+#endif
 
     // Set both recv and send timeouts
-    if (setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-        hml_runtime_error("Failed to set receive timeout: %s", strerror(errno));
+    if (setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, (const void *)&timeout, sizeof(timeout)) < 0) {
+        hml_runtime_error("Failed to set receive timeout: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
-    if (setsockopt(sock->fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0) {
-        hml_runtime_error("Failed to set send timeout: %s", strerror(errno));
+    if (setsockopt(sock->fd, SOL_SOCKET, SO_SNDTIMEO, (const void *)&timeout, sizeof(timeout)) < 0) {
+        hml_runtime_error("Failed to set send timeout: %s", hml_sock_strerror(hml_sock_errno()));
     }
 }
 
@@ -524,6 +538,12 @@ void hml_socket_set_nonblocking(HmlValue socket_val, HmlValue enable_val) {
 
     int enable = hml_to_bool(enable_val);
 
+#ifdef _WIN32
+    u_long nonblocking_mode = enable ? 1 : 0;
+    if (ioctlsocket(sock->fd, FIONBIO, &nonblocking_mode) != 0) {
+        hml_runtime_error("Failed to set socket flags: %s", hml_sock_strerror(hml_sock_errno()));
+    }
+#else
     int flags = fcntl(sock->fd, F_GETFL, 0);
     if (flags < 0) {
         hml_runtime_error("Failed to get socket flags: %s", strerror(errno));
@@ -538,6 +558,7 @@ void hml_socket_set_nonblocking(HmlValue socket_val, HmlValue enable_val) {
     if (fcntl(sock->fd, F_SETFL, flags) < 0) {
         hml_runtime_error("Failed to set socket flags: %s", strerror(errno));
     }
+#endif
 
     sock->nonblocking = enable;
 }
@@ -551,7 +572,7 @@ void hml_socket_close(HmlValue socket_val) {
 
     // Idempotent - safe to call multiple times
     if (!sock->closed && sock->fd >= 0) {
-        close(sock->fd);
+        hml_closesocket(sock->fd);
         sock->fd = -1;
         sock->closed = 1;
     }
@@ -607,6 +628,7 @@ HmlValue hml_dns_resolve(HmlValue hostname_val) {
     memcpy(hostname, str->data, str->length);
     hostname[str->length] = '\0';
 
+    hml_platform_init();  // WSAStartup on Windows; no-op elsewhere
     struct hostent *host = gethostbyname(hostname);
     free(hostname);
 

@@ -22,9 +22,12 @@ static void* task_thread_wrapper(void* arg) {
 
     // Block all signals in worker thread - only main thread should handle signals
     // This prevents signal handlers from corrupting task state during execution
+    // (POSIX only: Windows delivers console control events on its own thread)
+#ifndef _WIN32
     sigset_t set;
     sigfillset(&set);
     pthread_sigmask(SIG_BLOCK, &set, NULL);
+#endif
 
     // Set thread name if provided (must be called from within the thread for macOS)
     // Not available in Emscripten/WASM

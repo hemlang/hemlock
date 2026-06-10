@@ -6,6 +6,41 @@
  */
 
 #include "builtins_internal.h"
+
+#ifdef _WIN32
+// MinGW has no POSIX <regex.h>; regex builtins are stubbed below.
+
+#define HML_REGEX_STUB_1(name) \
+    HmlValue hml_##name(HmlValue a) { \
+        (void)a; \
+        hml_runtime_error(#name "() is not available on Windows (no POSIX regex)"); \
+        return hml_val_null(); \
+    }
+
+#define HML_REGEX_STUB_2(name) \
+    HmlValue hml_##name(HmlValue a, HmlValue b) { \
+        (void)a; (void)b; \
+        hml_runtime_error(#name "() is not available on Windows (no POSIX regex)"); \
+        return hml_val_null(); \
+    }
+
+#define HML_REGEX_STUB_3(name) \
+    HmlValue hml_##name(HmlValue a, HmlValue b, HmlValue c) { \
+        (void)a; (void)b; (void)c; \
+        hml_runtime_error(#name "() is not available on Windows (no POSIX regex)"); \
+        return hml_val_null(); \
+    }
+
+HML_REGEX_STUB_2(regex_compile)
+HML_REGEX_STUB_3(regex_test)
+HML_REGEX_STUB_3(regex_match)
+HML_REGEX_STUB_1(regex_free)
+HML_REGEX_STUB_2(regex_error)
+HML_REGEX_STUB_3(regex_replace)
+HML_REGEX_STUB_3(regex_replace_all)
+
+#else // !_WIN32
+
 #include <regex.h>
 
 // ========== REGEX CONSTANTS ==========
@@ -306,6 +341,8 @@ HmlValue hml_regex_replace_all(HmlValue preg, HmlValue text, HmlValue replacemen
     free(result);
     return result_val;
 }
+
+#endif // !_WIN32
 
 // ========== BUILTIN WRAPPERS ==========
 

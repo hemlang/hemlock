@@ -32,8 +32,22 @@
 #include <sys/types.h>
 #include <dirent.h>
 #include <fcntl.h>
+#elif defined(_WIN32)
+// Windows (MinGW-w64) build: winsock + platform shims from hemlock_platform.h,
+// plus the POSIX-ish headers MinGW does provide
+#include "hemlock_platform.h"
+#include <signal.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <dirent.h>
+#include <fcntl.h>
+#ifndef HEMLOCK_NO_FFI
+#include <ffi.h>
+#endif
 #else
 // Native build: full POSIX headers
+#include "hemlock_platform.h"
 #include <signal.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -42,7 +56,9 @@
 #include <sys/utsname.h>
 #include <dirent.h>
 #include <dlfcn.h>
+#ifndef HEMLOCK_NO_FFI
 #include <ffi.h>
+#endif
 #include <pwd.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -59,12 +75,14 @@
 #include <zlib.h>
 #endif
 
+#ifndef HEMLOCK_NO_OPENSSL
 // OpenSSL for cryptographic functions
 #include <openssl/sha.h>
 #include <openssl/md5.h>
 #include <openssl/evp.h>
 #include <openssl/ec.h>
 #include <openssl/err.h>
+#endif
 #endif // !__EMSCRIPTEN__
 
 #ifdef __linux__
@@ -97,7 +115,7 @@ extern __thread DeferEntry *g_defer_stack;
 extern int g_rand_seeded;
 
 // OpenSSL includes (for crypto module)
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && !defined(HEMLOCK_NO_OPENSSL)
 #include <openssl/ssl.h>
 #include <openssl/crypto.h>
 #endif

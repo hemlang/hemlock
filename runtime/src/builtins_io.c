@@ -588,6 +588,17 @@ HmlValue hml_platform(void) {
 HmlValue hml_arch(void) {
     return hml_val_string("wasm32");
 }
+#elif defined(_WIN32)
+HmlValue hml_arch(void) {
+    SYSTEM_INFO info;
+    GetNativeSystemInfo(&info);
+    switch (info.wProcessorArchitecture) {
+        case PROCESSOR_ARCHITECTURE_AMD64: return hml_val_string("x86_64");
+        case PROCESSOR_ARCHITECTURE_ARM64: return hml_val_string("aarch64");
+        case PROCESSOR_ARCHITECTURE_INTEL: return hml_val_string("i686");
+        default:                           return hml_val_string("unknown");
+    }
+}
 #else
 HmlValue hml_arch(void) {
     struct utsname info;
@@ -603,6 +614,7 @@ HmlValue hml_hostname(void) {
 #ifdef __EMSCRIPTEN__
     return hml_val_string("wasm-host");
 #else
+    hml_platform_init();  // gethostname needs WSAStartup on Windows
     char hostname[256];
     if (gethostname(hostname, sizeof(hostname)) != 0) {
         fprintf(stderr, "Error: hostname() failed: %s\n", strerror(errno));
@@ -619,6 +631,21 @@ HmlValue hml_username(void) {
         return hml_val_string(env_user);
     }
     return hml_val_string("wasm-user");
+#elif defined(_WIN32)
+    char username[256];
+    DWORD username_len = sizeof(username);
+    if (GetUserNameA(username, &username_len)) {
+        return hml_val_string(username);
+    }
+
+    // Fall back to environment variable
+    char *env_user = getenv("USERNAME");
+    if (env_user != NULL) {
+        return hml_val_string(env_user);
+    }
+
+    fprintf(stderr, "Error: username() failed: could not determine username\n");
+    exit(1);
 #else
     // Try getlogin_r first
     char username[256];
@@ -650,7 +677,12 @@ HmlValue hml_homedir(void) {
         return hml_val_string(home);
     }
 
-#ifndef __EMSCRIPTEN__
+#ifdef _WIN32
+    home = getenv("USERPROFILE");
+    if (home != NULL) {
+        return hml_val_string(home);
+    }
+#elif !defined(__EMSCRIPTEN__)
     // Fall back to getpwuid (not available in WASM)
     struct passwd *pw = getpwuid(getuid());
     if (pw != NULL && pw->pw_dir != NULL) {
@@ -664,6 +696,14 @@ HmlValue hml_homedir(void) {
 HmlValue hml_cpu_count(void) {
 #ifdef __EMSCRIPTEN__
     return hml_val_i32(1);  // WASM runs single-threaded
+#elif defined(_WIN32)
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    long nprocs = (long)info.dwNumberOfProcessors;
+    if (nprocs < 1) {
+        nprocs = 1;  // Default to 1 if we can't determine
+    }
+    return hml_val_i32((int32_t)nprocs);
 #else
     long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
     if (nprocs < 1) {
@@ -678,6 +718,14 @@ HmlValue hml_total_memory(void) {
     // Query actual WASM heap size via Emscripten
     size_t heap_size = (size_t)EM_ASM_INT({ return HEAP8.length; });
     return hml_val_i64((int64_t)heap_size);
+#elif defined(_WIN32)
+    MEMORYSTATUSEX status;
+    status.dwLength = sizeof(status);
+    if (!GlobalMemoryStatusEx(&status)) {
+        fprintf(stderr, "Error: total_memory() failed: error %lu\n", (unsigned long)GetLastError());
+        exit(1);
+    }
+    return hml_val_i64((int64_t)status.ullTotalPhys);
 #elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
@@ -715,6 +763,14 @@ HmlValue hml_free_memory(void) {
     int64_t free_mem = (int64_t)heap_size - (int64_t)used;
     if (free_mem < 0) free_mem = 0;
     return hml_val_i64(free_mem);
+#elif defined(_WIN32)
+    MEMORYSTATUSEX status;
+    status.dwLength = sizeof(status);
+    if (!GlobalMemoryStatusEx(&status)) {
+        fprintf(stderr, "Error: free_memory() failed: error %lu\n", (unsigned long)GetLastError());
+        exit(1);
+    }
+    return hml_val_i64((int64_t)status.ullAvailPhys);
 #elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
@@ -761,6 +817,27 @@ HmlValue hml_os_version(void) {
 HmlValue hml_os_name(void) {
     return hml_val_string("Emscripten");
 }
+#elif defined(_WIN32)
+HmlValue hml_os_version(void) {
+    // GetVersionEx lies on Win 8.1+ without a manifest, but it is the only
+    // stable public API; the value is informational anyway
+    OSVERSIONINFOA info;
+    info.dwOSVersionInfoSize = sizeof(info);
+    if (!GetVersionExA(&info)) {
+        fprintf(stderr, "Error: os_version() failed: error %lu\n", (unsigned long)GetLastError());
+        exit(1);
+    }
+    char version[64];
+    snprintf(version, sizeof(version), "%lu.%lu.%lu",
+             (unsigned long)info.dwMajorVersion,
+             (unsigned long)info.dwMinorVersion,
+             (unsigned long)info.dwBuildNumber);
+    return hml_val_string(version);
+}
+
+HmlValue hml_os_name(void) {
+    return hml_val_string("Windows");
+}
 #else
 HmlValue hml_os_version(void) {
     struct utsname info;
@@ -798,6 +875,13 @@ HmlValue hml_tmpdir(void) {
     if (tmpdir != NULL && tmpdir[0] != '\0') {
         return hml_val_string(tmpdir);
     }
+#ifdef _WIN32
+    char temp_path[MAX_PATH + 1];
+    DWORD len = GetTempPathA(sizeof(temp_path), temp_path);
+    if (len > 0 && len < sizeof(temp_path)) {
+        return hml_val_string(temp_path);
+    }
+#endif
     return hml_val_string("/tmp");
 #endif
 }
@@ -807,6 +891,8 @@ HmlValue hml_uptime(void) {
     // Return time since page load in seconds (via emscripten_get_now in ms)
     double ms = emscripten_get_now();
     return hml_val_i64((int64_t)(ms / 1000.0));
+#elif defined(_WIN32)
+    return hml_val_i64((int64_t)(GetTickCount64() / 1000));
 #elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
@@ -1140,7 +1226,7 @@ HmlValue hml_make_dir(HmlValue path, HmlValue mode) {
         dir_mode = (uint32_t)mode.as.as_i32;
     }
 
-    if (mkdir(path.as.as_string->data, dir_mode) != 0) {
+    if (hml_mkdir(path.as.as_string->data, dir_mode) != 0) {
         fprintf(stderr, "Error: Failed to create directory '%s': %s\n",
             path.as.as_string->data, strerror(errno));
         exit(1);
@@ -1219,7 +1305,11 @@ HmlValue hml_absolute_path(HmlValue path) {
     }
 
     char buffer[PATH_MAX];
+#ifdef _WIN32
+    if (_fullpath(buffer, path.as.as_string->data, sizeof(buffer)) == NULL) {
+#else
     if (realpath(path.as.as_string->data, buffer) == NULL) {
+#endif
         fprintf(stderr, "Error: Failed to resolve path '%s': %s\n",
             path.as.as_string->data, strerror(errno));
         exit(1);

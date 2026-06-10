@@ -387,6 +387,8 @@ HmlValue hml_builtin_adler32(HmlClosureEnv *env, HmlValue data) {
 
 // ========== CRYPTOGRAPHIC HASH FUNCTIONS (OpenSSL) ==========
 
+#ifndef HEMLOCK_NO_OPENSSL
+
 // Helper: Convert bytes to hexadecimal string
 static HmlValue bytes_to_hex_string(const unsigned char *bytes, size_t len) {
     static const char hex_chars[] = "0123456789abcdef";
@@ -471,6 +473,31 @@ HmlValue hml_hash_md5(HmlValue input) {
     return bytes_to_hex_string(hash, MD5_DIGEST_LENGTH);
 }
 
+#else /* HEMLOCK_NO_OPENSSL */
+
+// Stub implementations when OpenSSL is not available
+HmlValue hml_hash_sha1(HmlValue input) {
+    (void)input;
+    hml_runtime_error("sha1() is not available in this build (no OpenSSL)");
+}
+
+HmlValue hml_hash_sha256(HmlValue input) {
+    (void)input;
+    hml_runtime_error("sha256() is not available in this build (no OpenSSL)");
+}
+
+HmlValue hml_hash_sha512(HmlValue input) {
+    (void)input;
+    hml_runtime_error("sha512() is not available in this build (no OpenSSL)");
+}
+
+HmlValue hml_hash_md5(HmlValue input) {
+    (void)input;
+    hml_runtime_error("md5() is not available in this build (no OpenSSL)");
+}
+
+#endif /* HEMLOCK_NO_OPENSSL */
+
 // Builtin wrappers for function-as-value usage
 HmlValue hml_builtin_hash_sha1(HmlClosureEnv *env, HmlValue input) {
     (void)env;
@@ -493,6 +520,8 @@ HmlValue hml_builtin_hash_md5(HmlClosureEnv *env, HmlValue input) {
 }
 
 // ========== ECDSA OPERATIONS ==========
+
+#ifndef HEMLOCK_NO_OPENSSL
 
 // Helper: Create an object with keypair fields
 static HmlValue create_keypair_object(void *pkey) {
@@ -677,6 +706,31 @@ HmlValue hml_ecdsa_verify(HmlValue data_val, HmlValue sig_val, HmlValue keypair)
     // result == 1 means valid, 0 means invalid, < 0 means error
     return hml_val_bool(result == 1);
 }
+
+#else /* HEMLOCK_NO_OPENSSL */
+
+// Stub implementations when OpenSSL is not available
+HmlValue hml_ecdsa_generate_key(HmlValue curve_arg) {
+    (void)curve_arg;
+    hml_runtime_error("__ecdsa_generate_key() is not available in this build (no OpenSSL)");
+}
+
+HmlValue hml_ecdsa_free_key(HmlValue keypair) {
+    (void)keypair;
+    hml_runtime_error("__ecdsa_free_key() is not available in this build (no OpenSSL)");
+}
+
+HmlValue hml_ecdsa_sign(HmlValue data_val, HmlValue keypair) {
+    (void)data_val; (void)keypair;
+    hml_runtime_error("__ecdsa_sign() is not available in this build (no OpenSSL)");
+}
+
+HmlValue hml_ecdsa_verify(HmlValue data_val, HmlValue sig_val, HmlValue keypair) {
+    (void)data_val; (void)sig_val; (void)keypair;
+    hml_runtime_error("__ecdsa_verify() is not available in this build (no OpenSSL)");
+}
+
+#endif /* HEMLOCK_NO_OPENSSL */
 
 // Builtin wrappers for function-as-value usage
 HmlValue hml_builtin_ecdsa_generate_key(HmlClosureEnv *env, HmlValue curve) {

@@ -1,0 +1,61 @@
+name: Windows (MinGW) Cross Build
+
+on:
+  push:
+    branches: [ main, master, 'claude/**' ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  mingw-cross:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install MinGW-w64 toolchain and Wine
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-mingw-w64-x86-64 libz-mingw-w64-dev wine64
+
+    - name: Cross-compile hemlock.exe, hemlockc.exe, and runtime
+      run: make mingw
+
+    - name: Verify artifacts are self-contained
+      run: |
+        x86_64-w64-mingw32-objdump -p hemlock.exe | grep "DLL Name"
+        # Only Windows system DLLs may be required
+        ! x86_64-w64-mingw32-objdump -p hemlock.exe | grep -iE "libwinpthread|zlib1|libgcc"
+        ! x86_64-w64-mingw32-objdump -p hemlockc.exe | grep -iE "libwinpthread|zlib1|libgcc"
+
+    - name: Smoke-test interpreter under Wine
+      run: |
+        export WINEDEBUG=-all
+        cat > /tmp/smoke.hml << 'EOF'
+        import { platform } from "@stdlib/os";
+        import { stringify } from "@stdlib/json";
+        async fn sq(n: i32): i32 { return n * n; }
+        let t = spawn(sq, 9);
+        print("async:", await t);
+        let ch = channel(1); ch.send(7); print("chan:", ch.recv());
+        let b = buffer(8); ptr_write_i32(b, 41); print("buf:", ptr_read_i32(b) + 1);
+        print("plat:", platform());
+        print("json:", stringify({ ok: true }));
+        EOF
+        wine ./hemlock.exe /tmp/smoke.hml | tee /tmp/smoke.out
+        grep -q "async: 81" /tmp/smoke.out
+        grep -q "plat: windows" /tmp/smoke.out
+
+    - name: Smoke-test compiled program under Wine
+      run: |
+        export WINEDEBUG=-all
+        cat > /tmp/csm.hml << 'EOF'
+        async fn work(n: i32): i32 { return n * 3; }
+        let t = spawn(work, 14);
+        print("compiled:", await t);
+        EOF
+        wine ./hemlockc.exe -c /tmp/csm.hml
+        x86_64-w64-mingw32-gcc-posix -O1 csm.c -Iruntime/include -Iinclude \
+          -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 \
+          runtime/build-mingw/libhemlock_runtime.a -static -lm -lws2_32 -lz -o csm.exe
+        wine ./csm.exe | grep -q "compiled: 42"

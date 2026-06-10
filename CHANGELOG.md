@@ -5,6 +5,12 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Windows (MinGW-w64) support.** Both `hemlock` and `hemlockc` (plus `libhemlock_runtime.a`) now build for Windows, cross-compiled from Linux/macOS (`make mingw`, requires `gcc-mingw-w64-x86-64` + `libz-mingw-w64-dev`) or natively under MSYS2 (auto-detected). The binaries are self-contained (only system DLLs). What works on Windows: the full language core, async/`spawn`/channels/atomics (via winpthreads), TCP/UDP/AF_UNIX sockets and DNS (via winsock2/afunix), file/directory I/O (binary mode, no CRLF translation), `mmap` (emulated over `CreateFileMapping`/`VirtualAlloc`), zlib compression, and the stdlib built on those. POSIX-only features throw a clear runtime error: `fork`/`exec`/`posix_spawn`/`kill`/uid family, POSIX regex, and — because the libraries aren't packaged for MinGW cross builds — FFI (`HEMLOCK_NO_FFI`) and OpenSSL-backed hashes/ECDSA (`HEMLOCK_NO_OPENSSL`). New platform layer: `include/hemlock_platform.h` + `include/hemlock_compat.h` + `src/shared/platform_win32.c` (dlopen→`LoadLibrary`, `poll`→`WSAPoll`, `realpath`/`strndup`/`getline`/`mkstemps`/`setenv` shims). Module resolution understands `C:/`-style absolute paths. CI: `.github/workflows/windows-mingw.yml` cross-builds and smoke-tests both backends under Wine. Docs: `docs/advanced/windows.md`. POSIX builds are unchanged (all platform differences live behind `#ifdef _WIN32` / feature gates).
+
 ## [2.7.0] - 2026-06-10
 
 Language-ergonomics and parity batch driven by feedback from production

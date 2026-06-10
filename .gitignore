@@ -22,6 +22,8 @@ hemlock.exe
 build/
 build-release/
 build-static/
+build-mingw/
+runtime/build-mingw/
 bin/
 obj/
 out/

@@ -98,6 +98,9 @@ brew install libffi openssl@3 libwebsockets
 sudo apt-get install libffi-dev libssl-dev libwebsockets-dev
 ```
 
+**Windows:** build natively under MSYS2 or cross-compile from Linux with
+`make mingw` — see [docs/advanced/windows.md](docs/advanced/windows.md).
+
 ### Compile and Test
 
 ```bash

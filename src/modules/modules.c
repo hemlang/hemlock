@@ -1,5 +1,6 @@
 #define _XOPEN_SOURCE 500
 #include "modules.h"
+#include "hemlock_compat.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -113,9 +114,23 @@ void module_cache_map_free(ModuleCacheMap *map) {
 
 // ========== PATH SECURITY ==========
 
+// Absolute-path test that understands Windows paths (C:/, C:\, \\server)
+// in addition to POSIX ones
+static int path_is_absolute(const char *path) {
+    if (path[0] == '/') return 1;
+#ifdef _WIN32
+    if (path[0] == '\\') return 1;
+    if (((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z'))
+        && path[1] == ':' && (path[2] == '/' || path[2] == '\\')) {
+        return 1;
+    }
+#endif
+    return 0;
+}
+
 static int is_safe_subpath(const char *path) {
     if (path == NULL) return 0;
-    if (path[0] == '\0' || path[0] == '/') return 0;
+    if (path[0] == '\0' || path_is_absolute(path)) return 0;
 
     const char *p = path;
     while (*p) {
@@ -177,6 +192,10 @@ static char* find_stdlib_path(void) {
             free(real);
             found_exe = 1;
         }
+    }
+#elif defined(_WIN32)
+    if (hml_get_executable_path(exe_path, sizeof(exe_path))) {
+        found_exe = 1;
     }
 #else
     ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
@@ -258,7 +277,7 @@ static char* find_hem_modules(const char *start_path) {
 }
 
 static int is_package_import(const char *import_path) {
-    if (import_path[0] == '.' || import_path[0] == '/') {
+    if (import_path[0] == '.' || path_is_absolute(import_path)) {
         return 0;
     }
 
@@ -363,7 +382,7 @@ char* resolve_module_path(ModuleResolution *resolver, const char *importer_path,
             fprintf(stderr, "Error: Module path '%s' resolves outside stdlib directory\n", import_path);
             return NULL;
         }
-    } else if (import_path[0] == '/') {
+    } else if (path_is_absolute(import_path)) {
         strncpy(resolved, import_path, PATH_MAX - 1);
         resolved[PATH_MAX - 1] = '\0';
     } else if (is_package_import(import_path)) {

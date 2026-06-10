@@ -24,6 +24,34 @@
 
 // ========== COMMAND EXECUTION ==========
 
+#ifdef _WIN32
+// Windows has no fork()/exec() process model and no POSIX uids or signals.
+// These builtins fail at runtime so compiled programs still link; process
+// spawning on Windows is a future enhancement (CreateProcess-based).
+
+#define HML_WIN32_PROCESS_STUB_0(name, label) \
+    HmlValue hml_##name(void) { \
+        hml_runtime_error(label " is not supported on Windows"); \
+    }
+
+#define HML_WIN32_PROCESS_STUB_1(name, label) \
+    HmlValue hml_##name(HmlValue a) { \
+        (void)a; \
+        hml_runtime_error(label " is not supported on Windows"); \
+    }
+
+#define HML_WIN32_PROCESS_STUB_2(name, label) \
+    HmlValue hml_##name(HmlValue a, HmlValue b) { \
+        (void)a; (void)b; \
+        hml_runtime_error(label " is not supported on Windows"); \
+    }
+
+HML_WIN32_PROCESS_STUB_1(exec, "exec()")
+HML_WIN32_PROCESS_STUB_2(exec_argv, "exec_argv()")
+HML_WIN32_PROCESS_STUB_2(exec_with_args, "exec()")
+
+#else // !_WIN32
+
 // SECURITY WARNING: exec() uses popen() which passes commands through a shell.
 // This is vulnerable to command injection if the command string contains untrusted input.
 // For safe command execution, use exec_argv() instead which bypasses the shell.
@@ -652,6 +680,8 @@ HmlValue hml_exec_with_args(HmlValue command, HmlValue args_array) {
     return result;
 }
 
+#endif // !_WIN32
+
 // Math operations moved to builtins_math.c
 
 // Time builtin wrappers moved to builtins_time.c
@@ -695,6 +725,13 @@ HmlValue hml_builtin_exec_argv(HmlClosureEnv *env, HmlValue args_array, HmlValue
 }
 
 // Process ID builtins
+#ifdef _WIN32
+HML_WIN32_PROCESS_STUB_0(getppid, "getppid()")
+HML_WIN32_PROCESS_STUB_0(getuid, "getuid()")
+HML_WIN32_PROCESS_STUB_0(geteuid, "geteuid()")
+HML_WIN32_PROCESS_STUB_0(getgid, "getgid()")
+HML_WIN32_PROCESS_STUB_0(getegid, "getegid()")
+#else
 HmlValue hml_getppid(void) {
     return hml_val_i32((int32_t)getppid());
 }
@@ -714,6 +751,7 @@ HmlValue hml_getgid(void) {
 HmlValue hml_getegid(void) {
     return hml_val_i32((int32_t)getegid());
 }
+#endif // !_WIN32
 
 HmlValue hml_unsetenv(HmlValue name) {
     if (name.type != HML_VAL_STRING || !name.as.as_string) {
@@ -723,6 +761,12 @@ HmlValue hml_unsetenv(HmlValue name) {
     return hml_val_null();
 }
 
+#ifdef _WIN32
+HML_WIN32_PROCESS_STUB_2(kill, "kill()")
+HML_WIN32_PROCESS_STUB_0(fork, "fork()")
+HML_WIN32_PROCESS_STUB_0(wait, "wait()")
+HML_WIN32_PROCESS_STUB_2(waitpid, "waitpid()")
+#else
 HmlValue hml_kill(HmlValue pid, HmlValue sig) {
     int p = hml_to_i32(pid);
     int s = hml_to_i32(sig);
@@ -758,6 +802,7 @@ HmlValue hml_waitpid(HmlValue pid, HmlValue options) {
     hml_object_set_field(obj, "status", hml_val_i32(status));
     return obj;
 }
+#endif // !_WIN32
 
 // posix_spawn(argv, opts?) -> { pid }
 // Detached spawn primitive backed by posix_spawnp(3).
@@ -769,6 +814,10 @@ HmlValue hml_waitpid(HmlValue pid, HmlValue options) {
 //   stderr: i32 fd to dup2 onto STDERR_FILENO in child (default: inherit)
 //   cwd:    string; chdir before exec (requires glibc 2.29+ / macOS 10.15+)
 //   setsid: bool; child becomes session leader (requires POSIX_SPAWN_SETSID)
+#ifdef _WIN32
+// Windows has no posix_spawn family; stub that fails at runtime.
+HML_WIN32_PROCESS_STUB_2(posix_spawn, "posix_spawn()")
+#else
 extern char **environ;
 
 // Feature gates: hemlock targets modern systems but we still gate so a
@@ -958,6 +1007,7 @@ HmlValue hml_posix_spawn(HmlValue argv_val, HmlValue opts_val) {
     hml_object_set_field(obj, "pid", hml_val_i32((int32_t)pid));
     return obj;
 }
+#endif // !_WIN32
 
 void hml_abort(void) {
     abort();
@@ -1128,6 +1178,14 @@ HmlValue hml_signal(HmlValue signum, HmlValue handler) {
     hml_retain(&g_signal_handlers[sig]);
 
     // Install or reset C signal handler
+#ifdef _WIN32
+    // Windows has no sigaction; the C runtime's signal() covers the
+    // small set of signals it supports (SIGINT, SIGTERM, SIGABRT, ...)
+    if (signal(sig, handler.type != HML_VAL_NULL ? hml_c_signal_handler : SIG_DFL) == SIG_ERR) {
+        hml_runtime_error("signal() failed to %s handler for signal %d: %s",
+                          handler.type != HML_VAL_NULL ? "install" : "reset", sig, strerror(errno));
+    }
+#else
     struct sigaction sa;
     if (handler.type != HML_VAL_NULL) {
         sa.sa_handler = hml_c_signal_handler;
@@ -1144,6 +1202,7 @@ HmlValue hml_signal(HmlValue signum, HmlValue handler) {
             hml_runtime_error("signal() failed to reset signal %d: %s", sig, strerror(errno));
         }
     }
+#endif
 
     return prev;
 }
@@ -1173,7 +1232,11 @@ HmlValue hml_pipe(void) {
     }
 
     int fds[2];
+#ifdef _WIN32
+    if (_pipe(fds, 65536, _O_BINARY) != 0) {
+#else
     if (pipe(fds) != 0) {
+#endif
         hml_runtime_error("pipe() failed: %s", strerror(errno));
     }
 

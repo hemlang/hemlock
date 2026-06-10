@@ -13,9 +13,11 @@
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
+#ifndef _WIN32
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#endif
 #include <errno.h>
 
 // ============================================================================
@@ -370,6 +372,15 @@ int lsp_server_run_stdio(LSPServer *server) {
     return 0;
 }
 
+#ifdef _WIN32
+// The TCP transport reads/writes the socket through the POSIX fd API, which
+// Windows sockets do not support. The standard stdio transport works.
+int lsp_server_run_tcp(LSPServer *server, int port) {
+    (void)server;
+    fprintf(stderr, "LSP: TCP mode (port %d) is not supported on Windows; use stdio mode\n", port);
+    return 1;
+}
+#else
 int lsp_server_run_tcp(LSPServer *server, int port) {
     // Create socket
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -456,3 +467,4 @@ int lsp_server_run_tcp(LSPServer *server, int port) {
     close(listen_fd);
     return 0;
 }
+#endif // !_WIN32
