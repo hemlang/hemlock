@@ -39,17 +39,17 @@ const char* get_value_type_name(Value val) {
     }
 }
 
-// Helper to add two values (for increment operations)
+// Helper to add two values (for increment operations).
+// Computes in 64-bit and truncates to the operand's own type, so i64 values
+// above 32 bits increment correctly (previously truncated through int32) and
+// narrow types wrap at their own width (u16 65535++ -> 0).
 Value value_add_one(Value val, ExecutionContext *ctx) {
     if (is_float(val)) {
         double v = value_to_float(val);
         return (val.type == VAL_F32) ? val_f32((float)(v + 1.0)) : val_f64(v + 1.0);
     } else if (is_integer(val)) {
-        // Use 64-bit arithmetic so i64/u64 values are not truncated;
-        // promote_value wraps back to the operand's type
-        int64_t v = value_to_int64(val);
-        ValueType result_type = val.type;
-        return promote_value(val_i64(v + 1), result_type);
+        uint64_t v = (uint64_t)value_to_int64(val);
+        return promote_value(val_i64((int64_t)(v + 1)), val.type);
     } else {
         runtime_error(ctx, "Can only increment numeric values");
         return val_null();  // Unreachable
@@ -62,11 +62,8 @@ Value value_sub_one(Value val, ExecutionContext *ctx) {
         double v = value_to_float(val);
         return (val.type == VAL_F32) ? val_f32((float)(v - 1.0)) : val_f64(v - 1.0);
     } else if (is_integer(val)) {
-        // Use 64-bit arithmetic so i64/u64 values are not truncated;
-        // promote_value wraps back to the operand's type
-        int64_t v = value_to_int64(val);
-        ValueType result_type = val.type;
-        return promote_value(val_i64(v - 1), result_type);
+        uint64_t v = (uint64_t)value_to_int64(val);
+        return promote_value(val_i64((int64_t)(v - 1)), val.type);
     } else {
         runtime_error(ctx, "Can only decrement numeric values");
         return val_null();  // Unreachable

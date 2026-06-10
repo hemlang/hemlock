@@ -34,6 +34,14 @@ HmlValue hml_string_byte_length(HmlValue str) {
     return hml_val_i32(str.as.as_string->length);
 }
 
+// Compute (and cache) the codepoint length of a string
+static int hml_string_codepoint_length(HmlString *s) {
+    if (s->char_length < 0) {
+        s->char_length = hml_utf8_count_codepoints(s->data, s->length);
+    }
+    return s->char_length;
+}
+
 HmlValue hml_string_char_at(HmlValue str, HmlValue index) {
     if (str.type != HML_VAL_STRING || !str.as.as_string) {
         return hml_val_null();
@@ -41,15 +49,10 @@ HmlValue hml_string_char_at(HmlValue str, HmlValue index) {
     HmlString *s = str.as.as_string;
     int32_t idx = hml_to_i32(index);
 
-    // Compute character length if not cached
-    int char_len = s->char_length;
-    if (char_len < 0) {
-        char_len = hml_utf8_count_codepoints(s->data, s->length);
-        s->char_length = char_len;
-    }
+    int char_len = hml_string_codepoint_length(s);
 
     if (idx < 0 || idx >= char_len) {
-        return hml_val_null();
+        hml_runtime_error("char_at() index %d out of bounds (length=%d)", idx, char_len);
     }
 
     // Find byte offset of the character and decode the codepoint
@@ -66,29 +69,37 @@ HmlValue hml_string_byte_at(HmlValue str, HmlValue index) {
     HmlString *s = str.as.as_string;
     int32_t idx = hml_to_i32(index);
     if (idx < 0 || idx >= s->length) {
-        return hml_val_null();
+        hml_runtime_error("byte_at() index %d out of bounds (byte_length=%d)", idx, s->length);
     }
     return hml_val_u8((uint8_t)s->data[idx]);
 }
 
+// substr/slice operate on codepoint positions, not bytes (mirrors the
+// interpreter). Out-of-range positions are clamped.
 HmlValue hml_string_substr(HmlValue str, HmlValue start, HmlValue length) {
     if (str.type != HML_VAL_STRING || !str.as.as_string) {
         return hml_val_string("");
     }
     HmlString *s = str.as.as_string;
+    int char_len = hml_string_codepoint_length(s);
     int32_t start_idx = hml_to_i32(start);
     int32_t len = hml_to_i32(length);
 
-    // Clamp bounds
+    // Clamp bounds (codepoint positions)
     if (start_idx < 0) start_idx = 0;
-    if (start_idx >= s->length) return hml_val_string("");
+    if (start_idx >= char_len) return hml_val_string("");
     if (len < 0) len = 0;
-    if (start_idx + len > s->length) len = s->length - start_idx;
+    if (start_idx + len > char_len) len = char_len - start_idx;
 
-    char *result = malloc(len + 1);
-    memcpy(result, s->data + start_idx, len);
-    result[len] = '\0';
-    return hml_val_string_owned(result, len, len + 1);
+    int start_byte = hml_utf8_byte_offset(s->data, s->length, start_idx);
+    int end_byte = hml_utf8_byte_offset(s->data, s->length, start_idx + len);
+    int byte_len = end_byte - start_byte;
+
+    char *result = malloc(byte_len + 1);
+    if (!result) hml_runtime_error("substr() out of memory");
+    memcpy(result, s->data + start_byte, byte_len);
+    result[byte_len] = '\0';
+    return hml_val_string_owned(result, byte_len, byte_len + 1);
 }
 
 HmlValue hml_string_slice(HmlValue str, HmlValue start, HmlValue end) {
@@ -96,20 +107,25 @@ HmlValue hml_string_slice(HmlValue str, HmlValue start, HmlValue end) {
         return hml_val_string("");
     }
     HmlString *s = str.as.as_string;
+    int char_len = hml_string_codepoint_length(s);
     int32_t start_idx = hml_to_i32(start);
     int32_t end_idx = hml_to_i32(end);
 
-    // Clamp bounds
+    // Clamp bounds (codepoint positions)
     if (start_idx < 0) start_idx = 0;
-    if (start_idx > s->length) start_idx = s->length;
+    if (start_idx > char_len) start_idx = char_len;
     if (end_idx < start_idx) end_idx = start_idx;
-    if (end_idx > s->length) end_idx = s->length;
+    if (end_idx > char_len) end_idx = char_len;
 
-    int len = end_idx - start_idx;
-    char *result = malloc(len + 1);
-    memcpy(result, s->data + start_idx, len);
-    result[len] = '\0';
-    return hml_val_string_owned(result, len, len + 1);
+    int start_byte = hml_utf8_byte_offset(s->data, s->length, start_idx);
+    int end_byte = hml_utf8_byte_offset(s->data, s->length, end_idx);
+    int byte_len = end_byte - start_byte;
+
+    char *result = malloc(byte_len + 1);
+    if (!result) hml_runtime_error("slice() out of memory");
+    memcpy(result, s->data + start_byte, byte_len);
+    result[byte_len] = '\0';
+    return hml_val_string_owned(result, byte_len, byte_len + 1);
 }
 
 HmlValue hml_string_find(HmlValue str, HmlValue needle) {
@@ -602,7 +618,19 @@ HmlValue hml_string_concat_many(HmlValue arr) {
 
 // String indexing (returns char at position as rune)
 HmlValue hml_string_index(HmlValue str, HmlValue index) {
-    return hml_string_char_at(str, index);
+    if (str.type != HML_VAL_STRING || !str.as.as_string) {
+        return hml_val_null();
+    }
+    HmlString *s = str.as.as_string;
+    int32_t idx = hml_to_i32(index);
+    int char_len = hml_string_codepoint_length(s);
+
+    if (idx < 0 || idx >= char_len) {
+        hml_runtime_error("String index %d out of bounds (length=%d)", idx, char_len);
+    }
+
+    int byte_pos = hml_utf8_byte_offset(s->data, s->length, idx);
+    return hml_val_rune(hml_utf8_decode_at(s->data, byte_pos));
 }
 
 // ========== UTF-8 HELPERS ==========
@@ -638,7 +666,7 @@ void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue val) {
     HmlString *s = str.as.as_string;
 
     if (idx < 0 || idx >= s->length) {
-        hml_runtime_error("String index %d out of bounds", idx);
+        hml_runtime_error("String index %d out of bounds (length %d)", idx, s->length);
     }
 
     // Calculate bytes needed for new rune and current character at position

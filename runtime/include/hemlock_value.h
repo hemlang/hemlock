@@ -652,20 +652,24 @@ static inline void hml_array_set_i32_fast(HmlArray *arr, int32_t index, HmlValue
         arr->elements[index] = val;
         return;
     }
-    // Bounds error
-    hml_runtime_error("Array index %d out of bounds (length %d)", index, arr->length);
+    // Out-of-range write: delegate to the slow path, which grows the array
+    // (filling with nulls) for index >= length and errors on negative index,
+    // matching the interpreter.
+    extern void hml_array_set(HmlValue arr, HmlValue index, HmlValue val);
+    hml_array_set((HmlValue){ .type = HML_VAL_ARRAY, .as.as_array = arr },
+                  (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = index }, val);
 }
 
 // Fast path: Increment i32 variable in-place
-// Returns the new value
+// Returns the new value (wraps at INT32_MAX; computed unsigned to avoid UB)
 static inline HmlValue hml_i32_inc(HmlValue val) {
-    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = val.as.as_i32 + 1 };
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = (int32_t)((uint32_t)val.as.as_i32 + 1u) };
 }
 
 // Fast path: Decrement i32 variable in-place
-// Returns the new value
+// Returns the new value (wraps at INT32_MIN; computed unsigned to avoid UB)
 static inline HmlValue hml_i32_dec(HmlValue val) {
-    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = val.as.as_i32 - 1 };
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = (int32_t)((uint32_t)val.as.as_i32 - 1u) };
 }
 
 #endif // HEMLOCK_VALUE_H

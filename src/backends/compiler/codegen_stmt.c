@@ -231,6 +231,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             } else {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_null();", safe_name);
             }
+            // If this local is captured by a closure/defer somewhere in the
+            // function, seed the shared environment (the source of truth for
+            // captured locals) with its initial value
+            codegen_sync_captured_var(ctx, stmt->as.let.name, safe_name);
             free(safe_name);
             break;
         }
@@ -814,25 +818,11 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             char *idx_var = codegen_temp(ctx);
             codegen_writeln(ctx, "int32_t %s = 0;", idx_var);
 
-            // Get the length based on type
-            char *len_var = codegen_temp(ctx);
-            codegen_writeln(ctx, "int32_t %s;", len_var);
-            codegen_writeln(ctx, "if (%s.type == HML_VAL_OBJECT) {", iter_val);
-            codegen_indent_inc(ctx);
-            codegen_writeln(ctx, "%s = hml_object_num_fields(%s);", len_var, iter_val);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", iter_val);
-            codegen_indent_inc(ctx);
-            // Use UTF-8 character count for strings
-            codegen_writeln(ctx, "%s = hml_string_char_count(%s).as.as_i32;", len_var, iter_val);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "} else {");
-            codegen_indent_inc(ctx);
-            codegen_writeln(ctx, "%s = hml_array_length(%s).as.as_i32;", len_var, iter_val);
-            codegen_indent_dec(ctx);
-            codegen_writeln(ctx, "}");
-
-            codegen_writeln(ctx, "while (%s < %s) {", idx_var, len_var);
+            // The element count is re-evaluated every iteration so mutation
+            // of the iterable during the loop is observed (the interpreter
+            // checks the live length each pass). Cheap: array/object lengths
+            // are field reads and strings cache their codepoint count.
+            codegen_writeln(ctx, "while (%s < hml_iter_length(%s)) {", idx_var, iter_val);
             codegen_indent_inc(ctx);
 
             // Create key and value variables based on iterable type
@@ -899,6 +889,12 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
 
+            // Keep the shared environment current for captured loop variables
+            if (stmt->as.for_in.key_var) {
+                codegen_sync_captured_var(ctx, stmt->as.for_in.key_var, safe_key_var);
+            }
+            codegen_sync_captured_var(ctx, stmt->as.for_in.value_var, safe_value_var);
+
             // Generate body
             codegen_push_loop_body(ctx);
             codegen_stmt(ctx, stmt->as.for_in.body);
@@ -949,7 +945,6 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             ctx->loop_depth--;
 
             free(iter_val);
-            free(len_var);
             free(idx_var);
             break;
         }
@@ -1007,14 +1002,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             const char *finally_label = codegen_get_finally_label(ctx);
             if (finally_label) {
                 // Inside try-finally: save return value and goto finally.
-                // Pop every exception context pushed by enclosing try-bodies
-                // between this return and the target finally (the natural
-                // pops after the try-bodies are skipped by the goto). The
-                // count is exactly ctx->try_body_depth at this point: the
-                // target try-finally pushes its context BEFORE we increment
-                // try_body_depth for its try-body, so its own contribution
-                // is included.
-                codegen_emit_return_try_pops(ctx);
+                // The return expression must be evaluated BEFORE popping the
+                // exception contexts: if it throws (e.g. `return f();` where
+                // f throws), the exception must land in this try's handler so
+                // the finally block still runs.
                 const char *ret_var = codegen_get_return_value_var(ctx);
                 const char *has_ret = codegen_get_has_return_var(ctx);
                 if (stmt->as.return_stmt.value) {
@@ -1024,6 +1015,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 } else {
                     codegen_writeln(ctx, "%s = hml_val_null();", ret_var);
                 }
+                // Pop every exception context pushed by enclosing try-bodies
+                // between this return and the target finally (the natural
+                // pops after the try-bodies are skipped by the goto). The
+                // count is exactly ctx->try_body_depth at this point: the
+                // target try-finally pushes its context BEFORE we increment
+                // try_body_depth for its try-body, so its own contribution
+                // is included.
+                codegen_emit_return_try_pops(ctx);
                 codegen_writeln(ctx, "%s = 1;", has_ret);
                 codegen_writeln(ctx, "goto %s;", finally_label);
             } else if (ctx->defer_stack) {
@@ -1042,10 +1041,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_emit_return_try_pops(ctx);
                 // Execute all defers in LIFO order
                 codegen_defer_execute_all(ctx);
-                // Execute any runtime defers (from loops) - only if this function has defers
-                if (ctx->has_defers) {
-                    codegen_writeln(ctx, "hml_defer_execute_all();");
-                }
+                // Pop this function's defer unwind context and run its defers
+                codegen_emit_defer_exit(ctx);
                 // Release body-local variables
                 codegen_emit_local_cleanup(ctx, NULL);
                 if (ctx->stack_check) {
@@ -1152,10 +1149,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     // this stack frame and a later throw will longjmp into
                     // a defunct frame).
                     codegen_emit_return_try_pops(ctx);
-                    // Execute any runtime defers (from loops) - only if this function has defers
-                    if (ctx->has_defers) {
-                        codegen_writeln(ctx, "hml_defer_execute_all();");
-                    }
+                    // Pop this function's defer unwind context and run its defers
+                    codegen_emit_defer_exit(ctx);
                     // Release body-local variables
                     codegen_emit_local_cleanup(ctx, NULL);
                     if (ctx->stack_check) {
@@ -1167,10 +1162,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     // Pop exception contexts pushed by enclosing try-bodies
                     // before returning.
                     codegen_emit_return_try_pops(ctx);
-                    // Execute any runtime defers (from loops) - only if this function has defers
-                    if (ctx->has_defers) {
-                        codegen_writeln(ctx, "hml_defer_execute_all();");
-                    }
+                    // Pop this function's defer unwind context and run its defers
+                    codegen_emit_defer_exit(ctx);
                     // Release body-local variables
                     codegen_emit_local_cleanup(ctx, NULL);
                     if (ctx->stack_check) {
@@ -1377,10 +1370,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     // still enclose this finally (this try's own context was
                     // already popped at the return site before the goto).
                     codegen_emit_return_try_pops(ctx);
-                    // Execute any runtime defers (from loops) - only if this function has defers
-                    if (ctx->has_defers) {
-                        codegen_writeln(ctx, "hml_defer_execute_all();");
-                    }
+                    // Pop this function's defer unwind context and run its defers
+                    codegen_emit_defer_exit(ctx);
                     // Release body-local variables before returning
                     codegen_emit_local_cleanup(ctx, NULL);
                     if (ctx->stack_check) {
@@ -1525,57 +1516,41 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
         case STMT_DEFER: {
             ctx->has_defers = 1;  // Mark that this function has defers
-            // Always use runtime defer stack - this correctly handles:
-            // - Defers inside loops
-            // - Defers inside conditionals (if/else branches)
-            // - Nested control flow
-            if (stmt->as.defer_stmt.call->type == EXPR_CALL) {
-                // Get the function being called and its arguments
-                Expr *call_expr = stmt->as.defer_stmt.call;
-                char *fn_val = codegen_expr(ctx, call_expr->as.call.func);
-                int num_args = call_expr->as.call.num_args;
-
-                if (num_args == 0) {
-                    // No arguments - use simpler push
-                    codegen_writeln(ctx, "hml_defer_push_call(%s);", fn_val);
-                    codegen_writeln(ctx, "hml_release(&%s);", fn_val);
-                } else {
-                    // Has arguments - evaluate them and push with args
-                    char **arg_vals = malloc(sizeof(char*) * num_args);
-                    if (!arg_vals) {
-                        codegen_error(ctx, 0, "Memory allocation failed for defer call arguments");
-                        free(fn_val);
-                        break;
-                    }
-                    for (int i = 0; i < num_args; i++) {
-                        arg_vals[i] = codegen_expr(ctx, call_expr->as.call.args[i]);
-                    }
-                    // Build array of arguments
-                    codegen_writeln(ctx, "{");
-                    ctx->indent++;
-                    codegen_writeln(ctx, "HmlValue _defer_args[%d];", num_args);
-                    for (int i = 0; i < num_args; i++) {
-                        codegen_writeln(ctx, "_defer_args[%d] = %s;", i, arg_vals[i]);
-                    }
-                    codegen_writeln(ctx, "hml_defer_push_call_with_args(%s, _defer_args, %d);", fn_val, num_args);
-                    // Release the values (runtime defer has its own copies)
-                    for (int i = 0; i < num_args; i++) {
-                        codegen_writeln(ctx, "hml_release(&%s);", arg_vals[i]);
-                        free(arg_vals[i]);
-                    }
-                    codegen_writeln(ctx, "hml_release(&%s);", fn_val);
-                    free(arg_vals);
-                    ctx->indent--;
-                    codegen_writeln(ctx, "}");
-                }
-                free(fn_val);
-            } else {
-                // For non-call expressions (like identifiers), evaluate and push as 0-arg call
-                char *val = codegen_expr(ctx, stmt->as.defer_stmt.call);
-                codegen_writeln(ctx, "hml_defer_push_call(%s);", val);
-                codegen_writeln(ctx, "hml_release(&%s);", val);
-                free(val);
+            // Wrap the deferred expression in a synthesized zero-arg closure
+            // and push it on the runtime defer stack. The closure captures
+            // referenced variables through the normal closure machinery, so
+            // the expression is evaluated at function exit with the values
+            // the variables have THEN - matching the interpreter, which
+            // stores the AST plus its environment. (Eagerly evaluating call
+            // arguments at registration time diverged: `defer print(x)`
+            // printed x's registration-time value.)
+            //
+            // The synthesized nodes intentionally leak: ClosureInfo keeps a
+            // pointer to the function expression until closure bodies are
+            // generated at the end of codegen, and the compiler is a
+            // short-lived process.
+            Stmt *defer_body = calloc(1, sizeof(Stmt));
+            Expr *defer_fn = calloc(1, sizeof(Expr));
+            if (!defer_body || !defer_fn) {
+                free(defer_body);
+                free(defer_fn);
+                codegen_error(ctx, 0, "Memory allocation failed for defer closure");
+                break;
             }
+            defer_body->type = STMT_EXPR;
+            defer_body->line = stmt->line;
+            defer_body->column = stmt->column;
+            defer_body->as.expr = stmt->as.defer_stmt.call;
+            defer_fn->type = EXPR_FUNCTION;
+            defer_fn->line = stmt->line;
+            defer_fn->column = stmt->column;
+            defer_fn->as.function.body = defer_body;
+            // All other function fields stay zero/NULL (no params, not async)
+
+            char *closure_val = codegen_expr(ctx, defer_fn);
+            codegen_writeln(ctx, "hml_defer_push_call(%s);", closure_val);
+            codegen_writeln(ctx, "hml_release(&%s);", closure_val);
+            free(closure_val);
             break;
         }
 

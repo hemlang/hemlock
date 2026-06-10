@@ -571,6 +571,7 @@ Value array_get(Array *arr, int index, ExecutionContext *ctx) {
 void array_set(Array *arr, int index, Value val, ExecutionContext *ctx) {
     if (index < 0) {
         runtime_error(ctx, "Negative array index not supported");
+        return;  // runtime_error does not unwind - writing elements[-1] corrupts the heap
     }
 
     // Fast path: in-bounds assignment to untyped array

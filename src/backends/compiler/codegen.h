@@ -226,6 +226,8 @@ typedef struct {
 
     // Defer optimization tracking
     int has_defers;               // Whether any defer statements exist in current function
+    int defer_unwind_active;      // Whether the current function emitted a defer
+                                  // frame (_defer_frame) + unwind exception context
 
     // Tail call optimization tracking
     const char *tail_call_func_name;    // Current function name if tail-recursive, NULL otherwise
@@ -352,6 +354,20 @@ void codegen_defer_execute_all(CodegenContext *ctx);
 
 // Clear the defer stack without generating code (for cleanup)
 void codegen_defer_clear(CodegenContext *ctx);
+
+// Mirror a write to a captured local into the function's shared environment
+void codegen_sync_captured_var(CodegenContext *ctx, const char *hml_name, const char *c_name);
+// Shared-env index for reads of a captured local (-1 = read the C local)
+int codegen_captured_var_env_index(CodegenContext *ctx, const char *hml_name);
+
+// Pre-scan a statement tree for defer statements (skips nested functions)
+int codegen_body_has_defer(Stmt *stmt);
+
+// Emit the per-function defer frame + unwind context (if the body has defers)
+void codegen_emit_defer_prologue(CodegenContext *ctx, Stmt *body);
+
+// Emit defer cleanup at an actual function exit (pop unwind context, run frame)
+void codegen_emit_defer_exit(CodegenContext *ctx);
 
 // ========== CLOSURE ANALYSIS ==========
 

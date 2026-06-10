@@ -308,6 +308,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     }
                 }
             }
+            // Mirror writes to captured locals into the shared environment
+            // so closures/defers created earlier see the new value
+            codegen_sync_captured_var(ctx, expr->as.assign.name, var_name);
 
             // Use dereferenced value for result if ref param
             if (codegen_is_ref_param(ctx, expr->as.assign.name)) {
@@ -977,6 +980,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         }
                     }
                 }
+                // Refresh the local from the shared environment first - a
+                // closure may have modified this captured variable
+                {
+                    int cap_idx = codegen_captured_var_env_index(ctx, raw_var);
+                    if (cap_idx >= 0) {
+                        codegen_writeln(ctx, "hml_release(&%s);", var);
+                        codegen_writeln(ctx, "%s = hml_closure_env_get(%s, %d);",
+                                      var, ctx->shared_env_name, cap_idx);
+                    }
+                }
                 // Fast path for i32, fallback to generic binary_op
                 codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_value_inc(%s);", var, var, var, var);
                 // If captured variable, update closure environment
@@ -990,6 +1003,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         }
                     }
                 }
+                codegen_sync_captured_var(ctx, raw_var, var);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
                 if (safe_var) free(safe_var);
@@ -1065,6 +1079,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         }
                     }
                 }
+                // Refresh the local from the shared environment first - a
+                // closure may have modified this captured variable
+                {
+                    int cap_idx = codegen_captured_var_env_index(ctx, raw_var);
+                    if (cap_idx >= 0) {
+                        codegen_writeln(ctx, "hml_release(&%s);", var);
+                        codegen_writeln(ctx, "%s = hml_closure_env_get(%s, %d);",
+                                      var, ctx->shared_env_name, cap_idx);
+                    }
+                }
                 // Fast path for i32, fallback to generic binary_op
                 codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_value_dec(%s);", var, var, var, var);
                 // If captured variable, update closure environment
@@ -1078,6 +1102,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         }
                     }
                 }
+                codegen_sync_captured_var(ctx, raw_var, var);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
                 if (safe_var) free(safe_var);
@@ -1156,6 +1181,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
+                // Refresh the local from the shared environment first - a
+                // closure may have modified this captured variable
+                {
+                    int cap_idx = codegen_captured_var_env_index(ctx, raw_var);
+                    if (cap_idx >= 0) {
+                        codegen_writeln(ctx, "hml_release(&%s);", var);
+                        codegen_writeln(ctx, "%s = hml_closure_env_get(%s, %d);",
+                                      var, ctx->shared_env_name, cap_idx);
+                    }
+                }
                 // Fast path for i32, fallback to generic binary_op
                 codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_value_inc(%s);", var, var, var, var);
                 // If captured variable, update closure environment
@@ -1169,6 +1204,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         }
                     }
                 }
+                codegen_sync_captured_var(ctx, raw_var, var);
                 if (safe_var) free(safe_var);
             } else if (expr->as.postfix_inc.operand->type == EXPR_INDEX) {
                 // arr[i]++
@@ -1244,6 +1280,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
+                // Refresh the local from the shared environment first - a
+                // closure may have modified this captured variable
+                {
+                    int cap_idx = codegen_captured_var_env_index(ctx, raw_var);
+                    if (cap_idx >= 0) {
+                        codegen_writeln(ctx, "hml_release(&%s);", var);
+                        codegen_writeln(ctx, "%s = hml_closure_env_get(%s, %d);",
+                                      var, ctx->shared_env_name, cap_idx);
+                    }
+                }
                 // Fast path for i32, fallback to generic binary_op
                 codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_value_dec(%s);", var, var, var, var);
                 // If captured variable, update closure environment
@@ -1257,6 +1303,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         }
                     }
                 }
+                codegen_sync_captured_var(ctx, raw_var, var);
                 if (safe_var) free(safe_var);
             } else if (expr->as.postfix_dec.operand->type == EXPR_INDEX) {
                 // arr[i]--

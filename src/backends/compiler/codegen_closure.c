@@ -362,9 +362,21 @@ void scan_closures_stmt(CodegenContext *ctx, Stmt *stmt, Scope *local_scope) {
             }
             break;
 
-        case STMT_DEFER:
+        case STMT_DEFER: {
+            // Defer statements are compiled into synthesized zero-arg
+            // closures (see STMT_DEFER in codegen_stmt.c), so the variables
+            // referenced by the deferred expression must be in the shared
+            // environment - exactly as if an explicit closure captured them.
+            FreeVarSet *captured = free_var_set_new();
+            find_free_vars(stmt->as.defer_stmt.call, local_scope, captured);
+            for (int i = 0; i < captured->num_vars; i++) {
+                shared_env_add_var(ctx, captured->vars[i]);
+            }
+            free_var_set_free(captured);
+            // Also scan for explicit closures nested in the deferred expression
             scan_closures_expr(ctx, stmt->as.defer_stmt.call, local_scope);
             break;
+        }
 
         default:
             break;

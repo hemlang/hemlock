@@ -99,6 +99,10 @@ typedef enum {
 
 HmlValue hml_unary_op(HmlUnaryOp op, HmlValue operand);
 
+// Type-preserving ++/-- (u16 wraps at 65536, i64 stays i64, floats keep width)
+HmlValue hml_value_inc(HmlValue val);
+HmlValue hml_value_dec(HmlValue val);
+
 // ========== BUILTIN FUNCTIONS ==========
 
 // I/O
@@ -395,6 +399,11 @@ void hml_object_set_field_coerce(HmlValue obj, HmlValue key, HmlValue val);  // 
 int hml_object_has_field(HmlValue obj, const char *field);
 int hml_object_delete_field(HmlValue obj, const char *field);  // Returns 1 if deleted, 0 if not found
 int hml_object_num_fields(HmlValue obj);
+
+// Current element count of a for-in iterable (array/object/string).
+// Re-evaluated every iteration so mutation during iteration is observed,
+// matching the interpreter's live length check.
+int32_t hml_iter_length(HmlValue v);
 HmlValue hml_object_key_at(HmlValue obj, int index);
 HmlValue hml_object_value_at(HmlValue obj, int index);
 HmlValue hml_object_keys(HmlValue obj);
@@ -519,6 +528,12 @@ void hml_defer_push_call(HmlValue fn);
 void hml_defer_push_call_with_args(HmlValue fn, HmlValue *args, int num_args);
 void hml_defer_pop_and_execute(void);
 void hml_defer_execute_all(void);
+
+// Per-function defer frames: a function with defers records the stack mark at
+// entry and drains only its own entries on exit, so a callee's return doesn't
+// run the caller's defers.
+void* hml_defer_frame_begin(void);
+void hml_defer_execute_frame(void *mark);
 
 // ========== ASYNC/CONCURRENCY ==========
 

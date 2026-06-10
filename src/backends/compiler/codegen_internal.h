@@ -19,6 +19,7 @@
 #include <stdarg.h>
 #include <unistd.h>
 #include <libgen.h>
+#include <math.h>
 #include <limits.h>
 #include <inttypes.h>
 #include <math.h>
@@ -61,6 +62,7 @@ typedef struct {
     DeferEntry *defer_stack;  // Saved ctx->defer_stack
     int in_function;          // Saved ctx->in_function
     int has_defers;           // Saved ctx->has_defers
+    int defer_unwind_active;  // Saved ctx->defer_unwind_active
     CompiledModule *module;   // Saved ctx->current_module (for closures)
     ClosureInfo *closure;     // Saved ctx->current_closure
     Scope *scope;             // Saved ctx->current_scope

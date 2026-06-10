@@ -262,6 +262,17 @@ void hml_wasm_fs_sync(void) {
 }
 #endif
 
+int32_t hml_iter_length(HmlValue v) {
+    switch (v.type) {
+        case HML_VAL_OBJECT:
+            return hml_object_num_fields(v);
+        case HML_VAL_STRING:
+            return hml_string_char_count(v).as.as_i32;
+        default:
+            return hml_array_length(v).as.as_i32;
+    }
+}
+
 void hml_runtime_cleanup(void) {
 #ifdef __EMSCRIPTEN__
     // Sync persistent filesystem before exit

@@ -1,0 +1,18 @@
+// String slice/substr operate on codepoints; char_at/byte_at and string
+// indexing throw on out-of-bounds access.
+let s = "héllo 😀 wörld";
+print(s.slice(0, 5));
+print(s.substr(6, 1));
+print(s.slice(8));
+print(s.length);
+print(s.byte_length);
+
+try { "abc".char_at(10); print("no throw"); } catch (e) { print("char_at oob: " + e); }
+try { "abc".byte_at(10); print("no throw"); } catch (e) { print("byte_at oob: " + e); }
+try { "abc".char_at(-1); print("no throw"); } catch (e) { print("char_at neg throws"); }
+try { let r = "abc"[10]; print("no throw"); } catch (e) { print("index oob throws"); }
+
+// Clamping (no throw) for slice/substr
+print("abc".slice(1, 99));
+print("abc".substr(1, 99));
+print("abc".slice(5, 9));
