@@ -607,7 +607,8 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     }
     p->pos++;  // skip opening brace
 
-    FieldEntry *fields = malloc(sizeof(FieldEntry) * 32);
+    int capacity = 32;
+    FieldEntry *fields = malloc(sizeof(FieldEntry) * capacity);
     int num_fields = 0;
 
     json_skip_whitespace(p);
@@ -641,6 +642,30 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
             }
             free(fields);
             return val_null();
+        }
+        // Grow the field array on demand (the initial 32 is only a hint).
+        if (num_fields >= capacity) {
+            if (capacity > INT_MAX / 2 / (int)sizeof(FieldEntry)) {
+                value_release(name_val);
+                for (int i = 0; i < num_fields; i++) {
+                    free(fields[i].name);
+                    value_release(fields[i].value);
+                }
+                free(fields);
+                return throw_runtime_error(ctx, "JSON object too large");
+            }
+            capacity *= 2;
+            FieldEntry *grown = realloc(fields, sizeof(FieldEntry) * capacity);
+            if (!grown) {
+                value_release(name_val);
+                for (int i = 0; i < num_fields; i++) {
+                    free(fields[i].name);
+                    value_release(fields[i].value);
+                }
+                free(fields);
+                return throw_runtime_error(ctx, "Out of memory in JSON parse");
+            }
+            fields = grown;
         }
         fields[num_fields].name = strdup(name_val.as.as_string->data);
         value_release(name_val);  // Release the temporary string after copying
@@ -704,7 +729,7 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     Object *obj = malloc(sizeof(Object));
     obj->fields = fields;
     obj->num_fields = num_fields;
-    obj->capacity = 32;
+    obj->capacity = capacity;
     obj->type_name = NULL;
     obj->ref_count = 1;  // Start with 1 - caller owns the first reference
     atomic_store(&obj->freed, 0);  // Not freed
