@@ -58,6 +58,59 @@ export let write_u32_le = __write_u32_le;
 export let write_u64_be = __write_u64_be;
 export let write_u64_le = __write_u64_le;
 
+// ========== FLOAT BIT CASTS ==========
+// IEEE 754 reinterpretation between floats and their raw bit patterns.
+// Useful for binary format parsers (GGUF, WAV, network protocols) that
+// read an integer and need the float it spells, or vice versa.
+
+// Get the IEEE 754 bit pattern of an f32
+// Parameters:
+// val: f32 - Float value
+// Returns: u32 - Raw bit pattern
+export fn f32_to_bits(val: f32): u32 {
+	let b = buffer(4);
+	b.write_f32_le(0, val);
+	let bits: u32 = b.read_u32_le(0);
+	free(b);
+	return bits;
+}
+
+// Build an f32 from an IEEE 754 bit pattern
+// Parameters:
+// bits: u32 - Raw bit pattern
+// Returns: f32 - Float value
+export fn f32_from_bits(bits: u32): f32 {
+	let b = buffer(4);
+	b.write_u32_le(0, bits);
+	let val: f32 = b.read_f32_le(0);
+	free(b);
+	return val;
+}
+
+// Get the IEEE 754 bit pattern of an f64
+// Parameters:
+// val: f64 - Float value
+// Returns: u64 - Raw bit pattern
+export fn f64_to_bits(val: f64): u64 {
+	let b = buffer(8);
+	b.write_f64_le(0, val);
+	let bits: u64 = b.read_u64_le(0);
+	free(b);
+	return bits;
+}
+
+// Build an f64 from an IEEE 754 bit pattern
+// Parameters:
+// bits: u64 - Raw bit pattern
+// Returns: f64 - Float value
+export fn f64_from_bits(bits: u64): f64 {
+	let b = buffer(8);
+	b.write_u64_le(0, bits);
+	let val: f64 = b.read_f64_le(0);
+	free(b);
+	return val;
+}
+
 // ========== UTILITY FUNCTIONS ==========
 
 // Convert a buffer to a hex string

@@ -95,7 +95,7 @@ SKIP_CATEGORIES="compiler parity ast_serialize lsp bundler"
 
 # Tests with known compile issues (expected to fail compilation)
 # - tests for invalid syntax that should fail parsing
-EXPECTED_COMPILE_FAIL="primitives/binary_invalid.hml primitives/hex_invalid.hml"
+EXPECTED_COMPILE_FAIL="primitives/binary_invalid.hml primitives/hex_invalid.hml functions/fn_param_self_invalid.hml"
 
 should_skip_category() {
     local category="$1"

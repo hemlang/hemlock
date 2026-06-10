@@ -247,7 +247,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         break;
 
     case 'f':
-        // find(needle) - find first occurrence, returns index or -1
+        // find(needle) - find first occurrence, returns codepoint index or -1
         if (strcmp(method, "find") == 0) {
             if (num_args != 1) {
                 return throw_runtime_error(ctx, "find() expects 1 argument (substring)");
@@ -264,10 +264,11 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                 return val_i32(-1);  // Needle longer than haystack
             }
 
-            // Search for needle in haystack
+            // Search for needle in haystack; report the codepoint index so
+            // the result composes with substr()/slice()/char_at()
             for (int i = 0; i <= str->length - needle->length; i++) {
                 if (memcmp(str->data + i, needle->data, needle->length) == 0) {
-                    return val_i32(i);
+                    return val_i32(utf8_count_codepoints(str->data, i));
                 }
             }
             return val_i32(-1);  // Not found
@@ -275,6 +276,36 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         break;
 
     case 'r':
+        // rfind(needle) - find last occurrence, returns codepoint index or -1
+        if (method[1] == 'f' && strcmp(method, "rfind") == 0) {
+            if (num_args != 1) {
+                return throw_runtime_error(ctx, "rfind() expects 1 argument (substring)");
+            }
+            if (args[0].type != VAL_STRING) {
+                return throw_runtime_error(ctx, "rfind() argument must be a string");
+            }
+
+            String *needle = args[0].as.as_string;
+            if (needle->length == 0) {
+                // Empty string found at end (Python/JS behavior)
+                if (str->char_length < 0) {
+                    str->char_length = utf8_count_codepoints(str->data, str->length);
+                }
+                return val_i32(str->char_length);
+            }
+            if (needle->length > str->length) {
+                return val_i32(-1);  // Needle longer than haystack
+            }
+
+            // Search backwards for needle in haystack; report the codepoint
+            // index so the result composes with substr()/slice()/char_at()
+            for (int i = str->length - needle->length; i >= 0; i--) {
+                if (memcmp(str->data + i, needle->data, needle->length) == 0) {
+                    return val_i32(utf8_count_codepoints(str->data, i));
+                }
+            }
+            return val_i32(-1);  // Not found
+        }
         // replace(old, new) - replace first occurrence
         if (method[1] == 'e' && method[2] == 'p' && method[3] == 'l' && strcmp(method, "replace") == 0) {
             if (num_args != 2) {
@@ -415,12 +446,13 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         break;
 
     case 's':
-        // substr(start, length) - extract substring by codepoint positions
+        // substr(start[, length]) - extract substring by codepoint positions
+        // One-argument form takes everything from start to the end of the string
         if (method[1] == 'u' && strcmp(method, "substr") == 0) {
-            if (num_args != 2) {
-                return throw_runtime_error(ctx, "substr() expects 2 arguments (start, length)");
+            if (num_args < 1 || num_args > 2) {
+                return throw_runtime_error(ctx, "substr() expects 1-2 arguments (start[, length])");
             }
-            if (!is_integer(args[0]) || !is_integer(args[1])) {
+            if (!is_integer(args[0]) || (num_args == 2 && !is_integer(args[1]))) {
                 return throw_runtime_error(ctx, "substr() arguments must be integers");
             }
 
@@ -430,7 +462,6 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             }
 
             int32_t start = value_to_int(args[0]);
-            int32_t char_length = value_to_int(args[1]);
 
             // Clamp bounds to valid range
             if (start < 0) start = 0;
@@ -438,10 +469,13 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                 // Start beyond string length - return empty string
                 return val_string("");
             }
+
+            int32_t char_length = (num_args == 2) ? value_to_int(args[1])
+                                                  : str->char_length - start;
             if (char_length < 0) char_length = 0;
 
             // Clamp length to available characters
-            if (start + char_length > str->char_length) {
+            if (char_length > str->char_length - start) {
                 char_length = str->char_length - start;
             }
 

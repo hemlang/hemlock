@@ -1,5 +1,10 @@
 # Source Side-Effect Imports
 
+> **Status: implemented in 2.7.0** as Option B (with the `@` package-prefix
+> extension): `import "./foo.hml";` and `import "@stdlib/foo";` are
+> side-effect source imports; bare imports of anything else keep the FFI
+> shared-library semantics. See `docs/language-guide/modules.md`.
+
 ## Need
 
 A test runner should be able to discover suites by importing test files for their module-load side effects. In that model, each suite file imports `@stdlib/testing` and calls `describe()`/`test()` at top level; the runner imports the suite files, then calls `run()`.

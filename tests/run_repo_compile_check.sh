@@ -73,6 +73,7 @@ is_expected_fail() {
         tests/primitives/hex_invalid.hml|\
         tests/functions/optional_params_validation.hml|\
         tests/functions/edge_arity_mismatch.hml|\
+        tests/functions/fn_param_self_invalid.hml|\
         tests/arrays/edge_map_filter_reduce.hml|\
         tests/bitwise/edge_bitwise_on_float.hml|\
         tests/circular_refs/test_array_self_reference.hml|\

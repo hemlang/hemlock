@@ -89,7 +89,7 @@ HmlValue hml_string_substr(HmlValue str, HmlValue start, HmlValue length) {
     if (start_idx < 0) start_idx = 0;
     if (start_idx >= char_len) return hml_val_string("");
     if (len < 0) len = 0;
-    if (start_idx + len > char_len) len = char_len - start_idx;
+    if (len > char_len - start_idx) len = char_len - start_idx;
 
     int start_byte = hml_utf8_byte_offset(s->data, s->length, start_idx);
     int end_byte = hml_utf8_byte_offset(s->data, s->length, start_idx + len);
@@ -100,6 +100,11 @@ HmlValue hml_string_substr(HmlValue str, HmlValue start, HmlValue length) {
     memcpy(result, s->data + start_byte, byte_len);
     result[byte_len] = '\0';
     return hml_val_string_owned(result, byte_len, byte_len + 1);
+}
+
+HmlValue hml_string_substr_from(HmlValue str, HmlValue start) {
+    // One-argument substr(start): everything from start to the end
+    return hml_string_substr(str, start, hml_val_i32(INT32_MAX));
 }
 
 HmlValue hml_string_slice(HmlValue str, HmlValue start, HmlValue end) {
@@ -139,9 +144,32 @@ HmlValue hml_string_find(HmlValue str, HmlValue needle) {
     if (n->length == 0) return hml_val_i32(0);
     if (n->length > s->length) return hml_val_i32(-1);
 
+    // Report the codepoint index so the result composes with
+    // substr()/slice()/char_at() (matching the interpreter)
     for (int i = 0; i <= s->length - n->length; i++) {
         if (memcmp(s->data + i, n->data, n->length) == 0) {
-            return hml_val_i32(i);
+            return hml_val_i32(hml_utf8_count_codepoints(s->data, i));
+        }
+    }
+    return hml_val_i32(-1);
+}
+
+HmlValue hml_string_rfind(HmlValue str, HmlValue needle) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string ||
+        needle.type != HML_VAL_STRING || !needle.as.as_string) {
+        return hml_val_i32(-1);
+    }
+    HmlString *s = str.as.as_string;
+    HmlString *n = needle.as.as_string;
+
+    // Empty string found at end (Python/JS behavior)
+    if (n->length == 0) return hml_val_i32(hml_string_codepoint_length(s));
+    if (n->length > s->length) return hml_val_i32(-1);
+
+    // Codepoint index, matching find() and the interpreter
+    for (int i = s->length - n->length; i >= 0; i--) {
+        if (memcmp(s->data + i, n->data, n->length) == 0) {
+            return hml_val_i32(hml_utf8_count_codepoints(s->data, i));
         }
     }
     return hml_val_i32(-1);

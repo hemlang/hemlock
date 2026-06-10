@@ -1,0 +1,33 @@
+// @stdlib/strings from_bytes(): build a string from a buffer or byte array.
+// This is the documented replacement for the internal __string_from_bytes.
+import { from_bytes } from "@stdlib/strings";
+
+// From an array of byte values
+print(from_bytes([72, 101, 108, 108, 111]));
+
+// From a buffer
+let buf = buffer(3);
+buf[0] = 72;
+buf[1] = 105;
+buf[2] = 33;
+print(from_bytes(buf));
+free(buf);
+
+// UTF-8 bytes decode to multibyte text (é = 0xC3 0xA9)
+print(from_bytes([104, 0xC3, 0xA9]));
+print(from_bytes([104, 0xC3, 0xA9]).length);
+print(from_bytes([104, 0xC3, 0xA9]).byte_length);
+
+// Empty array
+print("x" + from_bytes([]) + "x");
+
+// Round trip through to_bytes
+let original = "héllo";
+print(from_bytes(original.to_bytes()));
+
+// Type validation throws a catchable error
+try {
+    from_bytes("not bytes");
+} catch (e) {
+    print(e);
+}

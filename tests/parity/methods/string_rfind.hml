@@ -1,0 +1,37 @@
+// string.rfind(needle) - codepoint index of the last occurrence, -1 if
+// absent. Indexes match find() and compose with substr()/slice()/char_at().
+let path = "/models/llama/model.gguf";
+print(path.rfind("/"));
+print(path.find("/"));
+print(path.substr(path.rfind("/") + 1));
+
+// Not found
+print("hello".rfind("zz"));
+
+// Needle longer than haystack
+print("hi".rfind("hello"));
+
+// Single occurrence: find == rfind
+print("abc".rfind("b"));
+print("abc".find("b"));
+
+// Repeated needle
+print("abcabcabc".rfind("abc"));
+print("aaaa".rfind("aa"));
+
+// Empty needle matches at end (Python/JS behavior)
+print("aaa".rfind(""));
+print("".rfind(""));
+
+// Full-string match
+print("same".rfind("same"));
+
+// Codepoint indexes on multibyte strings: find/rfind results compose
+// with substr()/slice()/char_at() (which all take codepoint positions)
+let m = "héllo/wörld/x";
+print(m.find("l"));
+print(m.rfind("/"));
+print(m.substr(m.rfind("/") + 1));
+print(m.char_at(m.find("ö")));
+print("日本語のテキスト".rfind("の"));
+print("日本語".rfind(""));

@@ -436,11 +436,20 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
         if (strcmp(method, "substr") == 0 && num_args == 2) {
             return hml_string_substr(obj, args[0], args[1]);
         }
+        if (strcmp(method, "substr") == 0 && num_args == 1) {
+            return hml_string_substr_from(obj, args[0]);
+        }
         if (strcmp(method, "slice") == 0 && num_args == 2) {
             return hml_string_slice(obj, args[0], args[1]);
         }
+        if (strcmp(method, "slice") == 0 && num_args == 1) {
+            return hml_string_slice(obj, args[0], hml_string_length(obj));
+        }
         if (strcmp(method, "find") == 0 && num_args == 1) {
             return hml_string_find(obj, args[0]);
+        }
+        if (strcmp(method, "rfind") == 0 && num_args == 1) {
+            return hml_string_rfind(obj, args[0]);
         }
         if (strcmp(method, "contains") == 0 && num_args == 1) {
             return hml_string_contains(obj, args[0]);

@@ -320,8 +320,10 @@ HmlValue hml_string_char_at(HmlValue str, HmlValue index);
 HmlValue hml_string_byte_at(HmlValue str, HmlValue index);
 HmlValue hml_string_rune_at(HmlValue str, HmlValue index);  // UTF-8 aware rune at char index
 HmlValue hml_string_substr(HmlValue str, HmlValue start, HmlValue length);
+HmlValue hml_string_substr_from(HmlValue str, HmlValue start);  // substr(start) to end of string
 HmlValue hml_string_slice(HmlValue str, HmlValue start, HmlValue end);
 HmlValue hml_string_find(HmlValue str, HmlValue needle);
+HmlValue hml_string_rfind(HmlValue str, HmlValue needle);  // last occurrence (byte index)
 HmlValue hml_string_contains(HmlValue str, HmlValue needle);
 HmlValue hml_string_split(HmlValue str, HmlValue delimiter);
 HmlValue hml_string_trim(HmlValue str);
