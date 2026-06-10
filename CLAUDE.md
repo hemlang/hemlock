@@ -365,7 +365,7 @@ hemlock/
 │   └── docs/             # Module documentation
 ├── include/              # C header files (hemlock_limits.h, etc.)
 ├── docs/                 # Full documentation
-├── tests/                # 978+ tests
+├── tests/                # 1,000+ tests
 ├── examples/             # Example programs
 ├── benchmark/            # Benchmarks
 ├── editors/              # Editor integrations

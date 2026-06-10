@@ -29,10 +29,10 @@ The version is defined in `include/version.h`:
 
 ```c
 #define HEMLOCK_VERSION_MAJOR 2
-#define HEMLOCK_VERSION_MINOR 4
-#define HEMLOCK_VERSION_PATCH 1
+#define HEMLOCK_VERSION_MINOR 7
+#define HEMLOCK_VERSION_PATCH 0
 
-#define HEMLOCK_VERSION "2.4.1"
+#define HEMLOCK_VERSION "2.7.0"
 ```
 
 ### Checking Versions
@@ -93,6 +93,16 @@ import { sin, cos } from "@stdlib/math";
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **2.7.0** | 2026-06-10 | Language-ergonomics and parity batch: object-literal method shorthand (`{ fn name() {...} }`); side-effect imports (`import "./suite.hml";`); `string.rfind()`; one-argument `substr(start)`; `@stdlib/strings.from_bytes()`; `@stdlib/bytes` IEEE 754 float bit casts; codepoint-correct `find`/`substr`/`slice` in both backends; parser forward-progress guard (no more infinite loop on certain syntax errors); FFI buffer-to-`ptr` marshaling fix; large interpreter memory-safety batch (spawn deep-copy, type-registry locking, HTTPS context leak, `dns_resolve` thread safety) |
+| **2.6.0** | 2026-06-03 | `hemlockc` links statically by default on Linux (opt out with `--dynamic`), fixing the libwebsockets ABI-skew SIGSEGV on mismatched distros; socket refcounting fixes a use-after-free for sockets stored in arrays/objects; env-first wrapper shims fix argument shifting when builtins are used as first-class values |
+| **2.5.7** | 2026-06-02 | `task_free()` detaches dropped joinable task threads (thread-resource leak); accepted sockets are refcounted, closing the per-connection `accept()` leak |
+| **2.5.6** | 2026-05-18 | Fix compiled property-assignment RHS leak — every `obj.field = value` orphaned the value |
+| **2.5.5** | 2026-05-18 | Interpreter concurrency fixes: shared-object reads from spawned tasks no longer rebuild the hash table on the read path (heap corruption); property inline cache bypassed once any task has spawned |
+| **2.5.4** | 2026-05-18 | Fix per-spawn argument leak in compiled `spawn`/`spawn_with` (per-connection bleed for spawn-per-request servers) |
+| **2.5.3** | 2026-05-18 | macOS heap-corruption fix: explicit `free()` of a buffer no longer double-frees the refcount-managed handle |
+| **2.5.2** | 2026-05-18 | Regression fix: reverted two mis-scoped 2.5.0 codegen leak fixes that generated invalid C — 2.5.0/2.5.1 are broken, upgrade to 2.5.2 |
+| **2.5.1** | 2026-05-18 | `@stdlib/sqlite` no longer leaks a C string/blob for every bound string/blob parameter (SQLite now frees via a bind destructor) |
+| **2.5.0** | 2026-05-17 | Memory-correctness release: per-construct leakhunt harness + sanitizer stress harness; fixes for `for-in`/`obj.keys()`, indexed-assignment RHS, `string.split`, throw-unwind, and closure-capture leaks; frozen immortal string pool (UAF); lock-free `object_lookup_field` |
 | **2.4.1** | 2026-05-14 | TCP listener + accepted-client socket fds set `FD_CLOEXEC` so `posix_spawn`'d children don't inherit (and pin) the parent's listener after a crash; new `file.read_binary()` returns a buffer preserving 0x00 bytes (mirrors `stream.read_binary` from 2.3.1); `exec_argv()` gained a `stdin` option that pipes a string into the child via `pipe(2)`; macOS Makefile pkg-config-fallback patch from `mac-build-docs` |
 | **2.4.0** | 2026-05-13 | `@stdlib/http` POST/PUT/DELETE/PATCH thread custom headers; interpreter named-module imports are live bindings (post-init reassignments visible to spawned tasks); flow null-narrowing follows `?.`; type-error labels name the parameter; `string.lower()`/`upper()` aliases; `get_binary` follows 3xx; codegen call-symbol stability; macOS LWS auto-finds Homebrew CA bundles; default LWS HTTP timeout dropped 30s → 5s |
 | **2.3.1** | 2026-05-12 | Binary HTTP fixes: `@stdlib/http.download()` actually writes the buffer body; new `download_streaming(url, path)` for bounded-memory large pulls; new `stream.read_binary()` + `__lws_http_stream_read_binary` preserving 0x00 bytes |

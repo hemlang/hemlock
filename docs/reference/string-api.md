@@ -805,9 +805,10 @@ let cleaned = "  HELLO  "
 
 | Method         | Signature                                    | Returns   | Description                           |
 |----------------|----------------------------------------------|-----------|---------------------------------------|
-| `substr`       | `(start: i32, length: i32)`                  | `string`  | Extract substring by position/length  |
-| `slice`        | `(start: i32, end: i32)`                     | `string`  | Extract substring by range            |
+| `substr`       | `(start: i32, length?: i32)`                 | `string`  | Extract substring by position/length  |
+| `slice`        | `(start: i32, end?: i32)`                    | `string`  | Extract substring by range            |
 | `find`         | `(needle: string)`                           | `i32`     | Find first occurrence (-1 if not found)|
+| `rfind`        | `(needle: string)`                           | `i32`     | Find last occurrence (-1 if not found) |
 | `contains`     | `(needle: string)`                           | `bool`    | Check if contains substring           |
 | `split`        | `(delimiter: string)`                        | `array`   | Split into array                      |
 | `trim`         | `()`                                         | `string`  | Remove whitespace                     |

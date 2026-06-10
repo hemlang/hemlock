@@ -566,7 +566,7 @@ typeof(value: any): string
 **Returns:**
 - Primitive types: `"i8"`, `"i16"`, `"i32"`, `"i64"`, `"u8"`, `"u16"`, `"u32"`, `"u64"`, `"f32"`, `"f64"`, `"bool"`, `"string"`, `"rune"`, `"null"`
 - Composite types: `"array"`, `"object"`, `"ptr"`, `"buffer"`, `"function"`
-- Special types: `"file"`, `"task"`, `"channel"`
+- Special types: `"file"`, `"task"`, `"channel"`, `"socket"`, `"websocket"`, `"ffi function"`, `"ref"`
 - Typed objects: Custom type name (e.g., `"Person"`)
 
 **Examples:**

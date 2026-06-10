@@ -654,6 +654,31 @@ builtin. The inverse operation is the built-in `string.to_bytes()` method.
 
 ---
 
+### string_concat_many(strings)
+
+Concatenate an array of strings in a single allocation. Faster than
+repeated `+` concatenation when joining many pieces, since `+` reallocates
+on every step.
+
+**Parameters:**
+- `strings: array` - Array whose elements must all be strings.
+
+**Returns:** `string` - All elements concatenated in order.
+
+**Throws:** If the argument is not an array or any element is not a string.
+
+```hemlock
+import { string_concat_many } from "@stdlib/strings";
+
+let parts = ["Hello", ", ", "world", "!"];
+print(string_concat_many(parts));   // "Hello, world!"
+```
+
+For incremental building with separators, see `StringBuilder`
+(`sb_new`/`sb_append`/`sb_join`) in `@stdlib/decimal`.
+
+---
+
 ## Error Handling
 
 All functions throw exceptions for invalid input:

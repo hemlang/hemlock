@@ -198,15 +198,16 @@ let s = "Hello" + '!';          // "Hello!"
 
 ## String Methods
 
-Hemlock provides 20 string methods for comprehensive text manipulation.
+Hemlock provides 23 string methods for comprehensive text manipulation.
 
 ### Substring & Slicing
 
-**`substr(start, length)`** - Extract substring by position and length:
+**`substr(start, length?)`** - Extract substring by position and length (length defaults to the rest of the string):
 ```hemlock
 let s = "hello world";
 let sub = s.substr(6, 5);       // "world" (start at 6, length 5)
 let first = s.substr(0, 5);     // "hello"
+let tail = s.substr(6);         // "world" (from index 6 to end)
 
 // UTF-8 example
 let text = "Hi🚀!";
@@ -222,17 +223,25 @@ let tail = s.slice(6);          // "world" (from index 6 to end)
 ```
 
 **Difference:**
-- `substr(start, length)` - Uses length parameter
+- `substr(start, length?)` - Uses length parameter, defaults to the rest of the string
 - `slice(start, end?)` - Uses end index (exclusive), end defaults to string length
 
 ### Search & Find
 
-**`find(needle)`** - Find first occurrence:
+**`find(needle)`** - Find first occurrence (returns a codepoint index):
 ```hemlock
 let s = "hello world";
 let pos = s.find("world");      // 6 (index of first occurrence)
 let pos2 = s.find("foo");       // -1 (not found)
 let pos3 = s.find("l");         // 2 (first 'l')
+```
+
+**`rfind(needle)`** - Find last occurrence (returns a codepoint index):
+```hemlock
+let path = "/usr/local/bin/hemlock";
+let pos = path.rfind("/");      // 14 (index of last '/')
+let base = path.substr(path.rfind("/") + 1);  // "hemlock"
+let none = path.rfind("zzz");   // -1 (not found)
 ```
 
 **`contains(needle)`** - Check if string contains substring:
@@ -262,6 +271,13 @@ let clean = s.trim();           // "hello"
 
 let s2 = "\t\ntext\n\t";
 let clean2 = s2.trim();         // "text"
+```
+
+**`trim_start()`** / **`trim_end()`** - Remove whitespace from one side only:
+```hemlock
+let s = "  hello  ";
+let left = s.trim_start();      // "hello  "
+let right = s.trim_end();       // "  hello"
 ```
 
 ### Case Conversion
@@ -398,12 +414,15 @@ let processed = "foo,bar,baz"
 
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
-| `substr(start, length)` | i32, i32 | string | Extract substring by position and length |
-| `slice(start, end)` | i32, i32 | string | Extract substring by range (end exclusive) |
+| `substr(start, length?)` | i32, i32? | string | Extract substring by position and length |
+| `slice(start, end?)` | i32, i32? | string | Extract substring by range (end exclusive) |
 | `find(needle)` | string | i32 | Find first occurrence (-1 if not found) |
+| `rfind(needle)` | string | i32 | Find last occurrence (-1 if not found) |
 | `contains(needle)` | string | bool | Check if contains substring |
 | `split(delimiter)` | string | array | Split into array of strings |
 | `trim()` | - | string | Remove leading/trailing whitespace |
+| `trim_start()` | - | string | Remove leading whitespace |
+| `trim_end()` | - | string | Remove trailing whitespace |
 | `to_upper()` | - | string | Convert to uppercase |
 | `to_lower()` | - | string | Convert to lowercase |
 | `starts_with(prefix)` | string | bool | Check if starts with prefix |

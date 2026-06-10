@@ -1,6 +1,6 @@
 # Built-in Functions Reference
 
-Complete reference for all built-in functions and constants in Hemlock v2.0.0.
+Complete reference for all built-in functions and constants in Hemlock.
 
 > **v2.0.0 Breaking Change:** 63 builtins were moved from the global namespace to
 > `@stdlib` modules. Functions like `sin()`, `open()`, `exec()`, `signal()`, and
