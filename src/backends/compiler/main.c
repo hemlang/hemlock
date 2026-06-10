@@ -457,6 +457,39 @@ static char* make_c_filename(const char *input) {
 // paths containing shell metacharacters from being interpreted by system().
 // Returns a malloc'd string, or NULL on allocation failure.
 static char* shell_quote(const char *s) {
+#ifdef _WIN32
+    // system() on Windows runs the command through cmd.exe, which does not
+    // understand single quotes — use double quotes with CRT-style escaping.
+    // cmd expands %VAR% (and ! under delayed expansion) even inside double
+    // quotes and offers no reliable escape, so refuse such paths outright
+    // rather than risk injection or silent corruption.
+    size_t len = strlen(s);
+    for (size_t i = 0; i < len; i++) {
+        if (s[i] == '%' || s[i] == '!' || s[i] == '"' || s[i] == '\n' || s[i] == '\r') {
+            fprintf(stderr, "error: path contains characters unsafe for cmd.exe: %s\n", s);
+            return NULL;
+        }
+    }
+    char *out = malloc(len * 2 + 3);
+    if (!out) {
+        return NULL;
+    }
+    char *p = out;
+    *p++ = '"';
+    size_t trailing_backslashes = 0;
+    for (size_t i = 0; i < len; i++) {
+        *p++ = s[i];
+        trailing_backslashes = (s[i] == '\\') ? trailing_backslashes + 1 : 0;
+    }
+    // CRT argv parsing treats backslashes before a quote as escapes; double
+    // any trailing run so the closing quote stays a quote
+    for (size_t i = 0; i < trailing_backslashes; i++) {
+        *p++ = '\\';
+    }
+    *p++ = '"';
+    *p = '\0';
+    return out;
+#else
     size_t len = strlen(s);
     char *out = malloc(len * 4 + 3);  // worst case: every char is a quote
     if (!out) {
@@ -475,6 +508,7 @@ static char* shell_quote(const char *s) {
     *p++ = '\'';
     *p = '\0';
     return out;
+#endif
 }
 
 // Invoke the C compiler

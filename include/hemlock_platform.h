@@ -23,6 +23,13 @@
 #include <stddef.h>
 #include "hemlock_compat.h"
 
+// WSAPoll and friends need Vista+; make sure generated C that includes
+// this header compiles even without -D_WIN32_WINNT on the command line
+#if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0601
+#undef _WIN32_WINNT
+#define _WIN32_WINNT 0x0601
+#endif
+
 // winsock2.h must be included before windows.h pulls in winsock.h
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN

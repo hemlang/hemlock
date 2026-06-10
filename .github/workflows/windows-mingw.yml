@@ -7,6 +7,87 @@ on:
     branches: [ main, master ]
 
 jobs:
+  # Real Windows hardware: native MSYS2/UCRT64 build of both backends,
+  # including the hemlockc -> gcc subprocess path that Wine can't exercise
+  windows-native:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: UCRT64
+        update: false
+        install: >-
+          make
+          mingw-w64-ucrt-x86_64-gcc
+          mingw-w64-ucrt-x86_64-zlib
+
+    - name: Build hemlock.exe, hemlockc.exe, and runtime natively
+      run: make -j4 all
+
+    - name: Interpreter smoke test
+      run: |
+        cat > smoke.hml << 'EOF'
+        import { platform, arch } from "@stdlib/os";
+        import { stringify } from "@stdlib/json";
+        import { write_file, read_file, remove_file } from "@stdlib/fs";
+        async fn sq(n: i32): i32 { return n * n; }
+        let t = spawn(sq, 9);
+        print("async:", await t);
+        let ch = channel(1); ch.send(7); print("chan:", ch.recv());
+        let b = buffer(8); ptr_write_i32(b, 41); print("buf:", ptr_read_i32(b) + 1);
+        write_file("native_test.txt", "hello\nwindows\n");
+        print("file:", read_file("native_test.txt").byte_length);
+        remove_file("native_test.txt");
+        print("plat:", platform(), arch());
+        print("json:", stringify({ ok: true }));
+        EOF
+        ./hemlock.exe smoke.hml | tee smoke.out
+        grep -q "async: 81" smoke.out
+        grep -q "file: 14" smoke.out
+        grep -q "plat: windows" smoke.out
+
+    - name: TCP loopback test
+      run: |
+        cat > tcp.hml << 'EOF'
+        import { TcpListener, TcpStream } from "@stdlib/net";
+        import { from_bytes } from "@stdlib/strings";
+        async fn serve(listener) {
+            let conn = listener.accept();
+            conn.write("echo: " + from_bytes(conn.read(64)));
+            conn.close();
+            return 0;
+        }
+        let listener = TcpListener("127.0.0.1", 19099);
+        let t = spawn(serve, listener);
+        let client = TcpStream("127.0.0.1", 19099);
+        client.write("hello winsock");
+        print("got:", from_bytes(client.read(64)));
+        client.close();
+        await t;
+        listener.close();
+        EOF
+        ./hemlock.exe tcp.hml | grep -q "got: echo: hello winsock"
+
+    - name: Full hemlockc pipeline (invokes gcc via system())
+      run: |
+        cat > csm.hml << 'EOF'
+        async fn work(n: i32): i32 { return n * 3; }
+        let t = spawn(work, 14);
+        print("compiled:", await t);
+        let arr = [3,1,2]; arr.sort();
+        print("sorted:", arr.join(","));
+        EOF
+        ./hemlockc.exe -v -o csm.exe csm.hml
+        ./csm.exe | tee csm.out
+        grep -q "compiled: 42" csm.out
+        grep -q "sorted: 1,2,3" csm.out
+
   mingw-cross:
     runs-on: ubuntu-latest
     timeout-minutes: 30
