@@ -24,7 +24,9 @@ ifeq ($(HEMLOCK_WINDOWS),1)
     # not available for MinGW cross builds; the affected builtins throw at
     # runtime (see wasm_interp_shim.c). Override with EXTRA_CFLAGS/LDFLAGS
     # on MSYS2 where both libraries are installable via pacman.
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 -DHEMLOCK_NO_FFI -DHEMLOCK_NO_OPENSSL -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
+    # Implicit declarations are hard errors so older cross toolchains
+    # (GCC <= 13) catch what GCC 14+ on native Windows rejects by default
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Werror=implicit-function-declaration -Werror=int-conversion -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 -DHEMLOCK_NO_FFI -DHEMLOCK_NO_OPENSSL -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
 else ifeq ($(shell uname),Darwin)
     CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
 else
