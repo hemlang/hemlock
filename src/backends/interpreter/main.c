@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <zlib.h>
 #include "frontend.h"
+#include "hemlock_compat.h"
 #include "interpreter.h"
 #include "interpreter/internal.h"
 #include "tools/lsp/lsp.h"
@@ -90,7 +91,12 @@ static void run_source(const char *source, int argc, char **argv, int stack_dept
 static uint8_t* check_embedded_payload(size_t *out_size) {
     // Read our own executable path
     char exe_path[4096];
+#ifdef _WIN32
+    ssize_t len = hml_get_executable_path(exe_path, sizeof(exe_path))
+                      ? (ssize_t)strlen(exe_path) : -1;
+#else
     ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+#endif
     if (len == -1) {
         // Try macOS alternative
         #ifdef __APPLE__
@@ -731,7 +737,12 @@ static int package_file(const char *input_path, const char *output_path, int ver
 
     // Read our own executable
     char exe_path[4096];
+#ifdef _WIN32
+    ssize_t len = hml_get_executable_path(exe_path, sizeof(exe_path))
+                      ? (ssize_t)strlen(exe_path) : -1;
+#else
     ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+#endif
     if (len == -1) {
         #ifdef __APPLE__
         uint32_t bufsize = sizeof(exe_path);

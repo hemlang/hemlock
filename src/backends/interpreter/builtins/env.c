@@ -132,6 +132,32 @@ Value builtin_get_pid(Value *args, int num_args, ExecutionContext *ctx) {
     return val_i32((int32_t)getpid());
 }
 
+#ifdef _WIN32
+// Windows has no fork()/exec() process model and no POSIX uids or signals.
+// These builtins throw at runtime so the interpreter still links; process
+// spawning on Windows is a future enhancement (CreateProcess-based).
+
+#define HML_WIN32_PROCESS_STUB(name, label)                                   \
+    Value name(Value *args, int num_args, ExecutionContext *ctx) {            \
+        (void)args; (void)num_args;                                           \
+        runtime_error(ctx, label " is not supported on Windows");             \
+        return val_null();                                                    \
+    }
+
+HML_WIN32_PROCESS_STUB(builtin_exec, "exec()")
+HML_WIN32_PROCESS_STUB(builtin_exec_argv, "exec_argv()")
+HML_WIN32_PROCESS_STUB(builtin_getppid, "getppid()")
+HML_WIN32_PROCESS_STUB(builtin_getuid, "getuid()")
+HML_WIN32_PROCESS_STUB(builtin_geteuid, "geteuid()")
+HML_WIN32_PROCESS_STUB(builtin_getgid, "getgid()")
+HML_WIN32_PROCESS_STUB(builtin_getegid, "getegid()")
+HML_WIN32_PROCESS_STUB(builtin_kill, "kill()")
+HML_WIN32_PROCESS_STUB(builtin_fork, "fork()")
+HML_WIN32_PROCESS_STUB(builtin_wait, "wait()")
+HML_WIN32_PROCESS_STUB(builtin_waitpid, "waitpid()")
+
+#else // !_WIN32
+
 // SECURITY WARNING: exec() uses popen() which passes commands through a shell.
 // This is vulnerable to command injection if the command string contains untrusted input.
 // For safe command execution, use exec_argv() or exec(cmd, args) instead which bypasses the shell.
@@ -1114,6 +1140,8 @@ Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx) {
     return val_object(result);
 }
 
+#endif // !_WIN32
+
 // ========== POSIX_SPAWN PRIMITIVE ==========
 //
 // posix_spawn(argv, opts?) -> { pid }
@@ -1151,12 +1179,16 @@ extern char **environ;
 #  endif
 #endif
 
-#ifdef __EMSCRIPTEN__
-// WASM has no posix_spawn family. Provide a stub that throws at runtime so
-// the interpreter still links — process spawning is meaningless in-browser.
+#if defined(__EMSCRIPTEN__) || defined(_WIN32)
+// WASM and Windows have no posix_spawn family. Provide a stub that throws at
+// runtime so the interpreter still links.
 Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args; (void)num_args;
+#ifdef __EMSCRIPTEN__
     runtime_error(ctx, "spawn() not supported in WASM build");
+#else
+    runtime_error(ctx, "posix_spawn() is not supported on Windows");
+#endif
     return val_null();
 }
 #else
@@ -1396,7 +1428,7 @@ Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx) {
 
     return val_object(result);
 }
-#endif // !__EMSCRIPTEN__
+#endif // !__EMSCRIPTEN__ && !_WIN32
 
 Value builtin_abort(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
@@ -1432,7 +1464,11 @@ Value builtin_pipe(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     int fds[2];
+#ifdef _WIN32
+    if (_pipe(fds, 65536, _O_BINARY) != 0) {
+#else
     if (pipe(fds) != 0) {
+#endif
         char error_msg[256];
         snprintf(error_msg, sizeof(error_msg), "pipe() failed: %s", strerror(errno));
         ctx->exception_state.exception_value = val_string(error_msg);

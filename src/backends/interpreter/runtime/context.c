@@ -1,4 +1,5 @@
 #include "internal.h"
+#include "hemlock_compat.h"
 #include <unistd.h>
 
 // ========== CURRENT SOURCE FILE TRACKING ==========

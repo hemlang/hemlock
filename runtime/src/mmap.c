@@ -6,7 +6,9 @@
 
 #include "../include/hemlock_runtime.h"
 #include "builtins_internal.h"
+#ifndef _WIN32
 #include <sys/mman.h>
+#endif
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>

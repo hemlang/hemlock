@@ -128,7 +128,7 @@ void hml_sandbox_error(const char *operation) {
 // No-op when fds are already open (the common case under nohup / a TTY).
 // Linux unaffected — its libwebsockets is built without the demo
 // plugins, so stdin stays where it is.
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && !defined(_WIN32)
 #include <fcntl.h>
 #include <unistd.h>
 #include <signal.h>
@@ -208,12 +208,19 @@ static void hml_runtime_install_crash_handler(void) {
     sigaction(SIGFPE,  &sa, NULL);
     sigaction(SIGILL,  &sa, NULL);
 }
+#elif defined(_WIN32)
+// Windows: no fd-0 trap (no libwebsockets plugins close stdin there) and
+// no glibc backtrace machinery — both are POSIX-only concerns. Keep the
+// exported symbol so callers (builtins_http.c) link unchanged.
+void hml_runtime_pin_stdio(void) {}
 #endif
 
 void hml_runtime_init(int argc, char **argv) {
 #ifndef __EMSCRIPTEN__
     hml_runtime_pin_stdio();
+#ifndef _WIN32
     hml_runtime_install_crash_handler();
+#endif
 #endif
 #if defined(__APPLE__) && !defined(__EMSCRIPTEN__)
     // macOS auto-downgrades the QoS of any process whose nice value

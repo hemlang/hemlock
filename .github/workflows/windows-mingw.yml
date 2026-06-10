@@ -1,0 +1,220 @@
+name: Windows (MinGW) Cross Build
+
+on:
+  push:
+    branches: [ main, master, 'claude/**' ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  # Real Windows hardware: native MSYS2/UCRT64 build of both backends,
+  # including the hemlockc -> gcc subprocess path that Wine can't exercise
+  windows-native:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: UCRT64
+        update: false
+        install: >-
+          make
+          mingw-w64-ucrt-x86_64-gcc
+          mingw-w64-ucrt-x86_64-zlib
+          mingw-w64-ucrt-x86_64-libffi
+
+    - name: Build hemlock.exe, hemlockc.exe, and runtime natively
+      run: make -j4 all
+
+    - name: Interpreter smoke test
+      run: |
+        cat > smoke.hml << 'EOF'
+        import { platform, arch } from "@stdlib/os";
+        import { stringify } from "@stdlib/json";
+        import { write_file, read_file, remove_file } from "@stdlib/fs";
+        async fn sq(n: i32): i32 { return n * n; }
+        let t = spawn(sq, 9);
+        print("async:", await t);
+        let ch = channel(1); ch.send(7); print("chan:", ch.recv());
+        let b = buffer(8); ptr_write_i32(b, 41); print("buf:", ptr_read_i32(b) + 1);
+        write_file("native_test.txt", "hello\nwindows\n");
+        print("file:", read_file("native_test.txt").byte_length);
+        remove_file("native_test.txt");
+        print("plat:", platform(), arch());
+        print("json:", stringify({ ok: true }));
+        EOF
+        ./hemlock.exe smoke.hml | tee smoke.out
+        grep -q "async: 81" smoke.out
+        grep -q "file: 14" smoke.out
+        grep -q "plat: windows" smoke.out
+
+    - name: TCP loopback test
+      run: |
+        cat > tcp.hml << 'EOF'
+        import { TcpListener, TcpStream } from "@stdlib/net";
+        import { from_bytes } from "@stdlib/strings";
+        async fn serve(listener) {
+            let conn = listener.accept();
+            conn.write("echo: " + from_bytes(conn.read(64)));
+            conn.close();
+            return 0;
+        }
+        let listener = TcpListener("127.0.0.1", 19099);
+        let t = spawn(serve, listener);
+        let client = TcpStream("127.0.0.1", 19099);
+        client.write("hello winsock");
+        print("got:", from_bytes(client.read(64)));
+        client.close();
+        await t;
+        listener.close();
+        EOF
+        ./hemlock.exe tcp.hml | grep -q "got: echo: hello winsock"
+
+    - name: Full hemlockc pipeline (invokes gcc via system())
+      run: |
+        cat > csm.hml << 'EOF'
+        async fn work(n: i32): i32 { return n * 3; }
+        let t = spawn(work, 14);
+        print("compiled:", await t);
+        let arr = [3,1,2]; arr.sort();
+        print("sorted:", arr.join(","));
+        EOF
+        ./hemlockc.exe -v -o csm.exe csm.hml
+        ./csm.exe | tee csm.out
+        grep -q "compiled: 42" csm.out
+        grep -q "sorted: 1,2,3" csm.out
+
+    - name: FFI test (DLL loading, raylib-style bindings)
+      run: |
+        cat > mockray.c << 'EOF'
+        #include <stdio.h>
+        __declspec(dllexport) void InitWindow(int w, int h, const char *t) {
+            printf("init %dx%d %s\n", w, h, t);
+        }
+        __declspec(dllexport) float GetFrameTime(void) { return 0.016f; }
+        EOF
+        gcc -shared -O2 mockray.c -o raylib.dll
+        cat > ffi.hml << 'EOF'
+        import "libraylib.so";
+        extern fn InitWindow(w: i32, h: i32, title: string): void;
+        extern fn GetFrameTime(): f32;
+        InitWindow(640, 480, "ffi");
+        print("dt:", GetFrameTime());
+        EOF
+        ./hemlock.exe ffi.hml | tee ffi.out
+        grep -q "init 640x480 ffi" ffi.out
+        grep -q "dt: 0.016" ffi.out
+        ./hemlockc.exe -o ffi.exe ffi.hml
+        ./ffi.exe | grep -q "init 640x480 ffi"
+
+  mingw-cross:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install MinGW-w64 toolchain and Wine
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-mingw-w64-x86-64 libz-mingw-w64-dev wine64
+
+    - name: Cache MinGW libffi
+      id: cache-libffi
+      uses: actions/cache@v4
+      with:
+        path: ~/mingw-libffi
+        key: mingw-libffi-3.4.6-${{ runner.os }}
+
+    - name: Build libffi for MinGW (enables Hemlock FFI on Windows)
+      if: steps.cache-libffi.outputs.cache-hit != 'true'
+      run: |
+        # The release tarball ships a pre-generated configure (the git tag
+        # needs autogen.sh, which is fragile across autotools versions)
+        curl -fsSL -o /tmp/libffi.tar.gz \
+          https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz
+        tar -xzf /tmp/libffi.tar.gz -C /tmp
+        cd /tmp/libffi-3.4.6
+        ./configure --host=x86_64-w64-mingw32 --prefix=$HOME/mingw-libffi \
+          --disable-shared --enable-static --disable-docs \
+          CC=x86_64-w64-mingw32-gcc-posix
+        make -j4
+        make install
+
+    - name: Install MinGW libffi into the toolchain sysroot
+      run: |
+        sudo cp ~/mingw-libffi/lib/libffi.a /usr/x86_64-w64-mingw32/lib/
+        sudo cp ~/mingw-libffi/include/ffi*.h /usr/x86_64-w64-mingw32/include/
+
+    - name: Cross-compile hemlock.exe, hemlockc.exe, and runtime
+      run: make mingw
+
+    - name: Verify artifacts are self-contained
+      run: |
+        x86_64-w64-mingw32-objdump -p hemlock.exe | grep "DLL Name"
+        # Only Windows system DLLs may be required
+        ! x86_64-w64-mingw32-objdump -p hemlock.exe | grep -iE "libwinpthread|zlib1|libgcc"
+        ! x86_64-w64-mingw32-objdump -p hemlockc.exe | grep -iE "libwinpthread|zlib1|libgcc"
+
+    - name: Smoke-test interpreter under Wine
+      run: |
+        export WINEDEBUG=-all
+        cat > /tmp/smoke.hml << 'EOF'
+        import { platform } from "@stdlib/os";
+        import { stringify } from "@stdlib/json";
+        async fn sq(n: i32): i32 { return n * n; }
+        let t = spawn(sq, 9);
+        print("async:", await t);
+        let ch = channel(1); ch.send(7); print("chan:", ch.recv());
+        let b = buffer(8); ptr_write_i32(b, 41); print("buf:", ptr_read_i32(b) + 1);
+        print("plat:", platform());
+        print("json:", stringify({ ok: true }));
+        EOF
+        wine ./hemlock.exe /tmp/smoke.hml | tee /tmp/smoke.out
+        grep -q "async: 81" /tmp/smoke.out
+        grep -q "plat: windows" /tmp/smoke.out
+
+    - name: Smoke-test compiled program under Wine
+      run: |
+        export WINEDEBUG=-all
+        cat > /tmp/csm.hml << 'EOF'
+        async fn work(n: i32): i32 { return n * 3; }
+        let t = spawn(work, 14);
+        print("compiled:", await t);
+        EOF
+        wine ./hemlockc.exe -c /tmp/csm.hml
+        x86_64-w64-mingw32-gcc-posix -O1 csm.c -Iruntime/include -Iinclude \
+          -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 \
+          runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lz -o csm.exe
+        wine ./csm.exe | grep -q "compiled: 42"
+
+    - name: FFI test under Wine (DLL loading, raylib-style bindings)
+      run: |
+        export WINEDEBUG=-all
+        cat > mockray.c << 'EOF'
+        #include <stdio.h>
+        __declspec(dllexport) void InitWindow(int w, int h, const char *t) {
+            printf("init %dx%d %s\n", w, h, t);
+        }
+        __declspec(dllexport) float GetFrameTime(void) { return 0.016f; }
+        EOF
+        x86_64-w64-mingw32-gcc-posix -shared -O2 mockray.c -o raylib.dll
+        cat > ffi.hml << 'EOF'
+        import "libraylib.so";
+        extern fn InitWindow(w: i32, h: i32, title: string): void;
+        extern fn GetFrameTime(): f32;
+        InitWindow(640, 480, "ffi");
+        print("dt:", GetFrameTime());
+        EOF
+        wine ./hemlock.exe ffi.hml | tee ffi.out
+        grep -q "init 640x480 ffi" ffi.out
+        grep -q "dt: 0.016" ffi.out
+        wine ./hemlockc.exe -c ffi.hml
+        x86_64-w64-mingw32-gcc-posix -O1 ffi.c -Iruntime/include -Iinclude \
+          -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 \
+          runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lz -o ffi.exe
+        wine ./ffi.exe | grep -q "init 640x480 ffi"

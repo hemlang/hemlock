@@ -1,4 +1,16 @@
 CC = gcc
+
+# ---- Windows (MinGW-w64) detection ----
+# Set when building natively under MSYS2/MinGW (uname reports MINGW*/MSYS*)
+# or when cross-compiling with a *-mingw32 toolchain, e.g.:
+#   make mingw                                (convenience target, see below)
+#   make CC=x86_64-w64-mingw32-gcc-posix all  (explicit toolchain)
+# Requires the POSIX-threads flavor of MinGW-w64 (winpthreads).
+ifneq (,$(findstring mingw,$(CC))$(findstring MINGW,$(shell uname))$(findstring MSYS,$(shell uname)))
+    HEMLOCK_WINDOWS = 1
+    EXE = .exe
+endif
+
 # -MMD -MP: emit a .d file alongside each .o that lists every (non-system)
 # header the .c file pulled in. Without these, `make` only rebuilds .o files
 # when their .c source changes — touching a header silently produces a
@@ -6,16 +18,53 @@ CC = gcc
 # header, which surfaces as cryptic runtime breakage (e.g. parser objects
 # expecting one AST struct layout, builtin objects expecting another).
 # Use _DARWIN_C_SOURCE on macOS for BSD types, _POSIX_C_SOURCE on Linux
-ifeq ($(shell uname),Darwin)
+ifeq ($(HEMLOCK_WINDOWS),1)
+    # FFI on Windows: enabled when the MinGW toolchain can link libffi
+    # (MSYS2: pacman -S mingw-w64-ucrt-x86_64-libffi; cross builds: build
+    # libffi from source with --host=x86_64-w64-mingw32, see
+    # docs/advanced/windows.md). Without it, FFI builtins throw at runtime.
+    # --print-file-name echoes the bare name back when the lib is missing
+    MINGW_FFI_PATH := $(shell $(CC) --print-file-name=libffi.a 2>/dev/null)
+    ifneq ($(MINGW_FFI_PATH),libffi.a)
+        HAS_MINGW_FFI = 1
+    else
+        HAS_MINGW_FFI = 0
+    endif
+    ifeq ($(HAS_MINGW_FFI),1)
+        WIN_FFI_CFLAGS =
+        WIN_FFI_LIB = -lffi
+    else
+        WIN_FFI_CFLAGS = -DHEMLOCK_NO_FFI
+        WIN_FFI_LIB =
+    endif
+    # __USE_MINGW_ANSI_STDIO: C99 printf (%zu, %lld) instead of msvcrt's.
+    # HEMLOCK_NO_OPENSSL: OpenSSL is typically not available for MinGW
+    # cross builds; the affected builtins throw at runtime (see
+    # wasm_interp_shim.c). Override with EXTRA_CFLAGS/EXTRA_LDFLAGS on
+    # MSYS2 where it is installable via pacman.
+    # Implicit declarations are hard errors so older cross toolchains
+    # (GCC <= 13) catch what GCC 14+ on native Windows rejects by default
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Werror=implicit-function-declaration -Werror=int-conversion -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
+else ifeq ($(shell uname),Darwin)
     CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
 else
     CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
 endif
 SRC_DIR = src
 BUILD_DIR = build
+# Cross-compiling for Windows from a POSIX host: keep PE objects out of the
+# native build tree
+ifeq ($(HEMLOCK_WINDOWS),1)
+ifeq (,$(findstring MINGW,$(shell uname))$(findstring MSYS,$(shell uname)))
+    BUILD_DIR = build-mingw
+endif
+endif
 
 # Detect libffi, OpenSSL, and libwebsockets (Homebrew on macOS puts them in non-standard locations)
-ifeq ($(shell uname),Darwin)
+ifeq ($(HEMLOCK_WINDOWS),1)
+    # No pkg-config probing for cross builds; FFI/OpenSSL are disabled above
+    HAS_LIBWEBSOCKETS := 0
+else ifeq ($(shell uname),Darwin)
     # On macOS, prefer Homebrew's libffi (system pkg-config points to SDK without headers)
     BREW_LIBFFI := $(shell brew --prefix libffi 2>/dev/null)
     ifneq ($(BREW_LIBFFI),)
@@ -57,7 +106,14 @@ else
 endif
 
 # Base libraries (always required)
+ifeq ($(HEMLOCK_WINDOWS),1)
+# winpthreads for threading, ws2_32 for sockets; no -ldl/-lcrypto.
+# winpthreads, zlib, and (when present) libffi are linked statically so
+# hemlock.exe is self-contained (no extra DLLs needed beside it).
+LDFLAGS = -static-libgcc -Wl,-Bstatic -lpthread -lz $(WIN_FFI_LIB) -Wl,-Bdynamic -lm -lws2_32 $(EXTRA_LDFLAGS)
+else
 LDFLAGS = $(LDFLAGS_LIBFFI) $(LDFLAGS_OPENSSL) -lm -lpthread -lffi -ldl -lz -lcrypto $(EXTRA_LDFLAGS)
+endif
 
 # Conditionally add libwebsockets
 ifeq ($(HAS_LIBWEBSOCKETS),1)
@@ -108,7 +164,7 @@ INTERP_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(INTERP_SRCS))
 LIBCOMMON = $(BUILD_DIR)/libcommon.a
 LIBTOOLS = $(BUILD_DIR)/libtools.a
 
-TARGET = hemlock
+TARGET = hemlock$(EXE)
 
 # Build directories
 BUILD_DIRS = $(BUILD_DIR) \
@@ -149,9 +205,9 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIRS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf $(BUILD_DIR) $(TARGET) stdlib/c/*.so
+	rm -rf $(BUILD_DIR) build-mingw $(TARGET) hemlock.exe hemlockc.exe stdlib/c/*.so
 	$(MAKE) -C runtime clean
-	rm -f $(RUNTIME_LIB) $(RUNTIME_SHARED)
+	rm -f $(RUNTIME_LIB) $(RUNTIME_SHARED) libhemlock_runtime.dll
 
 run: $(TARGET)
 	./$(TARGET)
@@ -520,12 +576,21 @@ COMPILER_SRCS = $(SRC_DIR)/backends/compiler/main.c \
 
 COMPILER_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(COMPILER_SRCS))
 
-COMPILER_TARGET = hemlockc
+COMPILER_TARGET = hemlockc$(EXE)
 
 # Runtime library
 RUNTIME_DIR = runtime
+# Mirrors the BUILD_DIR override above: cross builds keep their objects in
+# runtime/build-mingw (runtime/Makefile applies the same rule)
+ifeq ($(BUILD_DIR),build-mingw)
+    RUNTIME_BUILD = $(RUNTIME_DIR)/build-mingw
+else
+    RUNTIME_BUILD = $(RUNTIME_DIR)/build
+endif
 RUNTIME_LIB = libhemlock_runtime.a
-ifeq ($(shell uname),Darwin)
+ifeq ($(HEMLOCK_WINDOWS),1)
+    RUNTIME_SHARED = libhemlock_runtime.dll
+else ifeq ($(shell uname),Darwin)
     RUNTIME_SHARED = libhemlock_runtime.dylib
 else
     RUNTIME_SHARED = libhemlock_runtime.so
@@ -536,8 +601,28 @@ endif
 # Compiler target
 compiler: $(BUILD_DIRS) runtime $(COMPILER_TARGET)
 
-$(COMPILER_TARGET): $(COMPILER_OBJS) $(RUNTIME_LIB)
-	$(CC) $(COMPILER_OBJS) -o $(COMPILER_TARGET) -lm
+# The driver itself needs no extra libs; on Windows platform_win32.o pulls
+# in winsock (WSAStartup) so ws2_32 must be linked
+ifeq ($(HEMLOCK_WINDOWS),1)
+# -static keeps winpthreads/libgcc out of the DLL deps (the POSIX-flavor
+# toolchain appends a dynamic -lpthread on its own otherwise); system DLLs
+# (msvcrt, ws2_32) stay dynamic regardless
+COMPILER_LDFLAGS = -static -lm -lws2_32
+else
+COMPILER_LDFLAGS = -lm
+endif
+
+# Cross builds must not overwrite the native runtime lib in the repo root
+# (hemlockc auto-detects ./libhemlock_runtime.a); they keep theirs in
+# runtime/build-mingw and pass it via `hemlockc --runtime`
+ifeq ($(BUILD_DIR),build-mingw)
+    RUNTIME_DEP = $(RUNTIME_BUILD)/$(RUNTIME_LIB)
+else
+    RUNTIME_DEP = $(RUNTIME_LIB)
+endif
+
+$(COMPILER_TARGET): $(COMPILER_OBJS) $(RUNTIME_DEP)
+	$(CC) $(COMPILER_OBJS) -o $(COMPILER_TARGET) $(COMPILER_LDFLAGS)
 
 # Compiler objects get LIBDIR defined for runtime auto-detection
 $(BUILD_DIR)/backends/compiler/%.o: $(SRC_DIR)/backends/compiler/%.c | $(BUILD_DIRS)
@@ -547,15 +632,25 @@ $(BUILD_DIR)/backends/compiler/%.o: $(SRC_DIR)/backends/compiler/%.c | $(BUILD_D
 runtime:
 	@echo "Building Hemlock runtime library..."
 	$(MAKE) -C $(RUNTIME_DIR) static shared
-	cp $(RUNTIME_DIR)/build/$(RUNTIME_LIB) ./
-	cp $(RUNTIME_DIR)/build/$(RUNTIME_SHARED) ./
+ifeq ($(BUILD_DIR),build-mingw)
+	@echo "✓ Windows runtime library built: $(RUNTIME_BUILD)/$(RUNTIME_LIB) + $(RUNTIME_BUILD)/$(RUNTIME_SHARED)"
+else
+	cp $(RUNTIME_BUILD)/$(RUNTIME_LIB) ./
+	cp $(RUNTIME_BUILD)/$(RUNTIME_SHARED) ./
 	@echo "✓ Runtime library built: $(RUNTIME_LIB) + $(RUNTIME_SHARED)"
+endif
 
-# File target for runtime library (used as dependency)
-$(RUNTIME_LIB):
-	$(MAKE) -C $(RUNTIME_DIR) static shared
-	cp $(RUNTIME_DIR)/build/$(RUNTIME_LIB) ./
-	cp $(RUNTIME_DIR)/build/$(RUNTIME_SHARED) ./
+# File targets funnel through the phony `runtime` target (order-only), so
+# a parallel make never runs two `make -C runtime` invocations at once —
+# the phony target and these file rules used to each spawn their own
+# sub-make, and the two concurrent shared-library links raced on the same
+# output file (surfaced on Windows as ld: "final link failed: file
+# truncated"; Linux had the same race and just never happened to lose it)
+$(RUNTIME_LIB): | runtime
+	@:
+
+$(RUNTIME_BUILD)/$(RUNTIME_LIB): | runtime
+	@:
 
 runtime-clean:
 	$(MAKE) -C $(RUNTIME_DIR) clean
@@ -563,6 +658,27 @@ runtime-clean:
 
 compiler-clean:
 	rm -f $(COMPILER_TARGET) $(COMPILER_OBJS)
+
+# ========== WINDOWS (MinGW-w64) CROSS-COMPILATION ==========
+# Cross-compile hemlock.exe, hemlockc.exe, and libhemlock_runtime.a from a
+# POSIX host. Requirements (Debian/Ubuntu):
+#   apt-get install gcc-mingw-w64-x86-64 libz-mingw-w64-dev
+# The POSIX-threads flavor of MinGW-w64 (winpthreads) is required for the
+# async runtime. FFI and OpenSSL-backed builtins are stubbed out on Windows
+# (HEMLOCK_NO_FFI / HEMLOCK_NO_OPENSSL); see docs/advanced/windows.md.
+# Native builds on MSYS2/MinGW are auto-detected via uname instead.
+MINGW_CC ?= x86_64-w64-mingw32-gcc-posix
+
+.PHONY: mingw mingw-interpreter mingw-clean
+mingw:
+	$(MAKE) CC=$(MINGW_CC) all
+
+mingw-interpreter:
+	$(MAKE) CC=$(MINGW_CC) hemlock.exe
+
+# Removes only cross-build artifacts; native build products are untouched
+mingw-clean:
+	rm -rf build-mingw $(RUNTIME_DIR)/build-mingw hemlock.exe hemlockc.exe
 
 # ========== WASM TARGET (Emscripten) ==========
 
@@ -995,6 +1111,7 @@ install: $(TARGET) $(COMPILER_TARGET) $(RUNTIME_LIB)
 		echo "Installing runtime headers to $(DESTDIR)$(LIBDIR)/include..."; \
 		install -d $(DESTDIR)$(LIBDIR)/include; \
 		cp -r $(RUNTIME_DIR)/include/* $(DESTDIR)$(LIBDIR)/include/; \
+		cp include/hemlock_platform.h include/hemlock_compat.h $(DESTDIR)$(LIBDIR)/include/; \
 		echo "  Headers: $(DESTDIR)$(LIBDIR)/include/"; \
 	fi
 	@echo ""
@@ -1015,6 +1132,7 @@ install-compiler: compiler
 		echo "Installing runtime headers to $(DESTDIR)$(LIBDIR)/include..."; \
 		install -d $(DESTDIR)$(LIBDIR)/include; \
 		cp -r $(RUNTIME_DIR)/include/* $(DESTDIR)$(LIBDIR)/include/; \
+		cp include/hemlock_platform.h include/hemlock_compat.h $(DESTDIR)$(LIBDIR)/include/; \
 	fi
 	@echo ""
 	@echo "✓ Hemlock compiler installed successfully"

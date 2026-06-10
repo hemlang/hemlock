@@ -9,8 +9,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifndef _WIN32
 #include <sys/wait.h>
+#endif
 #include <limits.h>
+
+// system() on Windows returns the child's exit code directly.
+// (windows.h is deliberately not included here: winnt.h declares a
+// TokenType enumerator that collides with the lexer's TokenType.)
+#if defined(_WIN32) && !defined(WEXITSTATUS)
+#define WEXITSTATUS(status) (status)
+#endif
+#include "hemlock_compat.h"
 #include "frontend.h"
 #include "shared/file_io.h"
 #include "../../include/version.h"
@@ -100,6 +110,10 @@ static char* get_self_dir(void) {
         return NULL;
     }
     path[len] = '\0';
+#elif defined(_WIN32)
+    if (!hml_get_executable_path(path, sizeof(path))) {
+        return NULL;
+    }
 #else
     // Fallback: try /proc/self/exe anyway
     ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
@@ -443,6 +457,39 @@ static char* make_c_filename(const char *input) {
 // paths containing shell metacharacters from being interpreted by system().
 // Returns a malloc'd string, or NULL on allocation failure.
 static char* shell_quote(const char *s) {
+#ifdef _WIN32
+    // system() on Windows runs the command through cmd.exe, which does not
+    // understand single quotes — use double quotes with CRT-style escaping.
+    // cmd expands %VAR% (and ! under delayed expansion) even inside double
+    // quotes and offers no reliable escape, so refuse such paths outright
+    // rather than risk injection or silent corruption.
+    size_t len = strlen(s);
+    for (size_t i = 0; i < len; i++) {
+        if (s[i] == '%' || s[i] == '!' || s[i] == '"' || s[i] == '\n' || s[i] == '\r') {
+            fprintf(stderr, "error: path contains characters unsafe for cmd.exe: %s\n", s);
+            return NULL;
+        }
+    }
+    char *out = malloc(len * 2 + 3);
+    if (!out) {
+        return NULL;
+    }
+    char *p = out;
+    *p++ = '"';
+    size_t trailing_backslashes = 0;
+    for (size_t i = 0; i < len; i++) {
+        *p++ = s[i];
+        trailing_backslashes = (s[i] == '\\') ? trailing_backslashes + 1 : 0;
+    }
+    // CRT argv parsing treats backslashes before a quote as escapes; double
+    // any trailing run so the closing quote stays a quote
+    for (size_t i = 0; i < trailing_backslashes; i++) {
+        *p++ = '\\';
+    }
+    *p++ = '"';
+    *p = '\0';
+    return out;
+#else
     size_t len = strlen(s);
     char *out = malloc(len * 4 + 3);  // worst case: every char is a quote
     if (!out) {
@@ -461,6 +508,7 @@ static char* shell_quote(const char *s) {
     *p++ = '\'';
     *p = '\0';
     return out;
+#endif
 }
 
 // Invoke the C compiler
@@ -480,9 +528,35 @@ static int compile_c(const Options *opts, const char *c_file) {
     // Build link command
     // Check if -lz is linkable (same check as runtime Makefile)
     char zlib_flag[8] = "";
+#ifdef _WIN32
+    // cmd.exe has no /dev/null or single-quote echo; MSYS2's gcc ships zlib
+    if (system("gcc --version >/dev/null 2>NUL") == 0) {
+        memcpy(zlib_flag, " -lz", 5);
+    }
+#else
     if (system("echo 'int main(){return 0;}' | gcc -x c - -lz -o /dev/null 2>/dev/null") == 0) {
         memcpy(zlib_flag, " -lz", 5);  // Safe: 5 bytes including null, fits in 8-byte buffer
     }
+#endif
+
+    // FFI: the Windows runtime is built with libffi when the toolchain has
+    // it; link it if so. --print-file-name echoes the bare name back when
+    // the library is not found, and a full path when it is.
+    char ffi_flag[8] = "";
+#ifdef _WIN32
+    {
+        char probe_cmd[512];
+        snprintf(probe_cmd, sizeof(probe_cmd), "%s --print-file-name=libffi.a", opts->cc);
+        FILE *ffp = popen(probe_cmd, "r");
+        if (ffp) {
+            char probe_buf[PATH_MAX];
+            if (fgets(probe_buf, sizeof(probe_buf), ffp) && strpbrk(probe_buf, "/\\")) {
+                memcpy(ffi_flag, " -lffi", 7);
+            }
+            pclose(ffp);
+        }
+    }
+#endif
 
     // Platform-specific library paths
     // On macOS, use well-known Homebrew paths (fast) instead of `brew --prefix` (slow)
@@ -537,6 +611,7 @@ static int compile_c(const Options *opts, const char *c_file) {
 
     // Check if -lwebsockets is linkable (with extra paths)
     char websockets_flag[16] = "";
+#ifndef _WIN32
     char ws_test_cmd[1024];
     snprintf(ws_test_cmd, sizeof(ws_test_cmd),
         "echo 'int main(){return 0;}' | gcc -x c - %s -lwebsockets -o /dev/null 2>/dev/null",
@@ -544,11 +619,14 @@ static int compile_c(const Options *opts, const char *c_file) {
     if (system(ws_test_cmd) == 0) {
         memcpy(websockets_flag, " -lwebsockets", 14);  // Safe: 14 bytes including null, fits in 16-byte buffer
     }
+#endif
 
     // OpenSSL/libcrypto is required - the runtime links against it for hash functions
     // The runtime always needs libcrypto, so always link it
     // On Linux, use --no-as-needed to ensure the library is linked even if not directly referenced
-#ifdef __APPLE__
+#if defined(_WIN32)
+    char crypto_flag[64] = "";  // crypto builtins are stubbed on Windows
+#elif defined(__APPLE__)
     char crypto_flag[64] = " -lcrypto";
 #else
     char crypto_flag[64] = " -Wl,--no-as-needed -lcrypto";
@@ -683,7 +761,17 @@ static int compile_c(const Options *opts, const char *c_file) {
             printf("Static linking enabled - hybrid static/dynamic binary\n");
             printf("Note: Runtime FFI (ffi_open/ffi_bind) disabled in static builds\n");
         }
-#ifdef __APPLE__
+#if defined(_WIN32)
+        // Windows: the default link is already fully static (see below)
+        q_out = shell_quote(opts->output_file);
+        char *q_runtime_path_s = shell_quote(runtime_path);
+        n = (q_out && q_runtime_path_s) ? snprintf(cmd, sizeof(cmd),
+            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32%s",
+            opts->cc, opt_flag, q_out, q_c,
+            q_inc, q_runtime_path_s, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag)
+            : (int)sizeof(cmd);
+        free(q_runtime_path_s);
+#elif defined(__APPLE__)
         // macOS: Can't use -static, use .a files directly or fall back to dynamic
         // System frameworks are always dynamic on macOS
         q_out = shell_quote(opts->output_file);
@@ -720,11 +808,25 @@ static int compile_c(const Options *opts, const char *c_file) {
     } else {
         // Dynamic linking (default): link against shared libraries
         q_out = shell_quote(opts->output_file);
+#ifdef _WIN32
+        // Windows host: no -rdynamic/-lffi/-ldl (FFI and OpenSSL builtins are
+        // stubbed in the Windows runtime); -static keeps winpthreads/libgcc
+        // out of the DLL dependencies. The second -I covers the development
+        // layout where hemlock_platform.h lives in <repo>/include.
+        char *q_runtime_path = shell_quote(runtime_path);
+        n = (q_out && q_runtime_path) ? snprintf(cmd, sizeof(cmd),
+            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32%s",
+            opts->cc, opt_flag, q_out, q_c,
+            q_inc, q_runtime_path, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag)
+            : (int)sizeof(cmd);
+        free(q_runtime_path);
+#else
         n = q_out ? snprintf(cmd, sizeof(cmd),
             "%s %s -rdynamic -o %s %s -I%s %s%s -lm -lpthread -lffi -ldl%s%s%s",
             opts->cc, opt_flag, q_out, q_c,
             q_inc, q_runtime_lib, extra_lib_paths, zlib_flag, websockets_flag, crypto_flag)
             : (int)sizeof(cmd);
+#endif
     }
 
     free(q_out);

@@ -1,8 +1,9 @@
 #include "internal.h"
 
-#ifndef __EMSCRIPTEN__
-/* Native crypto implementation using OpenSSL - excluded from WASM builds.
-   WASM stubs are provided in wasm_interp_shim.c. */
+#if !defined(__EMSCRIPTEN__) && !defined(HEMLOCK_NO_OPENSSL)
+/* Native crypto implementation using OpenSSL - excluded from WASM builds
+   and HEMLOCK_NO_OPENSSL builds (e.g. MinGW without OpenSSL).
+   Stubs are provided in wasm_interp_shim.c. */
 
 #include <openssl/sha.h>
 #include <openssl/evp.h>
@@ -359,4 +360,4 @@ Value builtin_ecdsa_verify(Value *args, int num_args, ExecutionContext *ctx) {
     return val_bool(result == 1);
 }
 
-#endif /* __EMSCRIPTEN__ */
+#endif /* !__EMSCRIPTEN__ && !HEMLOCK_NO_OPENSSL */

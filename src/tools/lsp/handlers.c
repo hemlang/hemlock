@@ -4,6 +4,7 @@
 
 #include "handlers.h"
 #include "lsp.h"
+#include "hemlock_compat.h"
 #include "protocol.h"
 
 #include "frontend.h"

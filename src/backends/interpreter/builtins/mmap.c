@@ -13,7 +13,9 @@
  */
 
 #include "internal.h"
+#ifndef _WIN32
 #include <sys/mman.h>
+#endif
 
 // Track mmap metadata so we can munmap and msync correctly
 typedef struct MmapEntry {
