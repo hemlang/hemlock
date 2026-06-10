@@ -121,6 +121,19 @@ void hml_defer_execute_all(void) {
     }
 }
 
+// Per-function defer frames: record the stack mark at function entry, drain
+// only entries pushed after the mark on exit. This keeps a callee's return
+// from running its caller's pending defers.
+void* hml_defer_frame_begin(void) {
+    return g_defer_stack;
+}
+
+void hml_defer_execute_frame(void *mark) {
+    while (g_defer_stack && g_defer_stack != (DeferEntry *)mark) {
+        hml_defer_pop_and_execute();
+    }
+}
+
 // Helper for deferring HmlValue function calls
 static void hml_defer_call_wrapper(void *arg) {
     HmlValue *fn_ptr = (HmlValue *)arg;

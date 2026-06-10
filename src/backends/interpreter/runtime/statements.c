@@ -940,4 +940,24 @@ void eval_program(Stmt **stmts, int count, Environment *env, ExecutionContext *c
             exit(1);
         }
     }
+
+    // Execute any top-level defers at normal program end. Compiled programs
+    // drain the remaining defer stack in hml_runtime_cleanup(); doing the
+    // same here keeps `defer` usable for cleanup in top-level scripts.
+    if (ctx->defer_stack.count > 0) {
+        DeferStack pending = ctx->defer_stack;
+        // Detach first so re-entrant pushes don't grow the stack being drained
+        defer_stack_init(&ctx->defer_stack);
+        defer_stack_execute(&pending, ctx);
+        free(pending.calls);
+        free(pending.envs);
+        if (ctx->exception_state.is_throwing) {
+            char *error_msg = value_to_string(ctx->exception_state.exception_value);
+            fprintf(stderr, "Uncaught exception: %s\n", error_msg);
+            free(error_msg);
+            VALUE_RELEASE(ctx->exception_state.exception_value);
+            ctx->exception_state.is_throwing = 0;
+            exit(1);
+        }
+    }
 }

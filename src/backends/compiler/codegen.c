@@ -113,6 +113,7 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->optimize = 1;  // Enable optimization by default
     ctx->stack_check = 1;  // Enable stack checking by default (can be overridden by caller)
     ctx->has_defers = 0;  // Track if any defers exist in current function
+    ctx->defer_unwind_active = 0;
     ctx->tail_call_func_name = NULL;  // Tail call optimization tracking
     ctx->tail_call_label = NULL;
     ctx->tail_call_func_expr = NULL;
@@ -1482,6 +1483,126 @@ void codegen_defer_clear(CodegenContext *ctx) {
     }
 }
 
+// ========== CAPTURED VARIABLE SYNC ==========
+
+/*
+ * Variables captured by closures (or defers) live in the function's shared
+ * environment; closures read and write that environment. The enclosing
+ * function keeps a C local as well, so every write to a captured local must
+ * be mirrored into the shared environment (and reads must come from it - see
+ * codegen_expr_ident) or the two copies diverge:
+ *   let y = 1; let f = fn() { return y; }; y = 99; f()  must return 99.
+ */
+// A captured variable participates in shared-env reads/writes only when its
+// C storage is a bare function-local (not a _main_ global, module symbol, or
+// ref param pointer).
+static int captured_var_is_bare_local(CodegenContext *ctx, const char *hml_name) {
+    if (codegen_is_ref_param(ctx, hml_name)) return 0;
+    if (codegen_is_shadow(ctx, hml_name)) return 1;
+    if (ctx->current_scope && scope_is_defined(ctx->current_scope, hml_name)) return 1;
+    return codegen_is_local(ctx, hml_name) && !codegen_is_main_var(ctx, hml_name);
+}
+
+void codegen_sync_captured_var(CodegenContext *ctx, const char *hml_name, const char *c_name) {
+    if (!ctx->shared_env_name || !ctx->in_function) return;
+    if (!captured_var_is_bare_local(ctx, hml_name)) return;
+    int idx = shared_env_get_index(ctx, hml_name);
+    if (idx < 0) return;
+    codegen_writeln(ctx, "hml_closure_env_set(%s, %d, %s);", ctx->shared_env_name, idx, c_name);
+}
+
+// Returns the shared-env index if reads of this variable should go through
+// the shared environment (captured local in the enclosing function), else -1.
+int codegen_captured_var_env_index(CodegenContext *ctx, const char *hml_name) {
+    if (!ctx->shared_env_name || !ctx->in_function) return -1;
+    if (!captured_var_is_bare_local(ctx, hml_name)) return -1;
+    return shared_env_get_index(ctx, hml_name);
+}
+
+// ========== DEFER FRAME SUPPORT ==========
+
+// Pre-scan a statement tree for defer statements. Does NOT descend into
+// nested function expressions - their defers belong to that function's frame.
+// (defer can only appear as a statement, so scanning statements suffices.)
+int codegen_body_has_defer(Stmt *stmt) {
+    if (!stmt) return 0;
+    switch (stmt->type) {
+        case STMT_DEFER:
+            return 1;
+        case STMT_BLOCK:
+            for (int i = 0; i < stmt->as.block.count; i++) {
+                if (codegen_body_has_defer(stmt->as.block.statements[i])) return 1;
+            }
+            return 0;
+        case STMT_IF:
+            return codegen_body_has_defer(stmt->as.if_stmt.then_branch) ||
+                   codegen_body_has_defer(stmt->as.if_stmt.else_branch);
+        case STMT_WHILE:
+            return codegen_body_has_defer(stmt->as.while_stmt.body);
+        case STMT_LOOP:
+            return codegen_body_has_defer(stmt->as.loop_stmt.body);
+        case STMT_FOR:
+            return codegen_body_has_defer(stmt->as.for_loop.initializer) ||
+                   codegen_body_has_defer(stmt->as.for_loop.body);
+        case STMT_FOR_IN:
+            return codegen_body_has_defer(stmt->as.for_in.body);
+        case STMT_TRY:
+            return codegen_body_has_defer(stmt->as.try_stmt.try_block) ||
+                   codegen_body_has_defer(stmt->as.try_stmt.catch_block) ||
+                   codegen_body_has_defer(stmt->as.try_stmt.finally_block);
+        case STMT_SWITCH:
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                if (codegen_body_has_defer(stmt->as.switch_stmt.case_bodies[i])) return 1;
+            }
+            return 0;
+        case STMT_EXPORT:
+            if (stmt->as.export_stmt.is_declaration) {
+                return codegen_body_has_defer(stmt->as.export_stmt.declaration);
+            }
+            return 0;
+        default:
+            return 0;
+    }
+}
+
+/*
+ * Emit the per-function defer frame prologue. The frame mark scopes defer
+ * execution to this function (a callee's return must not run our defers).
+ * The exception context makes this function's defers run when an exception
+ * unwinds past it - before the catch handler - matching the interpreter.
+ * Defers registered before a try/catch in the same function are NOT run by
+ * the catch (they stay pending until function exit), which falls out
+ * naturally: inner try contexts are pushed above this one.
+ */
+void codegen_emit_defer_prologue(CodegenContext *ctx, Stmt *body) {
+    if (!codegen_body_has_defer(body)) return;
+    ctx->has_defers = 1;
+    ctx->defer_unwind_active = 1;
+    codegen_writeln(ctx, "void *_defer_frame = hml_defer_frame_begin();");
+    codegen_writeln(ctx, "{");
+    codegen_indent_inc(ctx);
+    codegen_writeln(ctx, "HmlExceptionContext *_defer_unwind = hml_exception_push();");
+    codegen_writeln(ctx, "if (setjmp(_defer_unwind->exception_buf) != 0) {");
+    codegen_indent_inc(ctx);
+    codegen_writeln(ctx, "HmlValue _defer_ex = hml_exception_get_value();");
+    codegen_writeln(ctx, "hml_exception_pop();");
+    codegen_writeln(ctx, "hml_defer_execute_frame(_defer_frame);");
+    codegen_writeln(ctx, "hml_throw(_defer_ex);");
+    codegen_indent_dec(ctx);
+    codegen_writeln(ctx, "}");
+    codegen_indent_dec(ctx);
+    codegen_writeln(ctx, "}");
+}
+
+// Emit the defer cleanup for an actual function exit (return or implicit
+// end-of-function): pop the unwind context pushed by the prologue, then run
+// this frame's pending defers.
+void codegen_emit_defer_exit(CodegenContext *ctx) {
+    if (!ctx->defer_unwind_active) return;
+    codegen_writeln(ctx, "hml_exception_pop();  // defer unwind context");
+    codegen_writeln(ctx, "hml_defer_execute_frame(_defer_frame);");
+}
+
 // ========== FUNCTION GENERATION STATE ==========
 
 void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
@@ -1490,6 +1611,7 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     state->defer_stack = ctx->defer_stack;
     state->in_function = ctx->in_function;
     state->has_defers = ctx->has_defers;
+    state->defer_unwind_active = ctx->defer_unwind_active;
     state->module = ctx->current_module;
     state->closure = ctx->current_closure;
     state->scope = ctx->current_scope;
@@ -1507,6 +1629,7 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->defer_stack = NULL;
     ctx->in_function = 1;
     ctx->has_defers = 0;
+    ctx->defer_unwind_active = 0;
     ctx->current_scope = NULL;  // Fresh scope for new function
     ctx->last_closure_env_id = -1;
     ctx->tail_call_func_name = NULL;
@@ -1539,6 +1662,7 @@ void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->locals_body_start = state->locals_body_start;
     ctx->in_function = state->in_function;
     ctx->has_defers = state->has_defers;
+    ctx->defer_unwind_active = state->defer_unwind_active;
     ctx->current_module = state->module;
     ctx->current_closure = state->closure;
     // Free any scopes created during the function (they should already be freed by block statements)
@@ -1645,6 +1769,21 @@ void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *clos
         ctx->shared_env_name = strdup(env_name);
         codegen_writeln(ctx, "HmlClosureEnv *%s = hml_closure_env_new(%d);",
                       env_name, ctx->shared_env_num_vars);
+
+        // Seed the environment with variables that are already declared at
+        // this point (parameters, and for closure bodies the extracted
+        // captures). The shared env is the source of truth for captured
+        // locals, so it must hold their values before any read.
+        for (int i = 0; i < ctx->shared_env_num_vars; i++) {
+            const char *var = ctx->shared_env_vars[i];
+            if (codegen_is_local(ctx, var) && !codegen_is_main_var(ctx, var) &&
+                !codegen_is_ref_param(ctx, var)) {
+                char *safe_var = codegen_sanitize_ident(var);
+                codegen_writeln(ctx, "hml_closure_env_set(%s, %d, %s);",
+                              env_name, i, safe_var);
+                free(safe_var);
+            }
+        }
     }
 }
 

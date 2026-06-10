@@ -152,6 +152,33 @@ int variable_escapes_in_stmt_internal(Stmt *stmt, const char *var_name) {
                    (stmt->as.for_loop.increment && variable_escapes_in_expr_internal(stmt->as.for_loop.increment, var_name)) ||
                    variable_escapes_in_stmt_internal(stmt->as.for_loop.body, var_name);
 
+        case STMT_FOR_IN:
+            return variable_escapes_in_expr_internal(stmt->as.for_in.iterable, var_name) ||
+                   variable_escapes_in_stmt_internal(stmt->as.for_in.body, var_name);
+
+        case STMT_TRY:
+            return variable_escapes_in_stmt_internal(stmt->as.try_stmt.try_block, var_name) ||
+                   (stmt->as.try_stmt.catch_block && variable_escapes_in_stmt_internal(stmt->as.try_stmt.catch_block, var_name)) ||
+                   (stmt->as.try_stmt.finally_block && variable_escapes_in_stmt_internal(stmt->as.try_stmt.finally_block, var_name));
+
+        case STMT_SWITCH:
+            if (variable_escapes_in_expr_internal(stmt->as.switch_stmt.expr, var_name)) return 1;
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                if (variable_escapes_in_stmt_internal(stmt->as.switch_stmt.case_bodies[i], var_name)) {
+                    return 1;
+                }
+            }
+            return 0;
+
+        case STMT_THROW:
+            return variable_escapes_in_expr_internal(stmt->as.throw_stmt.value, var_name);
+
+        case STMT_DEFER:
+            // Deferred statements compile to closures evaluated at function
+            // exit - treat every candidate variable as escaping so it stays
+            // boxed and the closure sees later mutations.
+            return 1;
+
         default:
             return 0;
     }
