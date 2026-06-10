@@ -50,6 +50,7 @@ typedef struct {
     char **strings;          // Reconstructed string table
     uint32_t string_count;   // Number of strings
     uint16_t flags;          // Flags from header
+    int depth;               // Current recursion depth (bounds nested nodes)
 } DeserializeContext;
 
 // ========== PUBLIC API ==========

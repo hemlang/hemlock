@@ -209,6 +209,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             JSONParser parser;
             parser.input = str->data;
             parser.pos = 0;
+            parser.depth = 0;
 
             Value result = json_parse_value(&parser, ctx);
 

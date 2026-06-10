@@ -5,6 +5,25 @@
 // Forward declaration for recursive evaluation
 Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx);
 
+// Number of bytes accessed by a buffer typed read_*/write_* suffix (e.g.
+// "u32_le"), or 0 if the suffix is not a fixed-width typed accessor. Used to
+// bounds-check the access up-front: runtime_error() only flags a (catchable)
+// exception and does NOT abort the C call, so the typed read/write paths below
+// must validate and return BEFORE touching memory, using 64-bit math so a large
+// offset cannot overflow int and bypass the check.
+static int buffer_typed_access_size(const char *suffix) {
+    if (strcmp(suffix, "u8") == 0 || strcmp(suffix, "i8") == 0) return 1;
+    if (strcmp(suffix, "u16_le") == 0 || strcmp(suffix, "u16_be") == 0 ||
+        strcmp(suffix, "i16_le") == 0 || strcmp(suffix, "i16_be") == 0) return 2;
+    if (strcmp(suffix, "u32_le") == 0 || strcmp(suffix, "u32_be") == 0 ||
+        strcmp(suffix, "i32_le") == 0 || strcmp(suffix, "i32_be") == 0 ||
+        strcmp(suffix, "f32_le") == 0 || strcmp(suffix, "f32_be") == 0) return 4;
+    if (strcmp(suffix, "u64_le") == 0 || strcmp(suffix, "u64_be") == 0 ||
+        strcmp(suffix, "i64_le") == 0 || strcmp(suffix, "i64_be") == 0 ||
+        strcmp(suffix, "f64_le") == 0 || strcmp(suffix, "f64_be") == 0) return 8;
+    return 0;
+}
+
 // Evaluate function and method call expressions
 Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // Check if this is a method call (obj.method(...))
@@ -226,9 +245,8 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                 return val_null();
                             }
                             Buffer *src = src_val.as.as_buffer;
-                            // Bounds checks MUST return: runtime_error() only flags an
-                            // exception, it does not abort, so falling through would do
-                            // the OOB memcpy anyway. 64-bit math avoids off+len overflow.
+                            // 64-bit math so off+len cannot overflow int and bypass the check;
+                            // runtime_error() does not abort, so we must return before memcpy.
                             if (len < 0 || off < 0 ||
                                 (int64_t)off + (int64_t)len > (int64_t)buf->length ||
                                 len > src->length) {
@@ -252,13 +270,10 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         Value off_val = eval_expr(expr->as.call.args[0], env, ctx);
                         Value val_arg = eval_expr(expr->as.call.args[1], env, ctx);
                         int32_t off = value_to_int(off_val);
-                        // Single sound bounds check up front. runtime_error() does not
-                        // abort, and the per-branch checks below lack returns, so this
-                        // guard (with 64-bit math to avoid off+size overflow) is what
-                        // actually prevents the OOB store.
-                        int wsize = strstr(suffix, "64") ? 8 : strstr(suffix, "32") ? 4 : strstr(suffix, "16") ? 2 : 1;
-                        if (off < 0 || (int64_t)off + wsize > (int64_t)buf->length) {
-                            runtime_error(ctx, "buffer.%s: offset %d with size %d out of bounds (buffer length %d)", method, off, wsize, buf->length);
+                        // Effective bounds check BEFORE the write (runtime_error does not abort).
+                        int access_size = buffer_typed_access_size(suffix);
+                        if (access_size > 0 && (off < 0 || (int64_t)off + (int64_t)access_size > (int64_t)buf->length)) {
+                            runtime_error(ctx, "buffer.%s: offset %d with size %d out of bounds (buffer length %d)", method, off, access_size, buf->length);
                             VALUE_RELEASE(off_val); VALUE_RELEASE(val_arg); VALUE_RELEASE(method_self);
                             return val_null();
                         }
@@ -364,8 +379,8 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             Value len_val = eval_expr(expr->as.call.args[1], env, ctx);
                             int32_t off = value_to_int(off_val);
                             int32_t len = value_to_int(len_val);
-                            // Must return on failure: otherwise the OOB memcpy below
-                            // runs and the copied bytes leak back to the caller.
+                            // 64-bit math so off+len cannot overflow int and bypass the check;
+                            // runtime_error() does not abort, so we must return before memcpy.
                             if (len < 0 || off < 0 ||
                                 (int64_t)off + (int64_t)len > (int64_t)buf->length) {
                                 runtime_error(ctx, "read_bytes: offset %d with size %d out of bounds (buffer length %d)", off, len, buf->length);
@@ -398,11 +413,10 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
                         Value off_val = eval_expr(expr->as.call.args[0], env, ctx);
                         int32_t off = value_to_int(off_val);
-                        // Sound up-front bounds check (the per-branch checks below lack
-                        // returns); 64-bit math avoids off+size overflow.
-                        int rsize = strstr(suffix, "64") ? 8 : strstr(suffix, "32") ? 4 : strstr(suffix, "16") ? 2 : 1;
-                        if (off < 0 || (int64_t)off + rsize > (int64_t)buf->length) {
-                            runtime_error(ctx, "buffer.%s: offset %d with size %d out of bounds (buffer length %d)", method, off, rsize, buf->length);
+                        // Effective bounds check BEFORE the read (runtime_error does not abort).
+                        int access_size = buffer_typed_access_size(suffix);
+                        if (access_size > 0 && (off < 0 || (int64_t)off + (int64_t)access_size > (int64_t)buf->length)) {
+                            runtime_error(ctx, "buffer.%s: offset %d with size %d out of bounds (buffer length %d)", method, off, access_size, buf->length);
                             VALUE_RELEASE(off_val); VALUE_RELEASE(method_self);
                             return val_null();
                         }

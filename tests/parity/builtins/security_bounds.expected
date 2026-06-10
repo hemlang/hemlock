@@ -1,0 +1,8 @@
+bytes_write_oob: throws
+bytes_read_neg: throws
+buf_write_u8_oob: throws
+buf_write_u64_overflow: throws
+buf_read_bytes_overflow: throws
+inbounds=305419896
+json50_k49=49
+utf8_chars=2

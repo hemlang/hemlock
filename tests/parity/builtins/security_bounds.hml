@@ -1,0 +1,42 @@
+// Regression tests for memory-safety fixes:
+//  - @stdlib/bytes read_*/write_* must bounds-check buffers
+//  - buffer typed read/write methods must bounds-check (no int overflow bypass)
+//  - JSON deserialize must grow object storage past 32 keys (no heap overflow)
+//  - truncated/malformed UTF-8 must not read out of bounds
+// Each dangerous operation is wrapped so the program prints a deterministic
+// result identical on the interpreter and the compiled backend.
+import { write_u32_le, read_u32_le } from "@stdlib/bytes";
+import { from_bytes } from "@stdlib/strings";
+
+fn guard(name, f) {
+    try { f(); print(name + ": no-throw"); }
+    catch (e) { print(name + ": throws"); }
+}
+
+let b = buffer(8);
+
+// @stdlib/bytes free functions must reject out-of-range / negative offsets.
+guard("bytes_write_oob", fn() { write_u32_le(b, 100000, 1); });
+guard("bytes_read_neg", fn() { read_u32_le(b, -8); });
+
+// Buffer typed methods must bounds-check, including against int overflow.
+guard("buf_write_u8_oob", fn() { b.write_u8(100000, 1); });
+guard("buf_write_u64_overflow", fn() { b.write_u64_le(2147483647, 1); });
+guard("buf_read_bytes_overflow", fn() { b.read_bytes(2147483647, 16); });
+
+// In-bounds access still works.
+b.write_u32_le(0, 305419896);
+print("inbounds=" + read_u32_le(b, 0));
+
+// A JSON object with more than 32 keys must parse without corruption.
+let parts = [];
+for (let i = 0; i < 50; i++) {
+    parts.push("\"k" + i + "\":" + i);
+}
+let obj = ("{" + parts.join(",") + "}").deserialize();
+print("json50_k49=" + obj.k49);
+
+// Truncated/malformed UTF-8 (a lone 4-byte lead between two ASCII bytes) must
+// not crash; chars() must agree across backends.
+let t = from_bytes([0x41, 0xF0, 0x41]);
+print("utf8_chars=" + t.chars().length);

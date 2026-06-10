@@ -105,55 +105,60 @@ HmlValue hml_is_little_endian(void) {
 
 // ========== ENDIAN-AWARE BUFFER READ ==========
 
-static inline void *extract_ptr(HmlValue val) {
-    if (val.type == HML_VAL_PTR) return val.as.as_ptr;
-    if (val.type == HML_VAL_BUFFER && val.as.as_buffer) return val.as.as_buffer->data;
-    return NULL;
+// Resolve a ptr/buffer value to a byte address at `offset`, validating bounds
+// for safe buffers. Raw ptr is intentionally unchecked (Hemlock's documented
+// unsafe-pointer contract). For buffers the access window [offset, offset+size)
+// is validated against the buffer length using 64-bit math so a huge/negative
+// offset cannot wrap an int and bypass the check, and freed buffers are
+// rejected. This is what stops @stdlib/bytes read_*/write_* from being used as
+// an arbitrary heap read/write primitive.
+static inline uint8_t *byteorder_addr(HmlValue val, int offset, int access_size, const char *op) {
+    if (val.type == HML_VAL_PTR) {
+        if (!val.as.as_ptr) hml_runtime_error("%s cannot access null pointer", op);
+        return (uint8_t *)val.as.as_ptr + offset;
+    }
+    if (val.type == HML_VAL_BUFFER && val.as.as_buffer) {
+        HmlBuffer *b = val.as.as_buffer;
+        if (b->freed) hml_runtime_error("%s cannot access freed buffer", op);
+        if (offset < 0 || (int64_t)offset + (int64_t)access_size > (int64_t)b->length) {
+            hml_runtime_error("%s offset %d with size %d out of bounds (buffer length %d)",
+                              op, offset, access_size, b->length);
+        }
+        if (!b->data) hml_runtime_error("%s cannot access null buffer", op);
+        return (uint8_t *)b->data + offset;
+    }
+    hml_runtime_error("%s requires a ptr or buffer", op);
+    return NULL;  // unreachable: hml_runtime_error does not return
 }
 
 HmlValue hml_read_u16_be(HmlValue ptr, HmlValue offset_val) {
-    void *p = extract_ptr(ptr);
-    if (!p) hml_runtime_error("read_u16_be() cannot read from null pointer");
-    int offset = hml_to_i32(offset_val);
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(ptr, hml_to_i32(offset_val), 2, "read_u16_be()");
     uint16_t result = ((uint16_t)bytes[0] << 8) | (uint16_t)bytes[1];
     return hml_val_u16(result);
 }
 
 HmlValue hml_read_u16_le(HmlValue ptr, HmlValue offset_val) {
-    void *p = extract_ptr(ptr);
-    if (!p) hml_runtime_error("read_u16_le() cannot read from null pointer");
-    int offset = hml_to_i32(offset_val);
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(ptr, hml_to_i32(offset_val), 2, "read_u16_le()");
     uint16_t result = (uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8);
     return hml_val_u16(result);
 }
 
 HmlValue hml_read_u32_be(HmlValue ptr, HmlValue offset_val) {
-    void *p = extract_ptr(ptr);
-    if (!p) hml_runtime_error("read_u32_be() cannot read from null pointer");
-    int offset = hml_to_i32(offset_val);
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(ptr, hml_to_i32(offset_val), 4, "read_u32_be()");
     uint32_t result = ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
                       ((uint32_t)bytes[2] << 8)  | (uint32_t)bytes[3];
     return hml_val_u32(result);
 }
 
 HmlValue hml_read_u32_le(HmlValue ptr, HmlValue offset_val) {
-    void *p = extract_ptr(ptr);
-    if (!p) hml_runtime_error("read_u32_le() cannot read from null pointer");
-    int offset = hml_to_i32(offset_val);
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(ptr, hml_to_i32(offset_val), 4, "read_u32_le()");
     uint32_t result = (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) |
                       ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
     return hml_val_u32(result);
 }
 
 HmlValue hml_read_u64_be(HmlValue ptr, HmlValue offset_val) {
-    void *p = extract_ptr(ptr);
-    if (!p) hml_runtime_error("read_u64_be() cannot read from null pointer");
-    int offset = hml_to_i32(offset_val);
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(ptr, hml_to_i32(offset_val), 8, "read_u64_be()");
     uint64_t result = ((uint64_t)bytes[0] << 56) | ((uint64_t)bytes[1] << 48) |
                       ((uint64_t)bytes[2] << 40) | ((uint64_t)bytes[3] << 32) |
                       ((uint64_t)bytes[4] << 24) | ((uint64_t)bytes[5] << 16) |
@@ -162,10 +167,7 @@ HmlValue hml_read_u64_be(HmlValue ptr, HmlValue offset_val) {
 }
 
 HmlValue hml_read_u64_le(HmlValue ptr, HmlValue offset_val) {
-    void *p = extract_ptr(ptr);
-    if (!p) hml_runtime_error("read_u64_le() cannot read from null pointer");
-    int offset = hml_to_i32(offset_val);
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(ptr, hml_to_i32(offset_val), 8, "read_u64_le()");
     uint64_t result = (uint64_t)bytes[0] | ((uint64_t)bytes[1] << 8) |
                       ((uint64_t)bytes[2] << 16) | ((uint64_t)bytes[3] << 24) |
                       ((uint64_t)bytes[4] << 32) | ((uint64_t)bytes[5] << 40) |
@@ -176,33 +178,24 @@ HmlValue hml_read_u64_le(HmlValue ptr, HmlValue offset_val) {
 // ========== ENDIAN-AWARE BUFFER WRITE ==========
 
 HmlValue hml_write_u16_be(HmlValue ptr, HmlValue offset_val, HmlValue value) {
-    void *p = extract_ptr(ptr);
-    if (!p) hml_runtime_error("write_u16_be() cannot write to null pointer");
-    int offset = hml_to_i32(offset_val);
+    uint8_t *bytes = byteorder_addr(ptr, hml_to_i32(offset_val), 2, "write_u16_be()");
     uint16_t val = (uint16_t)hml_to_i32(value);
-    uint8_t *bytes = (uint8_t *)p + offset;
     bytes[0] = (uint8_t)(val >> 8);
     bytes[1] = (uint8_t)(val & 0xFF);
     return hml_val_null();
 }
 
 HmlValue hml_write_u16_le(HmlValue ptr, HmlValue offset_val, HmlValue value) {
-    void *p = extract_ptr(ptr);
-    if (!p) hml_runtime_error("write_u16_le() cannot write to null pointer");
-    int offset = hml_to_i32(offset_val);
+    uint8_t *bytes = byteorder_addr(ptr, hml_to_i32(offset_val), 2, "write_u16_le()");
     uint16_t val = (uint16_t)hml_to_i32(value);
-    uint8_t *bytes = (uint8_t *)p + offset;
     bytes[0] = (uint8_t)(val & 0xFF);
     bytes[1] = (uint8_t)(val >> 8);
     return hml_val_null();
 }
 
 HmlValue hml_write_u32_be(HmlValue ptr, HmlValue offset_val, HmlValue value) {
-    void *p = extract_ptr(ptr);
-    if (!p) hml_runtime_error("write_u32_be() cannot write to null pointer");
-    int offset = hml_to_i32(offset_val);
+    uint8_t *bytes = byteorder_addr(ptr, hml_to_i32(offset_val), 4, "write_u32_be()");
     uint32_t val = (uint32_t)hml_to_i32(value);
-    uint8_t *bytes = (uint8_t *)p + offset;
     bytes[0] = (uint8_t)(val >> 24);
     bytes[1] = (uint8_t)(val >> 16);
     bytes[2] = (uint8_t)(val >> 8);
@@ -211,11 +204,8 @@ HmlValue hml_write_u32_be(HmlValue ptr, HmlValue offset_val, HmlValue value) {
 }
 
 HmlValue hml_write_u32_le(HmlValue ptr, HmlValue offset_val, HmlValue value) {
-    void *p = extract_ptr(ptr);
-    if (!p) hml_runtime_error("write_u32_le() cannot write to null pointer");
-    int offset = hml_to_i32(offset_val);
+    uint8_t *bytes = byteorder_addr(ptr, hml_to_i32(offset_val), 4, "write_u32_le()");
     uint32_t val = (uint32_t)hml_to_i32(value);
-    uint8_t *bytes = (uint8_t *)p + offset;
     bytes[0] = (uint8_t)(val & 0xFF);
     bytes[1] = (uint8_t)(val >> 8);
     bytes[2] = (uint8_t)(val >> 16);
@@ -224,11 +214,8 @@ HmlValue hml_write_u32_le(HmlValue ptr, HmlValue offset_val, HmlValue value) {
 }
 
 HmlValue hml_write_u64_be(HmlValue ptr, HmlValue offset_val, HmlValue value) {
-    void *p = extract_ptr(ptr);
-    if (!p) hml_runtime_error("write_u64_be() cannot write to null pointer");
-    int offset = hml_to_i32(offset_val);
+    uint8_t *bytes = byteorder_addr(ptr, hml_to_i32(offset_val), 8, "write_u64_be()");
     uint64_t val = (uint64_t)hml_to_i64(value);
-    uint8_t *bytes = (uint8_t *)p + offset;
     bytes[0] = (uint8_t)(val >> 56);
     bytes[1] = (uint8_t)(val >> 48);
     bytes[2] = (uint8_t)(val >> 40);
@@ -241,11 +228,8 @@ HmlValue hml_write_u64_be(HmlValue ptr, HmlValue offset_val, HmlValue value) {
 }
 
 HmlValue hml_write_u64_le(HmlValue ptr, HmlValue offset_val, HmlValue value) {
-    void *p = extract_ptr(ptr);
-    if (!p) hml_runtime_error("write_u64_le() cannot write to null pointer");
-    int offset = hml_to_i32(offset_val);
+    uint8_t *bytes = byteorder_addr(ptr, hml_to_i32(offset_val), 8, "write_u64_le()");
     uint64_t val = (uint64_t)hml_to_i64(value);
-    uint8_t *bytes = (uint8_t *)p + offset;
     bytes[0] = (uint8_t)(val & 0xFF);
     bytes[1] = (uint8_t)(val >> 8);
     bytes[2] = (uint8_t)(val >> 16);

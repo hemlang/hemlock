@@ -391,8 +391,15 @@ HmlValue hml_string_replace(HmlValue str, HmlValue old, HmlValue new_str) {
         return str;
     }
 
-    int new_len = s->length - o->length + n->length;
-    char *result = malloc(new_len + 1);
+    int64_t new_len64 = (int64_t)s->length - (int64_t)o->length + (int64_t)n->length;
+    if (new_len64 < 0 || new_len64 > INT_MAX) {
+        hml_runtime_error("replace() result string too large");
+    }
+    int new_len = (int)new_len64;
+    char *result = malloc((size_t)new_len + 1);
+    if (!result) {
+        hml_runtime_error("replace() memory allocation failed");
+    }
     memcpy(result, s->data, pos);
     memcpy(result + pos, n->data, n->length);
     memcpy(result + pos + n->length, s->data + pos + o->length, s->length - pos - o->length);
@@ -990,7 +997,10 @@ static void buffer_validate(HmlValue buf, const char *method) {
 }
 
 static void buffer_bounds_check(HmlBuffer *b, int offset, int size, const char *method) {
-    if (offset < 0 || offset + size > b->length) {
+    // Use 64-bit math: offset is attacker-controlled up to INT_MAX, so computing
+    // offset + size in `int` could overflow to a negative value and bypass the
+    // check, yielding an out-of-bounds access ~2GB past the buffer.
+    if (offset < 0 || size < 0 || (int64_t)offset + (int64_t)size > (int64_t)b->length) {
         hml_runtime_error("%s: offset %d with size %d out of bounds (buffer length %d)",
                          method, offset, size, b->length);
     }

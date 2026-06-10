@@ -12,6 +12,7 @@ typedef struct {
     Token next;          // One-token lookahead for named arguments
     int had_error;
     int panic_mode;
+    int parse_depth;     // Current recursion depth (bounds deeply nested input)
     const char *source;  // Source code for error messages
     // Type parameters in scope (for parsing generic type definitions)
     char **type_params;    // Current type parameter names (e.g., ["T", "U"])

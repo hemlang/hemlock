@@ -608,7 +608,7 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     p->pos++;  // skip opening brace
 
     int capacity = 32;
-    FieldEntry *fields = malloc(sizeof(FieldEntry) * capacity);
+    FieldEntry *fields = malloc(sizeof(FieldEntry) * (size_t)capacity);
     int num_fields = 0;
 
     json_skip_whitespace(p);
@@ -619,7 +619,7 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
         Object *obj = malloc(sizeof(Object));
         obj->fields = fields;
         obj->num_fields = 0;
-        obj->capacity = 32;
+        obj->capacity = capacity;
         obj->type_name = NULL;
         obj->ref_count = 1;  // Start with 1 - caller owns the first reference
         atomic_store(&obj->freed, 0);  // Not freed
@@ -630,6 +630,32 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     }
 
     while (p->input[p->pos] != '}' && p->input[p->pos] != '\0') {
+        // Grow the fields array if needed. SECURITY: a JSON object may contain
+        // any number of keys; this array previously had a hardcoded capacity of
+        // 32 and was never grown, so the 33rd key overflowed the heap buffer
+        // with attacker-controlled data. Guard the doubling against overflow.
+        if (num_fields >= capacity) {
+            if (capacity > INT_MAX / 2) {
+                for (int i = 0; i < num_fields; i++) {
+                    free(fields[i].name);
+                    value_release(fields[i].value);
+                }
+                free(fields);
+                return throw_runtime_error(ctx, "JSON object has too many fields");
+            }
+            capacity *= 2;
+            FieldEntry *new_fields = realloc(fields, sizeof(FieldEntry) * (size_t)capacity);
+            if (!new_fields) {
+                for (int i = 0; i < num_fields; i++) {
+                    free(fields[i].name);
+                    value_release(fields[i].value);
+                }
+                free(fields);
+                return throw_runtime_error(ctx, "Out of memory parsing JSON object");
+            }
+            fields = new_fields;
+        }
+
         json_skip_whitespace(p);
 
         // Parse field name (must be a string)
@@ -789,7 +815,23 @@ Value json_parse_array(JSONParser *p, ExecutionContext *ctx) {
 }
 
 // Optimized json_parse_value with direct character comparisons
+static Value json_parse_value_inner(JSONParser *p, ExecutionContext *ctx);
+
+// Public entry: bound recursion on deeply nested JSON so untrusted input raises
+// a catchable error instead of overflowing the C stack. depth is incremented
+// per nesting level and decremented when the subtree finishes, so flat siblings
+// do not accumulate.
 Value json_parse_value(JSONParser *p, ExecutionContext *ctx) {
+    if (p->depth >= HML_MAX_JSON_DEPTH) {
+        return throw_runtime_error(ctx, "JSON nesting too deep (max %d)", HML_MAX_JSON_DEPTH);
+    }
+    p->depth++;
+    Value v = json_parse_value_inner(p, ctx);
+    p->depth--;
+    return v;
+}
+
+static Value json_parse_value_inner(JSONParser *p, ExecutionContext *ctx) {
     json_skip_whitespace(p);
 
     const char *s = p->input + p->pos;

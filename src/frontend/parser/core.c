@@ -249,6 +249,7 @@ void parser_init(Parser *parser, Lexer *lexer) {
     parser->lexer = lexer;
     parser->had_error = 0;
     parser->panic_mode = 0;
+    parser->parse_depth = 0;
     parser->source = lexer->source;  // Store source for error messages
     parser->type_params = NULL;      // No type parameters in scope initially
     parser->num_type_params = 0;

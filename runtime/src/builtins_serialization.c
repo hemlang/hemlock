@@ -300,6 +300,7 @@ HmlValue hml_serialize(HmlValue val) {
 typedef struct {
     const char *input;
     int pos;
+    int depth;   // current nesting depth (bounds recursion on untrusted JSON)
 } HmlJSONParser;
 
 // Optimized whitespace skip
@@ -313,6 +314,7 @@ static inline void json_skip_whitespace(HmlJSONParser *p) {
 
 // Forward declarations
 static HmlValue json_parse_value(HmlJSONParser *p);
+static HmlValue json_parse_value_inner(HmlJSONParser *p);
 static HmlValue json_parse_string(HmlJSONParser *p);
 static HmlValue json_parse_number(HmlJSONParser *p);
 static HmlValue json_parse_object(HmlJSONParser *p);
@@ -738,7 +740,21 @@ static HmlValue json_parse_array(HmlJSONParser *p) {
 }
 
 // Optimized json_parse_value with direct character comparisons
+// Public entry: bound recursion on deeply nested JSON so untrusted input raises
+// a catchable error instead of overflowing the C stack. depth is incremented
+// per nesting level and decremented when the subtree finishes, so flat siblings
+// do not accumulate.
 static HmlValue json_parse_value(HmlJSONParser *p) {
+    if (p->depth >= HML_MAX_JSON_DEPTH) {
+        hml_runtime_error("JSON nesting too deep (max %d)", HML_MAX_JSON_DEPTH);
+    }
+    p->depth++;
+    HmlValue v = json_parse_value_inner(p);
+    p->depth--;
+    return v;
+}
+
+static HmlValue json_parse_value_inner(HmlJSONParser *p) {
     json_skip_whitespace(p);
 
     const char *s = p->input + p->pos;
@@ -785,7 +801,8 @@ HmlValue hml_deserialize(HmlValue json_str) {
 
     HmlJSONParser parser = {
         .input = json_str.as.as_string->data,
-        .pos = 0
+        .pos = 0,
+        .depth = 0
     };
 
     return json_parse_value(&parser);

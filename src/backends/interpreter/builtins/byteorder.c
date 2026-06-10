@@ -10,25 +10,6 @@
 
 #include "internal.h"
 
-// Validate a [offset, offset+size) access for the byte-order read/write
-// builtins. Raw `ptr` arguments are unchecked (unsafe by design, like the rest
-// of the ptr_* family); `buffer` arguments are bounds-checked so they cannot be
-// used as an arbitrary OOB read/write primitive. Returns 1 if the access is
-// allowed, otherwise flags a runtime error and returns 0. 64-bit math avoids
-// offset+size overflow.
-static int bo_buffer_bounds_ok(Value *args, int offset, int size,
-                               ExecutionContext *ctx, const char *name) {
-    if (args[0].type == VAL_BUFFER && args[0].as.as_buffer) {
-        int blen = args[0].as.as_buffer->length;
-        if (offset < 0 || (int64_t)offset + size > (int64_t)blen) {
-            runtime_error(ctx, "%s: offset %d with size %d out of bounds (buffer length %d)",
-                          name, offset, size, blen);
-            return 0;
-        }
-    }
-    return 1;
-}
-
 // ========== BYTE SWAP BUILTINS ==========
 
 // bswap16(val: u16): u16 - Swap bytes of a 16-bit value
@@ -161,6 +142,42 @@ Value builtin_is_little_endian(Value *args, int num_args, ExecutionContext *ctx)
 
 // ========== ENDIAN-AWARE BUFFER READ/WRITE ==========
 
+// Resolve a ptr/buffer argument to a byte address at `offset`. Raw ptr is
+// unchecked (Hemlock's documented unsafe-pointer contract); buffers are
+// bounds-checked with 64-bit math so a huge/negative offset cannot be used to
+// read or write outside the allocation via these endian helpers. On failure it
+// raises a catchable error and returns NULL. Because runtime_error() does not
+// abort execution, the caller MUST return immediately when NULL is returned.
+static uint8_t *byteorder_addr(Value arg, int offset, int access_size,
+                               const char *op, ExecutionContext *ctx) {
+    if (arg.type == VAL_PTR) {
+        if (!arg.as.as_ptr) {
+            runtime_error(ctx, "%s cannot access null pointer", op);
+            return NULL;
+        }
+        return (uint8_t *)arg.as.as_ptr + offset;
+    }
+    if (arg.type == VAL_BUFFER && arg.as.as_buffer) {
+        Buffer *b = arg.as.as_buffer;
+        if (b->freed) {
+            runtime_error(ctx, "%s cannot access freed buffer", op);
+            return NULL;
+        }
+        if (offset < 0 || (int64_t)offset + (int64_t)access_size > (int64_t)b->length) {
+            runtime_error(ctx, "%s offset %d with size %d out of bounds (buffer length %d)",
+                          op, offset, access_size, b->length);
+            return NULL;
+        }
+        if (!b->data) {
+            runtime_error(ctx, "%s cannot access null buffer", op);
+            return NULL;
+        }
+        return (uint8_t *)b->data + offset;
+    }
+    runtime_error(ctx, "%s requires a ptr or buffer", op);
+    return NULL;
+}
+
 // read_u16_be(ptr, offset): u16 - Read big-endian u16 from pointer+offset
 Value builtin_read_u16_be(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
@@ -171,19 +188,9 @@ Value builtin_read_u16_be(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "read_u16_be() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *p;
-    if (args[0].type == VAL_PTR) {
-        p = args[0].as.as_ptr;
-    } else {
-        p = args[0].as.as_buffer->data;
-    }
-    if (!p) {
-        runtime_error(ctx, "read_u16_be() cannot read from null pointer");
-        return val_null();
-    }
     int offset = value_to_int(args[1]);
-    if (!bo_buffer_bounds_ok(args, offset, 2, ctx, "read_u16_be")) return val_null();
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(args[0], offset, 2, "read_u16_be()", ctx);
+    if (!bytes) return val_null();
     uint16_t result = ((uint16_t)bytes[0] << 8) | (uint16_t)bytes[1];
     return val_u16(result);
 }
@@ -198,19 +205,9 @@ Value builtin_read_u16_le(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "read_u16_le() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *p;
-    if (args[0].type == VAL_PTR) {
-        p = args[0].as.as_ptr;
-    } else {
-        p = args[0].as.as_buffer->data;
-    }
-    if (!p) {
-        runtime_error(ctx, "read_u16_le() cannot read from null pointer");
-        return val_null();
-    }
     int offset = value_to_int(args[1]);
-    if (!bo_buffer_bounds_ok(args, offset, 2, ctx, "read_u16_le")) return val_null();
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(args[0], offset, 2, "read_u16_le()", ctx);
+    if (!bytes) return val_null();
     uint16_t result = (uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8);
     return val_u16(result);
 }
@@ -225,19 +222,9 @@ Value builtin_read_u32_be(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "read_u32_be() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *p;
-    if (args[0].type == VAL_PTR) {
-        p = args[0].as.as_ptr;
-    } else {
-        p = args[0].as.as_buffer->data;
-    }
-    if (!p) {
-        runtime_error(ctx, "read_u32_be() cannot read from null pointer");
-        return val_null();
-    }
     int offset = value_to_int(args[1]);
-    if (!bo_buffer_bounds_ok(args, offset, 4, ctx, "read_u32_be")) return val_null();
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(args[0], offset, 4, "read_u32_be()", ctx);
+    if (!bytes) return val_null();
     uint32_t result = ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
                       ((uint32_t)bytes[2] << 8)  | (uint32_t)bytes[3];
     return val_u32(result);
@@ -253,19 +240,9 @@ Value builtin_read_u32_le(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "read_u32_le() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *p;
-    if (args[0].type == VAL_PTR) {
-        p = args[0].as.as_ptr;
-    } else {
-        p = args[0].as.as_buffer->data;
-    }
-    if (!p) {
-        runtime_error(ctx, "read_u32_le() cannot read from null pointer");
-        return val_null();
-    }
     int offset = value_to_int(args[1]);
-    if (!bo_buffer_bounds_ok(args, offset, 4, ctx, "read_u32_le")) return val_null();
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(args[0], offset, 4, "read_u32_le()", ctx);
+    if (!bytes) return val_null();
     uint32_t result = (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) |
                       ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
     return val_u32(result);
@@ -281,19 +258,9 @@ Value builtin_read_u64_be(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "read_u64_be() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *p;
-    if (args[0].type == VAL_PTR) {
-        p = args[0].as.as_ptr;
-    } else {
-        p = args[0].as.as_buffer->data;
-    }
-    if (!p) {
-        runtime_error(ctx, "read_u64_be() cannot read from null pointer");
-        return val_null();
-    }
     int offset = value_to_int(args[1]);
-    if (!bo_buffer_bounds_ok(args, offset, 8, ctx, "read_u64_be")) return val_null();
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(args[0], offset, 8, "read_u64_be()", ctx);
+    if (!bytes) return val_null();
     uint64_t result = ((uint64_t)bytes[0] << 56) | ((uint64_t)bytes[1] << 48) |
                       ((uint64_t)bytes[2] << 40) | ((uint64_t)bytes[3] << 32) |
                       ((uint64_t)bytes[4] << 24) | ((uint64_t)bytes[5] << 16) |
@@ -311,19 +278,9 @@ Value builtin_read_u64_le(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "read_u64_le() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *p;
-    if (args[0].type == VAL_PTR) {
-        p = args[0].as.as_ptr;
-    } else {
-        p = args[0].as.as_buffer->data;
-    }
-    if (!p) {
-        runtime_error(ctx, "read_u64_le() cannot read from null pointer");
-        return val_null();
-    }
     int offset = value_to_int(args[1]);
-    if (!bo_buffer_bounds_ok(args, offset, 8, ctx, "read_u64_le")) return val_null();
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(args[0], offset, 8, "read_u64_le()", ctx);
+    if (!bytes) return val_null();
     uint64_t result = (uint64_t)bytes[0] | ((uint64_t)bytes[1] << 8) |
                       ((uint64_t)bytes[2] << 16) | ((uint64_t)bytes[3] << 24) |
                       ((uint64_t)bytes[4] << 32) | ((uint64_t)bytes[5] << 40) |
@@ -341,20 +298,10 @@ Value builtin_write_u16_be(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "write_u16_be() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *p;
-    if (args[0].type == VAL_PTR) {
-        p = args[0].as.as_ptr;
-    } else {
-        p = args[0].as.as_buffer->data;
-    }
-    if (!p) {
-        runtime_error(ctx, "write_u16_be() cannot write to null pointer");
-        return val_null();
-    }
     int offset = value_to_int(args[1]);
-    if (!bo_buffer_bounds_ok(args, offset, 2, ctx, "write_u16_be")) return val_null();
     uint16_t val = (uint16_t)value_to_int(args[2]);
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(args[0], offset, 2, "write_u16_be()", ctx);
+    if (!bytes) return val_null();
     bytes[0] = (uint8_t)(val >> 8);
     bytes[1] = (uint8_t)(val & 0xFF);
     return val_null();
@@ -370,20 +317,10 @@ Value builtin_write_u16_le(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "write_u16_le() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *p;
-    if (args[0].type == VAL_PTR) {
-        p = args[0].as.as_ptr;
-    } else {
-        p = args[0].as.as_buffer->data;
-    }
-    if (!p) {
-        runtime_error(ctx, "write_u16_le() cannot write to null pointer");
-        return val_null();
-    }
     int offset = value_to_int(args[1]);
-    if (!bo_buffer_bounds_ok(args, offset, 2, ctx, "write_u16_le")) return val_null();
     uint16_t val = (uint16_t)value_to_int(args[2]);
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(args[0], offset, 2, "write_u16_le()", ctx);
+    if (!bytes) return val_null();
     bytes[0] = (uint8_t)(val & 0xFF);
     bytes[1] = (uint8_t)(val >> 8);
     return val_null();
@@ -399,20 +336,10 @@ Value builtin_write_u32_be(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "write_u32_be() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *p;
-    if (args[0].type == VAL_PTR) {
-        p = args[0].as.as_ptr;
-    } else {
-        p = args[0].as.as_buffer->data;
-    }
-    if (!p) {
-        runtime_error(ctx, "write_u32_be() cannot write to null pointer");
-        return val_null();
-    }
     int offset = value_to_int(args[1]);
-    if (!bo_buffer_bounds_ok(args, offset, 4, ctx, "write_u32_be")) return val_null();
     uint32_t val = (uint32_t)value_to_int(args[2]);
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(args[0], offset, 4, "write_u32_be()", ctx);
+    if (!bytes) return val_null();
     bytes[0] = (uint8_t)(val >> 24);
     bytes[1] = (uint8_t)(val >> 16);
     bytes[2] = (uint8_t)(val >> 8);
@@ -430,20 +357,10 @@ Value builtin_write_u32_le(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "write_u32_le() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *p;
-    if (args[0].type == VAL_PTR) {
-        p = args[0].as.as_ptr;
-    } else {
-        p = args[0].as.as_buffer->data;
-    }
-    if (!p) {
-        runtime_error(ctx, "write_u32_le() cannot write to null pointer");
-        return val_null();
-    }
     int offset = value_to_int(args[1]);
-    if (!bo_buffer_bounds_ok(args, offset, 4, ctx, "write_u32_le")) return val_null();
     uint32_t val = (uint32_t)value_to_int(args[2]);
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(args[0], offset, 4, "write_u32_le()", ctx);
+    if (!bytes) return val_null();
     bytes[0] = (uint8_t)(val & 0xFF);
     bytes[1] = (uint8_t)(val >> 8);
     bytes[2] = (uint8_t)(val >> 16);
@@ -461,20 +378,10 @@ Value builtin_write_u64_be(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "write_u64_be() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *p;
-    if (args[0].type == VAL_PTR) {
-        p = args[0].as.as_ptr;
-    } else {
-        p = args[0].as.as_buffer->data;
-    }
-    if (!p) {
-        runtime_error(ctx, "write_u64_be() cannot write to null pointer");
-        return val_null();
-    }
     int offset = value_to_int(args[1]);
-    if (!bo_buffer_bounds_ok(args, offset, 8, ctx, "write_u64_be")) return val_null();
     uint64_t val = (uint64_t)value_to_int64(args[2]);
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(args[0], offset, 8, "write_u64_be()", ctx);
+    if (!bytes) return val_null();
     bytes[0] = (uint8_t)(val >> 56);
     bytes[1] = (uint8_t)(val >> 48);
     bytes[2] = (uint8_t)(val >> 40);
@@ -496,20 +403,10 @@ Value builtin_write_u64_le(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "write_u64_le() first argument must be a ptr or buffer");
         return val_null();
     }
-    void *p;
-    if (args[0].type == VAL_PTR) {
-        p = args[0].as.as_ptr;
-    } else {
-        p = args[0].as.as_buffer->data;
-    }
-    if (!p) {
-        runtime_error(ctx, "write_u64_le() cannot write to null pointer");
-        return val_null();
-    }
     int offset = value_to_int(args[1]);
-    if (!bo_buffer_bounds_ok(args, offset, 8, ctx, "write_u64_le")) return val_null();
     uint64_t val = (uint64_t)value_to_int64(args[2]);
-    uint8_t *bytes = (uint8_t *)p + offset;
+    uint8_t *bytes = byteorder_addr(args[0], offset, 8, "write_u64_le()", ctx);
+    if (!bytes) return val_null();
     bytes[0] = (uint8_t)(val & 0xFF);
     bytes[1] = (uint8_t)(val >> 8);
     bytes[2] = (uint8_t)(val >> 16);
