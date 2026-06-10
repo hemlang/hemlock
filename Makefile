@@ -640,14 +640,17 @@ else
 	@echo "✓ Runtime library built: $(RUNTIME_LIB) + $(RUNTIME_SHARED)"
 endif
 
-# File target for runtime library (used as dependency)
-$(RUNTIME_LIB):
-	$(MAKE) -C $(RUNTIME_DIR) static shared
-	cp $(RUNTIME_BUILD)/$(RUNTIME_LIB) ./
-	cp $(RUNTIME_BUILD)/$(RUNTIME_SHARED) ./
+# File targets funnel through the phony `runtime` target (order-only), so
+# a parallel make never runs two `make -C runtime` invocations at once —
+# the phony target and these file rules used to each spawn their own
+# sub-make, and the two concurrent shared-library links raced on the same
+# output file (surfaced on Windows as ld: "final link failed: file
+# truncated"; Linux had the same race and just never happened to lose it)
+$(RUNTIME_LIB): | runtime
+	@:
 
-$(RUNTIME_BUILD)/$(RUNTIME_LIB):
-	$(MAKE) -C $(RUNTIME_DIR) static shared
+$(RUNTIME_BUILD)/$(RUNTIME_LIB): | runtime
+	@:
 
 runtime-clean:
 	$(MAKE) -C $(RUNTIME_DIR) clean
