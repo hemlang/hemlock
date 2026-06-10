@@ -539,6 +539,25 @@ static int compile_c(const Options *opts, const char *c_file) {
     }
 #endif
 
+    // FFI: the Windows runtime is built with libffi when the toolchain has
+    // it; link it if so. --print-file-name echoes the bare name back when
+    // the library is not found, and a full path when it is.
+    char ffi_flag[8] = "";
+#ifdef _WIN32
+    {
+        char probe_cmd[512];
+        snprintf(probe_cmd, sizeof(probe_cmd), "%s --print-file-name=libffi.a", opts->cc);
+        FILE *ffp = popen(probe_cmd, "r");
+        if (ffp) {
+            char probe_buf[PATH_MAX];
+            if (fgets(probe_buf, sizeof(probe_buf), ffp) && strpbrk(probe_buf, "/\\")) {
+                memcpy(ffi_flag, " -lffi", 7);
+            }
+            pclose(ffp);
+        }
+    }
+#endif
+
     // Platform-specific library paths
     // On macOS, use well-known Homebrew paths (fast) instead of `brew --prefix` (slow)
     // Override with env vars: HEMLOCK_LIBFFI_PATH, HEMLOCK_LWS_PATH, HEMLOCK_OPENSSL_PATH
@@ -747,9 +766,9 @@ static int compile_c(const Options *opts, const char *c_file) {
         q_out = shell_quote(opts->output_file);
         char *q_runtime_path_s = shell_quote(runtime_path);
         n = (q_out && q_runtime_path_s) ? snprintf(cmd, sizeof(cmd),
-            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm -lws2_32%s",
+            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32%s",
             opts->cc, opt_flag, q_out, q_c,
-            q_inc, q_runtime_path_s, q_runtime_lib, extra_lib_paths, zlib_flag)
+            q_inc, q_runtime_path_s, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag)
             : (int)sizeof(cmd);
         free(q_runtime_path_s);
 #elif defined(__APPLE__)
@@ -796,9 +815,9 @@ static int compile_c(const Options *opts, const char *c_file) {
         // layout where hemlock_platform.h lives in <repo>/include.
         char *q_runtime_path = shell_quote(runtime_path);
         n = (q_out && q_runtime_path) ? snprintf(cmd, sizeof(cmd),
-            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm -lws2_32%s",
+            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32%s",
             opts->cc, opt_flag, q_out, q_c,
-            q_inc, q_runtime_path, q_runtime_lib, extra_lib_paths, zlib_flag)
+            q_inc, q_runtime_path, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag)
             : (int)sizeof(cmd);
         free(q_runtime_path);
 #else

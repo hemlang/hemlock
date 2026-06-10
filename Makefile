@@ -19,14 +19,32 @@ endif
 # expecting one AST struct layout, builtin objects expecting another).
 # Use _DARWIN_C_SOURCE on macOS for BSD types, _POSIX_C_SOURCE on Linux
 ifeq ($(HEMLOCK_WINDOWS),1)
+    # FFI on Windows: enabled when the MinGW toolchain can link libffi
+    # (MSYS2: pacman -S mingw-w64-ucrt-x86_64-libffi; cross builds: build
+    # libffi from source with --host=x86_64-w64-mingw32, see
+    # docs/advanced/windows.md). Without it, FFI builtins throw at runtime.
+    # --print-file-name echoes the bare name back when the lib is missing
+    MINGW_FFI_PATH := $(shell $(CC) --print-file-name=libffi.a 2>/dev/null)
+    ifneq ($(MINGW_FFI_PATH),libffi.a)
+        HAS_MINGW_FFI = 1
+    else
+        HAS_MINGW_FFI = 0
+    endif
+    ifeq ($(HAS_MINGW_FFI),1)
+        WIN_FFI_CFLAGS =
+        WIN_FFI_LIB = -lffi
+    else
+        WIN_FFI_CFLAGS = -DHEMLOCK_NO_FFI
+        WIN_FFI_LIB =
+    endif
     # __USE_MINGW_ANSI_STDIO: C99 printf (%zu, %lld) instead of msvcrt's.
-    # HEMLOCK_NO_FFI / HEMLOCK_NO_OPENSSL: libffi and OpenSSL are typically
-    # not available for MinGW cross builds; the affected builtins throw at
-    # runtime (see wasm_interp_shim.c). Override with EXTRA_CFLAGS/LDFLAGS
-    # on MSYS2 where both libraries are installable via pacman.
+    # HEMLOCK_NO_OPENSSL: OpenSSL is typically not available for MinGW
+    # cross builds; the affected builtins throw at runtime (see
+    # wasm_interp_shim.c). Override with EXTRA_CFLAGS/EXTRA_LDFLAGS on
+    # MSYS2 where it is installable via pacman.
     # Implicit declarations are hard errors so older cross toolchains
     # (GCC <= 13) catch what GCC 14+ on native Windows rejects by default
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Werror=implicit-function-declaration -Werror=int-conversion -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 -DHEMLOCK_NO_FFI -DHEMLOCK_NO_OPENSSL -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Werror=implicit-function-declaration -Werror=int-conversion -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
 else ifeq ($(shell uname),Darwin)
     CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
 else
@@ -89,10 +107,10 @@ endif
 
 # Base libraries (always required)
 ifeq ($(HEMLOCK_WINDOWS),1)
-# winpthreads for threading, ws2_32 for sockets; no -ldl/-lffi/-lcrypto.
-# winpthreads and zlib are linked statically so hemlock.exe is
-# self-contained (no libwinpthread-1.dll / zlib1.dll needed beside it).
-LDFLAGS = -static-libgcc -Wl,-Bstatic -lpthread -lz -Wl,-Bdynamic -lm -lws2_32 $(EXTRA_LDFLAGS)
+# winpthreads for threading, ws2_32 for sockets; no -ldl/-lcrypto.
+# winpthreads, zlib, and (when present) libffi are linked statically so
+# hemlock.exe is self-contained (no extra DLLs needed beside it).
+LDFLAGS = -static-libgcc -Wl,-Bstatic -lpthread -lz $(WIN_FFI_LIB) -Wl,-Bdynamic -lm -lws2_32 $(EXTRA_LDFLAGS)
 else
 LDFLAGS = $(LDFLAGS_LIBFFI) $(LDFLAGS_OPENSSL) -lm -lpthread -lffi -ldl -lz -lcrypto $(EXTRA_LDFLAGS)
 endif

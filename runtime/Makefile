@@ -10,11 +10,26 @@ endif
 
 # Platform-specific settings
 ifeq ($(HEMLOCK_WINDOWS),1)
-    # No -fPIC (PE is always position independent); FFI and OpenSSL builtins
-    # are stubbed (HEMLOCK_NO_FFI / HEMLOCK_NO_OPENSSL); winpthreads supplies
+    # FFI enabled when the toolchain can link libffi (mirrors the top-level
+    # Makefile probe); OpenSSL builtins are stubbed (HEMLOCK_NO_OPENSSL).
+    # --print-file-name echoes the bare name back when the lib is missing
+    MINGW_FFI_PATH := $(shell $(CC) --print-file-name=libffi.a 2>/dev/null)
+    ifneq ($(MINGW_FFI_PATH),libffi.a)
+        HAS_MINGW_FFI = 1
+    else
+        HAS_MINGW_FFI = 0
+    endif
+    ifeq ($(HAS_MINGW_FFI),1)
+        WIN_FFI_CFLAGS =
+        WIN_FFI_LIB = -lffi
+    else
+        WIN_FFI_CFLAGS = -DHEMLOCK_NO_FFI
+        WIN_FFI_LIB =
+    endif
+    # No -fPIC (PE is always position independent); winpthreads supplies
     # pthreads; ws2_32 supplies sockets. -I../include for hemlock_platform.h.
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Iinclude -I../src/shared -I../include -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 -DHEMLOCK_NO_FFI -DHEMLOCK_NO_OPENSSL
-    LDFLAGS = -lm -lpthread -lws2_32
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Iinclude -I../src/shared -I../include -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL
+    LDFLAGS = -lm -lpthread $(WIN_FFI_LIB) -lws2_32
 else ifeq ($(shell uname),Darwin)
     CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -fPIC -Iinclude -I../src/shared -I../include -D_DARWIN_C_SOURCE
     # Detect libffi (Homebrew on macOS puts it in non-standard locations)

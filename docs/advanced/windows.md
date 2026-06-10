@@ -78,7 +78,7 @@ Calling any of these throws a runtime error on Windows:
 | Area | Detail |
 |------|--------|
 | Process model | `fork()`, `exec()`, `exec_argv()`, `posix_spawn()`, `wait()`/`waitpid()`, `kill()`, `getuid()`-family — Windows has no fork/exec or POSIX uids. `get_pid()`, `pipe()`, fd I/O, and `system`-style invocation via the compiler driver still work. |
-| FFI | Builds use `HEMLOCK_NO_FFI` because libffi is not packaged for MinGW cross builds. `extern fn`, `ffi_open`, and callbacks throw. On MSYS2 you can install `mingw-w64-x86_64-libffi` and override via `EXTRA_CFLAGS`/`EXTRA_LDFLAGS`. |
+| FFI without libffi | FFI is **fully supported** when the MinGW toolchain has libffi (auto-detected, see below); only without it do `extern fn`, `ffi_open`, and callbacks throw (`HEMLOCK_NO_FFI`). |
 | Crypto | `HEMLOCK_NO_OPENSSL`: `sha1`/`sha256`/`sha512`/`md5` and ECDSA builtins throw. The pure-Hemlock `@stdlib/hash` implementations still work. |
 | Regex | MinGW has no POSIX `<regex.h>`; `@stdlib/regex` throws. |
 | Signals | Only the signals the Windows CRT supports (`SIGINT`, `SIGTERM`, `SIGABRT`, `SIGSEGV`, `SIGFPE`, `SIGILL`) can be handled. Other constants exist but `signal()`/`raise()` on them fails. |
@@ -89,3 +89,45 @@ Calling any of these throws a runtime error on Windows:
 Everything else — the language core, async/channels/atomics, buffers and
 manual memory, TCP/UDP/Unix sockets, DNS, file and directory I/O, mmap,
 zlib compression, JSON/CSV/TOML/YAML, math, strings — works on Windows.
+
+## FFI on Windows (raylib games, native bindings)
+
+FFI works on Windows when the MinGW toolchain can link libffi; the build
+auto-detects it (`$(CC) --print-file-name=libffi.a`) and falls back to
+the runtime-error stubs when absent.
+
+Getting libffi:
+
+- **MSYS2 (native):** `pacman -S mingw-w64-ucrt-x86_64-libffi` — done.
+- **Cross builds:** Debian/Ubuntu don't package a MinGW libffi; build it
+  from source once (~30 s):
+
+  ```bash
+  git clone --depth 1 --branch v3.4.6 https://github.com/libffi/libffi
+  cd libffi && ./autogen.sh
+  ./configure --host=x86_64-w64-mingw32 --prefix=/usr/x86_64-w64-mingw32 \
+      --disable-shared --enable-static CC=x86_64-w64-mingw32-gcc-posix
+  make -j && sudo make install
+  ```
+
+  (`.github/workflows/windows-mingw.yml` does exactly this, cached.)
+
+With FFI enabled, both backends load DLLs at runtime: `import "foo.dll"`
+goes through `LoadLibrary`, `extern fn` calls dispatch through libffi,
+and libffi is linked statically so the binaries stay self-contained.
+
+Cross-platform bindings work unmodified: Linux library names in imports
+are translated the same way the macOS port translates them to `.dylib` —
+`import "libraylib.so"` tries `libraylib.dll` (MSYS2 naming), then
+`raylib.dll` (official release naming). So a raylib game written against
+the raylock bindings builds into a Windows `.exe` like this:
+
+```bash
+# next to raylib.dll from raylib's Windows release:
+hemlockc.exe -o game.exe game.hml
+./game.exe
+```
+
+Caveat: the C runtime translation maps `libc.so.6`/`libm.so.6` to
+`msvcrt.dll` — common functions (`strlen`, `malloc`, ...) resolve, but
+POSIX-only symbols won't exist there.

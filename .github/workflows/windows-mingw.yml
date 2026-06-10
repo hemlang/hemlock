@@ -26,6 +26,7 @@ jobs:
           make
           mingw-w64-ucrt-x86_64-gcc
           mingw-w64-ucrt-x86_64-zlib
+          mingw-w64-ucrt-x86_64-libffi
 
     - name: Build hemlock.exe, hemlockc.exe, and runtime natively
       run: make -j4 all
@@ -88,6 +89,29 @@ jobs:
         grep -q "compiled: 42" csm.out
         grep -q "sorted: 1,2,3" csm.out
 
+    - name: FFI test (DLL loading, raylib-style bindings)
+      run: |
+        cat > mockray.c << 'EOF'
+        #include <stdio.h>
+        __declspec(dllexport) void InitWindow(int w, int h, const char *t) {
+            printf("init %dx%d %s\n", w, h, t);
+        }
+        __declspec(dllexport) float GetFrameTime(void) { return 0.016f; }
+        EOF
+        gcc -shared -O2 mockray.c -o raylib.dll
+        cat > ffi.hml << 'EOF'
+        import "libraylib.so";
+        extern fn InitWindow(w: i32, h: i32, title: string): void;
+        extern fn GetFrameTime(): f32;
+        InitWindow(640, 480, "ffi");
+        print("dt:", GetFrameTime());
+        EOF
+        ./hemlock.exe ffi.hml | tee ffi.out
+        grep -q "init 640x480 ffi" ffi.out
+        grep -q "dt: 0.016" ffi.out
+        ./hemlockc.exe -o ffi.exe ffi.hml
+        ./ffi.exe | grep -q "init 640x480 ffi"
+
   mingw-cross:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -97,7 +121,31 @@ jobs:
     - name: Install MinGW-w64 toolchain and Wine
       run: |
         sudo apt-get update
-        sudo apt-get install -y gcc-mingw-w64-x86-64 libz-mingw-w64-dev wine64
+        sudo apt-get install -y gcc-mingw-w64-x86-64 libz-mingw-w64-dev wine64 autoconf automake libtool
+
+    - name: Cache MinGW libffi
+      id: cache-libffi
+      uses: actions/cache@v4
+      with:
+        path: ~/mingw-libffi
+        key: mingw-libffi-3.4.6-${{ runner.os }}
+
+    - name: Build libffi for MinGW (enables Hemlock FFI on Windows)
+      if: steps.cache-libffi.outputs.cache-hit != 'true'
+      run: |
+        git clone --depth 1 --branch v3.4.6 https://github.com/libffi/libffi /tmp/libffi
+        cd /tmp/libffi
+        ./autogen.sh
+        ./configure --host=x86_64-w64-mingw32 --prefix=$HOME/mingw-libffi \
+          --disable-shared --enable-static --disable-docs \
+          CC=x86_64-w64-mingw32-gcc-posix
+        make -j4
+        make install
+
+    - name: Install MinGW libffi into the toolchain sysroot
+      run: |
+        sudo cp ~/mingw-libffi/lib/libffi.a /usr/x86_64-w64-mingw32/lib/
+        sudo cp ~/mingw-libffi/include/ffi*.h /usr/x86_64-w64-mingw32/include/
 
     - name: Cross-compile hemlock.exe, hemlockc.exe, and runtime
       run: make mingw
@@ -138,5 +186,32 @@ jobs:
         wine ./hemlockc.exe -c /tmp/csm.hml
         x86_64-w64-mingw32-gcc-posix -O1 csm.c -Iruntime/include -Iinclude \
           -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 \
-          runtime/build-mingw/libhemlock_runtime.a -static -lm -lws2_32 -lz -o csm.exe
+          runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lz -o csm.exe
         wine ./csm.exe | grep -q "compiled: 42"
+
+    - name: FFI test under Wine (DLL loading, raylib-style bindings)
+      run: |
+        export WINEDEBUG=-all
+        cat > mockray.c << 'EOF'
+        #include <stdio.h>
+        __declspec(dllexport) void InitWindow(int w, int h, const char *t) {
+            printf("init %dx%d %s\n", w, h, t);
+        }
+        __declspec(dllexport) float GetFrameTime(void) { return 0.016f; }
+        EOF
+        x86_64-w64-mingw32-gcc-posix -shared -O2 mockray.c -o raylib.dll
+        cat > ffi.hml << 'EOF'
+        import "libraylib.so";
+        extern fn InitWindow(w: i32, h: i32, title: string): void;
+        extern fn GetFrameTime(): f32;
+        InitWindow(640, 480, "ffi");
+        print("dt:", GetFrameTime());
+        EOF
+        wine ./hemlock.exe ffi.hml | tee ffi.out
+        grep -q "init 640x480 ffi" ffi.out
+        grep -q "dt: 0.016" ffi.out
+        wine ./hemlockc.exe -c ffi.hml
+        x86_64-w64-mingw32-gcc-posix -O1 ffi.c -Iruntime/include -Iinclude \
+          -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 \
+          runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lz -o ffi.exe
+        wine ./ffi.exe | grep -q "init 640x480 ffi"

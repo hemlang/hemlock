@@ -176,6 +176,60 @@ static const char* translate_library_path(const char *path) {
 }
 #endif
 
+#ifdef _WIN32
+// Translate Linux library names to Windows equivalents so cross-platform
+// bindings (e.g. `import "libraylib.so"`) work unmodified
+static const char* translate_library_path(const char *path) {
+    // C runtime: libc/libm live in msvcrt
+    if (strcmp(path, "libc.so.6") == 0 || strcmp(path, "libm.so.6") == 0) {
+        return "msvcrt.dll";
+    }
+
+    // Only translate .so / .so.N names; explicit .dll paths pass through
+    size_t len = strlen(path);
+    size_t base_len;
+    const char *so_pos = strstr(path, ".so.");
+    if (so_pos != NULL) {
+        base_len = (size_t)(so_pos - path);
+    } else if (len > 3 && strcmp(path + len - 3, ".so") == 0) {
+        base_len = len - 3;
+    } else {
+        return path;
+    }
+
+    static char translated[512];
+    if (base_len + 5 >= sizeof(translated)) {
+        return path;
+    }
+
+    // MSYS2-style name first (libfoo.so -> libfoo.dll) ...
+    memcpy(translated, path, base_len);
+    strcpy(translated + base_len, ".dll");
+    void *probe = dlopen(translated, RTLD_LAZY);
+    if (probe) {
+        dlclose(probe);
+        return translated;
+    }
+
+    // ... then official-release style without the lib prefix
+    // (libraylib.so -> raylib.dll)
+    const char *basename = strrchr(translated, '/');
+    const char *bs = strrchr(translated, '\\');
+    if (bs > basename) basename = bs;
+    basename = basename ? basename + 1 : translated;
+    if (strncmp(basename, "lib", 3) == 0) {
+        memmove((char *)basename, basename + 3, strlen(basename + 3) + 1);
+        probe = dlopen(translated, RTLD_LAZY);
+        if (probe) {
+            dlclose(probe);
+            return translated;
+        }
+    }
+
+    return path;  // nothing loadable found; let dlopen report the original
+}
+#endif
+
 // ========== LIBRARY PATH SECURITY ==========
 
 // Validate FFI library path for obvious security issues
@@ -227,8 +281,8 @@ static FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
 
     pthread_mutex_lock(&ffi_cache_mutex);
 
-#ifdef __APPLE__
-    // Translate Linux library names to macOS equivalents
+#if defined(__APPLE__) || defined(_WIN32)
+    // Translate Linux library names to the platform's equivalents
     const char *actual_path = translate_library_path(path);
 #else
     const char *actual_path = path;

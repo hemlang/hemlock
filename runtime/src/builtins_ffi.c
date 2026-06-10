@@ -163,6 +163,49 @@ static const char* translate_library_path(const char *path) {
             return translated;
         }
     }
+#elif defined(_WIN32)
+    // Translate Linux library names to Windows equivalents so
+    // cross-platform bindings (e.g. `import "libraylib.so"`) work unmodified
+    if (strcmp(path, "libc.so.6") == 0 || strcmp(path, "libm.so.6") == 0) {
+        return "msvcrt.dll";
+    }
+    size_t len = strlen(path);
+    size_t base_len;
+    const char *so_pos = strstr(path, ".so.");
+    if (so_pos != NULL) {
+        base_len = (size_t)(so_pos - path);
+    } else if (len > 3 && strcmp(path + len - 3, ".so") == 0) {
+        base_len = len - 3;
+    } else {
+        return path;
+    }
+    static char translated[512];
+    if (base_len + 5 >= sizeof(translated)) {
+        return path;
+    }
+    // MSYS2-style name first (libfoo.so -> libfoo.dll) ...
+    memcpy(translated, path, base_len);
+    strcpy(translated + base_len, ".dll");
+    void *probe = dlopen(translated, RTLD_LAZY);
+    if (probe) {
+        dlclose(probe);
+        return translated;
+    }
+    // ... then official-release style without the lib prefix
+    // (libraylib.so -> raylib.dll)
+    const char *basename = strrchr(translated, '/');
+    const char *bs = strrchr(translated, '\\');
+    if (bs > basename) basename = bs;
+    basename = basename ? basename + 1 : translated;
+    if (strncmp(basename, "lib", 3) == 0) {
+        memmove((char *)basename, basename + 3, strlen(basename + 3) + 1);
+        probe = dlopen(translated, RTLD_LAZY);
+        if (probe) {
+            dlclose(probe);
+            return translated;
+        }
+    }
+    return path;  // nothing loadable found; let dlopen report the original
 #endif
     return path;  // No translation on Linux or if no pattern matched
 }
