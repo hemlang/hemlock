@@ -270,6 +270,13 @@ Value builtin_remove_file(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
+    // SANDBOX: deleting a file is a write-class operation
+    if (!sandbox_path_allowed(ctx, cpath, 1)) {
+        free(cpath);
+        sandbox_error(ctx, "file removal");
+        return val_null();
+    }
+
     if (unlink(cpath) != 0) {
         char error_msg[512];
         snprintf(error_msg, sizeof(error_msg), "Failed to remove file '%s': %s", cpath, strerror(errno));
@@ -313,6 +320,14 @@ Value builtin_rename(Value *args, int num_args, ExecutionContext *ctx) {
     old_cpath[old_path->length] = '\0';
     memcpy(new_cpath, new_path->data, new_path->length);
     new_cpath[new_path->length] = '\0';
+
+    // SANDBOX: rename reads from the old path and writes to the new path
+    if (!sandbox_path_allowed(ctx, old_cpath, 1) || !sandbox_path_allowed(ctx, new_cpath, 1)) {
+        free(old_cpath);
+        free(new_cpath);
+        sandbox_error(ctx, "file rename");
+        return val_null();
+    }
 
     if (rename(old_cpath, new_cpath) != 0) {
         char error_msg[512];
@@ -359,6 +374,14 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx) {
     src_cpath[src_path->length] = '\0';
     memcpy(dest_cpath, dest_path->data, dest_path->length);
     dest_cpath[dest_path->length] = '\0';
+
+    // SANDBOX: copy reads the source and writes the destination
+    if (!sandbox_path_allowed(ctx, src_cpath, 0) || !sandbox_path_allowed(ctx, dest_cpath, 1)) {
+        free(src_cpath);
+        free(dest_cpath);
+        sandbox_error(ctx, "file copy");
+        return val_null();
+    }
 
     // SECURITY: Use O_NOFOLLOW to prevent symlink attacks
     int src_fd = open(src_cpath, O_RDONLY | O_NOFOLLOW);

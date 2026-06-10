@@ -109,7 +109,19 @@ Value builtin_mmap_open(Value *args, int num_args, ExecutionContext *ctx) {
     memcpy(cpath, path->data, path->length);
     cpath[path->length] = '\0';
 
-    int open_flags = (strcmp(mode, "rw") == 0) ? O_RDWR : O_RDONLY;
+    int is_write = (strcmp(mode, "rw") == 0);
+
+    // SANDBOX: mmap exposes file contents for reading (and, in "rw" mode,
+    // writing). Enforce the same policy as read_file/write_file, which this
+    // path previously bypassed entirely.
+    if (!sandbox_path_allowed(ctx, cpath, is_write)) {
+        free(cpath);
+        sandbox_error(ctx, is_write ? "file write operations" : "file read operations");
+        return val_null();
+    }
+
+    // SECURITY: O_NOFOLLOW to prevent symlink redirection (matches read_file).
+    int open_flags = (is_write ? O_RDWR : O_RDONLY) | O_NOFOLLOW;
     int fd = open(cpath, open_flags);
     if (fd < 0) {
         runtime_error(ctx, "mmap_open() failed to open '%s': %s", cpath, strerror(errno));
