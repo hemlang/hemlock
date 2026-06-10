@@ -1260,11 +1260,29 @@ HmlValue hml_builtin_callback_free(HmlClosureEnv *env, HmlValue ptr) {
     return hml_val_null();
 }
 
-// Helper: extract raw pointer from ptr or buffer value
-static inline void *hml_ffi_extract_ptr(HmlValue val) {
-    if (val.type == HML_VAL_PTR) return val.as.as_ptr;
-    if (val.type == HML_VAL_BUFFER && val.as.as_buffer) return val.as.as_buffer->data;
-    return NULL;
+// Helper: extract raw pointer from ptr or buffer value, validating that an
+// access of `access_size` bytes at offset 0 stays within a (safe) buffer. Raw
+// ptr is intentionally unchecked (Hemlock's documented unsafe-pointer
+// contract); buffers are bounds-checked so the ptr_read_*/ptr_deref_* family
+// cannot read or write past the allocation (this matches the bounds-checked
+// hml_extract_ptr_checked() used by the sibling builtins in builtins_memory.c).
+static inline void *hml_ffi_extract_ptr(HmlValue val, size_t access_size, const char *op) {
+    if (val.type == HML_VAL_PTR) {
+        if (!val.as.as_ptr) hml_runtime_error("%s cannot access null pointer", op);
+        return val.as.as_ptr;
+    }
+    if (val.type == HML_VAL_BUFFER && val.as.as_buffer) {
+        HmlBuffer *b = val.as.as_buffer;
+        if (b->freed) hml_runtime_error("%s cannot access freed buffer", op);
+        if ((int64_t)access_size > (int64_t)b->length) {
+            hml_runtime_error("%s access of size %zu exceeds buffer length %d",
+                              op, access_size, b->length);
+        }
+        if (!b->data) hml_runtime_error("%s cannot access null buffer", op);
+        return b->data;
+    }
+    hml_runtime_error("%s argument must be a ptr or buffer", op);
+    return NULL;  // unreachable: hml_runtime_error does not return
 }
 
 static inline int hml_ffi_is_ptr_like(HmlValue val) {
@@ -1279,11 +1297,7 @@ HmlValue hml_builtin_ptr_deref_i32(HmlClosureEnv *env, HmlValue ptr) {
         hml_runtime_error("ptr_deref_i32() argument must be a ptr or buffer");
     }
 
-    void *p = hml_ffi_extract_ptr(ptr);
-    if (!p) {
-        hml_runtime_error("ptr_deref_i32() cannot dereference null pointer");
-    }
-
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(int32_t), "ptr_deref_i32()");
     return hml_val_i32(*(int32_t*)p);
 }
 
@@ -1295,11 +1309,7 @@ HmlValue hml_builtin_ptr_write_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue va
         hml_runtime_error("ptr_write_i32() first argument must be a ptr or buffer");
     }
 
-    void *p = hml_ffi_extract_ptr(ptr);
-    if (!p) {
-        hml_runtime_error("ptr_write_i32() cannot write to null pointer");
-    }
-
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(int32_t), "ptr_write_i32()");
     *(int32_t*)p = hml_to_i32(value);
     return hml_val_null();
 }
@@ -1328,11 +1338,7 @@ HmlValue hml_builtin_ptr_read_i32(HmlClosureEnv *env, HmlValue ptr) {
         hml_runtime_error("ptr_read_i32() argument must be a ptr or buffer");
     }
 
-    void *p = hml_ffi_extract_ptr(ptr);
-    if (!p) {
-        hml_runtime_error("ptr_read_i32() cannot read from null pointer");
-    }
-
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(int32_t), "ptr_read_i32()");
     return hml_val_i32(*(int32_t*)p);
 }
 
@@ -1342,10 +1348,7 @@ HmlValue hml_builtin_ptr_read_i8(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_ffi_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_read_i8() argument must be a ptr or buffer");
     }
-    void *p = hml_ffi_extract_ptr(ptr);
-    if (!p) {
-        hml_runtime_error("ptr_read_i8() cannot read from null pointer");
-    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(int8_t), "ptr_read_i8()");
     return hml_val_i8(*(int8_t*)p);
 }
 
@@ -1355,10 +1358,7 @@ HmlValue hml_builtin_ptr_read_i16(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_ffi_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_read_i16() argument must be a ptr or buffer");
     }
-    void *p = hml_ffi_extract_ptr(ptr);
-    if (!p) {
-        hml_runtime_error("ptr_read_i16() cannot read from null pointer");
-    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(int16_t), "ptr_read_i16()");
     return hml_val_i16(*(int16_t*)p);
 }
 
@@ -1368,10 +1368,7 @@ HmlValue hml_builtin_ptr_read_u8(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_ffi_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_read_u8() argument must be a ptr or buffer");
     }
-    void *p = hml_ffi_extract_ptr(ptr);
-    if (!p) {
-        hml_runtime_error("ptr_read_u8() cannot read from null pointer");
-    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(uint8_t), "ptr_read_u8()");
     return hml_val_u8(*(uint8_t*)p);
 }
 
@@ -1381,10 +1378,7 @@ HmlValue hml_builtin_ptr_read_u16(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_ffi_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_read_u16() argument must be a ptr or buffer");
     }
-    void *p = hml_ffi_extract_ptr(ptr);
-    if (!p) {
-        hml_runtime_error("ptr_read_u16() cannot read from null pointer");
-    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(uint16_t), "ptr_read_u16()");
     return hml_val_u16(*(uint16_t*)p);
 }
 
@@ -1394,10 +1388,7 @@ HmlValue hml_builtin_ptr_read_u32(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_ffi_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_read_u32() argument must be a ptr or buffer");
     }
-    void *p = hml_ffi_extract_ptr(ptr);
-    if (!p) {
-        hml_runtime_error("ptr_read_u32() cannot read from null pointer");
-    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(uint32_t), "ptr_read_u32()");
     return hml_val_u32(*(uint32_t*)p);
 }
 
@@ -1407,10 +1398,7 @@ HmlValue hml_builtin_ptr_read_ptr(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_ffi_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_read_ptr() argument must be a ptr or buffer");
     }
-    void *p = hml_ffi_extract_ptr(ptr);
-    if (!p) {
-        hml_runtime_error("ptr_read_ptr() cannot read from null pointer");
-    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(void*), "ptr_read_ptr()");
     void *result = *(void**)p;
     if (!result) return hml_val_null();
     return hml_val_ptr(result);
@@ -1422,10 +1410,7 @@ HmlValue hml_builtin_ptr_read_i64(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_ffi_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_read_i64() argument must be a ptr or buffer");
     }
-    void *p = hml_ffi_extract_ptr(ptr);
-    if (!p) {
-        hml_runtime_error("ptr_read_i64() cannot read from null pointer");
-    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(int64_t), "ptr_read_i64()");
     return hml_val_i64(*(int64_t*)p);
 }
 
@@ -1435,10 +1420,7 @@ HmlValue hml_builtin_ptr_read_u64(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_ffi_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_read_u64() argument must be a ptr or buffer");
     }
-    void *p = hml_ffi_extract_ptr(ptr);
-    if (!p) {
-        hml_runtime_error("ptr_read_u64() cannot read from null pointer");
-    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(uint64_t), "ptr_read_u64()");
     return hml_val_u64(*(uint64_t*)p);
 }
 
@@ -1448,10 +1430,7 @@ HmlValue hml_builtin_ptr_read_f32(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_ffi_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_read_f32() argument must be a ptr or buffer");
     }
-    void *p = hml_ffi_extract_ptr(ptr);
-    if (!p) {
-        hml_runtime_error("ptr_read_f32() cannot read from null pointer");
-    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(float), "ptr_read_f32()");
     return hml_val_f32(*(float*)p);
 }
 
@@ -1461,10 +1440,7 @@ HmlValue hml_builtin_ptr_read_f64(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_ffi_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_read_f64() argument must be a ptr or buffer");
     }
-    void *p = hml_ffi_extract_ptr(ptr);
-    if (!p) {
-        hml_runtime_error("ptr_read_f64() cannot read from null pointer");
-    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(double), "ptr_read_f64()");
     return hml_val_f64(*(double*)p);
 }
 

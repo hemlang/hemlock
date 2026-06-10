@@ -1120,6 +1120,13 @@ HmlValue hml_builtin_regex_replace_all(HmlClosureEnv *env, HmlValue preg, HmlVal
 #define HML_MAX_CALL_DEPTH 10000
 #endif
 
+// Maximum nesting depth when parsing JSON via string.deserialize().
+// Must match HML_MAX_JSON_DEPTH in include/hemlock_limits.h so the interpreter
+// and compiled runtime reject deeply nested JSON identically.
+#ifndef HML_MAX_JSON_DEPTH
+#define HML_MAX_JSON_DEPTH 1000
+#endif
+
 // Call depth tracking - called at function entry/exit to detect stack overflow
 void hml_call_enter(void);
 void hml_call_exit(void);

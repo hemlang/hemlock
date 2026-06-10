@@ -1094,7 +1094,30 @@ Expr* postfix(Parser *p) {
     return expr;
 }
 
+static Expr* unary_inner(Parser *p);
+
+// Public entry: bound expression-recursion depth so deeply nested input
+// (e.g. "((((...))))", "[[[[...]]]]", or a long prefix-operator chain) raises a
+// parse error instead of overflowing the C stack. Every nesting level descends
+// through unary() exactly once, and prefix operators recurse here directly, so
+// this single guard covers all expression-nesting vectors.
 Expr* unary(Parser *p) {
+    if (p->parse_depth >= HML_MAX_PARSE_DEPTH) {
+        error_at_current(p, "Maximum expression nesting depth exceeded");
+        // Drain to EOF so all enclosing parse loops unwind immediately instead
+        // of attempting per-token error recovery (which can be quadratic for
+        // pathologically nested input). Only reachable past the depth limit, so
+        // valid code is unaffected.
+        while (p->current.type != TOK_EOF) advance(p);
+        return expr_null();
+    }
+    p->parse_depth++;
+    Expr *e = unary_inner(p);
+    p->parse_depth--;
+    return e;
+}
+
+static Expr* unary_inner(Parser *p) {
     if (match(p, TOK_AWAIT)) {
         Expr *operand = unary(p);  // Recursive for multiple await/unary ops
         return expr_await(operand);

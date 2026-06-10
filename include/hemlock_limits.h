@@ -41,6 +41,20 @@
 // Maximum signal number for signal handlers (POSIX standard)
 #define HML_MAX_SIGNAL 64
 
+// ========== RECURSION / NESTING DEPTH LIMITS ==========
+// These bound recursion driven by untrusted input (source files, JSON passed to
+// deserialize(), and serialized-AST blobs) so deeply nested input raises a
+// catchable error instead of exhausting the native C stack (SIGSEGV).
+
+// Maximum nesting depth for the recursive-descent source parser.
+#define HML_MAX_PARSE_DEPTH 1000
+
+// Maximum nesting depth when parsing JSON via string.deserialize().
+#define HML_MAX_JSON_DEPTH 1000
+
+// Maximum nesting depth when deserializing a serialized AST blob (.hmlc/.hmlb).
+#define HML_MAX_AST_DESERIALIZE_DEPTH 1000
+
 // ========== COMPILER LIMITS ==========
 
 // Buffer size for mangled names (module prefix + symbol name)

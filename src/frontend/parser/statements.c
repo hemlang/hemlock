@@ -1403,7 +1403,29 @@ Stmt* define_statement(Parser *p) {
 // Helper macro to set line number and return
 #define RETURN_STMT(s) do { Stmt *_s = (s); _s->line = stmt_start_line; _s->column = stmt_start_column; return _s; } while(0)
 
+static Stmt* statement_inner(Parser *p);
+
+// Public entry: bound statement-recursion depth (e.g. deeply nested blocks
+// "{ { { ... } } }") so untrusted source raises a parse error instead of
+// overflowing the C stack. Consume a token on overflow so callers that loop on
+// statement() (such as block parsing) always make forward progress.
 Stmt* statement(Parser *p) {
+    if (p->parse_depth >= HML_MAX_PARSE_DEPTH) {
+        error_at_current(p, "Maximum nesting depth exceeded");
+        // Drain to EOF so the (many) enclosing parse loops unwind immediately
+        // instead of attempting per-token error recovery, which would be
+        // quadratic for pathologically nested input. Only reachable on input
+        // that already exceeds the depth limit, so valid code is unaffected.
+        while (p->current.type != TOK_EOF) advance(p);
+        return stmt_expr(expr_number(0));
+    }
+    p->parse_depth++;
+    Stmt *s = statement_inner(p);
+    p->parse_depth--;
+    return s;
+}
+
+static Stmt* statement_inner(Parser *p) {
     // Save the starting line/column for this statement
     int stmt_start_line = p->current.line;
     int stmt_start_column = p->current.column;

@@ -22,6 +22,7 @@ typedef struct {
 typedef struct {
     const char *input;
     int pos;
+    int depth;   // current nesting depth (bounds recursion on untrusted JSON)
 } JSONParser;
 
 // Serialization functions
