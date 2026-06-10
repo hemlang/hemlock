@@ -177,6 +177,14 @@ let p: Person = { name: "Alice", age: 30 };
 let person = { name, age };             // shorthand syntax
 let config = { ...defaults, size: "large" }; // spread operator
 
+// Method shorthand in object literals (sugar for name: fn() {...});
+// `self` is bound implicitly on method calls
+let counter = {
+    count: 0,
+    fn inc() { self.count = self.count + 1; },
+    fn get(): i32 => self.count,
+};
+
 // Bracket notation with key coercion (non-string keys auto-coerce to string)
 let map = {};
 map[42] = "value";              // integer key → "42"
@@ -230,15 +238,17 @@ f.read(); f.write("data"); f.close();
 
 ---
 
-## String Methods (22)
+## String Methods (23)
 
-`substr`, `slice`, `find`, `contains`, `split`, `trim`, `trim_start`, `trim_end`,
+`substr`, `slice`, `find`, `rfind`, `contains`, `split`, `trim`, `trim_start`, `trim_end`,
 `to_upper`, `to_lower`, `starts_with`, `ends_with`, `replace`, `replace_all`,
 `repeat`, `char_at`, `byte_at`, `chars`, `bytes`, `to_bytes`, `byte_ptr`, `deserialize`
 
 Template strings: `` `Hello ${name}!` ``
 
 **String mutability:** Strings are mutable via index assignment (`s[0] = 'H'`), but all string methods return new strings.
+
+**Indexes are codepoints:** `find`/`rfind` return codepoint indexes that compose with `substr`/`slice`/`char_at`. `substr(start)` with one argument takes everything to the end. Use `byte_length`/`byte_at` for byte-oriented work, and `@stdlib/strings` `from_bytes()` to build a string from raw bytes.
 
 ## Array Methods (28)
 
@@ -253,6 +263,8 @@ Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 ## Standard Library (53 modules)
 
 Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
+
+Side-effect imports (no bindings, module top-level runs): `import "./suite.hml";` or `import "@stdlib/module";` — bare imports of anything else (e.g. `import "libc.so.6";`) load FFI shared libraries.
 
 | Module | Description |
 |--------|-------------|

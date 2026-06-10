@@ -71,24 +71,45 @@ HmlValue hml_string_byte_at(HmlValue str, HmlValue index) {
     return hml_val_u8((uint8_t)s->data[idx]);
 }
 
+// Codepoint length of a string, cached on the HmlString (matches the interpreter)
+static int string_char_length(HmlString *s) {
+    int char_len = s->char_length;
+    if (char_len < 0) {
+        char_len = hml_utf8_count_codepoints(s->data, s->length);
+        s->char_length = char_len;
+    }
+    return char_len;
+}
+
 HmlValue hml_string_substr(HmlValue str, HmlValue start, HmlValue length) {
     if (str.type != HML_VAL_STRING || !str.as.as_string) {
         return hml_val_string("");
     }
     HmlString *s = str.as.as_string;
+    int char_len = string_char_length(s);
     int32_t start_idx = hml_to_i32(start);
     int32_t len = hml_to_i32(length);
 
-    // Clamp bounds
+    // Clamp bounds (codepoint positions, matching the interpreter)
     if (start_idx < 0) start_idx = 0;
-    if (start_idx >= s->length) return hml_val_string("");
+    if (start_idx >= char_len) return hml_val_string("");
     if (len < 0) len = 0;
-    if (start_idx + len > s->length) len = s->length - start_idx;
+    if (len > char_len - start_idx) len = char_len - start_idx;
 
-    char *result = malloc(len + 1);
-    memcpy(result, s->data + start_idx, len);
-    result[len] = '\0';
-    return hml_val_string_owned(result, len, len + 1);
+    // Convert codepoint positions to byte offsets
+    int start_byte = hml_utf8_byte_offset(s->data, s->length, start_idx);
+    int end_byte = hml_utf8_byte_offset(s->data, s->length, start_idx + len);
+    int byte_length = end_byte - start_byte;
+
+    char *result = malloc(byte_length + 1);
+    memcpy(result, s->data + start_byte, byte_length);
+    result[byte_length] = '\0';
+    return hml_val_string_owned(result, byte_length, byte_length + 1);
+}
+
+HmlValue hml_string_substr_from(HmlValue str, HmlValue start) {
+    // One-argument substr(start): everything from start to the end
+    return hml_string_substr(str, start, hml_val_i32(INT32_MAX));
 }
 
 HmlValue hml_string_slice(HmlValue str, HmlValue start, HmlValue end) {
@@ -96,20 +117,25 @@ HmlValue hml_string_slice(HmlValue str, HmlValue start, HmlValue end) {
         return hml_val_string("");
     }
     HmlString *s = str.as.as_string;
+    int char_len = string_char_length(s);
     int32_t start_idx = hml_to_i32(start);
     int32_t end_idx = hml_to_i32(end);
 
-    // Clamp bounds
+    // Clamp bounds (codepoint positions, matching the interpreter)
     if (start_idx < 0) start_idx = 0;
-    if (start_idx > s->length) start_idx = s->length;
+    if (start_idx > char_len) start_idx = char_len;
     if (end_idx < start_idx) end_idx = start_idx;
-    if (end_idx > s->length) end_idx = s->length;
+    if (end_idx > char_len) end_idx = char_len;
 
-    int len = end_idx - start_idx;
-    char *result = malloc(len + 1);
-    memcpy(result, s->data + start_idx, len);
-    result[len] = '\0';
-    return hml_val_string_owned(result, len, len + 1);
+    // Convert codepoint positions to byte offsets
+    int start_byte = hml_utf8_byte_offset(s->data, s->length, start_idx);
+    int end_byte = hml_utf8_byte_offset(s->data, s->length, end_idx);
+    int byte_length = end_byte - start_byte;
+
+    char *result = malloc(byte_length + 1);
+    memcpy(result, s->data + start_byte, byte_length);
+    result[byte_length] = '\0';
+    return hml_val_string_owned(result, byte_length, byte_length + 1);
 }
 
 HmlValue hml_string_find(HmlValue str, HmlValue needle) {
@@ -123,9 +149,32 @@ HmlValue hml_string_find(HmlValue str, HmlValue needle) {
     if (n->length == 0) return hml_val_i32(0);
     if (n->length > s->length) return hml_val_i32(-1);
 
+    // Report the codepoint index so the result composes with
+    // substr()/slice()/char_at() (matching the interpreter)
     for (int i = 0; i <= s->length - n->length; i++) {
         if (memcmp(s->data + i, n->data, n->length) == 0) {
-            return hml_val_i32(i);
+            return hml_val_i32(hml_utf8_count_codepoints(s->data, i));
+        }
+    }
+    return hml_val_i32(-1);
+}
+
+HmlValue hml_string_rfind(HmlValue str, HmlValue needle) {
+    if (str.type != HML_VAL_STRING || !str.as.as_string ||
+        needle.type != HML_VAL_STRING || !needle.as.as_string) {
+        return hml_val_i32(-1);
+    }
+    HmlString *s = str.as.as_string;
+    HmlString *n = needle.as.as_string;
+
+    // Empty string found at end (Python/JS behavior)
+    if (n->length == 0) return hml_val_i32(string_char_length(s));
+    if (n->length > s->length) return hml_val_i32(-1);
+
+    // Codepoint index, matching find() and the interpreter
+    for (int i = s->length - n->length; i >= 0; i--) {
+        if (memcmp(s->data + i, n->data, n->length) == 0) {
+            return hml_val_i32(hml_utf8_count_codepoints(s->data, i));
         }
     }
     return hml_val_i32(-1);

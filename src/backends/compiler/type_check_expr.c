@@ -157,11 +157,11 @@ int type_check_method_call(TypeCheckContext *ctx, CheckedType *receiver_type,
 
     // String methods
     if (receiver_type->kind == CHECKED_STRING) {
-        // substr requires exactly 2 integer arguments (start, length)
+        // substr takes 1-2 integer arguments (start[, length])
         if (strcmp(method_name, "substr") == 0) {
-            if (num_args != 2) {
+            if (num_args < 1 || num_args > 2) {
                 type_error(ctx, line,
-                    "string.substr() expects 2 arguments (start, length), got %d",
+                    "string.substr() expects 1-2 arguments (start[, length]), got %d",
                     num_args);
             }
             for (int i = 0; i < num_args && i < 2; i++) {
@@ -190,7 +190,8 @@ int type_check_method_call(TypeCheckContext *ctx, CheckedType *receiver_type,
         }
 
         // Methods that take a string argument
-        if (strcmp(method_name, "find") == 0 || strcmp(method_name, "contains") == 0 ||
+        if (strcmp(method_name, "find") == 0 || strcmp(method_name, "rfind") == 0 ||
+            strcmp(method_name, "contains") == 0 ||
             strcmp(method_name, "starts_with") == 0 || strcmp(method_name, "ends_with") == 0 ||
             strcmp(method_name, "split") == 0) {
             if (num_args > 0) {

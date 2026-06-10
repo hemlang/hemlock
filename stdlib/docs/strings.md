@@ -611,6 +611,49 @@ print(display_title("A Very Long Article Title That Goes On"));
 
 ---
 
+### from_bytes(src)
+
+Build a string from raw bytes.
+
+**Parameters:**
+- `src: buffer | array` - Byte source. A buffer's contents are copied
+  as-is; an array's elements must be integers in 0-255.
+
+**Returns:** `string` - String containing exactly those bytes. No
+transcoding is performed; rune-based operations (`.length`, `char_at`,
+`chars`) interpret the bytes as UTF-8.
+
+**Throws:** If `src` is not a buffer or array, or an array element is not
+an integer.
+
+```hemlock
+import { from_bytes } from "@stdlib/strings";
+
+print(from_bytes([72, 105, 33]));   // "Hi!"
+
+let buf = buffer(2);
+buf[0] = 0xC3;
+buf[1] = 0xA9;
+print(from_bytes(buf));             // "é" (UTF-8 decoded)
+free(buf);
+```
+
+**Use case - decoding network/binary payloads:**
+
+```hemlock
+import { from_bytes } from "@stdlib/strings";
+
+// Bytes accumulated from a socket or parsed out of a binary format
+fn payload_to_text(bytes: buffer): string {
+    return from_bytes(bytes);
+}
+```
+
+This is the documented replacement for the internal `__string_from_bytes`
+builtin. The inverse operation is the built-in `string.to_bytes()` method.
+
+---
+
 ## Error Handling
 
 All functions throw exceptions for invalid input:

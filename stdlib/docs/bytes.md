@@ -154,6 +154,36 @@ write_u32_be(packet, 2, 1024);    // Payload length
 free(packet);
 ```
 
+## Float Bit Casts
+
+IEEE 754 reinterpretation between floats and their raw bit patterns. Useful
+for binary format parsers (GGUF, WAV, network protocols) that read an
+integer field and need the float it spells, or vice versa.
+
+### f32_to_bits(val: f32): u32
+### f32_from_bits(bits: u32): f32
+### f64_to_bits(val: f64): u64
+### f64_from_bits(bits: u64): f64
+
+```hemlock
+import { f32_from_bits, f32_to_bits, f64_from_bits } from "@stdlib/bytes";
+
+print(f32_to_bits(1.0));             // 1065353216 (0x3F800000)
+print(f32_from_bits(0x40490FDB));    // 3.14159 (pi as f32)
+print(f64_from_bits(0x400921FB54442D18));  // pi as f64
+
+// Typical binary-parser shape: a u32 read from a file that is
+// actually an IEEE 754 float
+let buf = buffer(4);
+buf.write_f32_le(0, 2.5);
+let raw: u32 = buf.read_u32_le(0);
+print(f32_from_bits(raw));           // 2.5
+free(buf);
+```
+
+These are pure bit reinterpretations — no rounding or conversion. For
+ordinary numeric conversion use `f32(x)` / `f64(x)`.
+
 ## Example: DNS Query Header
 
 ```hemlock

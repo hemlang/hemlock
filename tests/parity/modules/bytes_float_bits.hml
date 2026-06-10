@@ -1,0 +1,27 @@
+// @stdlib/bytes IEEE 754 bit casts: f32/f64 <-> raw bit patterns.
+// The classic use case is binary format parsers (e.g. GGUF metadata) that
+// read an integer field and need the float it spells.
+import { f32_to_bits, f32_from_bits, f64_to_bits, f64_from_bits } from "@stdlib/bytes";
+
+// Known IEEE 754 patterns
+print(f32_to_bits(1.0));            // 0x3F800000
+print(f32_to_bits(-2.0));           // 0xC0000000
+print(f32_to_bits(0.0));
+print(f64_to_bits(1.0));            // 0x3FF0000000000000
+
+// From known bit patterns
+print(f32_from_bits(0x3F800000));   // 1
+print(f32_from_bits(0x40490FDB));   // pi as f32
+print(f64_from_bits(0x400921FB54442D18)); // pi as f64
+
+// Round trips
+print(f32_from_bits(f32_to_bits(3.5)));
+print(f64_from_bits(f64_to_bits(3.5)));
+print(f64_from_bits(f64_to_bits(-0.001)));
+
+// Bit pattern of a u32 read from a binary buffer (the GGUF-parser shape)
+let buf = buffer(4);
+buf.write_f32_le(0, 2.5);
+let raw: u32 = buf.read_u32_le(0);
+print(f32_from_bits(raw));
+free(buf);

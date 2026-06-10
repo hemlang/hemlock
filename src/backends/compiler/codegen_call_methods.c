@@ -82,10 +82,23 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         codegen_writeln(ctx, "    %s = hml_call_method(%s, \"contains\", _contains_args__%s, 1);",
                       result, obj_val, result);
         codegen_writeln(ctx, "}");
+    } else if (strcmp(method, "rfind") == 0 && num_args == 1) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_rfind(%s, %s);",
+                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _rfind_args__%s[1] = { %s };", result, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"rfind\", _rfind_args__%s, 1);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
     // String-only methods
     } else if (strcmp(method, "substr") == 0 && num_args == 2) {
         codegen_writeln(ctx, "HmlValue %s = hml_string_substr(%s, %s, %s);",
                       result, obj_val, arg_temps[0], arg_temps[1]);
+    } else if (strcmp(method, "substr") == 0 && num_args == 1) {
+        codegen_writeln(ctx, "HmlValue %s = hml_string_substr_from(%s, %s);",
+                      result, obj_val, arg_temps[0]);
     } else if (strcmp(method, "split") == 0 && num_args == 1) {
         codegen_writeln(ctx, "HmlValue %s = hml_string_split(%s, %s);",
                       result, obj_val, arg_temps[0]);

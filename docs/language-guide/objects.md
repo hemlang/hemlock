@@ -363,6 +363,30 @@ let counter = {
 };
 ```
 
+### Method Shorthand
+
+Object literals also accept method syntax, which is sugar for a field
+holding a function. Entries remain comma-separated like any other field:
+
+```hemlock
+let counter = {
+    count: 0,
+    fn increment() {
+        self.count = self.count + 1;
+    },
+    fn get(): i32 => self.count,        // expression-bodied methods work too
+    async fn refresh() { /* ... */ },   // so do async methods
+};
+
+counter.increment();
+print(counter.get());  // 1
+```
+
+The two spellings are equivalent: `fn name(...) { ... }` inside an object
+literal means exactly `name: fn(...) { ... }`. Note that `self` is bound
+implicitly at call time — it is a keyword and cannot be declared as a
+parameter.
+
 ### The `self` Keyword
 
 When a function is called as a method, `self` is automatically bound to the object:

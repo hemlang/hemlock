@@ -19,6 +19,154 @@ Expr* term(Parser *p);
 Expr* factor(Parser *p);
 Expr* unary(Parser *p);
 Expr* postfix(Parser *p);
+// Parse the remainder of a function expression after the 'fn' keyword has
+// been consumed: (params) [: type] { body }  or  (params) [: type] => expr
+// Shared by fn/async fn expressions and object-literal method shorthand.
+static Expr* fn_expression_rest(Parser *p, int is_async_fn) {
+    consume(p, TOK_LPAREN, "Expect '(' after 'fn'");
+
+    // Parse parameters - start with small capacity and grow as needed
+    int param_capacity = 8;
+    char **param_names = malloc(sizeof(char*) * param_capacity);
+    Type **param_types = malloc(sizeof(Type*) * param_capacity);
+    Expr **param_defaults = malloc(sizeof(Expr*) * param_capacity);
+    int *param_is_ref = malloc(sizeof(int) * param_capacity);
+    int *param_is_const = malloc(sizeof(int) * param_capacity);
+    if (!param_names || !param_types || !param_defaults || !param_is_ref || !param_is_const) {
+        free(param_names);
+        free(param_types);
+        free(param_defaults);
+        free(param_is_ref);
+        free(param_is_const);
+        error(p, "Memory allocation failed for function parameters");
+        return expr_function(is_async_fn, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, stmt_block(NULL, 0));
+    }
+    int num_params = 0;
+    int seen_optional = 0;  // Track if we've seen an optional parameter
+    char *rest_param = NULL;
+    Type *rest_param_type = NULL;
+
+    // Parse function parameters - supports trailing commas: fn(a, b, c,)
+    if (!check(p, TOK_RPAREN)) {
+        do {
+            // Allow trailing comma before closing paren
+            if (check(p, TOK_RPAREN)) break;
+
+            // Check for rest parameter: ...name
+            if (match(p, TOK_DOT_DOT_DOT)) {
+                consume(p, TOK_IDENT, "Expect parameter name after '...'");
+                rest_param = token_text(&p->previous);
+                // Optional type annotation for rest param
+                if (match(p, TOK_COLON)) {
+                    rest_param_type = parse_type(p);
+                }
+                // Rest parameter must be last
+                if (!check(p, TOK_RPAREN)) {
+                    error_at(p, &p->current, "Rest parameter must be the last parameter");
+                }
+                break;
+            }
+
+            // Check parameter limit before adding
+            if (num_params >= MAX_FUNCTION_PARAMS) {
+                error_at(p, &p->current, "functions cannot have more than 64 parameters");
+                break;
+            }
+
+            // Grow arrays if needed
+            if (num_params >= param_capacity) {
+                int new_capacity = param_capacity * 2;
+                char **new_param_names = realloc(param_names, sizeof(char*) * new_capacity);
+                Type **new_param_types = realloc(param_types, sizeof(Type*) * new_capacity);
+                Expr **new_param_defaults = realloc(param_defaults, sizeof(Expr*) * new_capacity);
+                int *new_param_is_ref = realloc(param_is_ref, sizeof(int) * new_capacity);
+                int *new_param_is_const = realloc(param_is_const, sizeof(int) * new_capacity);
+                if (!new_param_names || !new_param_types || !new_param_defaults || !new_param_is_ref || !new_param_is_const) {
+                    if (new_param_names) param_names = new_param_names;
+                    if (new_param_types) param_types = new_param_types;
+                    if (new_param_defaults) param_defaults = new_param_defaults;
+                    if (new_param_is_ref) param_is_ref = new_param_is_ref;
+                    if (new_param_is_const) param_is_const = new_param_is_const;
+                    error(p, "Memory allocation failed for function parameters");
+                    break;
+                }
+                param_names = new_param_names;
+                param_types = new_param_types;
+                param_defaults = new_param_defaults;
+                param_is_ref = new_param_is_ref;
+                param_is_const = new_param_is_const;
+                param_capacity = new_capacity;
+            }
+
+            // Check for const keyword (immutable parameter)
+            int is_const = match(p, TOK_CONST);
+            param_is_const[num_params] = is_const;
+
+            // Check for ref keyword (pass-by-reference)
+            int is_ref = match(p, TOK_REF);
+            param_is_ref[num_params] = is_ref;
+
+            // const and ref are mutually exclusive
+            if (is_const && is_ref) {
+                error_at(p, &p->current, "const and ref modifiers cannot be combined");
+            }
+
+            consume(p, TOK_IDENT, "Expect parameter name");
+            param_names[num_params] = token_text(&p->previous);
+
+            // Optional type annotation
+            if (match(p, TOK_COLON)) {
+                param_types[num_params] = parse_type(p);
+            } else {
+                param_types[num_params] = NULL;
+            }
+
+            // Check for optional parameter (?) with default value
+            if (match(p, TOK_QUESTION)) {
+                if (is_ref) {
+                    error_at(p, &p->current, "ref parameters cannot have default values");
+                }
+                consume(p, TOK_COLON, "Expect ':' after '?' for default value");
+                param_defaults[num_params] = expression(p);
+                seen_optional = 1;
+            } else {
+                // Required parameter
+                if (seen_optional) {
+                    error_at(p, &p->current, "Required parameters must come before optional parameters");
+                }
+                param_defaults[num_params] = NULL;
+            }
+
+            num_params++;
+        } while (match(p, TOK_COMMA));
+    }
+
+    consume(p, TOK_RPAREN, "Expect ')' after parameters");
+
+    // Optional return type
+    Type *return_type = NULL;
+    if (match(p, TOK_COLON)) {
+        return_type = parse_type(p);
+    }
+
+    // Parse body - either block { } or expression-bodied => expr
+    Stmt *body;
+    if (match(p, TOK_ARROW)) {
+        // Expression-bodied anonymous function: fn(...) => expr
+        Expr *body_expr = expression(p);
+        // Wrap expression in return statement, then in block
+        Stmt *return_stmt = stmt_return(body_expr);
+        Stmt **stmts = malloc(sizeof(Stmt*));
+        stmts[0] = return_stmt;
+        body = stmt_block(stmts, 1);
+    } else {
+        consume(p, TOK_LBRACE, "Expect '{' or '=>' before function body");
+        body = block_statement(p);
+    }
+
+    return expr_function(is_async_fn, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
+}
+
 Expr* primary(Parser *p);
 Type* parse_type(Parser *p);
 Pattern* parse_pattern(Parser *p);
@@ -570,15 +718,12 @@ Expr* primary(Parser *p) {
 
     // Function expression: fn(...) { ... } or async fn(...) { ... }
     // Must check this BEFORE treating 'async' as a plain identifier
-    int is_async_fn = 0;
     if (check(p, TOK_ASYNC) && p->next.type == TOK_FN) {
         advance(p);  // consume 'async'
-        is_async_fn = 1;
         consume(p, TOK_FN, "Expect 'fn' after 'async'");
-        goto parse_fn_expr;
+        return fn_expression_rest(p, 1);
     } else if (match(p, TOK_FN)) {
-        is_async_fn = 0;
-        goto parse_fn_expr;
+        return fn_expression_rest(p, 0);
     }
 
     // Identifier or contextual keywords used as identifiers
@@ -641,6 +786,21 @@ Expr* primary(Parser *p) {
             if (match(p, TOK_DOT_DOT_DOT)) {
                 field_names[num_fields] = NULL;  // NULL marks spread
                 field_values[num_fields] = expression(p);
+                num_fields++;
+            } else if (check(p, TOK_FN) ||
+                       (check(p, TOK_ASYNC) && p->next.type == TOK_FN)) {
+                // Method shorthand: { fn name(...) { ... } }
+                // Sugar for { name: fn(...) { ... } }; entries are still
+                // comma-separated like any other field.
+                int method_is_async = 0;
+                if (check(p, TOK_ASYNC)) {
+                    advance(p);  // consume 'async'
+                    method_is_async = 1;
+                }
+                consume(p, TOK_FN, "Expect 'fn'");
+                field_names[num_fields] = consume_identifier_or_type_keyword(
+                    p, "Expect method name after 'fn' in object literal");
+                field_values[num_fields] = fn_expression_rest(p, method_is_async);
                 num_fields++;
             } else if (match(p, TOK_STRING)) {
                 // Quoted field name: { "chat-mahou": value }
@@ -719,155 +879,6 @@ Expr* primary(Parser *p) {
         return expr_array_literal(elements, num_elements);
     }
 
-    // Not a function expression, skip to other cases
-    goto not_fn_expr;
-
-parse_fn_expr:
-    // Parse function expression (jumped to from async fn / fn detection above)
-    consume(p, TOK_LPAREN, "Expect '(' after 'fn'");
-
-    // Parse parameters - start with small capacity and grow as needed
-    int param_capacity = 8;
-    char **param_names = malloc(sizeof(char*) * param_capacity);
-    Type **param_types = malloc(sizeof(Type*) * param_capacity);
-    Expr **param_defaults = malloc(sizeof(Expr*) * param_capacity);
-    int *param_is_ref = malloc(sizeof(int) * param_capacity);
-    int *param_is_const = malloc(sizeof(int) * param_capacity);
-    if (!param_names || !param_types || !param_defaults || !param_is_ref || !param_is_const) {
-        free(param_names);
-        free(param_types);
-        free(param_defaults);
-        free(param_is_ref);
-        free(param_is_const);
-        error(p, "Memory allocation failed for function parameters");
-        return expr_function(is_async_fn, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, stmt_block(NULL, 0));
-    }
-    int num_params = 0;
-    int seen_optional = 0;  // Track if we've seen an optional parameter
-    char *rest_param = NULL;
-    Type *rest_param_type = NULL;
-
-    // Parse function parameters - supports trailing commas: fn(a, b, c,)
-    if (!check(p, TOK_RPAREN)) {
-        do {
-            // Allow trailing comma before closing paren
-            if (check(p, TOK_RPAREN)) break;
-
-            // Check for rest parameter: ...name
-            if (match(p, TOK_DOT_DOT_DOT)) {
-                consume(p, TOK_IDENT, "Expect parameter name after '...'");
-                rest_param = token_text(&p->previous);
-                // Optional type annotation for rest param
-                if (match(p, TOK_COLON)) {
-                    rest_param_type = parse_type(p);
-                }
-                // Rest parameter must be last
-                if (!check(p, TOK_RPAREN)) {
-                    error_at(p, &p->current, "Rest parameter must be the last parameter");
-                }
-                break;
-            }
-
-            // Check parameter limit before adding
-            if (num_params >= MAX_FUNCTION_PARAMS) {
-                error_at(p, &p->current, "functions cannot have more than 64 parameters");
-                break;
-            }
-
-            // Grow arrays if needed
-            if (num_params >= param_capacity) {
-                int new_capacity = param_capacity * 2;
-                char **new_param_names = realloc(param_names, sizeof(char*) * new_capacity);
-                Type **new_param_types = realloc(param_types, sizeof(Type*) * new_capacity);
-                Expr **new_param_defaults = realloc(param_defaults, sizeof(Expr*) * new_capacity);
-                int *new_param_is_ref = realloc(param_is_ref, sizeof(int) * new_capacity);
-                int *new_param_is_const = realloc(param_is_const, sizeof(int) * new_capacity);
-                if (!new_param_names || !new_param_types || !new_param_defaults || !new_param_is_ref || !new_param_is_const) {
-                    if (new_param_names) param_names = new_param_names;
-                    if (new_param_types) param_types = new_param_types;
-                    if (new_param_defaults) param_defaults = new_param_defaults;
-                    if (new_param_is_ref) param_is_ref = new_param_is_ref;
-                    if (new_param_is_const) param_is_const = new_param_is_const;
-                    error(p, "Memory allocation failed for function parameters");
-                    break;
-                }
-                param_names = new_param_names;
-                param_types = new_param_types;
-                param_defaults = new_param_defaults;
-                param_is_ref = new_param_is_ref;
-                param_is_const = new_param_is_const;
-                param_capacity = new_capacity;
-            }
-
-            // Check for const keyword (immutable parameter)
-            int is_const = match(p, TOK_CONST);
-            param_is_const[num_params] = is_const;
-
-            // Check for ref keyword (pass-by-reference)
-            int is_ref = match(p, TOK_REF);
-            param_is_ref[num_params] = is_ref;
-
-            // const and ref are mutually exclusive
-            if (is_const && is_ref) {
-                error_at(p, &p->current, "const and ref modifiers cannot be combined");
-            }
-
-            consume(p, TOK_IDENT, "Expect parameter name");
-            param_names[num_params] = token_text(&p->previous);
-
-            // Optional type annotation
-            if (match(p, TOK_COLON)) {
-                param_types[num_params] = parse_type(p);
-            } else {
-                param_types[num_params] = NULL;
-            }
-
-            // Check for optional parameter (?) with default value
-            if (match(p, TOK_QUESTION)) {
-                if (is_ref) {
-                    error_at(p, &p->current, "ref parameters cannot have default values");
-                }
-                consume(p, TOK_COLON, "Expect ':' after '?' for default value");
-                param_defaults[num_params] = expression(p);
-                seen_optional = 1;
-            } else {
-                // Required parameter
-                if (seen_optional) {
-                    error_at(p, &p->current, "Required parameters must come before optional parameters");
-                }
-                param_defaults[num_params] = NULL;
-            }
-
-            num_params++;
-        } while (match(p, TOK_COMMA));
-    }
-
-    consume(p, TOK_RPAREN, "Expect ')' after parameters");
-
-    // Optional return type
-    Type *return_type = NULL;
-    if (match(p, TOK_COLON)) {
-        return_type = parse_type(p);
-    }
-
-    // Parse body - either block { } or expression-bodied => expr
-    Stmt *body;
-    if (match(p, TOK_ARROW)) {
-        // Expression-bodied anonymous function: fn(...) => expr
-        Expr *body_expr = expression(p);
-        // Wrap expression in return statement, then in block
-        Stmt *return_stmt = stmt_return(body_expr);
-        Stmt **stmts = malloc(sizeof(Stmt*));
-        stmts[0] = return_stmt;
-        body = stmt_block(stmts, 1);
-    } else {
-        consume(p, TOK_LBRACE, "Expect '{' or '=>' before function body");
-        body = block_statement(p);
-    }
-
-    return expr_function(is_async_fn, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
-
-not_fn_expr:
 
     // Allow type keywords to be used as identifiers (for sizeof, talloc, etc.)
     if (match(p, TOK_TYPE_I8)) return expr_ident("i8");

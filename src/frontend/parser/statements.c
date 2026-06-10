@@ -212,6 +212,12 @@ Stmt* block_statement(Parser *p) {
     int count = 0;
 
     while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+        // Snapshot the current token so we can detect no-progress iterations
+        // (same guard as parse_program). A statement that errors without
+        // consuming the offending token would otherwise spin this loop
+        // forever while growing the block unboundedly.
+        Token before = p->current;
+
         // Grow array if needed
         if (count >= capacity) {
             capacity *= 2;
@@ -224,6 +230,13 @@ Stmt* block_statement(Parser *p) {
             statements = new_statements;
         }
         statements[count++] = statement(p);
+
+        // Guarantee forward progress
+        if (p->current.type != TOK_EOF
+            && p->current.start == before.start
+            && p->current.length == before.length) {
+            advance(p);
+        }
     }
 
     consume(p, TOK_RBRACE, "Expect '}' after block");
@@ -597,13 +610,24 @@ static Stmt* return_statement(Parser *p) {
 }
 
 static Stmt* import_statement(Parser *p) {
-    // Check for FFI import: import "library.so"
+    // Bare string import: import "library.so" (FFI) or
+    // import "./module.hml" / import "@stdlib/module" (side-effect source import)
     if (check(p, TOK_STRING)) {
         advance(p);
         char *library_path = p->previous.string_value;
-        consume(p, TOK_SEMICOLON, "Expect ';' after FFI import");
+        consume(p, TOK_SEMICOLON, "Expect ';' after import");
 
-        Stmt *stmt = stmt_import_ffi(library_path);
+        // A bare import naming a source module (".hml" suffix or "@" package
+        // prefix) loads and executes the module without binding any exports —
+        // equivalent to `import {} from "path"`. Anything else keeps the
+        // existing FFI shared-library semantics.
+        size_t path_len = strlen(library_path);
+        int is_source_import = (library_path[0] == '@') ||
+            (path_len > 4 && strcmp(library_path + path_len - 4, ".hml") == 0);
+
+        Stmt *stmt = is_source_import
+            ? stmt_import_named(NULL, NULL, 0, library_path)
+            : stmt_import_ffi(library_path);
         free(library_path);
         return stmt;
     }
