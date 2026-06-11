@@ -1,0 +1,22 @@
+// Object methods may reuse builtin method names (buffer's read_u8 /
+// write_u8 / read_bytes / write_bytes, file's close); dispatch must
+// prefer the object's own field — @stdlib/mmap's MappedFile relies on
+// this and only worked interpreted until the compiled dispatch gained
+// receiver-type guards.
+let obj = {
+    data: 7,
+    fn read_u8(off: i64): u8 { return 42; },
+    fn write_u8(off: i64, v: u8) { self.data = v; return null; },
+    fn read_bytes(off, len) { return "rb"; },
+    fn close(): bool { return true; },
+};
+print(obj.read_u8(0));
+obj.write_u8(0, 9);
+print(obj.data);
+print(obj.read_bytes(0, 4));
+print(obj.close());
+
+// Real buffers still hit the builtin typed accessors
+let b = buffer(4);
+b.write_u8(0, 200);
+print(b.read_u8(0));

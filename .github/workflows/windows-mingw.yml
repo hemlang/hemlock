@@ -128,6 +128,40 @@ jobs:
         grep -q "running: true" spawn.out
         grep -q "killed: 143" spawn.out
 
+    - name: exec_argv quoting round-trip (CRT argv parsing rules)
+      run: |
+        cat > argvecho.c << 'EOF'
+        #include <stdio.h>
+        int main(int argc, char **argv) {
+            for (int i = 1; i < argc; i++) printf("%s|", argv[i]);
+            return 0;
+        }
+        EOF
+        gcc -O1 argvecho.c -o argvecho.exe
+        cat > quoting.hml << 'EOF'
+        let r = __exec_argv(["./argvecho.exe", "a b", "c\"d", "e\\", "", "tail\\\\", "%PATH%"]);
+        print(r.output);
+        print(r.exit_code);
+        EOF
+        ./hemlock.exe quoting.hml | tee q.out
+        grep -qF 'a b|c"d|e\||tail\\|%PATH%|' q.out
+        grep -q "^0" q.out
+
+    - name: Large exec output (pipe drain must not deadlock)
+      run: |
+        cat > spew.hml << 'EOF'
+        let out = "x".repeat(200000);
+        let err = "e".repeat(150000);
+        write(out);
+        eprint(err);
+        EOF
+        cat > bigexec.hml << 'EOF'
+        let r = __exec_argv(["./hemlock.exe", "spew.hml"]);
+        print("big:", r.output.length >= 200000, r.stderr.length >= 150000, r.exit_code);
+        EOF
+        ./hemlock.exe bigexec.hml | tee big.out
+        grep -q "big: true true 0" big.out
+
     - name: Regex test (bundled musl/TRE engine)
       run: |
         cat > rx.hml << 'EOF'

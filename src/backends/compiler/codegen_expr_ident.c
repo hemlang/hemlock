@@ -608,7 +608,8 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_fence, 0, 0, 0);", result);
     // Memory-mapped file I/O operations
     } else if (strcmp(expr->as.ident.name, "__mmap_open") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_open, 1, 2, 0);", result);
+        // (num_params=2, num_required=1): mode is optional
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_open, 2, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__mmap_open_anon") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_open_anon, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__mmap_sync") == 0) {

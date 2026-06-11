@@ -352,6 +352,7 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         codegen_writeln(ctx, "HmlValue %s = hml_file_tell(%s);", result, obj_val);
     } else if (strcmp(method, "close") == 0 && num_args == 0) {
         // Handle file.close(), channel.close(), socket.close(), and generic object.close()
+        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
         codegen_writeln(ctx, "if (%s.type == HML_VAL_FILE) {", obj_val);
         codegen_writeln(ctx, "    hml_file_close(%s);", obj_val);
         codegen_writeln(ctx, "} else if (%s.type == HML_VAL_CHANNEL) {", obj_val);
@@ -359,9 +360,10 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         codegen_writeln(ctx, "} else if (%s.type == HML_VAL_SOCKET) {", obj_val);
         codegen_writeln(ctx, "    hml_socket_close(%s);", obj_val);
         codegen_writeln(ctx, "} else {");
-        codegen_writeln(ctx, "    hml_call_method(%s, \"close\", NULL, 0);", obj_val);
+        // An object's own close() result must propagate (the builtin
+        // close()s return null anyway)
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"close\", NULL, 0);", result, obj_val);
         codegen_writeln(ctx, "}");
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
     } else if (strcmp(method, "map") == 0 && num_args == 1) {
         codegen_writeln(ctx, "HmlValue %s;", result);
         codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
@@ -674,13 +676,29 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
                 strcmp(method + 6, "u64_le") == 0 || strcmp(method + 6, "u64_be") == 0 ||
                 strcmp(method + 6, "f32_le") == 0 || strcmp(method + 6, "f32_be") == 0 ||
                 strcmp(method + 6, "f64_le") == 0 || strcmp(method + 6, "f64_be") == 0)) {
-        codegen_writeln(ctx, "hml_buffer_%s(%s, %s, %s);", method, obj_val, arg_temps[0], arg_temps[1]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        // Guard on the receiver type: an object may define its own method
+        // with this name (e.g. @stdlib/mmap's MappedFile.write_u8)
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_BUFFER) {", obj_val);
+        codegen_writeln(ctx, "    hml_buffer_%s(%s, %s, %s);", method, obj_val, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _bmargs%d[2] = { %s, %s };", ctx->temp_counter, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"%s\", _bmargs%d, 2);", result, obj_val, method, ctx->temp_counter);
+        codegen_writeln(ctx, "}");
+        ctx->temp_counter++;
     // Buffer write_bytes (3 args: offset, src_buffer, len)
     } else if (strcmp(method, "write_bytes") == 0 && num_args == 3) {
-        codegen_writeln(ctx, "hml_buffer_write_bytes(%s, %s, %s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_BUFFER) {", obj_val);
+        codegen_writeln(ctx, "    hml_buffer_write_bytes(%s, %s, %s, %s);",
                       obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _bmargs%d[3] = { %s, %s, %s };", ctx->temp_counter, arg_temps[0], arg_temps[1], arg_temps[2]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"write_bytes\", _bmargs%d, 3);", result, obj_val, ctx->temp_counter);
+        codegen_writeln(ctx, "}");
+        ctx->temp_counter++;
     // Buffer typed read methods (1 arg: offset)
     } else if (strncmp(method, "read_", 5) == 0 && num_args == 1 &&
                (strcmp(method + 5, "u8") == 0 || strcmp(method + 5, "i8") == 0 ||
@@ -692,12 +710,25 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
                 strcmp(method + 5, "u64_le") == 0 || strcmp(method + 5, "u64_be") == 0 ||
                 strcmp(method + 5, "f32_le") == 0 || strcmp(method + 5, "f32_be") == 0 ||
                 strcmp(method + 5, "f64_le") == 0 || strcmp(method + 5, "f64_be") == 0)) {
-        codegen_writeln(ctx, "HmlValue %s = hml_buffer_%s(%s, %s);",
-                      result, method, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_BUFFER) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_buffer_%s(%s, %s);", result, method, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _bmargs%d[1] = { %s };", ctx->temp_counter, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"%s\", _bmargs%d, 1);", result, obj_val, method, ctx->temp_counter);
+        codegen_writeln(ctx, "}");
+        ctx->temp_counter++;
     // Buffer read_bytes (2 args: offset, len)
     } else if (strcmp(method, "read_bytes") == 0 && num_args == 2) {
-        codegen_writeln(ctx, "HmlValue %s = hml_buffer_read_bytes(%s, %s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_BUFFER) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_buffer_read_bytes(%s, %s, %s);",
                       result, obj_val, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _bmargs%d[2] = { %s, %s };", ctx->temp_counter, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"read_bytes\", _bmargs%d, 2);", result, obj_val, ctx->temp_counter);
+        codegen_writeln(ctx, "}");
+        ctx->temp_counter++;
     // Serialization methods
     } else if (strcmp(method, "serialize") == 0 && num_args == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_serialize(%s);", result, obj_val);
