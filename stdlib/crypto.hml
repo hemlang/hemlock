@@ -25,40 +25,16 @@ import "libcrypto.so.3";
 // SECURE RANDOM BYTES
 // ============================================================================
 
-// OpenSSL random bytes generation
-// int RAND_bytes(unsigned char *buf, int num)
-extern fn RAND_bytes(buf: ptr, num: i32): i32;
-
 // Generate cryptographically secure random bytes
 // Returns a buffer containing random bytes
+// Backed by the __random_bytes builtin (BCryptGenRandom on Windows,
+// /dev/urandom elsewhere) - no OpenSSL needed
 export fn random_bytes(size) {
 	if (size <= 0) {
 		throw "random_bytes() requires positive size";
 	}
 
-	let buf = alloc(size);
-	let result = RAND_bytes(buf, size);
-
-	if (result != 1) {
-		free(buf);
-		throw "RAND_bytes() failed to generate random data";
-	}
-
-	// Convert ptr to buffer with proper metadata
-	let output = buffer(size);
-	let i = 0;
-	while (i < size) {
-		// Read byte using __read_u32 pattern (align to 4-byte boundary)
-		let word_ptr = buf + (i & ~3);
-		let word = __read_u32(word_ptr);
-		let byte_offset = i % 4;
-		let byte_val = word >> byte_offset * 8 & 255;
-		output[i] = byte_val;
-		i = i + 1;
-	}
-	free(buf);
-
-	return output;
+	return __random_bytes(size);
 }
 
 // ============================================================================

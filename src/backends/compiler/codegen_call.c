@@ -2405,6 +2405,17 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // ========== CSPRNG BUILTIN ==========
+
+        // __random_bytes(n)
+        if (strcmp(fn_name, "__random_bytes") == 0 && expr->as.call.num_args == 1) {
+            char *n_arg = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_random_bytes(%s);", result, n_arg);
+            codegen_writeln(ctx, "hml_release(&%s);", n_arg);
+            free(n_arg);
+            return result;
+        }
+
         // ========== CRYPTOGRAPHIC HASH BUILTINS ==========
 
         // __sha1(input)

@@ -38,6 +38,7 @@ jobs:
         import { stringify } from "@stdlib/json";
         import { write_file, read_file, remove_file } from "@stdlib/fs";
         import { sha256, md5 } from "@stdlib/hash";
+        import { v4, is_valid } from "@stdlib/uuid";
         async fn sq(n: i32): i32 { return n * n; }
         let t = spawn(sq, 9);
         print("async:", await t);
@@ -50,6 +51,7 @@ jobs:
         print("json:", stringify({ ok: true }));
         print("sha256:", sha256("hello"));
         print("md5:", md5("hello"));
+        print("uuid:", is_valid(v4()));
         EOF
         ./hemlock.exe smoke.hml | tee smoke.out
         grep -q "async: 81" smoke.out
@@ -57,6 +59,7 @@ jobs:
         grep -q "plat: windows" smoke.out
         grep -q "sha256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" smoke.out
         grep -q "md5: 5d41402abc4b2a76b9719d911017c592" smoke.out
+        grep -q "uuid: true" smoke.out
 
     - name: TCP loopback test
       run: |

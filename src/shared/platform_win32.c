@@ -459,6 +459,22 @@ done:
     return result;
 }
 
+int hml_win32_random(void *out, size_t len) {
+    // BCRYPT_USE_SYSTEM_PREFERRED_RNG: no provider handle needed
+    unsigned char *p = out;
+    size_t remaining = len;
+    while (remaining > 0) {
+        ULONG chunk = remaining > ULONG_MAX ? ULONG_MAX : (ULONG)remaining;
+        if (!BCRYPT_SUCCESS(BCryptGenRandom(NULL, p, chunk,
+                                            BCRYPT_USE_SYSTEM_PREFERRED_RNG))) {
+            return -1;
+        }
+        p += chunk;
+        remaining -= chunk;
+    }
+    return 0;
+}
+
 // ---- One-time platform initialization ----
 
 void hml_platform_init(void) {

@@ -253,6 +253,9 @@ Value builtin_zlib_compress_bound(Value *args, int num_args, ExecutionContext *c
 Value builtin_crc32(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_adler32(Value *args, int num_args, ExecutionContext *ctx);
 
+// CSPRNG builtin (crypto.c; available on every build)
+Value builtin_random_bytes(Value *args, int num_args, ExecutionContext *ctx);
+
 // Cryptographic hash builtins (crypto.c)
 Value builtin_sha1(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_sha256(Value *args, int num_args, ExecutionContext *ctx);

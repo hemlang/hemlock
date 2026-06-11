@@ -7,9 +7,67 @@
  * Stub implementations are provided in wasm_shim.c.
  */
 
+#include "builtins_internal.h"
+
+// ========== CSPRNG (available on every build — not OpenSSL-gated) ==========
+
+#ifdef _WIN32
+#include "hemlock_compat.h"
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
+// __random_bytes(n: i32) -> buffer
+// Cryptographically secure random bytes: BCryptGenRandom on Windows,
+// /dev/urandom elsewhere (Emscripten emulates it via getRandomValues).
+HmlValue hml_random_bytes(HmlValue size_val) {
+    int64_t size;
+    if (size_val.type == HML_VAL_I32) {
+        size = size_val.as.as_i32;
+    } else if (size_val.type == HML_VAL_I64) {
+        size = size_val.as.as_i64;
+    } else {
+        hml_runtime_error("__random_bytes() size must be an integer");
+    }
+    if (size <= 0 || size > INT32_MAX) {
+        hml_runtime_error("__random_bytes() size must be positive");
+    }
+
+    HmlValue result = hml_val_buffer((int32_t)size);
+    HmlBuffer *buf = result.as.as_buffer;
+
+#ifdef _WIN32
+    if (hml_win32_random(buf->data, (size_t)size) != 0) {
+        hml_runtime_error("__random_bytes() failed to gather entropy");
+    }
+#else
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd < 0) {
+        hml_runtime_error("__random_bytes() failed to open /dev/urandom");
+    }
+    size_t total = 0;
+    while (total < (size_t)size) {
+        ssize_t n = read(fd, (char *)buf->data + total, (size_t)size - total);
+        if (n <= 0) {
+            close(fd);
+            hml_runtime_error("__random_bytes() failed to gather entropy");
+        }
+        total += (size_t)n;
+    }
+    close(fd);
+#endif
+
+    return result;
+}
+
+HmlValue hml_builtin_random_bytes(HmlClosureEnv *env, HmlValue size_val) {
+    (void)env;
+    return hml_random_bytes(size_val);
+}
+
 #ifndef __EMSCRIPTEN__
 
-#include "builtins_internal.h"
 #include <stdatomic.h>
 
 // ========== COMPRESSION OPERATIONS ==========

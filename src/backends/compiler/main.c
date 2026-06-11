@@ -543,6 +543,7 @@ static int compile_c(const Options *opts, const char *c_file) {
     // it; link it if so. --print-file-name echoes the bare name back when
     // the library is not found, and a full path when it is.
     char ffi_flag[8] = "";
+    (void)ffi_flag;  // only read in the _WIN32 link commands below
 #ifdef _WIN32
     {
         char probe_cmd[512];

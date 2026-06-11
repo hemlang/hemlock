@@ -6,7 +6,6 @@
 // Usage:
 // import { v4, v7, parse, is_valid } from "@stdlib/uuid";
 // let id = v4();  // "550e8400-e29b-41d4-a716-446655440000"
-import { random_bytes } from "@stdlib/crypto";
 import { time_ms } from "@stdlib/time";
 
 // ============================================================================
@@ -42,7 +41,7 @@ fn hex_to_nibble(c): i32 {
 // Returns: string - UUID in format "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
 export fn v4(): string {
 	// Get 16 random bytes
-	let bytes = random_bytes(16);
+	let bytes = __random_bytes(16);
 
 	// Set version to 4 (bits 4-7 of byte 6)
 	let byte6 = bytes[6];
@@ -63,7 +62,7 @@ export fn v7(): string {
 	let ts = time_ms();
 
 	// Create 16 byte buffer
-	let bytes = random_bytes(16);
+	let bytes = __random_bytes(16);
 
 	// Encode timestamp in first 48 bits (6 bytes)
 	// Big-endian encoding
@@ -318,7 +317,7 @@ export fn v1(): string {
 	let uuid_time: i64 = ts * 10000 + 122192928000000000;
 
 	// Create 16 byte buffer
-	let bytes = random_bytes(16);
+	let bytes = __random_bytes(16);
 
 	// time_low (32 bits) - bytes 0-3
 	let t0: u8 = uuid_time >> 24 & 255;

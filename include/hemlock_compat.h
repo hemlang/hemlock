@@ -40,6 +40,10 @@ FILE *hml_win_tmpfile(void);
 int hml_win32_hash(const char *alg, const void *data, size_t len,
                    unsigned char *out, size_t out_cap);
 
+// CNG-backed CSPRNG (BCryptGenRandom with the system-preferred RNG).
+// Fills out with len random bytes; returns 0 on success, -1 on failure.
+int hml_win32_random(void *out, size_t len);
+
 #endif // _WIN32
 
 #endif // HEMLOCK_COMPAT_H

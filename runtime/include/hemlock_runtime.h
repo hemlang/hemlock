@@ -1064,6 +1064,13 @@ HmlValue hml_builtin_lws_ws_server_create(HmlClosureEnv *env, HmlValue host, Hml
 HmlValue hml_builtin_lws_ws_server_accept(HmlClosureEnv *env, HmlValue server, HmlValue timeout_ms);
 HmlValue hml_builtin_lws_ws_server_close(HmlClosureEnv *env, HmlValue server);
 
+// ========== CSPRNG ==========
+
+// Cryptographically secure random bytes (CNG on Windows, /dev/urandom
+// elsewhere) - returns buffer
+HmlValue hml_random_bytes(HmlValue size_val);
+HmlValue hml_builtin_random_bytes(HmlClosureEnv *env, HmlValue size_val);
+
 // ========== CRYPTOGRAPHIC HASH FUNCTIONS ==========
 
 // Hash functions - return hex string

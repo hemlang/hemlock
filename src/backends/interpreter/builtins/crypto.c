@@ -1,5 +1,66 @@
 #include "internal.h"
 
+// ============================================================================
+// CSPRNG (available on every build — not OpenSSL-gated)
+// ============================================================================
+
+#ifdef _WIN32
+#include "hemlock_compat.h"
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
+// __random_bytes(n: i32) -> buffer
+// Cryptographically secure random bytes: BCryptGenRandom on Windows,
+// /dev/urandom elsewhere (Emscripten emulates it via getRandomValues).
+Value builtin_random_bytes(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "__random_bytes() expects 1 argument (size in bytes)");
+        return val_null();
+    }
+
+    if (!is_integer(args[0])) {
+        runtime_error(ctx, "__random_bytes() size must be an integer");
+        return val_null();
+    }
+
+    int32_t size = value_to_int(args[0]);
+    if (size <= 0) {
+        runtime_error(ctx, "__random_bytes() size must be positive");
+        return val_null();
+    }
+
+    Value result = val_buffer(size);
+    Buffer *buf = result.as.as_buffer;
+
+#ifdef _WIN32
+    if (hml_win32_random(buf->data, (size_t)size) != 0) {
+        runtime_error(ctx, "__random_bytes() failed to gather entropy");
+        return val_null();
+    }
+#else
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd < 0) {
+        runtime_error(ctx, "__random_bytes() failed to open /dev/urandom");
+        return val_null();
+    }
+    size_t total = 0;
+    while (total < (size_t)size) {
+        ssize_t n = read(fd, (char *)buf->data + total, (size_t)size - total);
+        if (n <= 0) {
+            close(fd);
+            runtime_error(ctx, "__random_bytes() failed to gather entropy");
+            return val_null();
+        }
+        total += (size_t)n;
+    }
+    close(fd);
+#endif
+
+    return result;
+}
+
 #if !defined(__EMSCRIPTEN__) && !defined(HEMLOCK_NO_OPENSSL)
 /* Native crypto implementation using OpenSSL - excluded from WASM builds
    and HEMLOCK_NO_OPENSSL builds (e.g. MinGW without OpenSSL).

@@ -193,6 +193,8 @@ static BuiltinInfo builtins[] = {
     {"__zlib_compress_bound", builtin_zlib_compress_bound},
     {"__crc32", builtin_crc32},
     {"__adler32", builtin_adler32},
+    // CSPRNG builtin (use stdlib/crypto.hml random_bytes for public API)
+    {"__random_bytes", builtin_random_bytes},
     // Cryptographic hash builtins (use stdlib/hash.hml module for public API)
     {"__sha1", builtin_sha1},
     {"__sha256", builtin_sha256},

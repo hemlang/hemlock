@@ -69,9 +69,10 @@ artifacts and never touches a native build in the same checkout.
   pull in `windows.h` (whose `TokenType` enumerator collides with the
   lexer's), for use in frontend/tool sources.
 - Threading uses winpthreads, so the async runtime is unchanged.
-- The hash builtins (`sha1`/`sha256`/`sha512`/`md5`) are backed by
-  Windows CNG (`bcrypt.dll`) instead of OpenSSL, so hashing needs no
-  extra libraries.
+- The hash builtins (`sha1`/`sha256`/`sha512`/`md5`) and the
+  `__random_bytes` CSPRNG are backed by Windows CNG (`bcrypt.dll`)
+  instead of OpenSSL, so hashing, `@stdlib/uuid`, and secure random
+  generation need no extra libraries.
 - AF_UNIX sockets use Windows 10's native support (`afunix.h`).
 - File I/O defaults to binary mode (no CRLF translation) to keep byte
   counts and written data identical across platforms.
@@ -84,7 +85,7 @@ Calling any of these throws a runtime error on Windows:
 |------|--------|
 | Process model | `fork()`, `exec()`, `exec_argv()`, `posix_spawn()`, `wait()`/`waitpid()`, `kill()`, `getuid()`-family — Windows has no fork/exec or POSIX uids. `get_pid()`, `pipe()`, fd I/O, and `system`-style invocation via the compiler driver still work. |
 | FFI without libffi | FFI is **fully supported** when the MinGW toolchain has libffi (auto-detected, see below); only without it do `extern fn`, `ffi_open`, and callbacks throw (`HEMLOCK_NO_FFI`). |
-| ECDSA | The ECDSA builtins throw (`HEMLOCK_NO_OPENSSL`). The hash builtins are **not** affected: `sha1`/`sha256`/`sha512`/`md5` (and `@stdlib/hash` on top of them) are backed by Windows CNG (`bcrypt.dll`, a system DLL) and work in both backends. |
+| Crypto (partial) | Only the ECDSA builtins and `@stdlib/crypto`'s OpenSSL-bound functions (AES, RSA — the module's `import "libcrypto.so.3"` cannot load) throw. **Not** affected: the hash builtins (`sha1`/`sha256`/`sha512`/`md5`, and `@stdlib/hash`), `__random_bytes` (and `@stdlib/uuid`) — all backed by Windows CNG (`bcrypt.dll`, a system DLL) in both backends. |
 | Regex | MinGW has no POSIX `<regex.h>`; `@stdlib/regex` throws. |
 | Signals | Only the signals the Windows CRT supports (`SIGINT`, `SIGTERM`, `SIGABRT`, `SIGSEGV`, `SIGFPE`, `SIGILL`) can be handled. Other constants exist but `signal()`/`raise()` on them fails. |
 | HTTP/WebSocket | libwebsockets is not probed for Windows builds; `@stdlib/http` and `@stdlib/websocket` are unavailable. |
@@ -105,8 +106,9 @@ Smaller quirks worth knowing:
 
 Everything else — the language core, async/channels/atomics, buffers and
 manual memory, TCP/UDP/Unix sockets, DNS, file and directory I/O, mmap,
-zlib compression, cryptographic hashing (CNG-backed), JSON/CSV/TOML/YAML,
-math, strings — works on Windows.
+zlib compression, cryptographic hashing and secure random (CNG-backed,
+including `@stdlib/uuid`), JSON/CSV/TOML/YAML, math, strings — works on
+Windows.
 
 ## FFI on Windows (raylib games, native bindings)
 
