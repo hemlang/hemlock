@@ -472,6 +472,15 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_headers, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_http_stream_close") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_close, 1, 1, 0);", result);
+    // Terminal control builtins
+    } else if (strcmp(expr->as.ident.name, "__term_is_tty") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_term_is_tty, 0, 0, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__term_raw") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_term_raw, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__term_read_byte") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_term_read_byte, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__term_size") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_term_size, 0, 0, 0);", result);
     // CSPRNG builtin
     } else if (strcmp(expr->as.ident.name, "__random_bytes") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_random_bytes, 1, 1, 0);", result);

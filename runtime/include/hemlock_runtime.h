@@ -871,6 +871,9 @@ void hml_ffi_struct_cleanup(void);
 
 // Load a shared library, returns opaque handle
 HmlValue hml_ffi_load(const char *path);
+// import-statement variant: identical when FFI is available, warns
+// instead of throwing in no-FFI builds (platform-gated module imports)
+HmlValue hml_ffi_load_import(const char *path);
 
 // Close a library handle
 void hml_ffi_close(HmlValue lib);
@@ -1063,6 +1066,21 @@ HmlValue hml_builtin_lws_msg_free(HmlClosureEnv *env, HmlValue msg);
 HmlValue hml_builtin_lws_ws_server_create(HmlClosureEnv *env, HmlValue host, HmlValue port);
 HmlValue hml_builtin_lws_ws_server_accept(HmlClosureEnv *env, HmlValue server, HmlValue timeout_ms);
 HmlValue hml_builtin_lws_ws_server_close(HmlClosureEnv *env, HmlValue server);
+
+// ========== TERMINAL CONTROL ==========
+
+// Raw mode, single-byte reads with timeout, terminal size, tty check
+// (POSIX termios / Windows console API)
+HmlValue hml_term_is_tty(void);
+HmlValue hml_term_raw(HmlValue enable);
+HmlValue hml_term_read_byte(HmlValue timeout_val);
+HmlValue hml_term_size(void);
+
+// Builtin wrappers for function-as-value usage
+HmlValue hml_builtin_term_is_tty(HmlClosureEnv *env);
+HmlValue hml_builtin_term_raw(HmlClosureEnv *env, HmlValue enable);
+HmlValue hml_builtin_term_read_byte(HmlClosureEnv *env, HmlValue timeout_val);
+HmlValue hml_builtin_term_size(HmlClosureEnv *env);
 
 // ========== CSPRNG ==========
 

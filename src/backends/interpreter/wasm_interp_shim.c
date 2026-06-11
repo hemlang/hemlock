@@ -53,9 +53,14 @@ void execute_import_ffi(Stmt *stmt, ExecutionContext *ctx) {
 }
 
 void execute_extern_fn(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
-    (void)stmt;
     (void)env;
-    runtime_error(ctx, "extern fn is not available in " HML_SHIM_ENV_FFI);
+    (void)ctx;
+    /* Warn but don't raise, mirroring execute_import_ffi above: modules
+       with platform-gated FFI (e.g. @stdlib/termios, whose POSIX externs
+       are never called on Windows) must still load. Calling the function
+       fails with "Undefined variable" since no binding is created. */
+    fprintf(stderr, "Warning: extern fn '%s' ignored in " HML_SHIM_ENV_FFI "\n",
+            stmt->as.extern_fn.function_name);
 }
 
 Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionContext *ctx) {

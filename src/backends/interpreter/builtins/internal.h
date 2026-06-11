@@ -282,6 +282,12 @@ Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_tmpdir(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_uptime(Value *args, int num_args, ExecutionContext *ctx);
 
+// Terminal control builtins (os.c, backed by src/shared/term_core.c)
+Value builtin_term_is_tty(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_term_raw(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_term_read_byte(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_term_size(Value *args, int num_args, ExecutionContext *ctx);
+
 // FFI callback builtins (ffi_builtins.c)
 Value builtin_callback(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_callback_free(Value *args, int num_args, ExecutionContext *ctx);

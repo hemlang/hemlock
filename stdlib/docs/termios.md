@@ -1,13 +1,13 @@
 # Termios Module
 
-Terminal I/O control for raw input mode on Unix systems (Linux, macOS).
+Terminal I/O control for raw input mode (Linux, macOS, Windows).
 
 ## Overview
 
 The termios module provides low-level terminal control, enabling:
 - **Raw mode**: Keypresses available immediately without Enter
 - **Arrow key detection**: Full support for cursor keys and function keys
-- **Cross-platform**: Works on Linux and macOS
+- **Cross-platform**: Works on Linux, macOS, and Windows
 
 ## Quick Start
 
@@ -172,7 +172,10 @@ loop {
 - termios struct: 80 bytes, c_lflag at offset 24
 
 ### Windows
-- Not supported (use Windows Console API via FFI if needed)
+- Uses the console API (`SetConsoleMode`) via the `__term_*` builtins —
+  no FFI involved
+- Raw mode enables virtual-terminal input/output, so arrow keys arrive
+  as the same ESC sequences POSIX terminals send and ANSI output works
 
 ## Fallback Pattern
 

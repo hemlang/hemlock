@@ -1865,7 +1865,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             char sanitized[256];
             codegen_ffi_sanitize_libname(stmt->as.import_ffi.library_path,
                                          sanitized, sizeof(sanitized));
-            codegen_writeln(ctx, "_ffi_lib_%s = hml_ffi_load(\"%s\");",
+            codegen_writeln(ctx, "_ffi_lib_%s = hml_ffi_load_import(\"%s\");",
                             sanitized, stmt->as.import_ffi.library_path);
             break;
         }

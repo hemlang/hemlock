@@ -695,6 +695,70 @@ typedef struct ExternFnList {
     int capacity;
 } ExternFnList;
 
+// All `import "lib"` paths in the program, including ones nested inside
+// if/else platform gates (e.g. @stdlib/termios picks its libc per
+// platform). Statement codegen emits `_ffi_lib_<sanitized> = hml_ffi_load`
+// at every import site, so every imported library needs its global —
+// even when no extern fn ends up associated with it.
+typedef struct FfiImportList {
+    char **paths;
+    int count;
+    int capacity;
+} FfiImportList;
+
+static void ffi_import_list_add(FfiImportList *list, const char *path) {
+    for (int i = 0; i < list->count; i++) {
+        if (strcmp(list->paths[i], path) == 0) {
+            return;
+        }
+    }
+    if (list->count >= list->capacity) {
+        int new_cap = list->capacity == 0 ? 8 : list->capacity * 2;
+        char **grown = realloc(list->paths, new_cap * sizeof(char *));
+        if (!grown) {
+            fprintf(stderr, "error: Failed to expand FFI import list\n");
+            exit(1);
+        }
+        list->paths = grown;
+        list->capacity = new_cap;
+    }
+    list->paths[list->count++] = strdup(path);
+}
+
+static void collect_ffi_imports_from_stmt(Stmt *stmt, FfiImportList *list) {
+    if (!stmt) return;
+
+    if (stmt->type == STMT_IMPORT_FFI) {
+        ffi_import_list_add(list, stmt->as.import_ffi.library_path);
+        return;
+    }
+
+    if (stmt->type == STMT_BLOCK) {
+        for (int i = 0; i < stmt->as.block.count; i++) {
+            collect_ffi_imports_from_stmt(stmt->as.block.statements[i], list);
+        }
+    } else if (stmt->type == STMT_IF) {
+        collect_ffi_imports_from_stmt(stmt->as.if_stmt.then_branch, list);
+        collect_ffi_imports_from_stmt(stmt->as.if_stmt.else_branch, list);
+    } else if (stmt->type == STMT_WHILE) {
+        collect_ffi_imports_from_stmt(stmt->as.while_stmt.body, list);
+    } else if (stmt->type == STMT_FOR) {
+        collect_ffi_imports_from_stmt(stmt->as.for_loop.body, list);
+    } else if (stmt->type == STMT_FOR_IN) {
+        collect_ffi_imports_from_stmt(stmt->as.for_in.body, list);
+    } else if (stmt->type == STMT_TRY) {
+        collect_ffi_imports_from_stmt(stmt->as.try_stmt.try_block, list);
+        collect_ffi_imports_from_stmt(stmt->as.try_stmt.catch_block, list);
+        collect_ffi_imports_from_stmt(stmt->as.try_stmt.finally_block, list);
+    } else if (stmt->type == STMT_SWITCH) {
+        for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+            collect_ffi_imports_from_stmt(stmt->as.switch_stmt.case_bodies[i], list);
+        }
+    } else if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_declaration) {
+        collect_ffi_imports_from_stmt(stmt->as.export_stmt.declaration, list);
+    }
+}
+
 static void collect_extern_fn_from_stmt(Stmt *stmt, const char **current_lib, ExternFnList *list);
 
 static void collect_extern_fn_from_stmts(Stmt **stmts, int count, ExternFnList *list) {
@@ -1394,30 +1458,23 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     codegen_write(ctx, "#define SIGTSTP_VAL 20\n\n");
 
     // FFI: Global library handle and function pointer declarations
-    // (all_extern_fns and ffi_structs already collected in pre-pass)
-    int has_ffi = 0;
+    // (all_extern_fns and ffi_structs already collected in pre-pass).
+    // Imports are collected recursively — platform-gated imports inside
+    // if/else (e.g. @stdlib/termios) still need their handle globals.
+    FfiImportList all_ffi_imports = {NULL, 0, 0};
     for (int i = 0; i < stmt_count; i++) {
-        if (stmts[i]->type == STMT_IMPORT_FFI) {
-            has_ffi = 1;
-            break;
-        }
+        collect_ffi_imports_from_stmt(stmts[i], &all_ffi_imports);
     }
-    // Also check modules for FFI imports
-    if (!has_ffi && ctx->module_cache) {
+    if (ctx->module_cache) {
         CompiledModule *mod = ctx->module_cache->modules;
-        while (mod && !has_ffi) {
+        while (mod) {
             for (int i = 0; i < mod->num_statements; i++) {
-                if (mod->statements[i]->type == STMT_IMPORT_FFI) {
-                    has_ffi = 1;
-                    break;
-                }
+                collect_ffi_imports_from_stmt(mod->statements[i], &all_ffi_imports);
             }
             mod = mod->next;
         }
     }
-    if (!has_ffi && all_extern_fns.count > 0) {
-        has_ffi = 1;
-    }
+    int has_ffi = all_ffi_imports.count > 0 || all_extern_fns.count > 0;
     if (has_ffi) {
         if (ctx->target_wasm) {
             // FFI is not available in WASM - emit warning comment
@@ -1426,7 +1483,8 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         }
         codegen_write(ctx, "// FFI globals (one handle per imported library — never share)\n");
 
-        // Emit one `_ffi_lib_<sanitized>` per unique library path (deduped).
+        // Emit one `_ffi_lib_<sanitized>` per unique library path (deduped),
+        // covering every import site plus the extern-fn associations.
         // Also keep a fallback `_ffi_lib_default` for any extern_fn that
         // somehow has no preceding import_ffi (preserves prior behavior of
         // failing-at-call rather than failing-at-codegen).
@@ -1434,8 +1492,11 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         char **emitted = NULL;
         int num_emitted = 0;
         int has_default = 0;
-        for (int i = 0; i < all_extern_fns.count; i++) {
-            const char *lib = all_extern_fns.lib_paths[i];
+        int total_libs = all_ffi_imports.count + all_extern_fns.count;
+        for (int i = 0; i < total_libs; i++) {
+            const char *lib = i < all_ffi_imports.count
+                ? all_ffi_imports.paths[i]
+                : all_extern_fns.lib_paths[i - all_ffi_imports.count];
             if (!lib) {
                 if (!has_default) {
                     codegen_write(ctx, "static HmlValue _ffi_lib_default = {0};\n");
@@ -1868,7 +1929,11 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         }
         codegen_write(ctx, "}\n\n");
     }
-    // Free the extern fn list and struct list
+    // Free the FFI import list, extern fn list, and struct list
+    for (int i = 0; i < all_ffi_imports.count; i++) {
+        free(all_ffi_imports.paths[i]);
+    }
+    free(all_ffi_imports.paths);
     free(all_extern_fns.stmts);
     for (int i = 0; i < ffi_structs.count; i++) {
         free(ffi_structs.structs[i].name);

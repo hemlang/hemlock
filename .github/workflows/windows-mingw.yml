@@ -105,6 +105,23 @@ jobs:
         grep -q "stdin: 0" exec.out
         grep -q "shell: true shell ok" exec.out
 
+    - name: Terminal control test (console API, no stty/printf shell-outs)
+      run: |
+        cat > term.hml << 'EOF'
+        import { is_raw_mode, disable_raw_mode } from "@stdlib/termios";
+        import { size } from "@stdlib/terminal";
+        print("raw:", is_raw_mode());
+        print("disable:", disable_raw_mode());
+        let s = size();
+        print("size:", s.rows > 0 && s.cols > 0);
+        print("rb:", __term_read_byte(0));
+        EOF
+        ./hemlock.exe term.hml | tee term.out
+        grep -q "raw: false" term.out
+        grep -q "disable: true" term.out
+        grep -q "size: true" term.out
+        grep -q "rb: -1" term.out
+
     - name: Full hemlockc pipeline (invokes gcc via system())
       run: |
         cat > csm.hml << 'EOF'
@@ -248,6 +265,24 @@ jobs:
         grep -q "exec: wine exec 0" /tmp/exec.out
         grep -q "argv: 5" /tmp/exec.out
         grep -q "shell: true shell ok" /tmp/exec.out
+
+    - name: Terminal control test under Wine
+      run: |
+        export WINEDEBUG=-all
+        cat > /tmp/term.hml << 'EOF'
+        import { is_raw_mode, disable_raw_mode } from "@stdlib/termios";
+        import { size } from "@stdlib/terminal";
+        print("raw:", is_raw_mode());
+        print("disable:", disable_raw_mode());
+        let s = size();
+        print("size:", s.rows > 0 && s.cols > 0);
+        print("rb:", __term_read_byte(0));
+        EOF
+        wine ./hemlock.exe /tmp/term.hml | tee /tmp/term.out
+        grep -q "raw: false" /tmp/term.out
+        grep -q "disable: true" /tmp/term.out
+        grep -q "size: true" /tmp/term.out
+        grep -q "rb: -1" /tmp/term.out
 
     - name: FFI test under Wine (DLL loading, raylib-style bindings)
       run: |

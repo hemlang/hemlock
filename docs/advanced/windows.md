@@ -73,6 +73,11 @@ artifacts and never touches a native build in the same checkout.
   `__random_bytes` CSPRNG are backed by Windows CNG (`bcrypt.dll`)
   instead of OpenSSL, so hashing, `@stdlib/uuid`, and secure random
   generation need no extra libraries.
+- `@stdlib/termios` raw mode and `@stdlib/terminal` size detection run
+  on the console API (`SetConsoleMode`, `GetConsoleScreenBufferInfo`)
+  via the `__term_*` builtins. Raw mode enables virtual-terminal input
+  and output, so arrow keys arrive as the same ESC sequences POSIX
+  terminals send and ANSI colors/cursor escapes work.
 - `exec()`/`exec_argv()` run on CreateProcess + pipes: argv vectors are
   quoted with the `CommandLineToArgvW` rules so arguments round-trip
   intact, and shell commands go through `%COMSPEC% /S /C` — so shell
@@ -94,7 +99,6 @@ Calling any of these throws a runtime error on Windows:
 | Regex | MinGW has no POSIX `<regex.h>`; `@stdlib/regex` throws. |
 | Signals | Only the signals the Windows CRT supports (`SIGINT`, `SIGTERM`, `SIGABRT`, `SIGSEGV`, `SIGFPE`, `SIGILL`) can be handled. Other constants exist but `signal()`/`raise()` on them fails. |
 | HTTP/WebSocket | libwebsockets is not probed for Windows builds; `@stdlib/http` and `@stdlib/websocket` are unavailable. |
-| Terminal | `@stdlib/termios` (raw mode) is POSIX-only. |
 | LSP | stdio transport works; `--lsp-tcp` mode is disabled. |
 
 Smaller quirks worth knowing:
@@ -113,8 +117,9 @@ Everything else — the language core, async/channels/atomics, buffers and
 manual memory, TCP/UDP/Unix sockets, DNS, file and directory I/O, mmap,
 zlib compression, cryptographic hashing and secure random (CNG-backed,
 including `@stdlib/uuid`), command execution (`exec()`/`exec_argv()` and
-`@stdlib/shell`'s `run`/`run_capture`), JSON/CSV/TOML/YAML, math,
-strings — works on Windows. Note that `@stdlib/shell`'s Unix-command
+`@stdlib/shell`'s `run`/`run_capture`), terminal control
+(`@stdlib/termios` raw mode, `@stdlib/terminal`), JSON/CSV/TOML/YAML,
+math, strings — works on Windows. Note that `@stdlib/shell`'s Unix-command
 conveniences (`ls()`, `which()`, `pwd()`, …) shell out to POSIX tools
 and stay Unix-only.
 

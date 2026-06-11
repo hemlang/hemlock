@@ -275,6 +275,13 @@ void* hml_ffi_sym(HmlValue lib, const char *name) {
     return sym;
 }
 
+// `import "lib"` statements share the ffi_open() implementation; the
+// distinction only matters in no-FFI builds, where imports warn instead
+// of throwing (see the stub section below)
+HmlValue hml_ffi_load_import(const char *path) {
+    return hml_ffi_load(path);
+}
+
 // ========== FFI TYPE CONVERSION ==========
 
 // Convert HmlFFIType to libffi type
@@ -1312,6 +1319,14 @@ HmlValue hml_builtin_callback_free(HmlClosureEnv *env, HmlValue ptr) {
 HmlValue hml_ffi_load(const char *path) {
     (void)path;
     hml_runtime_error("ffi_open() is not available in this build (no FFI support)");
+}
+
+// `import "lib"` statements warn instead of throwing, mirroring the
+// interpreter shim: modules with platform-gated FFI (e.g. @stdlib/termios)
+// must still load. Calling an extern fn later fails at symbol lookup.
+HmlValue hml_ffi_load_import(const char *path) {
+    fprintf(stderr, "Warning: FFI import '%s' ignored in this build (no FFI support)\n", path);
+    return hml_val_null();
 }
 
 void hml_ffi_close(HmlValue lib) {
