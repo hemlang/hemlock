@@ -472,6 +472,18 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_headers, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_http_stream_close") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_close, 1, 1, 0);", result);
+    // Terminal control builtins
+    } else if (strcmp(expr->as.ident.name, "__term_is_tty") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_term_is_tty, 0, 0, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__term_raw") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_term_raw, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__term_read_byte") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_term_read_byte, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__term_size") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_term_size, 0, 0, 0);", result);
+    // CSPRNG builtin
+    } else if (strcmp(expr->as.ident.name, "__random_bytes") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_random_bytes, 1, 1, 0);", result);
     // Cryptographic hash builtins
     } else if (strcmp(expr->as.ident.name, "__sha1") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hash_sha1, 1, 1, 0);", result);
@@ -596,7 +608,8 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_fence, 0, 0, 0);", result);
     // Memory-mapped file I/O operations
     } else if (strcmp(expr->as.ident.name, "__mmap_open") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_open, 1, 2, 0);", result);
+        // (num_params=2, num_required=1): mode is optional
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_open, 2, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__mmap_open_anon") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_open_anon, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__mmap_sync") == 0) {

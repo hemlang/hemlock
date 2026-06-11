@@ -69,6 +69,25 @@ artifacts and never touches a native build in the same checkout.
   pull in `windows.h` (whose `TokenType` enumerator collides with the
   lexer's), for use in frontend/tool sources.
 - Threading uses winpthreads, so the async runtime is unchanged.
+- The hash builtins (`sha1`/`sha256`/`sha512`/`md5`) and the
+  `__random_bytes` CSPRNG are backed by Windows CNG (`bcrypt.dll`)
+  instead of OpenSSL, so hashing, `@stdlib/uuid`, and secure random
+  generation need no extra libraries.
+- `@stdlib/regex` runs on a bundled POSIX ERE engine (musl libc's
+  TRE-based `regcomp`/`regexec`, vendored in `src/shared/regex_win32/`)
+  since MinGW has no `<regex.h>`; the builtins compile the same POSIX
+  code path as on Linux/macOS. Error message wording differs (TRE vs
+  glibc), matching behavior does not.
+- `@stdlib/termios` raw mode and `@stdlib/terminal` size detection run
+  on the console API (`SetConsoleMode`, `GetConsoleScreenBufferInfo`)
+  via the `__term_*` builtins. Raw mode enables virtual-terminal input
+  and output, so arrow keys arrive as the same ESC sequences POSIX
+  terminals send and ANSI colors/cursor escapes work.
+- `exec()`/`exec_argv()` run on CreateProcess + pipes: argv vectors are
+  quoted with the `CommandLineToArgvW` rules so arguments round-trip
+  intact, and shell commands go through `%COMSPEC% /S /C` — so shell
+  snippets must be written for cmd.exe on Windows (`dir`, `2>nul`, …),
+  exactly as they must be written for `/bin/sh` on POSIX.
 - AF_UNIX sockets use Windows 10's native support (`afunix.h`).
 - File I/O defaults to binary mode (no CRLF translation) to keep byte
   counts and written data identical across platforms.
@@ -79,13 +98,11 @@ Calling any of these throws a runtime error on Windows:
 
 | Area | Detail |
 |------|--------|
-| Process model | `fork()`, `exec()`, `exec_argv()`, `posix_spawn()`, `wait()`/`waitpid()`, `kill()`, `getuid()`-family — Windows has no fork/exec or POSIX uids. `get_pid()`, `pipe()`, fd I/O, and `system`-style invocation via the compiler driver still work. |
+| Process model (partial) | `fork()`, `wait()` (wait-for-any), `getppid()`, `getuid()`-family — Windows has no fork or POSIX uids. **Not** affected: `exec()`/`exec_argv()` (CreateProcess + pipes, shell mode via `cmd.exe /S /C`), `posix_spawn()` (detached CreateProcess; `env`/`cwd`/stdio-fd/`setsid` options work, `setsid` maps to a new process group with no console), `waitpid()` (blocking or `WNOHANG`; status is POSIX-encoded so `status >> 8` is the exit code), and `kill()` (signal 0 probes existence; other signals terminate with exit code 128+sig — Windows cannot deliver signals). `get_pid()` and `pipe()` also work. |
 | FFI without libffi | FFI is **fully supported** when the MinGW toolchain has libffi (auto-detected, see below); only without it do `extern fn`, `ffi_open`, and callbacks throw (`HEMLOCK_NO_FFI`). |
-| Crypto | `HEMLOCK_NO_OPENSSL`: `sha1`/`sha256`/`sha512`/`md5` and ECDSA builtins throw. The pure-Hemlock `@stdlib/hash` implementations still work. |
-| Regex | MinGW has no POSIX `<regex.h>`; `@stdlib/regex` throws. |
+| Crypto (partial) | Only the ECDSA builtins and `@stdlib/crypto`'s OpenSSL-bound functions (AES, RSA — the module's `import "libcrypto.so.3"` cannot load) throw. **Not** affected: the hash builtins (`sha1`/`sha256`/`sha512`/`md5`, and `@stdlib/hash`), `__random_bytes` (and `@stdlib/uuid`) — all backed by Windows CNG (`bcrypt.dll`, a system DLL) in both backends. |
 | Signals | Only the signals the Windows CRT supports (`SIGINT`, `SIGTERM`, `SIGABRT`, `SIGSEGV`, `SIGFPE`, `SIGILL`) can be handled. Other constants exist but `signal()`/`raise()` on them fails. |
 | HTTP/WebSocket | libwebsockets is not probed for Windows builds; `@stdlib/http` and `@stdlib/websocket` are unavailable. |
-| Terminal | `@stdlib/termios` (raw mode) is POSIX-only. |
 | LSP | stdio transport works; `--lsp-tcp` mode is disabled. |
 
 Smaller quirks worth knowing:
@@ -102,7 +119,15 @@ Smaller quirks worth knowing:
 
 Everything else — the language core, async/channels/atomics, buffers and
 manual memory, TCP/UDP/Unix sockets, DNS, file and directory I/O, mmap,
-zlib compression, JSON/CSV/TOML/YAML, math, strings — works on Windows.
+zlib compression, cryptographic hashing and secure random (CNG-backed,
+including `@stdlib/uuid`), command execution and process management (`exec()`/`exec_argv()`,
+`posix_spawn()`/`waitpid()`/`kill()`, and `@stdlib/shell`'s
+`run`/`run_capture`), terminal control
+(`@stdlib/termios` raw mode, `@stdlib/terminal`), POSIX ERE regex
+(`@stdlib/regex`, bundled engine), JSON/CSV/TOML/YAML, math, strings —
+works on Windows. Note that `@stdlib/shell`'s Unix-command
+conveniences (`ls()`, `which()`, `pwd()`, …) shell out to POSIX tools
+and stay Unix-only.
 
 ## FFI on Windows (raylib games, native bindings)
 

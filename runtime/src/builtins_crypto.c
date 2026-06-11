@@ -7,9 +7,67 @@
  * Stub implementations are provided in wasm_shim.c.
  */
 
+#include "builtins_internal.h"
+
+// ========== CSPRNG (available on every build — not OpenSSL-gated) ==========
+
+#ifdef _WIN32
+#include "hemlock_compat.h"
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
+// __random_bytes(n: i32) -> buffer
+// Cryptographically secure random bytes: BCryptGenRandom on Windows,
+// /dev/urandom elsewhere (Emscripten emulates it via getRandomValues).
+HmlValue hml_random_bytes(HmlValue size_val) {
+    int64_t size;
+    if (size_val.type == HML_VAL_I32) {
+        size = size_val.as.as_i32;
+    } else if (size_val.type == HML_VAL_I64) {
+        size = size_val.as.as_i64;
+    } else {
+        hml_runtime_error("__random_bytes() size must be an integer");
+    }
+    if (size <= 0 || size > INT32_MAX) {
+        hml_runtime_error("__random_bytes() size must be positive");
+    }
+
+    HmlValue result = hml_val_buffer((int32_t)size);
+    HmlBuffer *buf = result.as.as_buffer;
+
+#ifdef _WIN32
+    if (hml_win32_random(buf->data, (size_t)size) != 0) {
+        hml_runtime_error("__random_bytes() failed to gather entropy");
+    }
+#else
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd < 0) {
+        hml_runtime_error("__random_bytes() failed to open /dev/urandom");
+    }
+    size_t total = 0;
+    while (total < (size_t)size) {
+        ssize_t n = read(fd, (char *)buf->data + total, (size_t)size - total);
+        if (n <= 0) {
+            close(fd);
+            hml_runtime_error("__random_bytes() failed to gather entropy");
+        }
+        total += (size_t)n;
+    }
+    close(fd);
+#endif
+
+    return result;
+}
+
+HmlValue hml_builtin_random_bytes(HmlClosureEnv *env, HmlValue size_val) {
+    (void)env;
+    return hml_random_bytes(size_val);
+}
+
 #ifndef __EMSCRIPTEN__
 
-#include "builtins_internal.h"
 #include <stdatomic.h>
 
 // ========== COMPRESSION OPERATIONS ==========
@@ -385,9 +443,9 @@ HmlValue hml_builtin_adler32(HmlClosureEnv *env, HmlValue data) {
 
 #endif /* HML_HAVE_ZLIB */
 
-// ========== CRYPTOGRAPHIC HASH FUNCTIONS (OpenSSL) ==========
+// ========== CRYPTOGRAPHIC HASH FUNCTIONS (OpenSSL / Windows CNG) ==========
 
-#ifndef HEMLOCK_NO_OPENSSL
+#if !defined(HEMLOCK_NO_OPENSSL) || defined(_WIN32)
 
 // Helper: Convert bytes to hexadecimal string
 static HmlValue bytes_to_hex_string(const unsigned char *bytes, size_t len) {
@@ -405,6 +463,10 @@ static HmlValue bytes_to_hex_string(const unsigned char *bytes, size_t len) {
     free(hex);
     return result;
 }
+
+#endif /* !HEMLOCK_NO_OPENSSL || _WIN32 */
+
+#ifndef HEMLOCK_NO_OPENSSL
 
 // SHA-1 hash - returns hex string
 // WARNING: SHA-1 is cryptographically weak, use only for legacy compatibility
@@ -473,7 +535,46 @@ HmlValue hml_hash_md5(HmlValue input) {
     return bytes_to_hex_string(hash, MD5_DIGEST_LENGTH);
 }
 
-#else /* HEMLOCK_NO_OPENSSL */
+#elif defined(_WIN32)
+
+/* Windows without OpenSSL: hashes are backed by Windows CNG (bcrypt.dll)
+   via hml_win32_hash() in src/shared/platform_win32.c (compiled into the
+   runtime library). ECDSA stays stubbed below. */
+
+#include "hemlock_compat.h"
+
+static HmlValue cng_hash_value(const char *name, const char *alg, HmlValue input) {
+    if (input.type != HML_VAL_STRING) {
+        hml_runtime_error("%s() requires string argument", name);
+    }
+
+    HmlString *str = input.as.as_string;
+    unsigned char hash[HML_WIN32_DIGEST_MAX];
+    int digest_len = hml_win32_hash(alg, str->data, str->length, hash, sizeof(hash));
+    if (digest_len < 0) {
+        hml_runtime_error("%s() hashing failed", name);
+    }
+
+    return bytes_to_hex_string(hash, (size_t)digest_len);
+}
+
+HmlValue hml_hash_sha1(HmlValue input) {
+    return cng_hash_value("sha1", "sha1", input);
+}
+
+HmlValue hml_hash_sha256(HmlValue input) {
+    return cng_hash_value("sha256", "sha256", input);
+}
+
+HmlValue hml_hash_sha512(HmlValue input) {
+    return cng_hash_value("sha512", "sha512", input);
+}
+
+HmlValue hml_hash_md5(HmlValue input) {
+    return cng_hash_value("md5", "md5", input);
+}
+
+#else /* HEMLOCK_NO_OPENSSL && !_WIN32 */
 
 // Stub implementations when OpenSSL is not available
 HmlValue hml_hash_sha1(HmlValue input) {

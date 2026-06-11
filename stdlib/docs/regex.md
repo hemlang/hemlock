@@ -1,10 +1,10 @@
 # Hemlock Regex Module
 
-Regular expression pattern matching using POSIX regex via FFI.
+Regular expression pattern matching using POSIX Extended Regular Expressions.
 
 ## Overview
 
-The regex module provides pattern matching functionality through POSIX Extended Regular Expressions (ERE). It uses FFI to interface with the system's regex library (libc), providing both compiled regex objects for reuse and one-shot convenience functions.
+The regex module provides pattern matching functionality through POSIX Extended Regular Expressions (ERE). It is backed by the `__regex_*` builtins (the system regex library on POSIX, a bundled musl/TRE engine on Windows), providing both compiled regex objects for reuse and one-shot convenience functions.
 
 **Features:**
 - POSIX Extended Regular Expression syntax

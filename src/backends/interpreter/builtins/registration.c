@@ -193,6 +193,8 @@ static BuiltinInfo builtins[] = {
     {"__zlib_compress_bound", builtin_zlib_compress_bound},
     {"__crc32", builtin_crc32},
     {"__adler32", builtin_adler32},
+    // CSPRNG builtin (use stdlib/crypto.hml random_bytes for public API)
+    {"__random_bytes", builtin_random_bytes},
     // Cryptographic hash builtins (use stdlib/hash.hml module for public API)
     {"__sha1", builtin_sha1},
     {"__sha256", builtin_sha256},
@@ -224,6 +226,11 @@ static BuiltinInfo builtins[] = {
     {"__os_name", builtin_os_name},
     {"__tmpdir", builtin_tmpdir},
     {"__uptime", builtin_uptime},
+    // Terminal control (use stdlib/termios.hml + terminal.hml for public API)
+    {"__term_is_tty", builtin_term_is_tty},
+    {"__term_raw", builtin_term_raw},
+    {"__term_read_byte", builtin_term_read_byte},
+    {"__term_size", builtin_term_size},
     // NOTE: Math functions (sin, cos, sqrt, etc.), environment functions
     // (getenv, setenv, etc.), and random functions (rand, seed) are no
     // longer registered as unprefixed global builtins. Users must import

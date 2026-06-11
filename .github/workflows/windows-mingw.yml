@@ -37,6 +37,8 @@ jobs:
         import { platform, arch } from "@stdlib/os";
         import { stringify } from "@stdlib/json";
         import { write_file, read_file, remove_file } from "@stdlib/fs";
+        import { sha256, md5 } from "@stdlib/hash";
+        import { v4, is_valid } from "@stdlib/uuid";
         async fn sq(n: i32): i32 { return n * n; }
         let t = spawn(sq, 9);
         print("async:", await t);
@@ -47,11 +49,17 @@ jobs:
         remove_file("native_test.txt");
         print("plat:", platform(), arch());
         print("json:", stringify({ ok: true }));
+        print("sha256:", sha256("hello"));
+        print("md5:", md5("hello"));
+        print("uuid:", is_valid(v4()));
         EOF
         ./hemlock.exe smoke.hml | tee smoke.out
         grep -q "async: 81" smoke.out
         grep -q "file: 14" smoke.out
         grep -q "plat: windows" smoke.out
+        grep -q "sha256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" smoke.out
+        grep -q "md5: 5d41402abc4b2a76b9719d911017c592" smoke.out
+        grep -q "uuid: true" smoke.out
 
     - name: TCP loopback test
       run: |
@@ -75,19 +83,133 @@ jobs:
         EOF
         ./hemlock.exe tcp.hml | grep -q "got: echo: hello winsock"
 
+    - name: Process execution test (CreateProcess-backed exec)
+      run: |
+        cat > exec.hml << 'EOF'
+        import { run_capture } from "@stdlib/shell";
+        let r = __exec("echo win exec");
+        print("exec:", r.output.trim(), r.exit_code);
+        let a = __exec_argv(["cmd.exe", "/c", "exit", "5"]);
+        print("argv:", a.exit_code);
+        let m = __exec_argv(["no_such_program_zz"]);
+        print("missing:", m.exit_code);
+        let s = __exec_argv(["findstr", "x"], { stdin: "ax\nb\ncx\n" });
+        print("stdin:", s.exit_code);
+        let cap = run_capture("echo shell ok");
+        print("shell:", cap.success, cap.stdout.trim());
+        EOF
+        ./hemlock.exe exec.hml | tee exec.out
+        grep -q "exec: win exec 0" exec.out
+        grep -q "argv: 5" exec.out
+        grep -q "missing: 127" exec.out
+        grep -q "stdin: 0" exec.out
+        grep -q "shell: true shell ok" exec.out
+
+    - name: Process spawn/wait/kill test (CreateProcess-backed)
+      run: |
+        cat > sleeper.hml << 'EOF'
+        import { sleep } from "@stdlib/time";
+        sleep(30.0);
+        EOF
+        cat > spawn.hml << 'EOF'
+        import { posix_spawn, waitpid, kill } from "@stdlib/process";
+        let p1 = posix_spawn(["cmd.exe", "/c", "exit", "7"]);
+        let r1 = waitpid(p1.pid);
+        print("wait:", r1.pid == p1.pid, r1.status >> 8);
+        let p2 = posix_spawn(["./hemlock.exe", "sleeper.hml"]);
+        let probe = waitpid(p2.pid, 1);
+        print("running:", probe.pid == 0);
+        kill(p2.pid, 15);
+        let r2 = waitpid(p2.pid);
+        print("killed:", r2.status >> 8);
+        EOF
+        ./hemlock.exe spawn.hml | tee spawn.out
+        grep -q "wait: true 7" spawn.out
+        grep -q "running: true" spawn.out
+        grep -q "killed: 143" spawn.out
+
+    - name: exec_argv quoting round-trip (CRT argv parsing rules)
+      run: |
+        cat > argvecho.c << 'EOF'
+        #include <stdio.h>
+        int main(int argc, char **argv) {
+            for (int i = 1; i < argc; i++) printf("%s|", argv[i]);
+            return 0;
+        }
+        EOF
+        gcc -O1 argvecho.c -o argvecho.exe
+        cat > quoting.hml << 'EOF'
+        let r = __exec_argv(["./argvecho.exe", "a b", "c\"d", "e\\", "", "tail\\\\", "%PATH%"]);
+        print(r.output);
+        print(r.exit_code);
+        EOF
+        ./hemlock.exe quoting.hml | tee q.out
+        grep -qF 'a b|c"d|e\||tail\\|%PATH%|' q.out
+        grep -q "^0" q.out
+
+    - name: Large exec output (pipe drain must not deadlock)
+      run: |
+        cat > spew.hml << 'EOF'
+        let out = "x".repeat(200000);
+        let err = "e".repeat(150000);
+        write(out);
+        eprint(err);
+        EOF
+        cat > bigexec.hml << 'EOF'
+        let r = __exec_argv(["./hemlock.exe", "spew.hml"]);
+        print("big:", r.output.length >= 200000, r.stderr.length >= 150000, r.exit_code);
+        EOF
+        ./hemlock.exe bigexec.hml | tee big.out
+        grep -q "big: true true 0" big.out
+
+    - name: Regex test (bundled musl/TRE engine)
+      run: |
+        cat > rx.hml << 'EOF'
+        import { test, replace_all } from "@stdlib/regex";
+        print("alpha:", test("^[[:alpha:]]+$", "Hello"));
+        print("interval:", test("^[0-9]{2,4}$", "123"));
+        print("alt:", test("^(foo|bar)+$", "foobarfoo"));
+        print("repl:", replace_all("[aeiou]", "programming", "_"));
+        EOF
+        ./hemlock.exe rx.hml | tee rx.out
+        grep -q "alpha: true" rx.out
+        grep -q "interval: true" rx.out
+        grep -q "alt: true" rx.out
+        grep -q "repl: pr_gr_mm_ng" rx.out
+
+    - name: Terminal control test (console API, no stty/printf shell-outs)
+      run: |
+        cat > term.hml << 'EOF'
+        import { is_raw_mode, disable_raw_mode } from "@stdlib/termios";
+        import { size } from "@stdlib/terminal";
+        print("raw:", is_raw_mode());
+        print("disable:", disable_raw_mode());
+        let s = size();
+        print("size:", s.rows > 0 && s.cols > 0);
+        print("rb:", __term_read_byte(0));
+        EOF
+        ./hemlock.exe term.hml | tee term.out
+        grep -q "raw: false" term.out
+        grep -q "disable: true" term.out
+        grep -q "size: true" term.out
+        grep -q "rb: -1" term.out
+
     - name: Full hemlockc pipeline (invokes gcc via system())
       run: |
         cat > csm.hml << 'EOF'
+        import { sha256 } from "@stdlib/hash";
         async fn work(n: i32): i32 { return n * 3; }
         let t = spawn(work, 14);
         print("compiled:", await t);
         let arr = [3,1,2]; arr.sort();
         print("sorted:", arr.join(","));
+        print("sha256:", sha256("hello"));
         EOF
         ./hemlockc.exe -v -o csm.exe csm.hml
         ./csm.exe | tee csm.out
         grep -q "compiled: 42" csm.out
         grep -q "sorted: 1,2,3" csm.out
+        grep -q "sha256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" csm.out
 
     - name: FFI test (DLL loading, raylib-style bindings)
       run: |
@@ -166,6 +288,7 @@ jobs:
         cat > /tmp/smoke.hml << 'EOF'
         import { platform } from "@stdlib/os";
         import { stringify } from "@stdlib/json";
+        import { sha256 } from "@stdlib/hash";
         async fn sq(n: i32): i32 { return n * n; }
         let t = spawn(sq, 9);
         print("async:", await t);
@@ -173,24 +296,105 @@ jobs:
         let b = buffer(8); ptr_write_i32(b, 41); print("buf:", ptr_read_i32(b) + 1);
         print("plat:", platform());
         print("json:", stringify({ ok: true }));
+        print("sha256:", sha256("hello"));
         EOF
         wine ./hemlock.exe /tmp/smoke.hml | tee /tmp/smoke.out
         grep -q "async: 81" /tmp/smoke.out
         grep -q "plat: windows" /tmp/smoke.out
+        grep -q "sha256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" /tmp/smoke.out
 
     - name: Smoke-test compiled program under Wine
       run: |
         export WINEDEBUG=-all
         cat > /tmp/csm.hml << 'EOF'
+        import { sha256 } from "@stdlib/hash";
         async fn work(n: i32): i32 { return n * 3; }
         let t = spawn(work, 14);
         print("compiled:", await t);
+        print("sha256:", sha256("hello"));
         EOF
         wine ./hemlockc.exe -c /tmp/csm.hml
         x86_64-w64-mingw32-gcc-posix -O1 csm.c -Iruntime/include -Iinclude \
           -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 \
-          runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lz -o csm.exe
-        wine ./csm.exe | grep -q "compiled: 42"
+          runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lbcrypt -lz -o csm.exe
+        wine ./csm.exe | tee /tmp/csm.out
+        grep -q "compiled: 42" /tmp/csm.out
+        grep -q "sha256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" /tmp/csm.out
+
+    - name: Process execution test under Wine
+      run: |
+        export WINEDEBUG=-all
+        cat > /tmp/exec.hml << 'EOF'
+        import { run_capture } from "@stdlib/shell";
+        let r = __exec("echo wine exec");
+        print("exec:", r.output.trim(), r.exit_code);
+        let a = __exec_argv(["cmd.exe", "/c", "exit", "5"]);
+        print("argv:", a.exit_code);
+        let cap = run_capture("echo shell ok");
+        print("shell:", cap.success, cap.stdout.trim());
+        EOF
+        wine ./hemlock.exe /tmp/exec.hml | tee /tmp/exec.out
+        grep -q "exec: wine exec 0" /tmp/exec.out
+        grep -q "argv: 5" /tmp/exec.out
+        grep -q "shell: true shell ok" /tmp/exec.out
+
+    - name: Process spawn/wait/kill test under Wine
+      run: |
+        export WINEDEBUG=-all
+        cat > /tmp/sleeper.hml << 'EOF'
+        import { sleep } from "@stdlib/time";
+        sleep(30.0);
+        EOF
+        cat > /tmp/spawn.hml << 'EOF'
+        import { posix_spawn, waitpid, kill } from "@stdlib/process";
+        let p1 = posix_spawn(["cmd.exe", "/c", "exit", "7"]);
+        let r1 = waitpid(p1.pid);
+        print("wait:", r1.pid == p1.pid, r1.status >> 8);
+        let p2 = posix_spawn(["./hemlock.exe", "/tmp/sleeper.hml"]);
+        let probe = waitpid(p2.pid, 1);
+        print("running:", probe.pid == 0);
+        kill(p2.pid, 15);
+        let r2 = waitpid(p2.pid);
+        print("killed:", r2.status >> 8);
+        EOF
+        wine ./hemlock.exe /tmp/spawn.hml | tee /tmp/spawn.out
+        grep -q "wait: true 7" /tmp/spawn.out
+        grep -q "running: true" /tmp/spawn.out
+        grep -q "killed: 143" /tmp/spawn.out
+
+    - name: Regex test under Wine (bundled musl/TRE engine)
+      run: |
+        export WINEDEBUG=-all
+        cat > /tmp/rx.hml << 'EOF'
+        import { test, replace_all } from "@stdlib/regex";
+        print("alpha:", test("^[[:alpha:]]+$", "Hello"));
+        print("interval:", test("^[0-9]{2,4}$", "123"));
+        print("alt:", test("^(foo|bar)+$", "foobarfoo"));
+        print("repl:", replace_all("[aeiou]", "programming", "_"));
+        EOF
+        wine ./hemlock.exe /tmp/rx.hml | tee /tmp/rx.out
+        grep -q "alpha: true" /tmp/rx.out
+        grep -q "interval: true" /tmp/rx.out
+        grep -q "alt: true" /tmp/rx.out
+        grep -q "repl: pr_gr_mm_ng" /tmp/rx.out
+
+    - name: Terminal control test under Wine
+      run: |
+        export WINEDEBUG=-all
+        cat > /tmp/term.hml << 'EOF'
+        import { is_raw_mode, disable_raw_mode } from "@stdlib/termios";
+        import { size } from "@stdlib/terminal";
+        print("raw:", is_raw_mode());
+        print("disable:", disable_raw_mode());
+        let s = size();
+        print("size:", s.rows > 0 && s.cols > 0);
+        print("rb:", __term_read_byte(0));
+        EOF
+        wine ./hemlock.exe /tmp/term.hml | tee /tmp/term.out
+        grep -q "raw: false" /tmp/term.out
+        grep -q "disable: true" /tmp/term.out
+        grep -q "size: true" /tmp/term.out
+        grep -q "rb: -1" /tmp/term.out
 
     - name: FFI test under Wine (DLL loading, raylib-style bindings)
       run: |
@@ -216,5 +420,5 @@ jobs:
         wine ./hemlockc.exe -c ffi.hml
         x86_64-w64-mingw32-gcc-posix -O1 ffi.c -Iruntime/include -Iinclude \
           -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 \
-          runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lz -o ffi.exe
+          runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lbcrypt -lz -o ffi.exe
         wine ./ffi.exe | grep -q "init 640x480 ffi"

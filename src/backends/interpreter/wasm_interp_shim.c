@@ -5,7 +5,8 @@
  * builds lacking certain system libraries:
  *   - __EMSCRIPTEN__ (WASM): no libffi/dlopen, no OpenSSL
  *   - HEMLOCK_NO_FFI: build without libffi (e.g. MinGW/Windows)
- *   - HEMLOCK_NO_OPENSSL: build without OpenSSL (e.g. MinGW/Windows)
+ *   - HEMLOCK_NO_OPENSSL: build without OpenSSL (e.g. MinGW/Windows;
+ *     there the hash builtins are CNG-backed and only ECDSA is stubbed)
  *
  * On full native builds, the real implementations in ffi.c and crypto.c
  * are used and this file compiles to nothing.
@@ -52,9 +53,14 @@ void execute_import_ffi(Stmt *stmt, ExecutionContext *ctx) {
 }
 
 void execute_extern_fn(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
-    (void)stmt;
     (void)env;
-    runtime_error(ctx, "extern fn is not available in " HML_SHIM_ENV_FFI);
+    (void)ctx;
+    /* Warn but don't raise, mirroring execute_import_ffi above: modules
+       with platform-gated FFI (e.g. @stdlib/termios, whose POSIX externs
+       are never called on Windows) must still load. Calling the function
+       fails with "Undefined variable" since no binding is created. */
+    fprintf(stderr, "Warning: extern fn '%s' ignored in " HML_SHIM_ENV_FFI "\n",
+            stmt->as.extern_fn.function_name);
 }
 
 Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionContext *ctx) {
@@ -156,7 +162,12 @@ Type* type_from_string(const char *name) {
  *
  * OpenSSL is not available in WASM builds. Crypto builtins return errors.
  * The @stdlib/hash module provides pure-Hemlock hash alternatives.
+ *
+ * On Windows the hash builtins are real (CNG-backed, see crypto.c), so
+ * only the ECDSA stubs below apply there.
  * ======================================================================== */
+
+#if !defined(_WIN32) || defined(__EMSCRIPTEN__)
 
 Value builtin_sha1(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;
@@ -185,6 +196,8 @@ Value builtin_md5(Value *args, int num_args, ExecutionContext *ctx) {
     runtime_error(ctx, "__md5() is not available in " HML_SHIM_ENV_SSL);
     return val_null();
 }
+
+#endif /* !_WIN32 || __EMSCRIPTEN__ */
 
 Value builtin_ecdsa_generate_key(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args;

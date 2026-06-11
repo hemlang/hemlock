@@ -1,5 +1,66 @@
 #include "internal.h"
 
+// ============================================================================
+// CSPRNG (available on every build — not OpenSSL-gated)
+// ============================================================================
+
+#ifdef _WIN32
+#include "hemlock_compat.h"
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
+// __random_bytes(n: i32) -> buffer
+// Cryptographically secure random bytes: BCryptGenRandom on Windows,
+// /dev/urandom elsewhere (Emscripten emulates it via getRandomValues).
+Value builtin_random_bytes(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "__random_bytes() expects 1 argument (size in bytes)");
+        return val_null();
+    }
+
+    if (!is_integer(args[0])) {
+        runtime_error(ctx, "__random_bytes() size must be an integer");
+        return val_null();
+    }
+
+    int32_t size = value_to_int(args[0]);
+    if (size <= 0) {
+        runtime_error(ctx, "__random_bytes() size must be positive");
+        return val_null();
+    }
+
+    Value result = val_buffer(size);
+    Buffer *buf = result.as.as_buffer;
+
+#ifdef _WIN32
+    if (hml_win32_random(buf->data, (size_t)size) != 0) {
+        runtime_error(ctx, "__random_bytes() failed to gather entropy");
+        return val_null();
+    }
+#else
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd < 0) {
+        runtime_error(ctx, "__random_bytes() failed to open /dev/urandom");
+        return val_null();
+    }
+    size_t total = 0;
+    while (total < (size_t)size) {
+        ssize_t n = read(fd, (char *)buf->data + total, (size_t)size - total);
+        if (n <= 0) {
+            close(fd);
+            runtime_error(ctx, "__random_bytes() failed to gather entropy");
+            return val_null();
+        }
+        total += (size_t)n;
+    }
+    close(fd);
+#endif
+
+    return result;
+}
+
 #if !defined(__EMSCRIPTEN__) && !defined(HEMLOCK_NO_OPENSSL)
 /* Native crypto implementation using OpenSSL - excluded from WASM builds
    and HEMLOCK_NO_OPENSSL builds (e.g. MinGW without OpenSSL).
@@ -358,6 +419,63 @@ Value builtin_ecdsa_verify(Value *args, int num_args, ExecutionContext *ctx) {
 
     // result == 1 means valid, 0 means invalid, < 0 means error
     return val_bool(result == 1);
+}
+
+#elif defined(_WIN32)
+/* Windows without OpenSSL: the hash builtins are backed by Windows CNG
+   (bcrypt.dll) via hml_win32_hash() in src/shared/platform_win32.c.
+   ECDSA has no CNG-backed implementation; its stubs stay in
+   wasm_interp_shim.c. */
+
+#include "hemlock_compat.h"
+
+static Value cng_hash_builtin(const char *name, const char *alg,
+                              Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "%s() expects 1 argument", name);
+        return val_null();
+    }
+
+    if (args[0].type != VAL_STRING) {
+        runtime_error(ctx, "%s() argument must be string", name);
+        return val_null();
+    }
+
+    String *str = args[0].as.as_string;
+    unsigned char hash[HML_WIN32_DIGEST_MAX];
+    int digest_len = hml_win32_hash(alg, str->data, str->length, hash, sizeof(hash));
+    if (digest_len < 0) {
+        runtime_error(ctx, "%s() hashing failed", name);
+        return val_null();
+    }
+
+    static const char hex_chars[] = "0123456789abcdef";
+    size_t hex_len = (size_t)digest_len * 2;
+    char *hex = malloc(hex_len + 1);
+    if (!hex) return val_null();
+    for (int i = 0; i < digest_len; i++) {
+        hex[i * 2] = hex_chars[(hash[i] >> 4) & 0x0F];
+        hex[i * 2 + 1] = hex_chars[hash[i] & 0x0F];
+    }
+    hex[hex_len] = '\0';
+
+    return val_string_take(hex, hex_len, hex_len + 1);
+}
+
+Value builtin_sha1(Value *args, int num_args, ExecutionContext *ctx) {
+    return cng_hash_builtin("__sha1", "sha1", args, num_args, ctx);
+}
+
+Value builtin_sha256(Value *args, int num_args, ExecutionContext *ctx) {
+    return cng_hash_builtin("__sha256", "sha256", args, num_args, ctx);
+}
+
+Value builtin_sha512(Value *args, int num_args, ExecutionContext *ctx) {
+    return cng_hash_builtin("__sha512", "sha512", args, num_args, ctx);
+}
+
+Value builtin_md5(Value *args, int num_args, ExecutionContext *ctx) {
+    return cng_hash_builtin("__md5", "md5", args, num_args, ctx);
 }
 
 #endif /* !__EMSCRIPTEN__ && !HEMLOCK_NO_OPENSSL */

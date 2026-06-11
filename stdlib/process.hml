@@ -23,7 +23,11 @@ export let abort = __abort;
 // Process creation
 export let fork = __fork;
 export let wait = __wait;
-export let waitpid = __waitpid;
+// Wrapper so the options argument really is optional in both backends
+// (the compiled __waitpid function value has fixed arity 2)
+export fn waitpid(pid, options?: 0) {
+    return __waitpid(pid, options);
+}
 
 // Command execution
 // exec(command) - run shell command

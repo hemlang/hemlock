@@ -1,0 +1,35 @@
+// __random_bytes builtin + @stdlib/uuid on top of it.
+// The builtin is the CSPRNG that works on every platform (BCryptGenRandom
+// on Windows, /dev/urandom elsewhere) — no OpenSSL required.
+import { v4, v7, is_valid, parse } from "@stdlib/uuid";
+
+let b = __random_bytes(16);
+print(typeof(b));
+print(b.length);
+
+// Two draws of 16 bytes colliding is a 2^-128 event
+let b2 = __random_bytes(16);
+let same = true;
+for (let i = 0; i < 16; i++) {
+    if (b[i] != b2[i]) { same = false; }
+}
+print(same);
+
+let u = v4();
+print(u.length);
+print(is_valid(u));
+print(u.substr(14, 1));
+print(parse(u).version);
+
+let u7 = v7();
+print(is_valid(u7));
+print(u7.substr(14, 1));
+print(parse(u7).version);
+
+// Size validation
+try {
+    __random_bytes(0);
+    print("no error");
+} catch (e) {
+    print("size error caught");
+}

@@ -543,6 +543,7 @@ static int compile_c(const Options *opts, const char *c_file) {
     // it; link it if so. --print-file-name echoes the bare name back when
     // the library is not found, and a full path when it is.
     char ffi_flag[8] = "";
+    (void)ffi_flag;  // only read in the _WIN32 link commands below
 #ifdef _WIN32
     {
         char probe_cmd[512];
@@ -611,6 +612,7 @@ static int compile_c(const Options *opts, const char *c_file) {
 
     // Check if -lwebsockets is linkable (with extra paths)
     char websockets_flag[16] = "";
+    (void)websockets_flag;  // only read in the POSIX link commands below
 #ifndef _WIN32
     char ws_test_cmd[1024];
     snprintf(ws_test_cmd, sizeof(ws_test_cmd),
@@ -625,7 +627,9 @@ static int compile_c(const Options *opts, const char *c_file) {
     // The runtime always needs libcrypto, so always link it
     // On Linux, use --no-as-needed to ensure the library is linked even if not directly referenced
 #if defined(_WIN32)
-    char crypto_flag[64] = "";  // crypto builtins are stubbed on Windows
+    // hashing/CSPRNG use CNG (-lbcrypt, linked unconditionally); no OpenSSL
+    char crypto_flag[64] = "";
+    (void)crypto_flag;  // only read in the POSIX link commands below
 #elif defined(__APPLE__)
     char crypto_flag[64] = " -lcrypto";
 #else
@@ -766,7 +770,7 @@ static int compile_c(const Options *opts, const char *c_file) {
         q_out = shell_quote(opts->output_file);
         char *q_runtime_path_s = shell_quote(runtime_path);
         n = (q_out && q_runtime_path_s) ? snprintf(cmd, sizeof(cmd),
-            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32%s",
+            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32 -lbcrypt%s",
             opts->cc, opt_flag, q_out, q_c,
             q_inc, q_runtime_path_s, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag)
             : (int)sizeof(cmd);
@@ -809,13 +813,14 @@ static int compile_c(const Options *opts, const char *c_file) {
         // Dynamic linking (default): link against shared libraries
         q_out = shell_quote(opts->output_file);
 #ifdef _WIN32
-        // Windows host: no -rdynamic/-lffi/-ldl (FFI and OpenSSL builtins are
-        // stubbed in the Windows runtime); -static keeps winpthreads/libgcc
-        // out of the DLL dependencies. The second -I covers the development
-        // layout where hemlock_platform.h lives in <repo>/include.
+        // Windows host: no -rdynamic/-ldl; hash builtins use CNG (-lbcrypt),
+        // ECDSA is stubbed in the Windows runtime; -static keeps
+        // winpthreads/libgcc out of the DLL dependencies. The second -I
+        // covers the development layout where hemlock_platform.h lives in
+        // <repo>/include.
         char *q_runtime_path = shell_quote(runtime_path);
         n = (q_out && q_runtime_path) ? snprintf(cmd, sizeof(cmd),
-            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32%s",
+            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32 -lbcrypt%s",
             opts->cc, opt_flag, q_out, q_c,
             q_inc, q_runtime_path, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag)
             : (int)sizeof(cmd);

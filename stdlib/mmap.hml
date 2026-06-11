@@ -70,11 +70,11 @@ export let MADV_DONTNEED = __MADV_DONTNEED;
 //   mode: string - "r" (read-only, default) or "rw" (read-write)
 // Returns: object with read/write methods and automatic cleanup
 export fn MappedFile(path: string, mode?: "r") {
-	let _ptr = mmap_open(path, mode);
+	let _ptr = __mmap_open(path, mode);
 	if (_ptr == null) {
 		throw "MappedFile: failed to map '" + path + "'";
 	}
-	let _size = mmap_size(_ptr);
+	let _size = __mmap_size(_ptr);
 	let _mode = mode;
 
 	return {
@@ -137,17 +137,17 @@ export fn MappedFile(path: string, mode?: "r") {
 
 		// Flush changes to disk (rw mode only)
 		sync: fn(): bool {
-			return mmap_sync(self.ptr);
+			return __mmap_sync(self.ptr);
 		},
 
 		// Provide access hint to the kernel
 		advise: fn(advice: i32): bool {
-			return mmap_advise(self.ptr, advice);
+			return __mmap_advise(self.ptr, advice);
 		},
 
 		// Close the mapping and release resources
 		close: fn(): bool {
-			return mmap_close(self.ptr);
+			return __mmap_close(self.ptr);
 		},
 	};
 }

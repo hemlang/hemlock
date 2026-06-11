@@ -215,6 +215,10 @@ HmlValue hml_builtin_socket_get_closed(HmlClosureEnv *env, HmlValue s) { (void)e
 // ========== FFI BUILTINS (builtins_ffi.c) ==========
 
 HmlValue hml_ffi_load(const char *path) { (void)path; WASM_STUB_PANIC_RETURN("ffi_open"); }
+HmlValue hml_ffi_load_import(const char *path) {
+    fprintf(stderr, "Warning: FFI import '%s' ignored in WASM build\n", path);
+    return hml_val_null();
+}
 void hml_ffi_close(HmlValue lib) { (void)lib; WASM_STUB_PANIC("ffi_close"); }
 void* hml_ffi_sym(HmlValue lib, const char *name) { (void)lib;(void)name; WASM_STUB_PANIC("ffi_sym"); return NULL; }
 HmlValue hml_ffi_call(void *fp, HmlValue *args, int n, HmlFFIType *types) { (void)fp;(void)args;(void)n;(void)types; WASM_STUB_PANIC_RETURN("ffi_call"); }

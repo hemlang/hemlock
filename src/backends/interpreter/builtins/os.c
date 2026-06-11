@@ -457,3 +457,74 @@ Value builtin_uptime(Value *args, int num_args, ExecutionContext *ctx) {
     return val_null();
 #endif
 }
+
+// ============================================================================
+// TERMINAL CONTROL BUILTINS (term_core.c — POSIX termios / Windows console)
+// ============================================================================
+
+#include "term_core.h"
+
+// __term_is_tty() -> bool
+Value builtin_term_is_tty(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
+    if (num_args != 0) {
+        runtime_error(ctx, "__term_is_tty() expects no arguments");
+        return val_null();
+    }
+    return val_bool(hml_termcore_is_tty());
+}
+
+// __term_raw(enable: bool) -> bool (true on success)
+Value builtin_term_raw(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1 || args[0].type != VAL_BOOL) {
+        runtime_error(ctx, "__term_raw() expects 1 bool argument");
+        return val_null();
+    }
+    return val_bool(hml_termcore_raw(args[0].as.as_bool) == 0);
+}
+
+// __term_read_byte(timeout_ms: i32) -> i32 (-1 on timeout/EOF; timeout < 0 blocks)
+Value builtin_term_read_byte(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1 || !is_integer(args[0])) {
+        runtime_error(ctx, "__term_read_byte() expects 1 integer argument (timeout ms)");
+        return val_null();
+    }
+    return val_i32(hml_termcore_read_byte(value_to_int(args[0])));
+}
+
+// __term_size() -> { rows, cols } | null
+Value builtin_term_size(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
+    if (num_args != 0) {
+        runtime_error(ctx, "__term_size() expects no arguments");
+        return val_null();
+    }
+
+    int rows = 0, cols = 0;
+    if (hml_termcore_size(&rows, &cols) != 0) {
+        return val_null();
+    }
+
+    Object *result = object_new(NULL, 2);
+    if (!result) {
+        runtime_error(ctx, "__term_size() memory allocation failed");
+        return val_null();
+    }
+    result->fields[0].name = strdup("rows");
+    if (!result->fields[0].name) {
+        object_free(result);
+        runtime_error(ctx, "__term_size() memory allocation failed");
+        return val_null();
+    }
+    result->fields[0].value = val_i32(rows);
+    result->num_fields++;
+    result->fields[1].name = strdup("cols");
+    if (!result->fields[1].name) {
+        object_free(result);
+        runtime_error(ctx, "__term_size() memory allocation failed");
+        return val_null();
+    }
+    result->fields[1].value = val_i32(cols);
+    result->num_fields++;
+    return val_object(result);
+}

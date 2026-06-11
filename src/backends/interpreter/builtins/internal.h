@@ -253,6 +253,9 @@ Value builtin_zlib_compress_bound(Value *args, int num_args, ExecutionContext *c
 Value builtin_crc32(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_adler32(Value *args, int num_args, ExecutionContext *ctx);
 
+// CSPRNG builtin (crypto.c; available on every build)
+Value builtin_random_bytes(Value *args, int num_args, ExecutionContext *ctx);
+
 // Cryptographic hash builtins (crypto.c)
 Value builtin_sha1(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_sha256(Value *args, int num_args, ExecutionContext *ctx);
@@ -278,6 +281,12 @@ Value builtin_os_version(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_tmpdir(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_uptime(Value *args, int num_args, ExecutionContext *ctx);
+
+// Terminal control builtins (os.c, backed by src/shared/term_core.c)
+Value builtin_term_is_tty(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_term_raw(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_term_read_byte(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_term_size(Value *args, int num_args, ExecutionContext *ctx);
 
 // FFI callback builtins (ffi_builtins.c)
 Value builtin_callback(Value *args, int num_args, ExecutionContext *ctx);

@@ -524,9 +524,15 @@ export fn expand_user(path): string {
 		return path;
 	}
 
-	// Get home directory from environment
-	let home = __getenv("HOME");
-	if (home == null || home == "") {
+	// Get home directory (__homedir handles HOME on POSIX and
+	// USERPROFILE on Windows); empty string = not determinable
+	let home = "";
+	try {
+		home = __homedir();
+	} catch (e) {
+		home = "";
+	}
+	if (home == "") {
 		// Fallback: try to construct from USER
 		let user = __getenv("USER");
 		if (user != null && user != "") {

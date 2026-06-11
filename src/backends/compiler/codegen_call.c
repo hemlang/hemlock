@@ -2405,6 +2405,49 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // ========== TERMINAL CONTROL BUILTINS ==========
+
+        // __term_is_tty()
+        if (strcmp(fn_name, "__term_is_tty") == 0 && expr->as.call.num_args == 0) {
+            codegen_writeln(ctx, "HmlValue %s = hml_term_is_tty();", result);
+            return result;
+        }
+
+        // __term_raw(enable)
+        if (strcmp(fn_name, "__term_raw") == 0 && expr->as.call.num_args == 1) {
+            char *enable = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_term_raw(%s);", result, enable);
+            codegen_writeln(ctx, "hml_release(&%s);", enable);
+            free(enable);
+            return result;
+        }
+
+        // __term_read_byte(timeout_ms)
+        if (strcmp(fn_name, "__term_read_byte") == 0 && expr->as.call.num_args == 1) {
+            char *timeout = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_term_read_byte(%s);", result, timeout);
+            codegen_writeln(ctx, "hml_release(&%s);", timeout);
+            free(timeout);
+            return result;
+        }
+
+        // __term_size()
+        if (strcmp(fn_name, "__term_size") == 0 && expr->as.call.num_args == 0) {
+            codegen_writeln(ctx, "HmlValue %s = hml_term_size();", result);
+            return result;
+        }
+
+        // ========== CSPRNG BUILTIN ==========
+
+        // __random_bytes(n)
+        if (strcmp(fn_name, "__random_bytes") == 0 && expr->as.call.num_args == 1) {
+            char *n_arg = codegen_expr(ctx, expr->as.call.args[0]);
+            codegen_writeln(ctx, "HmlValue %s = hml_random_bytes(%s);", result, n_arg);
+            codegen_writeln(ctx, "hml_release(&%s);", n_arg);
+            free(n_arg);
+            return result;
+        }
+
         // ========== CRYPTOGRAPHIC HASH BUILTINS ==========
 
         // __sha1(input)

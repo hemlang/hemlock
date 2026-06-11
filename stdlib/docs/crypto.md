@@ -5,7 +5,7 @@ Comprehensive cryptographic functions via OpenSSL FFI for secure encryption, sig
 ## Overview
 
 The `@stdlib/crypto` module provides:
-- **Secure Random Bytes**: Cryptographically secure random number generation (RAND_bytes)
+- **Secure Random Bytes**: Cryptographically secure random number generation (OS CSPRNG; works on every platform)
 - **AES-256-CBC**: Symmetric encryption/decryption with proper padding
 - **RSA Signatures**: 2048-bit RSA signing and verification with SHA-256
 - **ECDSA Signatures**: P-256 elliptic curve signing and verification with SHA-256
@@ -38,7 +38,9 @@ let key = crypto.generate_aes_key();
 
 ### random_bytes(size: i32): buffer
 
-Generate cryptographically secure random bytes using OpenSSL's RAND_bytes.
+Generate cryptographically secure random bytes from the OS CSPRNG
+(`/dev/urandom` on POSIX, `BCryptGenRandom` on Windows). Unlike the rest
+of this module, `random_bytes` does not depend on OpenSSL.
 
 ```hemlock
 import { random_bytes } from "@stdlib/crypto";

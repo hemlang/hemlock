@@ -11,7 +11,8 @@ endif
 # Platform-specific settings
 ifeq ($(HEMLOCK_WINDOWS),1)
     # FFI enabled when the toolchain can link libffi (mirrors the top-level
-    # Makefile probe); OpenSSL builtins are stubbed (HEMLOCK_NO_OPENSSL).
+    # Makefile probe); without OpenSSL (HEMLOCK_NO_OPENSSL) the hash
+    # builtins use Windows CNG (bcrypt.dll) and only ECDSA is stubbed.
     # --print-file-name echoes the bare name back when the lib is missing
     MINGW_FFI_PATH := $(shell $(CC) --print-file-name=libffi.a 2>/dev/null)
     ifneq ($(MINGW_FFI_PATH),libffi.a)
@@ -27,9 +28,11 @@ ifeq ($(HEMLOCK_WINDOWS),1)
         WIN_FFI_LIB =
     endif
     # No -fPIC (PE is always position independent); winpthreads supplies
-    # pthreads; ws2_32 supplies sockets. -I../include for hemlock_platform.h.
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Iinclude -I../src/shared -I../include -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL
-    LDFLAGS = -lm -lpthread $(WIN_FFI_LIB) -lws2_32
+    # pthreads; ws2_32 supplies sockets; bcrypt supplies CNG hashing.
+    # -I../include for hemlock_platform.h; ../src/shared/regex_win32
+    # supplies <regex.h> (bundled musl/TRE engine — MinGW has none).
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Iinclude -I../src/shared -I../src/shared/regex_win32 -I../include -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL
+    LDFLAGS = -lm -lpthread $(WIN_FFI_LIB) -lws2_32 -lbcrypt
 else ifeq ($(shell uname),Darwin)
     CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -fPIC -Iinclude -I../src/shared -I../include -D_DARWIN_C_SOURCE
     # Detect libffi (Homebrew on macOS puts it in non-standard locations)
@@ -56,7 +59,7 @@ endif
 
 # OpenSSL is required for crypto builtins (SHA256, SHA512, MD5, ECDSA)
 # On macOS, -L path is set above; on Linux, system paths suffice
-# (not on Windows, where the crypto builtins are stubbed)
+# (not on Windows, where hashes use CNG/bcrypt and ECDSA is stubbed)
 ifneq ($(HEMLOCK_WINDOWS),1)
 LDFLAGS += -lssl -lcrypto
 endif
