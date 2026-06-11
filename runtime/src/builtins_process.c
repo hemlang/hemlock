@@ -968,10 +968,40 @@ HmlValue hml_unsetenv(HmlValue name) {
 }
 
 #ifdef _WIN32
-HML_WIN32_PROCESS_STUB_2(kill, "kill()")
+// kill(pid, sig): sig 0 probes existence; other signals terminate via
+// TerminateProcess with exit code 128+sig (Windows cannot deliver
+// signals). Mirrors the POSIX impl below: returns 0 / -1.
+HmlValue hml_kill(HmlValue pid, HmlValue sig) {
+    int p = hml_to_i32(pid);
+    int s = hml_to_i32(sig);
+    char errmsg[256];
+    int rc = hml_win32_kill(p, s, errmsg, sizeof(errmsg));
+    return hml_val_i32(rc == 0 ? 0 : -1);
+}
+
 HML_WIN32_PROCESS_STUB_0(fork, "fork()")
 HML_WIN32_PROCESS_STUB_0(wait, "wait()")
-HML_WIN32_PROCESS_STUB_2(waitpid, "waitpid()")
+
+// waitpid(pid, options): WNOHANG (1) probes; status is POSIX-encoded
+// (exit code << 8). Mirrors the POSIX impl below: {pid: -1} on error,
+// {pid: 0} when still running under WNOHANG.
+HmlValue hml_waitpid(HmlValue pid, HmlValue options) {
+    int p = hml_to_i32(pid);
+    int nohang = hml_to_i32(options) & 1;  // WNOHANG
+    char errmsg[256];
+    int exit_code = 0;
+    int rc = hml_win32_waitpid(p, nohang, &exit_code, errmsg, sizeof(errmsg));
+
+    HmlValue obj = hml_val_object();
+    if (rc < 0) {
+        hml_object_set_field(obj, "pid", hml_val_i32(-1));
+        hml_object_set_field(obj, "status", hml_val_i32(0));
+    } else {
+        hml_object_set_field(obj, "pid", hml_val_i32(rc == 1 ? p : 0));
+        hml_object_set_field(obj, "status", hml_val_i32(rc == 1 ? (exit_code & 0xFF) << 8 : 0));
+    }
+    return obj;
+}
 #else
 HmlValue hml_kill(HmlValue pid, HmlValue sig) {
     int p = hml_to_i32(pid);
@@ -1021,8 +1051,121 @@ HmlValue hml_waitpid(HmlValue pid, HmlValue options) {
 //   cwd:    string; chdir before exec (requires glibc 2.29+ / macOS 10.15+)
 //   setsid: bool; child becomes session leader (requires POSIX_SPAWN_SETSID)
 #ifdef _WIN32
-// Windows has no posix_spawn family; stub that fails at runtime.
-HML_WIN32_PROCESS_STUB_2(posix_spawn, "posix_spawn()")
+// Windows: CreateProcess-backed detached spawn. Same options as POSIX;
+// setsid maps to CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS, stdio fds
+// become inherited handles, env arrays become an environment block.
+HmlValue hml_posix_spawn(HmlValue argv_val, HmlValue opts_val) {
+    if (hml_sandbox_check(HML_SANDBOX_RESTRICT_PROCESS)) {
+        hml_sandbox_error("process spawning");
+    }
+
+    if (argv_val.type != HML_VAL_ARRAY || !argv_val.as.as_array) {
+        hml_runtime_error("spawn() argv must be an array of strings");
+    }
+    HmlArray *arr = argv_val.as.as_array;
+    if (arr->length == 0) {
+        hml_runtime_error("spawn() argv must not be empty");
+    }
+
+    HmlObject *opts = NULL;
+    if (opts_val.type == HML_VAL_OBJECT && opts_val.as.as_object) {
+        opts = opts_val.as.as_object;
+    } else if (opts_val.type != HML_VAL_NULL) {
+        hml_runtime_error("spawn() opts must be an object or null");
+    }
+
+    int stdio_fds[3] = { -1, -1, -1 };
+    char *ccwd = NULL;
+    char *env_block = NULL;
+    int detach = 0;
+
+    if (opts) {
+        const char *names[3] = {"stdin", "stdout", "stderr"};
+        for (int i = 0; i < 3; i++) {
+            HmlValue v = hml_object_get_field(opts_val, names[i]);
+            if (v.type == HML_VAL_I32) {
+                stdio_fds[i] = v.as.as_i32;
+            } else if (v.type == HML_VAL_I64) {
+                stdio_fds[i] = (int)v.as.as_i64;
+            } else if (v.type != HML_VAL_NULL) {
+                hml_runtime_error("spawn() opts.%s must be an integer fd", names[i]);
+            }
+        }
+
+        HmlValue cwd_val = hml_object_get_field(opts_val, "cwd");
+        if (cwd_val.type == HML_VAL_STRING && cwd_val.as.as_string) {
+            ccwd = strndup(cwd_val.as.as_string->data, (size_t)cwd_val.as.as_string->length);
+            if (!ccwd) {
+                hml_runtime_error("spawn() memory allocation failed");
+            }
+        } else if (cwd_val.type != HML_VAL_NULL) {
+            hml_runtime_error("spawn() opts.cwd must be a string");
+        }
+
+        HmlValue sid_val = hml_object_get_field(opts_val, "setsid");
+        if (sid_val.type == HML_VAL_BOOL) {
+            detach = sid_val.as.as_bool;
+        } else if (sid_val.type != HML_VAL_NULL) {
+            free(ccwd);
+            hml_runtime_error("spawn() opts.setsid must be a bool");
+        }
+
+        HmlValue env_val = hml_object_get_field(opts_val, "env");
+        if (env_val.type == HML_VAL_ARRAY && env_val.as.as_array) {
+            // CreateProcess environment block: "K=V\0K=V\0...\0"
+            HmlArray *envarr = env_val.as.as_array;
+            size_t block_len = 1;
+            for (int64_t i = 0; i < envarr->length; i++) {
+                if (envarr->elements[i].type != HML_VAL_STRING || !envarr->elements[i].as.as_string) {
+                    free(ccwd);
+                    hml_runtime_error("spawn() opts.env elements must be strings");
+                }
+                block_len += (size_t)envarr->elements[i].as.as_string->length + 1;
+            }
+            env_block = malloc(block_len + 1);
+            if (!env_block) {
+                free(ccwd);
+                hml_runtime_error("spawn() memory allocation failed");
+            }
+            size_t pos = 0;
+            for (int64_t i = 0; i < envarr->length; i++) {
+                HmlString *es = envarr->elements[i].as.as_string;
+                memcpy(env_block + pos, es->data, (size_t)es->length);
+                pos += (size_t)es->length;
+                env_block[pos++] = '\0';
+            }
+            env_block[pos++] = '\0';
+        } else if (env_val.type != HML_VAL_NULL) {
+            free(ccwd);
+            hml_runtime_error("spawn() opts.env must be an array of strings");
+        }
+    }
+
+    int argc = 0;
+    char **argv = win32_collect_argv("spawn()", NULL, arr, &argc);
+    char *cmdline = hml_win32_build_cmdline((const char *const *)argv, argc);
+    win32_free_argv(argv, argc);
+    if (!cmdline) {
+        free(ccwd);
+        free(env_block);
+        hml_runtime_error("spawn() memory allocation failed");
+    }
+
+    char errmsg[256];
+    long long pid = hml_win32_spawn(cmdline, ccwd, env_block, detach,
+                                    stdio_fds, errmsg, sizeof(errmsg));
+    free(cmdline);
+    free(ccwd);
+    free(env_block);
+
+    if (pid < 0) {
+        hml_runtime_error("spawn() failed: %s", errmsg);
+    }
+
+    HmlValue result = hml_val_object();
+    hml_object_set_field(result, "pid", hml_val_i32((int32_t)pid));
+    return result;
+}
 #else
 extern char **environ;
 

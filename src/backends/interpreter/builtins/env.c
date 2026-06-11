@@ -432,15 +432,109 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
     return win32_exec_result(ctx, "exec_argv()", out_buf, out_len, err_buf, err_len, exit_code);
 }
 
+// kill(pid, sig): sig 0 probes existence; other signals terminate via
+// TerminateProcess with exit code 128+sig (Windows cannot deliver
+// signals), which waitpid then reports as the exit status.
+Value builtin_kill(Value *args, int num_args, ExecutionContext *ctx) {
+    // SANDBOX: Check if signal operations are allowed
+    if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_SIGNALS)) {
+        sandbox_error(ctx, "kill() signal operation");
+        return val_null();
+    }
+
+    if (num_args != 2) {
+        runtime_error(ctx, "kill() expects 2 arguments (pid, signal), got %d", num_args);
+        return val_null();
+    }
+    if (!is_integer(args[0])) {
+        runtime_error(ctx, "kill() pid must be an integer, got %s", value_type_name(args[0].type));
+        return val_null();
+    }
+    if (!is_integer(args[1])) {
+        runtime_error(ctx, "kill() signal must be an integer, got %s", value_type_name(args[1].type));
+        return val_null();
+    }
+
+    int pid = value_to_int(args[0]);
+    int sig = value_to_int(args[1]);
+
+    char errmsg[256];
+    if (hml_win32_kill(pid, sig, errmsg, sizeof(errmsg)) != 0) {
+        char error_msg[320];
+        snprintf(error_msg, sizeof(error_msg), "kill(%d, %d) failed: %s", pid, sig, errmsg);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    return val_null();
+}
+
+// waitpid(pid, options?): WNOHANG (1) probes; otherwise blocks until the
+// process exits. The status is POSIX-encoded (exit code << 8) so
+// `status >> 8` works the same as on Linux/macOS.
+Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args < 1 || num_args > 2) {
+        runtime_error(ctx, "waitpid() expects 1-2 arguments (pid, [options]), got %d", num_args);
+        return val_null();
+    }
+    if (!is_integer(args[0])) {
+        runtime_error(ctx, "waitpid() pid must be an integer, got %s", value_type_name(args[0].type));
+        return val_null();
+    }
+    if (num_args == 2 && !is_integer(args[1])) {
+        runtime_error(ctx, "waitpid() options must be an integer, got %s", value_type_name(args[1].type));
+        return val_null();
+    }
+
+    int pid = value_to_int(args[0]);
+    int options = (num_args == 2) ? value_to_int(args[1]) : 0;
+    int nohang = options & 1;  // WNOHANG
+
+    char errmsg[256];
+    int exit_code = 0;
+    int rc = hml_win32_waitpid(pid, nohang, &exit_code, errmsg, sizeof(errmsg));
+    if (rc < 0) {
+        char error_msg[320];
+        snprintf(error_msg, sizeof(error_msg), "waitpid(%d, %d) failed: %s", pid, options, errmsg);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    Object *result = object_new(NULL, 2);
+    if (!result) {
+        runtime_error(ctx, "waitpid() memory allocation failed");
+        return val_null();
+    }
+    result->fields[0].name = strdup("pid");
+    if (!result->fields[0].name) {
+        object_free(result);
+        runtime_error(ctx, "waitpid() memory allocation failed");
+        return val_null();
+    }
+    result->fields[0].value = val_i32(rc == 1 ? pid : 0);
+    result->num_fields++;
+
+    result->fields[1].name = strdup("status");
+    if (!result->fields[1].name) {
+        object_free(result);
+        runtime_error(ctx, "waitpid() memory allocation failed");
+        return val_null();
+    }
+    result->fields[1].value = val_i32(rc == 1 ? (exit_code & 0xFF) << 8 : 0);
+    result->num_fields++;
+
+    return val_object(result);
+}
+
 HML_WIN32_PROCESS_STUB(builtin_getppid, "getppid()")
 HML_WIN32_PROCESS_STUB(builtin_getuid, "getuid()")
 HML_WIN32_PROCESS_STUB(builtin_geteuid, "geteuid()")
 HML_WIN32_PROCESS_STUB(builtin_getgid, "getgid()")
 HML_WIN32_PROCESS_STUB(builtin_getegid, "getegid()")
-HML_WIN32_PROCESS_STUB(builtin_kill, "kill()")
 HML_WIN32_PROCESS_STUB(builtin_fork, "fork()")
 HML_WIN32_PROCESS_STUB(builtin_wait, "wait()")
-HML_WIN32_PROCESS_STUB(builtin_waitpid, "waitpid()")
 
 #else // !_WIN32
 
@@ -1465,17 +1559,171 @@ extern char **environ;
 #  endif
 #endif
 
-#if defined(__EMSCRIPTEN__) || defined(_WIN32)
-// WASM and Windows have no posix_spawn family. Provide a stub that throws at
-// runtime so the interpreter still links.
+#if defined(__EMSCRIPTEN__)
+// WASM has no process model. Provide a stub that throws at runtime so
+// the interpreter still links.
 Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     (void)args; (void)num_args;
-#ifdef __EMSCRIPTEN__
     runtime_error(ctx, "spawn() not supported in WASM build");
-#else
-    runtime_error(ctx, "posix_spawn() is not supported on Windows");
-#endif
     return val_null();
+}
+#elif defined(_WIN32)
+// Windows: CreateProcess-backed detached spawn. Same options as POSIX;
+// setsid maps to CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS, stdio fds
+// become inherited handles, env arrays become an environment block.
+Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_PROCESS)) {
+        sandbox_error(ctx, "process spawning");
+        return val_null();
+    }
+
+    if (num_args < 1 || num_args > 2) {
+        runtime_error(ctx, "spawn() expects 1-2 arguments (argv, [opts]), got %d", num_args);
+        return val_null();
+    }
+    if (args[0].type != VAL_ARRAY) {
+        runtime_error(ctx, "spawn() argv must be an array of strings, got %s", value_type_name(args[0].type));
+        return val_null();
+    }
+    Array *arr = args[0].as.as_array;
+    if (arr->length == 0) {
+        runtime_error(ctx, "spawn() argv must not be empty");
+        return val_null();
+    }
+
+    Object *opts = NULL;
+    if (num_args == 2 && args[1].type != VAL_NULL) {
+        if (args[1].type != VAL_OBJECT) {
+            runtime_error(ctx, "spawn() opts must be an object or null, got %s", value_type_name(args[1].type));
+            return val_null();
+        }
+        opts = args[1].as.as_object;
+    }
+
+    // Options: stdio fds, cwd, setsid, env
+    int stdio_fds[3] = { -1, -1, -1 };
+    char *ccwd = NULL;
+    char *env_block = NULL;
+    int detach = 0;
+
+    #define HML_WSPAWN_CLEANUP() do { free(ccwd); free(env_block); } while (0)
+
+    if (opts) {
+        const char *names[3] = {"stdin", "stdout", "stderr"};
+        for (int i = 0; i < 3; i++) {
+            int fi = object_lookup_field(opts, names[i]);
+            if (fi >= 0 && opts->fields[fi].value.type != VAL_NULL) {
+                if (!is_integer(opts->fields[fi].value)) {
+                    runtime_error(ctx, "spawn() opts.%s must be an integer fd, got %s", names[i], value_type_name(opts->fields[fi].value.type));
+                    return val_null();
+                }
+                stdio_fds[i] = value_to_int(opts->fields[fi].value);
+            }
+        }
+
+        int cwd_idx = object_lookup_field(opts, "cwd");
+        if (cwd_idx >= 0 && opts->fields[cwd_idx].value.type != VAL_NULL) {
+            Value cwd_val = opts->fields[cwd_idx].value;
+            if (cwd_val.type != VAL_STRING) {
+                runtime_error(ctx, "spawn() opts.cwd must be a string, got %s", value_type_name(cwd_val.type));
+                return val_null();
+            }
+            ccwd = strndup(cwd_val.as.as_string->data, (size_t)cwd_val.as.as_string->length);
+            if (!ccwd) {
+                runtime_error(ctx, "spawn() memory allocation failed");
+                return val_null();
+            }
+        }
+
+        int sid_idx = object_lookup_field(opts, "setsid");
+        if (sid_idx >= 0 && opts->fields[sid_idx].value.type != VAL_NULL) {
+            if (opts->fields[sid_idx].value.type != VAL_BOOL) {
+                HML_WSPAWN_CLEANUP();
+                runtime_error(ctx, "spawn() opts.setsid must be a bool, got %s", value_type_name(opts->fields[sid_idx].value.type));
+                return val_null();
+            }
+            detach = opts->fields[sid_idx].value.as.as_bool;
+        }
+
+        int env_idx = object_lookup_field(opts, "env");
+        if (env_idx >= 0 && opts->fields[env_idx].value.type != VAL_NULL) {
+            Value env_val = opts->fields[env_idx].value;
+            if (env_val.type != VAL_ARRAY) {
+                HML_WSPAWN_CLEANUP();
+                runtime_error(ctx, "spawn() opts.env must be an array of strings, got %s", value_type_name(env_val.type));
+                return val_null();
+            }
+            // CreateProcess environment block: "K=V\0K=V\0...\0"
+            Array *envarr = env_val.as.as_array;
+            size_t block_len = 1;
+            for (int i = 0; i < envarr->length; i++) {
+                if (envarr->elements[i].type != VAL_STRING) {
+                    HML_WSPAWN_CLEANUP();
+                    runtime_error(ctx, "spawn() opts.env[%d] must be a string, got %s", i, value_type_name(envarr->elements[i].type));
+                    return val_null();
+                }
+                block_len += (size_t)envarr->elements[i].as.as_string->length + 1;
+            }
+            env_block = malloc(block_len + 1);
+            if (!env_block) {
+                HML_WSPAWN_CLEANUP();
+                runtime_error(ctx, "spawn() memory allocation failed");
+                return val_null();
+            }
+            size_t pos = 0;
+            for (int i = 0; i < envarr->length; i++) {
+                String *es = envarr->elements[i].as.as_string;
+                memcpy(env_block + pos, es->data, (size_t)es->length);
+                pos += (size_t)es->length;
+                env_block[pos++] = '\0';
+            }
+            env_block[pos++] = '\0';
+        }
+    }
+
+    int argc = 0;
+    char **argv = win32_collect_argv(ctx, "spawn()", NULL, arr, &argc);
+    if (!argv) {
+        HML_WSPAWN_CLEANUP();
+        return val_null();
+    }
+    char *cmdline = hml_win32_build_cmdline((const char *const *)argv, argc);
+    win32_free_argv(argv, argc);
+    if (!cmdline) {
+        HML_WSPAWN_CLEANUP();
+        runtime_error(ctx, "spawn() memory allocation failed");
+        return val_null();
+    }
+
+    char errmsg[256];
+    long long pid = hml_win32_spawn(cmdline, ccwd, env_block, detach,
+                                    stdio_fds, errmsg, sizeof(errmsg));
+    free(cmdline);
+    HML_WSPAWN_CLEANUP();
+    #undef HML_WSPAWN_CLEANUP
+
+    if (pid < 0) {
+        char error_msg[320];
+        snprintf(error_msg, sizeof(error_msg), "spawn() failed: %s", errmsg);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return val_null();
+    }
+
+    Object *result = object_new(NULL, 1);
+    if (!result) {
+        runtime_error(ctx, "spawn() memory allocation failed");
+        return val_null();
+    }
+    result->fields[0].name = strdup("pid");
+    if (!result->fields[0].name) {
+        object_free(result);
+        runtime_error(ctx, "spawn() memory allocation failed");
+        return val_null();
+    }
+    result->fields[0].value = val_i32((int32_t)pid);
+    result->num_fields++;
+    return val_object(result);
 }
 #else
 

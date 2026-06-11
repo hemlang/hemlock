@@ -63,6 +63,22 @@ int hml_win32_run_capture(const char *cmdline,
                           int *exit_code,
                           char *errmsg, size_t errmsg_cap);
 
+// Detached process management backing posix_spawn()/waitpid()/kill().
+// hml_win32_spawn: CreateProcess without pipes; env_block is an optional
+// CreateProcess environment block (double-NUL list), cwd optional,
+// detach maps setsid, stdio_fds are CRT fds for the child's
+// stdin/stdout/stderr (-1 = inherit). Returns the pid, or -1 + errmsg.
+// hml_win32_waitpid: 1 = exited (*exit_code set), 0 = still running
+// (nohang), -1 = error. hml_win32_kill: sig 0 probes existence, other
+// signals terminate with exit code 128+sig; 0 on success.
+long long hml_win32_spawn(const char *cmdline, const char *cwd,
+                          const char *env_block, int detach,
+                          const int stdio_fds[3],
+                          char *errmsg, size_t errmsg_cap);
+int hml_win32_waitpid(long long pid, int nohang, int *exit_code,
+                      char *errmsg, size_t errmsg_cap);
+int hml_win32_kill(long long pid, int sig, char *errmsg, size_t errmsg_cap);
+
 #endif // _WIN32
 
 #endif // HEMLOCK_COMPAT_H

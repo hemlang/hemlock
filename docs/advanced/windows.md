@@ -98,7 +98,7 @@ Calling any of these throws a runtime error on Windows:
 
 | Area | Detail |
 |------|--------|
-| Process model (partial) | `fork()`, `posix_spawn()`, `wait()`/`waitpid()`, `kill()`, `getppid()`, `getuid()`-family — Windows has no fork or POSIX uids. **Not** affected: `exec()` and `exec_argv()` work (CreateProcess-backed — shell mode runs through `cmd.exe /S /C` the way popen runs through `/bin/sh`; argv mode runs the program directly with stdout/stderr captured and `stdin:` feeding), so `@stdlib/shell`'s `run()`/`run_capture()` work with Windows commands. `get_pid()` and `pipe()` also work. |
+| Process model (partial) | `fork()`, `wait()` (wait-for-any), `getppid()`, `getuid()`-family — Windows has no fork or POSIX uids. **Not** affected: `exec()`/`exec_argv()` (CreateProcess + pipes, shell mode via `cmd.exe /S /C`), `posix_spawn()` (detached CreateProcess; `env`/`cwd`/stdio-fd/`setsid` options work, `setsid` maps to a new process group with no console), `waitpid()` (blocking or `WNOHANG`; status is POSIX-encoded so `status >> 8` is the exit code), and `kill()` (signal 0 probes existence; other signals terminate with exit code 128+sig — Windows cannot deliver signals). `get_pid()` and `pipe()` also work. |
 | FFI without libffi | FFI is **fully supported** when the MinGW toolchain has libffi (auto-detected, see below); only without it do `extern fn`, `ffi_open`, and callbacks throw (`HEMLOCK_NO_FFI`). |
 | Crypto (partial) | Only the ECDSA builtins and `@stdlib/crypto`'s OpenSSL-bound functions (AES, RSA — the module's `import "libcrypto.so.3"` cannot load) throw. **Not** affected: the hash builtins (`sha1`/`sha256`/`sha512`/`md5`, and `@stdlib/hash`), `__random_bytes` (and `@stdlib/uuid`) — all backed by Windows CNG (`bcrypt.dll`, a system DLL) in both backends. |
 | Signals | Only the signals the Windows CRT supports (`SIGINT`, `SIGTERM`, `SIGABRT`, `SIGSEGV`, `SIGFPE`, `SIGILL`) can be handled. Other constants exist but `signal()`/`raise()` on them fails. |
@@ -120,8 +120,9 @@ Smaller quirks worth knowing:
 Everything else — the language core, async/channels/atomics, buffers and
 manual memory, TCP/UDP/Unix sockets, DNS, file and directory I/O, mmap,
 zlib compression, cryptographic hashing and secure random (CNG-backed,
-including `@stdlib/uuid`), command execution (`exec()`/`exec_argv()` and
-`@stdlib/shell`'s `run`/`run_capture`), terminal control
+including `@stdlib/uuid`), command execution and process management (`exec()`/`exec_argv()`,
+`posix_spawn()`/`waitpid()`/`kill()`, and `@stdlib/shell`'s
+`run`/`run_capture`), terminal control
 (`@stdlib/termios` raw mode, `@stdlib/terminal`), POSIX ERE regex
 (`@stdlib/regex`, bundled engine), JSON/CSV/TOML/YAML, math, strings —
 works on Windows. Note that `@stdlib/shell`'s Unix-command

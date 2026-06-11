@@ -105,6 +105,29 @@ jobs:
         grep -q "stdin: 0" exec.out
         grep -q "shell: true shell ok" exec.out
 
+    - name: Process spawn/wait/kill test (CreateProcess-backed)
+      run: |
+        cat > sleeper.hml << 'EOF'
+        import { sleep } from "@stdlib/time";
+        sleep(30.0);
+        EOF
+        cat > spawn.hml << 'EOF'
+        import { posix_spawn, waitpid, kill } from "@stdlib/process";
+        let p1 = posix_spawn(["cmd.exe", "/c", "exit", "7"]);
+        let r1 = waitpid(p1.pid);
+        print("wait:", r1.pid == p1.pid, r1.status >> 8);
+        let p2 = posix_spawn(["./hemlock.exe", "sleeper.hml"]);
+        let probe = waitpid(p2.pid, 1);
+        print("running:", probe.pid == 0);
+        kill(p2.pid, 15);
+        let r2 = waitpid(p2.pid);
+        print("killed:", r2.status >> 8);
+        EOF
+        ./hemlock.exe spawn.hml | tee spawn.out
+        grep -q "wait: true 7" spawn.out
+        grep -q "running: true" spawn.out
+        grep -q "killed: 143" spawn.out
+
     - name: Regex test (bundled musl/TRE engine)
       run: |
         cat > rx.hml << 'EOF'
@@ -280,6 +303,30 @@ jobs:
         grep -q "exec: wine exec 0" /tmp/exec.out
         grep -q "argv: 5" /tmp/exec.out
         grep -q "shell: true shell ok" /tmp/exec.out
+
+    - name: Process spawn/wait/kill test under Wine
+      run: |
+        export WINEDEBUG=-all
+        cat > /tmp/sleeper.hml << 'EOF'
+        import { sleep } from "@stdlib/time";
+        sleep(30.0);
+        EOF
+        cat > /tmp/spawn.hml << 'EOF'
+        import { posix_spawn, waitpid, kill } from "@stdlib/process";
+        let p1 = posix_spawn(["cmd.exe", "/c", "exit", "7"]);
+        let r1 = waitpid(p1.pid);
+        print("wait:", r1.pid == p1.pid, r1.status >> 8);
+        let p2 = posix_spawn(["./hemlock.exe", "/tmp/sleeper.hml"]);
+        let probe = waitpid(p2.pid, 1);
+        print("running:", probe.pid == 0);
+        kill(p2.pid, 15);
+        let r2 = waitpid(p2.pid);
+        print("killed:", r2.status >> 8);
+        EOF
+        wine ./hemlock.exe /tmp/spawn.hml | tee /tmp/spawn.out
+        grep -q "wait: true 7" /tmp/spawn.out
+        grep -q "running: true" /tmp/spawn.out
+        grep -q "killed: 143" /tmp/spawn.out
 
     - name: Regex test under Wine (bundled musl/TRE engine)
       run: |

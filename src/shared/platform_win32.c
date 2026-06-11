@@ -773,6 +773,207 @@ int hml_win32_run_capture(const char *cmdline,
     return 0;
 }
 
+// ---- Detached process management (posix_spawn/waitpid/kill) ----
+// Spawned pids keep their process handle in a registry so waitpid can
+// retrieve the exit code without a pid-reuse race (the Windows analogue
+// of a POSIX zombie: the handle pins the process object until reaped).
+// Pids not in the registry (not spawned by us) fall back to OpenProcess.
+
+#include <io.h>
+
+typedef struct HmlSpawnedProc {
+    DWORD pid;
+    HANDLE process;
+    struct HmlSpawnedProc *next;
+} HmlSpawnedProc;
+
+static HmlSpawnedProc *hml_spawned = NULL;
+static pthread_mutex_t hml_spawned_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void hml_spawned_add(DWORD pid, HANDLE process) {
+    HmlSpawnedProc *entry = malloc(sizeof(HmlSpawnedProc));
+    if (!entry) {
+        CloseHandle(process);  // degrade to the OpenProcess fallback
+        return;
+    }
+    entry->pid = pid;
+    entry->process = process;
+    pthread_mutex_lock(&hml_spawned_mutex);
+    entry->next = hml_spawned;
+    hml_spawned = entry;
+    pthread_mutex_unlock(&hml_spawned_mutex);
+}
+
+static HANDLE hml_spawned_find(DWORD pid) {
+    pthread_mutex_lock(&hml_spawned_mutex);
+    for (HmlSpawnedProc *p = hml_spawned; p; p = p->next) {
+        if (p->pid == pid) {
+            HANDLE h = p->process;
+            pthread_mutex_unlock(&hml_spawned_mutex);
+            return h;
+        }
+    }
+    pthread_mutex_unlock(&hml_spawned_mutex);
+    return NULL;
+}
+
+static void hml_spawned_remove(DWORD pid) {
+    pthread_mutex_lock(&hml_spawned_mutex);
+    for (HmlSpawnedProc **pp = &hml_spawned; *pp; pp = &(*pp)->next) {
+        if ((*pp)->pid == pid) {
+            HmlSpawnedProc *dead = *pp;
+            *pp = dead->next;
+            pthread_mutex_unlock(&hml_spawned_mutex);
+            CloseHandle(dead->process);
+            free(dead);
+            return;
+        }
+    }
+    pthread_mutex_unlock(&hml_spawned_mutex);
+}
+
+long long hml_win32_spawn(const char *cmdline, const char *cwd,
+                          const char *env_block, int detach,
+                          const int stdio_fds[3],
+                          char *errmsg, size_t errmsg_cap) {
+    STARTUPINFOA si;
+    memset(&si, 0, sizeof(si));
+    si.cb = sizeof(si);
+
+    BOOL inherit = FALSE;
+    if (stdio_fds[0] >= 0 || stdio_fds[1] >= 0 || stdio_fds[2] >= 0) {
+        inherit = TRUE;
+        si.dwFlags = STARTF_USESTDHANDLES;
+        const DWORD std_ids[3] = { STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE };
+        HANDLE *slots[3] = { &si.hStdInput, &si.hStdOutput, &si.hStdError };
+        for (int i = 0; i < 3; i++) {
+            HANDLE h;
+            if (stdio_fds[i] >= 0) {
+                h = (HANDLE)_get_osfhandle(stdio_fds[i]);
+                if (h == INVALID_HANDLE_VALUE) {
+                    snprintf(errmsg, errmsg_cap, "invalid fd %d", stdio_fds[i]);
+                    return -1;
+                }
+                SetHandleInformation(h, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+            } else {
+                h = GetStdHandle(std_ids[i]);
+            }
+            *slots[i] = h;
+        }
+    }
+
+    DWORD flags = 0;
+    if (detach) {
+        // The closest CreateProcess gets to setsid: own process group, no
+        // console of ours
+        flags |= CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS;
+    }
+
+    PROCESS_INFORMATION pi;
+    memset(&pi, 0, sizeof(pi));
+    char *cmd_copy = strdup(cmdline);
+    BOOL ok = cmd_copy && CreateProcessA(NULL, cmd_copy, NULL, NULL, inherit,
+                                         flags, (LPVOID)env_block, cwd, &si, &pi);
+    DWORD create_err = GetLastError();
+    free(cmd_copy);
+    if (!ok) {
+        snprintf(errmsg, errmsg_cap, "CreateProcess failed (error %lu)",
+                 (unsigned long)create_err);
+        return -1;
+    }
+
+    CloseHandle(pi.hThread);
+    hml_spawned_add(pi.dwProcessId, pi.hProcess);
+    return (long long)pi.dwProcessId;
+}
+
+int hml_win32_waitpid(long long pid, int nohang, int *exit_code,
+                      char *errmsg, size_t errmsg_cap) {
+    int from_registry = 1;
+    HANDLE h = hml_spawned_find((DWORD)pid);
+    if (!h) {
+        from_registry = 0;
+        h = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+                        FALSE, (DWORD)pid);
+        if (!h) {
+            snprintf(errmsg, errmsg_cap, "no such process (error %lu)",
+                     (unsigned long)GetLastError());
+            return -1;
+        }
+    }
+
+    DWORD rc = WaitForSingleObject(h, nohang ? 0 : INFINITE);
+    if (rc == WAIT_TIMEOUT) {
+        if (!from_registry) {
+            CloseHandle(h);
+        }
+        return 0;  // still running (WNOHANG)
+    }
+    if (rc != WAIT_OBJECT_0) {
+        snprintf(errmsg, errmsg_cap, "wait failed (error %lu)",
+                 (unsigned long)GetLastError());
+        if (!from_registry) {
+            CloseHandle(h);
+        }
+        return -1;
+    }
+
+    DWORD code = 0;
+    GetExitCodeProcess(h, &code);
+    if (from_registry) {
+        hml_spawned_remove((DWORD)pid);  // closes the handle (reaped)
+    } else {
+        CloseHandle(h);
+    }
+    *exit_code = (int)code;
+    return 1;
+}
+
+int hml_win32_kill(long long pid, int sig, char *errmsg, size_t errmsg_cap) {
+    if (sig == 0) {
+        // POSIX kill(pid, 0): existence probe
+        if (hml_spawned_find((DWORD)pid)) {
+            return 0;
+        }
+        HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pid);
+        if (!h) {
+            snprintf(errmsg, errmsg_cap, "no such process (error %lu)",
+                     (unsigned long)GetLastError());
+            return -1;
+        }
+        CloseHandle(h);
+        return 0;
+    }
+
+    int opened = 0;
+    HANDLE h = hml_spawned_find((DWORD)pid);
+    if (!h) {
+        h = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
+        if (!h) {
+            snprintf(errmsg, errmsg_cap, "no such process (error %lu)",
+                     (unsigned long)GetLastError());
+            return -1;
+        }
+        opened = 1;
+    }
+
+    // Windows cannot deliver signals; terminate with the shell convention
+    // exit code 128+sig so waitpid status reflects the signal
+    BOOL ok = TerminateProcess(h, 128 + (UINT)(sig & 0xff));
+    DWORD term_err = GetLastError();
+    if (opened) {
+        CloseHandle(h);
+    }
+    if (!ok && term_err != ERROR_ACCESS_DENIED) {
+        snprintf(errmsg, errmsg_cap, "TerminateProcess failed (error %lu)",
+                 (unsigned long)term_err);
+        return -1;
+    }
+    // ERROR_ACCESS_DENIED also fires when the process is already
+    // terminating; treat as success like POSIX kill on a zombie
+    return 0;
+}
+
 // ---- One-time platform initialization ----
 
 void hml_platform_init(void) {
