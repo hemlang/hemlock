@@ -105,6 +105,21 @@ jobs:
         grep -q "stdin: 0" exec.out
         grep -q "shell: true shell ok" exec.out
 
+    - name: Regex test (bundled musl/TRE engine)
+      run: |
+        cat > rx.hml << 'EOF'
+        import { test, replace_all } from "@stdlib/regex";
+        print("alpha:", test("^[[:alpha:]]+$", "Hello"));
+        print("interval:", test("^[0-9]{2,4}$", "123"));
+        print("alt:", test("^(foo|bar)+$", "foobarfoo"));
+        print("repl:", replace_all("[aeiou]", "programming", "_"));
+        EOF
+        ./hemlock.exe rx.hml | tee rx.out
+        grep -q "alpha: true" rx.out
+        grep -q "interval: true" rx.out
+        grep -q "alt: true" rx.out
+        grep -q "repl: pr_gr_mm_ng" rx.out
+
     - name: Terminal control test (console API, no stty/printf shell-outs)
       run: |
         cat > term.hml << 'EOF'
@@ -265,6 +280,22 @@ jobs:
         grep -q "exec: wine exec 0" /tmp/exec.out
         grep -q "argv: 5" /tmp/exec.out
         grep -q "shell: true shell ok" /tmp/exec.out
+
+    - name: Regex test under Wine (bundled musl/TRE engine)
+      run: |
+        export WINEDEBUG=-all
+        cat > /tmp/rx.hml << 'EOF'
+        import { test, replace_all } from "@stdlib/regex";
+        print("alpha:", test("^[[:alpha:]]+$", "Hello"));
+        print("interval:", test("^[0-9]{2,4}$", "123"));
+        print("alt:", test("^(foo|bar)+$", "foobarfoo"));
+        print("repl:", replace_all("[aeiou]", "programming", "_"));
+        EOF
+        wine ./hemlock.exe /tmp/rx.hml | tee /tmp/rx.out
+        grep -q "alpha: true" /tmp/rx.out
+        grep -q "interval: true" /tmp/rx.out
+        grep -q "alt: true" /tmp/rx.out
+        grep -q "repl: pr_gr_mm_ng" /tmp/rx.out
 
     - name: Terminal control test under Wine
       run: |

@@ -29,8 +29,9 @@ ifeq ($(HEMLOCK_WINDOWS),1)
     endif
     # No -fPIC (PE is always position independent); winpthreads supplies
     # pthreads; ws2_32 supplies sockets; bcrypt supplies CNG hashing.
-    # -I../include for hemlock_platform.h.
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Iinclude -I../src/shared -I../include -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL
+    # -I../include for hemlock_platform.h; ../src/shared/regex_win32
+    # supplies <regex.h> (bundled musl/TRE engine — MinGW has none).
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Iinclude -I../src/shared -I../src/shared/regex_win32 -I../include -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL
     LDFLAGS = -lm -lpthread $(WIN_FFI_LIB) -lws2_32 -lbcrypt
 else ifeq ($(shell uname),Darwin)
     CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -fPIC -Iinclude -I../src/shared -I../include -D_DARWIN_C_SOURCE

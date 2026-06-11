@@ -73,6 +73,11 @@ artifacts and never touches a native build in the same checkout.
   `__random_bytes` CSPRNG are backed by Windows CNG (`bcrypt.dll`)
   instead of OpenSSL, so hashing, `@stdlib/uuid`, and secure random
   generation need no extra libraries.
+- `@stdlib/regex` runs on a bundled POSIX ERE engine (musl libc's
+  TRE-based `regcomp`/`regexec`, vendored in `src/shared/regex_win32/`)
+  since MinGW has no `<regex.h>`; the builtins compile the same POSIX
+  code path as on Linux/macOS. Error message wording differs (TRE vs
+  glibc), matching behavior does not.
 - `@stdlib/termios` raw mode and `@stdlib/terminal` size detection run
   on the console API (`SetConsoleMode`, `GetConsoleScreenBufferInfo`)
   via the `__term_*` builtins. Raw mode enables virtual-terminal input
@@ -96,7 +101,6 @@ Calling any of these throws a runtime error on Windows:
 | Process model (partial) | `fork()`, `posix_spawn()`, `wait()`/`waitpid()`, `kill()`, `getppid()`, `getuid()`-family — Windows has no fork or POSIX uids. **Not** affected: `exec()` and `exec_argv()` work (CreateProcess-backed — shell mode runs through `cmd.exe /S /C` the way popen runs through `/bin/sh`; argv mode runs the program directly with stdout/stderr captured and `stdin:` feeding), so `@stdlib/shell`'s `run()`/`run_capture()` work with Windows commands. `get_pid()` and `pipe()` also work. |
 | FFI without libffi | FFI is **fully supported** when the MinGW toolchain has libffi (auto-detected, see below); only without it do `extern fn`, `ffi_open`, and callbacks throw (`HEMLOCK_NO_FFI`). |
 | Crypto (partial) | Only the ECDSA builtins and `@stdlib/crypto`'s OpenSSL-bound functions (AES, RSA — the module's `import "libcrypto.so.3"` cannot load) throw. **Not** affected: the hash builtins (`sha1`/`sha256`/`sha512`/`md5`, and `@stdlib/hash`), `__random_bytes` (and `@stdlib/uuid`) — all backed by Windows CNG (`bcrypt.dll`, a system DLL) in both backends. |
-| Regex | MinGW has no POSIX `<regex.h>`; `@stdlib/regex` throws. |
 | Signals | Only the signals the Windows CRT supports (`SIGINT`, `SIGTERM`, `SIGABRT`, `SIGSEGV`, `SIGFPE`, `SIGILL`) can be handled. Other constants exist but `signal()`/`raise()` on them fails. |
 | HTTP/WebSocket | libwebsockets is not probed for Windows builds; `@stdlib/http` and `@stdlib/websocket` are unavailable. |
 | LSP | stdio transport works; `--lsp-tcp` mode is disabled. |
@@ -118,8 +122,9 @@ manual memory, TCP/UDP/Unix sockets, DNS, file and directory I/O, mmap,
 zlib compression, cryptographic hashing and secure random (CNG-backed,
 including `@stdlib/uuid`), command execution (`exec()`/`exec_argv()` and
 `@stdlib/shell`'s `run`/`run_capture`), terminal control
-(`@stdlib/termios` raw mode, `@stdlib/terminal`), JSON/CSV/TOML/YAML,
-math, strings — works on Windows. Note that `@stdlib/shell`'s Unix-command
+(`@stdlib/termios` raw mode, `@stdlib/terminal`), POSIX ERE regex
+(`@stdlib/regex`, bundled engine), JSON/CSV/TOML/YAML, math, strings —
+works on Windows. Note that `@stdlib/shell`'s Unix-command
 conveniences (`ls()`, `which()`, `pwd()`, …) shell out to POSIX tools
 and stay Unix-only.
 

@@ -6,26 +6,9 @@
 
 #include "internal.h"
 
-#ifdef _WIN32
-// MinGW has no POSIX <regex.h>; regex builtins are stubbed below.
-
-#define HML_REGEX_STUB(name)                                                  \
-    Value name(Value *args, int num_args, ExecutionContext *ctx) {            \
-        (void)args; (void)num_args;                                           \
-        runtime_error(ctx, #name " is not available on Windows (no POSIX regex)"); \
-        return val_null();                                                    \
-    }
-
-HML_REGEX_STUB(builtin_regex_compile)
-HML_REGEX_STUB(builtin_regex_test)
-HML_REGEX_STUB(builtin_regex_match)
-HML_REGEX_STUB(builtin_regex_free)
-HML_REGEX_STUB(builtin_regex_error)
-HML_REGEX_STUB(builtin_regex_replace)
-HML_REGEX_STUB(builtin_regex_replace_all)
-
-#else // !_WIN32
-
+// On Windows <regex.h> resolves to the bundled musl/TRE engine
+// (src/shared/regex_win32, on the include path for MinGW builds), so the
+// same POSIX implementation compiles on every platform.
 #include <regex.h>
 
 // ========== REGEX BUILTINS ==========
@@ -416,5 +399,3 @@ Value builtin_regex_replace_all(Value *args, int num_args, ExecutionContext *ctx
     free(result);
     return result_val;
 }
-
-#endif // !_WIN32

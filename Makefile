@@ -44,8 +44,10 @@ ifeq ($(HEMLOCK_WINDOWS),1)
     # wasm_interp_shim.c). Override with EXTRA_CFLAGS/EXTRA_LDFLAGS on
     # MSYS2 where OpenSSL is installable via pacman.
     # Implicit declarations are hard errors so older cross toolchains
-    # (GCC <= 13) catch what GCC 14+ on native Windows rejects by default
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Werror=implicit-function-declaration -Werror=int-conversion -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
+    # (GCC <= 13) catch what GCC 14+ on native Windows rejects by default.
+    # src/shared/regex_win32 supplies <regex.h> (bundled musl/TRE engine —
+    # MinGW has none), so the regex builtins use their POSIX code path.
+    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Werror=implicit-function-declaration -Werror=int-conversion -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared -Isrc/shared/regex_win32 $(EXTRA_CFLAGS)
 else ifeq ($(shell uname),Darwin)
     CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
 else
