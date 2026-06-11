@@ -25,9 +25,14 @@
 // ========== COMMAND EXECUTION ==========
 
 #ifdef _WIN32
-// Windows has no fork()/exec() process model and no POSIX uids or signals.
-// These builtins fail at runtime so compiled programs still link; process
-// spawning on Windows is a future enhancement (CreateProcess-based).
+// Windows has no fork() and no POSIX uids or signals, so those builtins
+// fail at runtime. exec()/exec_argv() ARE implemented, backed by
+// CreateProcess + pipes (hml_win32_run_capture in the platform layer):
+// shell mode goes through cmd.exe /S /C the way popen goes through
+// /bin/sh, argv mode runs the program directly with stdout/stderr
+// captured and optional stdin, mirroring the POSIX semantics below.
+
+#include "hemlock_compat.h"
 
 #define HML_WIN32_PROCESS_STUB_0(name, label) \
     HmlValue hml_##name(void) { \
@@ -46,9 +51,210 @@
         hml_runtime_error(label " is not supported on Windows"); \
     }
 
-HML_WIN32_PROCESS_STUB_1(exec, "exec()")
-HML_WIN32_PROCESS_STUB_2(exec_argv, "exec_argv()")
-HML_WIN32_PROCESS_STUB_2(exec_with_args, "exec()")
+// Build {output, stderr, exit_code}; frees the capture buffers.
+static HmlValue win32_exec_result(char *out_buf, char *err_buf, int exit_code) {
+    HmlValue result = hml_val_object();
+    hml_object_set_field(result, "output", hml_val_string(out_buf ? out_buf : ""));
+    hml_object_set_field(result, "stderr", hml_val_string(err_buf ? err_buf : ""));
+    hml_object_set_field(result, "exit_code", hml_val_i32(exit_code));
+    free(out_buf);
+    free(err_buf);
+    return result;
+}
+
+// Mirror the POSIX child-side execvp failure: an object with exit code
+// 127 and the failure message on stderr (the launch error is data, not
+// an exception, so scripts can check exit_code portably).
+static HmlValue win32_exec_failed(const char *what, const char *argv0, const char *errmsg) {
+    char msg[512];
+    snprintf(msg, sizeof(msg), "%s failed to execute '%s': %s\n", what, argv0, errmsg);
+    HmlValue result = hml_val_object();
+    hml_object_set_field(result, "output", hml_val_string(""));
+    hml_object_set_field(result, "stderr", hml_val_string(msg));
+    hml_object_set_field(result, "exit_code", hml_val_i32(127));
+    return result;
+}
+
+// Collect a NUL-terminated C argv from an optional leading command plus
+// an array of strings (errors do not return).
+static char **win32_collect_argv(const char *what, HmlString *lead,
+                                 HmlArray *arr, int *out_argc) {
+    int64_t argc = (lead ? 1 : 0) + (arr ? arr->length : 0);
+    char **argv = malloc(((size_t)argc + 1) * sizeof(char *));
+    if (!argv) {
+        hml_runtime_error("%s memory allocation failed", what);
+    }
+
+    int64_t pos = 0;
+    if (lead) {
+        argv[pos] = strndup(lead->data, (size_t)lead->length);
+        if (!argv[pos]) {
+            free(argv);
+            hml_runtime_error("%s memory allocation failed", what);
+        }
+        pos++;
+    }
+    if (arr) {
+        for (int64_t i = 0; i < arr->length; i++) {
+            HmlValue elem = arr->elements[i];
+            if (elem.type != HML_VAL_STRING || !elem.as.as_string) {
+                for (int64_t j = 0; j < pos; j++) free(argv[j]);
+                free(argv);
+                hml_runtime_error("%s array elements must be strings", what);
+            }
+            HmlString *s = elem.as.as_string;
+            argv[pos] = strndup(s->data, (size_t)s->length);
+            if (!argv[pos]) {
+                for (int64_t j = 0; j < pos; j++) free(argv[j]);
+                free(argv);
+                hml_runtime_error("%s memory allocation failed", what);
+            }
+            pos++;
+        }
+    }
+    argv[argc] = NULL;
+    *out_argc = (int)argc;
+    return argv;
+}
+
+static void win32_free_argv(char **argv, int argc) {
+    for (int i = 0; i < argc; i++) free(argv[i]);
+    free(argv);
+}
+
+// Run an argv vector with stdout/stderr captured and optional stdin.
+static HmlValue win32_exec_capture(const char *what, char **argv, int argc,
+                                   const char *stdin_data, size_t stdin_len) {
+    char *cmdline = hml_win32_build_cmdline((const char *const *)argv, argc);
+    char argv0[256];
+    snprintf(argv0, sizeof(argv0), "%s", argv[0]);
+    win32_free_argv(argv, argc);
+    if (!cmdline) {
+        hml_runtime_error("%s memory allocation failed", what);
+    }
+
+    char errmsg[256];
+    char *out_buf = NULL, *err_buf = NULL;
+    size_t out_len = 0, err_len = 0;
+    int exit_code = 0;
+    int rc = hml_win32_run_capture(cmdline, stdin_data, stdin_len, 1,
+                                   &out_buf, &out_len, &err_buf, &err_len,
+                                   &exit_code, errmsg, sizeof(errmsg));
+    free(cmdline);
+    if (rc != 0) {
+        return win32_exec_failed(what, argv0, errmsg);
+    }
+    return win32_exec_result(out_buf, err_buf, exit_code);
+}
+
+// exec(command) - shell mode via cmd.exe (stderr inherited, like popen)
+HmlValue hml_exec(HmlValue command) {
+    // SANDBOX: Check if process spawning is allowed
+    if (hml_sandbox_check(HML_SANDBOX_RESTRICT_PROCESS)) {
+        hml_sandbox_error("command execution");
+    }
+
+    if (command.type != HML_VAL_STRING || !command.as.as_string) {
+        hml_runtime_error("exec() argument must be a string");
+    }
+
+    HmlString *cmd_str = command.as.as_string;
+
+    // SECURITY: Warn about potentially dangerous shell metacharacters
+    const char *dangerous_chars = ";|&$`\\\"'<>(){}[]!#";
+    for (int64_t i = 0; i < cmd_str->length; i++) {
+        for (const char *dc = dangerous_chars; *dc; dc++) {
+            if (cmd_str->data[i] == *dc) {
+                fprintf(stderr, "Warning: exec() command contains shell metacharacter '%c'. "
+                        "Consider using exec_argv() for safer command execution.\n", *dc);
+                goto done_warning;
+            }
+        }
+    }
+done_warning:
+    ;
+
+    char *ccmd = strndup(cmd_str->data, (size_t)cmd_str->length);
+    if (!ccmd) {
+        hml_runtime_error("exec() memory allocation failed");
+    }
+    char *cmdline = hml_win32_shell_cmdline(ccmd);
+    if (!cmdline) {
+        free(ccmd);
+        hml_runtime_error("exec() memory allocation failed");
+    }
+
+    char errmsg[256];
+    char *out_buf = NULL;
+    size_t out_len = 0;
+    int exit_code = 0;
+    int rc = hml_win32_run_capture(cmdline, NULL, 0, 0,
+                                   &out_buf, &out_len, NULL, NULL,
+                                   &exit_code, errmsg, sizeof(errmsg));
+    free(cmdline);
+    if (rc != 0) {
+        fprintf(stderr, "Runtime error: Failed to execute command '%s': %s\n", ccmd, errmsg);
+        free(ccmd);
+        exit(1);
+    }
+    free(ccmd);
+    return win32_exec_result(out_buf, NULL, exit_code);
+}
+
+// exec_argv(argv, opts?) - direct execution, no shell
+HmlValue hml_exec_argv(HmlValue args_array, HmlValue opts) {
+    // SANDBOX: Check if process spawning is allowed
+    if (hml_sandbox_check(HML_SANDBOX_RESTRICT_PROCESS)) {
+        hml_sandbox_error("command execution");
+    }
+
+    if (args_array.type != HML_VAL_ARRAY || !args_array.as.as_array) {
+        hml_runtime_error("exec_argv() argument must be an array of strings");
+    }
+
+    HmlArray *arr = args_array.as.as_array;
+    if (arr->length == 0) {
+        hml_runtime_error("exec_argv() array must not be empty");
+    }
+
+    // Extract stdin data from opts (string or buffer)
+    const char *stdin_data = NULL;
+    size_t stdin_len = 0;
+    if (opts.type == HML_VAL_OBJECT && opts.as.as_object) {
+        HmlValue stdin_val = hml_object_get_field(opts, "stdin");
+        if (stdin_val.type == HML_VAL_STRING && stdin_val.as.as_string) {
+            stdin_data = stdin_val.as.as_string->data;
+            stdin_len = (size_t)stdin_val.as.as_string->length;
+        } else if (stdin_val.type == HML_VAL_BUFFER && stdin_val.as.as_buffer) {
+            stdin_data = (const char *)stdin_val.as.as_buffer->data;
+            stdin_len = (size_t)stdin_val.as.as_buffer->length;
+        }
+    }
+
+    int argc = 0;
+    char **argv = win32_collect_argv("exec_argv()", NULL, arr, &argc);
+    return win32_exec_capture("exec_argv()", argv, argc, stdin_data, stdin_len);
+}
+
+// exec(command, args) - direct execution with a leading command
+HmlValue hml_exec_with_args(HmlValue command, HmlValue args_array) {
+    // SANDBOX: Check if process spawning is allowed
+    if (hml_sandbox_check(HML_SANDBOX_RESTRICT_PROCESS)) {
+        hml_sandbox_error("command execution");
+    }
+
+    if (command.type != HML_VAL_STRING || !command.as.as_string) {
+        hml_runtime_error("exec() first argument must be a string");
+    }
+    if (args_array.type != HML_VAL_ARRAY || !args_array.as.as_array) {
+        hml_runtime_error("exec() second argument must be an array of strings");
+    }
+
+    int argc = 0;
+    char **argv = win32_collect_argv("exec()", command.as.as_string,
+                                     args_array.as.as_array, &argc);
+    return win32_exec_capture("exec()", argv, argc, NULL, 0);
+}
 
 #else // !_WIN32
 

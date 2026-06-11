@@ -612,6 +612,7 @@ static int compile_c(const Options *opts, const char *c_file) {
 
     // Check if -lwebsockets is linkable (with extra paths)
     char websockets_flag[16] = "";
+    (void)websockets_flag;  // only read in the POSIX link commands below
 #ifndef _WIN32
     char ws_test_cmd[1024];
     snprintf(ws_test_cmd, sizeof(ws_test_cmd),
@@ -626,7 +627,9 @@ static int compile_c(const Options *opts, const char *c_file) {
     // The runtime always needs libcrypto, so always link it
     // On Linux, use --no-as-needed to ensure the library is linked even if not directly referenced
 #if defined(_WIN32)
-    char crypto_flag[64] = "";  // crypto builtins are stubbed on Windows
+    // hashing/CSPRNG use CNG (-lbcrypt, linked unconditionally); no OpenSSL
+    char crypto_flag[64] = "";
+    (void)crypto_flag;  // only read in the POSIX link commands below
 #elif defined(__APPLE__)
     char crypto_flag[64] = " -lcrypto";
 #else

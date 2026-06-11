@@ -83,6 +83,28 @@ jobs:
         EOF
         ./hemlock.exe tcp.hml | grep -q "got: echo: hello winsock"
 
+    - name: Process execution test (CreateProcess-backed exec)
+      run: |
+        cat > exec.hml << 'EOF'
+        import { run_capture } from "@stdlib/shell";
+        let r = __exec("echo win exec");
+        print("exec:", r.output.trim(), r.exit_code);
+        let a = __exec_argv(["cmd.exe", "/c", "exit", "5"]);
+        print("argv:", a.exit_code);
+        let m = __exec_argv(["no_such_program_zz"]);
+        print("missing:", m.exit_code);
+        let s = __exec_argv(["findstr", "x"], { stdin: "ax\nb\ncx\n" });
+        print("stdin:", s.exit_code);
+        let cap = run_capture("echo shell ok");
+        print("shell:", cap.success, cap.stdout.trim());
+        EOF
+        ./hemlock.exe exec.hml | tee exec.out
+        grep -q "exec: win exec 0" exec.out
+        grep -q "argv: 5" exec.out
+        grep -q "missing: 127" exec.out
+        grep -q "stdin: 0" exec.out
+        grep -q "shell: true shell ok" exec.out
+
     - name: Full hemlockc pipeline (invokes gcc via system())
       run: |
         cat > csm.hml << 'EOF'
@@ -209,6 +231,23 @@ jobs:
         wine ./csm.exe | tee /tmp/csm.out
         grep -q "compiled: 42" /tmp/csm.out
         grep -q "sha256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" /tmp/csm.out
+
+    - name: Process execution test under Wine
+      run: |
+        export WINEDEBUG=-all
+        cat > /tmp/exec.hml << 'EOF'
+        import { run_capture } from "@stdlib/shell";
+        let r = __exec("echo wine exec");
+        print("exec:", r.output.trim(), r.exit_code);
+        let a = __exec_argv(["cmd.exe", "/c", "exit", "5"]);
+        print("argv:", a.exit_code);
+        let cap = run_capture("echo shell ok");
+        print("shell:", cap.success, cap.stdout.trim());
+        EOF
+        wine ./hemlock.exe /tmp/exec.hml | tee /tmp/exec.out
+        grep -q "exec: wine exec 0" /tmp/exec.out
+        grep -q "argv: 5" /tmp/exec.out
+        grep -q "shell: true shell ok" /tmp/exec.out
 
     - name: FFI test under Wine (DLL loading, raylib-style bindings)
       run: |

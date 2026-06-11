@@ -44,6 +44,25 @@ int hml_win32_hash(const char *alg, const void *data, size_t len,
 // Fills out with len random bytes; returns 0 on success, -1 on failure.
 int hml_win32_random(void *out, size_t len);
 
+// Process execution (CreateProcess + pipes) for the exec builtins.
+// hml_win32_build_cmdline: argv -> command line with CommandLineToArgvW
+// quoting rules. hml_win32_shell_cmdline: raw command -> cmd.exe /S /C
+// invocation. Both return malloc'd strings (NULL on alloc failure).
+char *hml_win32_build_cmdline(const char *const *argv, int argc);
+char *hml_win32_shell_cmdline(const char *command);
+
+// Runs cmdline, optionally feeding stdin_data and capturing stderr
+// (otherwise the child inherits this process's stderr). On success
+// returns 0 and hands over malloc'd NUL-terminated out/err buffers plus
+// the exit code; on failure returns -1 with a message in errmsg.
+int hml_win32_run_capture(const char *cmdline,
+                          const char *stdin_data, size_t stdin_len,
+                          int capture_stderr,
+                          char **out_buf, size_t *out_len,
+                          char **err_buf, size_t *err_len,
+                          int *exit_code,
+                          char *errmsg, size_t errmsg_cap);
+
 #endif // _WIN32
 
 #endif // HEMLOCK_COMPAT_H

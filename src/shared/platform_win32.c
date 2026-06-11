@@ -475,6 +475,304 @@ int hml_win32_random(void *out, size_t len) {
     return 0;
 }
 
+// ---- Process execution (CreateProcess + pipes) ----
+// Backs exec()/exec_argv() on Windows. Shell mode runs through
+// "%COMSPEC% /S /C" (cmd.exe semantics, like popen on POSIX); argv mode
+// runs the program directly with the standard CommandLineToArgvW quoting
+// rules so arguments round-trip intact.
+
+// Build a CreateProcess command line from argv (CommandLineToArgvW
+// quoting: backslashes double before quotes, quotes become \").
+// Returns a malloc'd string, or NULL on allocation failure.
+char *hml_win32_build_cmdline(const char *const *argv, int argc) {
+    // Worst case every char becomes two plus quotes and a separator
+    size_t cap = 1;
+    for (int i = 0; i < argc; i++) {
+        cap += strlen(argv[i]) * 2 + 4;
+    }
+    char *out = malloc(cap);
+    if (!out) {
+        return NULL;
+    }
+
+    size_t pos = 0;
+    for (int i = 0; i < argc; i++) {
+        const char *arg = argv[i];
+        if (i > 0) {
+            out[pos++] = ' ';
+        }
+        if (arg[0] != '\0' && strpbrk(arg, " \t\"") == NULL) {
+            size_t n = strlen(arg);
+            memcpy(out + pos, arg, n);
+            pos += n;
+            continue;
+        }
+        out[pos++] = '"';
+        size_t backslashes = 0;
+        for (const char *p = arg; *p; p++) {
+            if (*p == '\\') {
+                backslashes++;
+                continue;
+            }
+            if (*p == '"') {
+                // Backslashes before a quote must double, plus escape it
+                for (size_t b = 0; b < backslashes * 2 + 1; b++) {
+                    out[pos++] = '\\';
+                }
+                out[pos++] = '"';
+            } else {
+                for (size_t b = 0; b < backslashes; b++) {
+                    out[pos++] = '\\';
+                }
+                out[pos++] = *p;
+            }
+            backslashes = 0;
+        }
+        // Trailing backslashes double so the closing quote stays a quote
+        for (size_t b = 0; b < backslashes * 2; b++) {
+            out[pos++] = '\\';
+        }
+        out[pos++] = '"';
+    }
+    out[pos] = '\0';
+    return out;
+}
+
+// Wrap a raw shell command for cmd.exe: <comspec> /S /C "<command>".
+// /S strips exactly the outer quotes, leaving the command verbatim.
+char *hml_win32_shell_cmdline(const char *command) {
+    const char *comspec = getenv("COMSPEC");
+    if (!comspec || !*comspec) {
+        comspec = "cmd.exe";
+    }
+    size_t cap = strlen(comspec) + strlen(command) + 16;
+    char *out = malloc(cap);
+    if (!out) {
+        return NULL;
+    }
+    snprintf(out, cap, "\"%s\" /S /C \"%s\"", comspec, command);
+    return out;
+}
+
+typedef struct {
+    HANDLE h;
+    char *buf;
+    size_t len;
+    size_t cap;
+    int oom;
+} HmlPipeCapture;
+
+// Read a pipe to EOF into a growable, NUL-terminated buffer. Closes the
+// handle. On allocation failure sets oom and stops reading (the child
+// sees a broken pipe rather than blocking forever).
+static void hml_pipe_capture_read(HmlPipeCapture *pc) {
+    char chunk[4096];
+    DWORD n;
+    for (;;) {
+        if (!ReadFile(pc->h, chunk, sizeof(chunk), &n, NULL) || n == 0) {
+            break;  // EOF reports ERROR_BROKEN_PIPE
+        }
+        if (pc->len + n + 1 > pc->cap) {
+            size_t new_cap = pc->cap * 2;
+            while (new_cap < pc->len + n + 1) {
+                new_cap *= 2;
+            }
+            char *grown = realloc(pc->buf, new_cap);
+            if (!grown) {
+                pc->oom = 1;
+                break;
+            }
+            pc->buf = grown;
+            pc->cap = new_cap;
+        }
+        memcpy(pc->buf + pc->len, chunk, n);
+        pc->len += n;
+    }
+    CloseHandle(pc->h);
+    if (pc->buf) {
+        pc->buf[pc->len] = '\0';
+    }
+}
+
+static void *hml_pipe_capture_thread(void *arg) {
+    hml_pipe_capture_read((HmlPipeCapture *)arg);
+    return NULL;
+}
+
+typedef struct {
+    HANDLE h;
+    const char *data;
+    size_t len;
+} HmlPipeFeed;
+
+static void *hml_pipe_feed_thread(void *arg) {
+    HmlPipeFeed *f = (HmlPipeFeed *)arg;
+    size_t off = 0;
+    while (off < f->len) {
+        DWORD chunk = (f->len - off > (1u << 20)) ? (1u << 20) : (DWORD)(f->len - off);
+        DWORD written = 0;
+        if (!WriteFile(f->h, f->data + off, chunk, &written, NULL) || written == 0) {
+            break;  // child closed its stdin early
+        }
+        off += written;
+    }
+    CloseHandle(f->h);
+    return NULL;
+}
+
+int hml_win32_run_capture(const char *cmdline,
+                          const char *stdin_data, size_t stdin_len,
+                          int capture_stderr,
+                          char **out_buf, size_t *out_len,
+                          char **err_buf, size_t *err_len,
+                          int *exit_code,
+                          char *errmsg, size_t errmsg_cap) {
+    *out_buf = NULL;
+    *out_len = 0;
+    if (err_buf) {
+        *err_buf = NULL;
+    }
+    if (err_len) {
+        *err_len = 0;
+    }
+
+    SECURITY_ATTRIBUTES sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+
+    HANDLE out_r = NULL, out_w = NULL;
+    HANDLE err_r = NULL, err_w = NULL;
+    HANDLE in_r = NULL, in_w = NULL;
+
+    if (!CreatePipe(&out_r, &out_w, &sa, 0)
+        || (capture_stderr && !CreatePipe(&err_r, &err_w, &sa, 0))
+        || (stdin_data && !CreatePipe(&in_r, &in_w, &sa, 0))) {
+        snprintf(errmsg, errmsg_cap, "pipe creation failed (error %lu)",
+                 (unsigned long)GetLastError());
+        if (out_r) { CloseHandle(out_r); CloseHandle(out_w); }
+        if (err_r) { CloseHandle(err_r); CloseHandle(err_w); }
+        if (in_r)  { CloseHandle(in_r);  CloseHandle(in_w); }
+        return -1;
+    }
+    // Parent-side ends must not leak into the child
+    SetHandleInformation(out_r, HANDLE_FLAG_INHERIT, 0);
+    if (err_r) {
+        SetHandleInformation(err_r, HANDLE_FLAG_INHERIT, 0);
+    }
+    if (in_w) {
+        SetHandleInformation(in_w, HANDLE_FLAG_INHERIT, 0);
+    }
+
+    STARTUPINFOA si;
+    memset(&si, 0, sizeof(si));
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = out_w;
+    si.hStdError = capture_stderr ? err_w : GetStdHandle(STD_ERROR_HANDLE);
+    si.hStdInput = stdin_data ? in_r : GetStdHandle(STD_INPUT_HANDLE);
+
+    PROCESS_INFORMATION pi;
+    memset(&pi, 0, sizeof(pi));
+
+    // CreateProcessA may modify the command-line buffer
+    char *cmd_copy = strdup(cmdline);
+    BOOL ok = cmd_copy && CreateProcessA(NULL, cmd_copy, NULL, NULL, TRUE,
+                                         0, NULL, NULL, &si, &pi);
+    DWORD create_err = GetLastError();
+    free(cmd_copy);
+
+    CloseHandle(out_w);
+    if (err_w) {
+        CloseHandle(err_w);
+    }
+    if (in_r) {
+        CloseHandle(in_r);
+    }
+
+    if (!ok) {
+        snprintf(errmsg, errmsg_cap, "CreateProcess failed (error %lu)",
+                 (unsigned long)create_err);
+        CloseHandle(out_r);
+        if (err_r) {
+            CloseHandle(err_r);
+        }
+        if (in_w) {
+            CloseHandle(in_w);
+        }
+        return -1;
+    }
+
+    // Feed stdin and drain stderr on helper threads while this thread
+    // drains stdout — reading the pipes sequentially can deadlock once
+    // the child fills one of them.
+    HmlPipeFeed feed = { in_w, stdin_data, stdin_len };
+    pthread_t feed_thread, err_thread;
+    int have_feed_thread = 0, have_err_thread = 0;
+    if (in_w) {
+        if (pthread_create(&feed_thread, NULL, hml_pipe_feed_thread, &feed) == 0) {
+            have_feed_thread = 1;
+        } else {
+            CloseHandle(in_w);
+        }
+    }
+
+    HmlPipeCapture errcap = { err_r, NULL, 0, 4096, 0 };
+    if (err_r) {
+        errcap.buf = malloc(errcap.cap);
+        if (errcap.buf) {
+            errcap.buf[0] = '\0';
+        }
+        if (errcap.buf
+            && pthread_create(&err_thread, NULL, hml_pipe_capture_thread, &errcap) == 0) {
+            have_err_thread = 1;
+        } else {
+            if (!errcap.buf) {
+                errcap.oom = 1;
+            }
+            CloseHandle(err_r);
+        }
+    }
+
+    HmlPipeCapture outcap = { out_r, malloc(4096), 0, 4096, 0 };
+    if (outcap.buf) {
+        outcap.buf[0] = '\0';
+        hml_pipe_capture_read(&outcap);
+    } else {
+        outcap.oom = 1;
+        CloseHandle(out_r);
+    }
+
+    if (have_err_thread) {
+        pthread_join(err_thread, NULL);
+    }
+    if (have_feed_thread) {
+        pthread_join(feed_thread, NULL);
+    }
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 0;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    if (outcap.oom || errcap.oom) {
+        free(outcap.buf);
+        free(errcap.buf);
+        snprintf(errmsg, errmsg_cap, "out of memory capturing output");
+        return -1;
+    }
+
+    *out_buf = outcap.buf;
+    *out_len = outcap.len;
+    if (capture_stderr) {
+        *err_buf = errcap.buf;
+        *err_len = errcap.len;
+    }
+    *exit_code = (int)code;
+    return 0;
+}
+
 // ---- One-time platform initialization ----
 
 void hml_platform_init(void) {

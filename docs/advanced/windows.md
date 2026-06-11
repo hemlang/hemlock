@@ -73,6 +73,11 @@ artifacts and never touches a native build in the same checkout.
   `__random_bytes` CSPRNG are backed by Windows CNG (`bcrypt.dll`)
   instead of OpenSSL, so hashing, `@stdlib/uuid`, and secure random
   generation need no extra libraries.
+- `exec()`/`exec_argv()` run on CreateProcess + pipes: argv vectors are
+  quoted with the `CommandLineToArgvW` rules so arguments round-trip
+  intact, and shell commands go through `%COMSPEC% /S /C` — so shell
+  snippets must be written for cmd.exe on Windows (`dir`, `2>nul`, …),
+  exactly as they must be written for `/bin/sh` on POSIX.
 - AF_UNIX sockets use Windows 10's native support (`afunix.h`).
 - File I/O defaults to binary mode (no CRLF translation) to keep byte
   counts and written data identical across platforms.
@@ -83,7 +88,7 @@ Calling any of these throws a runtime error on Windows:
 
 | Area | Detail |
 |------|--------|
-| Process model | `fork()`, `exec()`, `exec_argv()`, `posix_spawn()`, `wait()`/`waitpid()`, `kill()`, `getuid()`-family — Windows has no fork/exec or POSIX uids. `get_pid()`, `pipe()`, fd I/O, and `system`-style invocation via the compiler driver still work. |
+| Process model (partial) | `fork()`, `posix_spawn()`, `wait()`/`waitpid()`, `kill()`, `getppid()`, `getuid()`-family — Windows has no fork or POSIX uids. **Not** affected: `exec()` and `exec_argv()` work (CreateProcess-backed — shell mode runs through `cmd.exe /S /C` the way popen runs through `/bin/sh`; argv mode runs the program directly with stdout/stderr captured and `stdin:` feeding), so `@stdlib/shell`'s `run()`/`run_capture()` work with Windows commands. `get_pid()` and `pipe()` also work. |
 | FFI without libffi | FFI is **fully supported** when the MinGW toolchain has libffi (auto-detected, see below); only without it do `extern fn`, `ffi_open`, and callbacks throw (`HEMLOCK_NO_FFI`). |
 | Crypto (partial) | Only the ECDSA builtins and `@stdlib/crypto`'s OpenSSL-bound functions (AES, RSA — the module's `import "libcrypto.so.3"` cannot load) throw. **Not** affected: the hash builtins (`sha1`/`sha256`/`sha512`/`md5`, and `@stdlib/hash`), `__random_bytes` (and `@stdlib/uuid`) — all backed by Windows CNG (`bcrypt.dll`, a system DLL) in both backends. |
 | Regex | MinGW has no POSIX `<regex.h>`; `@stdlib/regex` throws. |
@@ -107,8 +112,11 @@ Smaller quirks worth knowing:
 Everything else — the language core, async/channels/atomics, buffers and
 manual memory, TCP/UDP/Unix sockets, DNS, file and directory I/O, mmap,
 zlib compression, cryptographic hashing and secure random (CNG-backed,
-including `@stdlib/uuid`), JSON/CSV/TOML/YAML, math, strings — works on
-Windows.
+including `@stdlib/uuid`), command execution (`exec()`/`exec_argv()` and
+`@stdlib/shell`'s `run`/`run_capture`), JSON/CSV/TOML/YAML, math,
+strings — works on Windows. Note that `@stdlib/shell`'s Unix-command
+conveniences (`ls()`, `which()`, `pwd()`, …) shell out to POSIX tools
+and stay Unix-only.
 
 ## FFI on Windows (raylib games, native bindings)
 
