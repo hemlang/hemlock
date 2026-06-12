@@ -13,6 +13,42 @@
 char* codegen_expr(CodegenContext *ctx, Expr *expr);
 
 /*
+ * Detect a top-level (main file) name that is present in the locals list only
+ * because it leaked in from the enclosing main scope when generating a closure
+ * body. Closures are emitted after the main function body, which leaves its
+ * locals in the array, so those names appear "local" inside main-file closures
+ * even though they are not declared as C variables in the generated closure
+ * function.
+ *
+ * Such a leaked name must resolve to its `_main_`-prefixed static global, not a
+ * bare C identifier. A name is a leaked main local when, inside a closure, it is
+ * a main variable that is NOT a genuine local of this closure: not a parameter,
+ * not one of the closure's captured variables, and not declared in the body
+ * (its most recent locals entry sits below locals_body_start, i.e. in the
+ * params/captures/leaked region rather than the body region).
+ */
+static int codegen_is_leaked_main_local(CodegenContext *ctx, const char *name) {
+    if (!ctx->current_closure) return 0;
+    if (!codegen_is_main_var(ctx, name)) return 0;
+    if (codegen_is_func_param(ctx, name)) return 0;
+
+    // Most recent declaration wins (matches C shadowing). If the latest entry is
+    // a body-local, this is a genuine local that shadows the leaked name.
+    int last = -1;
+    for (int i = 0; i < ctx->num_locals; i++) {
+        if (strcmp(ctx->local_vars[i], name) == 0) last = i;
+    }
+    if (last < 0 || last >= ctx->locals_body_start) return 0;
+
+    // Below locals_body_start: a captured variable is genuinely declared (read
+    // from the closure environment), so it should keep its bare name.
+    for (int i = 0; i < ctx->current_closure->num_captured; i++) {
+        if (strcmp(ctx->current_closure->captured_vars[i], name) == 0) return 0;
+    }
+    return 1;
+}
+
+/*
  * Handle EXPR_IDENT - generates code for identifier expressions.
  * This includes:
  * - Signal constants (SIGINT, SIGTERM, etc.)
@@ -736,6 +772,10 @@ handle_variable:
             char *safe_ident = codegen_sanitize_ident(expr->as.ident.name);
             codegen_writeln(ctx, "HmlValue %s = %s;", result, safe_ident);
             free(safe_ident);
+        } else if (codegen_is_leaked_main_local(ctx, expr->as.ident.name)) {
+            // Top-level name that only leaked into this closure's locals from the
+            // main scope - resolve to its static global, not a bare identifier.
+            codegen_writeln(ctx, "HmlValue %s = _main_%s;", result, expr->as.ident.name);
         } else if (codegen_is_local(ctx, expr->as.ident.name)) {
             // Local variable - locals always shadow main vars and module exports
             if (ctx->in_function) {
