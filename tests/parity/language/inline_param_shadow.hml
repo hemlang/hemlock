@@ -1,0 +1,27 @@
+// Regression: an inlinable single-return function whose parameter name
+// matches a top-level variable used to (a) emit a spurious compiler
+// warning "variable 'x' shadows variable declared at line 0" during the
+// codegen inlining pass, and (b) report function parameters as declared
+// at "line 0" in genuine shadow warnings. The parameter binding created
+// while inlining is an artefact of the transformation, not real source
+// shadowing, so it must not warn -- and inlining must still compute the
+// correct result. Fixed by suppressing shadow warnings on the codegen
+// inline-bind path and giving function expressions a real source line.
+
+fn dbl(x: i32): i32 => x + x;
+
+fn add1(n: i32): i32 => n + 1;
+
+let x = 5;
+print(dbl(x));        // 10 (param x shadows outer x during inlining)
+
+let n = 7;
+print(add1(n));       // 8
+
+// Nested: inlined call whose argument also references the shadowed name
+let total = 0;
+for (let i = 0; i < 4; i++) {
+    total = total + dbl(i);
+}
+print(total);         // 2*(0+1+2+3) = 12
+print("done");

@@ -194,7 +194,7 @@ void type_check_pop_scope(TypeCheckContext *ctx) {
 void type_check_bind(TypeCheckContext *ctx, const char *name, CheckedType *type,
                      int is_const, int is_param, int line) {
     // Check for variable shadowing in parent scopes
-    if (ctx->current_env->parent) {
+    if (!ctx->suppress_shadow_warnings && ctx->current_env->parent) {
         for (TypeCheckEnv *env = ctx->current_env->parent; env; env = env->parent) {
             for (TypeCheckBinding *b = env->bindings; b; b = b->next) {
                 if (strcmp(b->name, name) == 0) {

@@ -846,6 +846,8 @@ static Stmt* export_statement(Parser *p) {
         return stmt_expr(expr_number(0));
     }
 
+    int fn_start_line = p->previous.line;
+
     // Must be a named function - contextual keywords can be used as function names
     char *name = consume_identifier_or_type_keyword(p, "Expect function name after 'export fn'");
 
@@ -977,6 +979,7 @@ static Stmt* export_statement(Parser *p) {
 
     // Create function expression
     Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
+    fn_expr->line = fn_start_line;
 
     // Create let statement
     Stmt *decl = stmt_let_typed(name, NULL, fn_expr);
@@ -1810,6 +1813,7 @@ static Stmt* statement_inner(Parser *p) {
 
         // Create function expression (with is_async flag)
         Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
+        fn_expr->line = stmt_start_line;
 
         // Desugar to let statement
         Stmt *stmt = stmt_let_typed(name, NULL, fn_expr);

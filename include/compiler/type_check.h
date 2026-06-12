@@ -206,6 +206,7 @@ typedef struct {
     TypeCheckError *errors_tail; // Tail pointer for O(1) append
     const char *source;         // Source code (for column calculation)
     int collect_errors;         // If true, collect errors instead of printing
+    int suppress_shadow_warnings; // If true, skip shadow warnings (e.g. during codegen inlining)
 } TypeCheckContext;
 
 // ========== CONTEXT MANAGEMENT ==========
