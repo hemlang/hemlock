@@ -1,0 +1,41 @@
+// Regression test: a top-level (module-level) function referenced as an
+// object-literal field value, where the object escapes the function that
+// builds it.
+//
+// Previously the compiler treated the top-level name as a bare C local that
+// leaked in from the main scope, so the generated C referenced an undeclared
+// identifier (e.g. `foo`) instead of its `_main_`-prefixed static global.
+// The interpreter always handled this; this test locks in parity.
+
+fn foo(x) { return x + 1; }
+
+// Built and returned from a non-main function (object escapes via return).
+fn make(): object { return { run: foo }; }
+
+// Two module-level functions stored in the same escaping object.
+fn dbl(x) { return x * 2; }
+fn neg(x) { return 0 - x; }
+fn make_ops(): object { return { dbl: dbl, neg: neg }; }
+
+// Nested: the escaping object is built inside a helper called by another helper.
+fn wrap(): object { return make(); }
+
+fn main(): null {
+    let o = make();
+    print(o.run(2));        // 3
+
+    let ops = make_ops();
+    print(ops.dbl(5));      // 10
+    print(ops.neg(7));      // -7
+
+    let w = wrap();
+    print(w.run(41));       // 42
+
+    // Same literal built inline in main() (always worked) - confirm parity.
+    let inline = { run: foo };
+    print(inline.run(99));  // 100
+
+    return null;
+}
+
+main();
