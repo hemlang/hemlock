@@ -1,0 +1,7 @@
+// CONTRACT: Assigning an out-of-range literal to a typed variable is an
+// error in BOTH backends (interpreter: runtime; compiler: compile or run
+// time). The program must never run to completion.
+
+let x: u8 = 300;
+print(x);
+print("unreachable");

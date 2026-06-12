@@ -1,0 +1,21 @@
+// CONTRACT: Literal type inference (docs/language-guide/types.md, CLAUDE.md)
+// Integer literals infer i32; literals beyond i32 range infer i64.
+// Float literals always infer f64. These rules are load-bearing for user
+// programs and must never change silently.
+
+print(typeof(42));
+print(typeof(0));
+print(typeof(2147483647));     // i32 max stays i32
+print(typeof(2147483648));     // one past i32 max promotes to i64
+print(typeof(5000000000));
+print(typeof(3.14));
+print(typeof(.5));             // no leading zero still f64
+print(typeof(1_000_000));      // numeric separators don't change inference
+print(typeof(0b1010));
+print(typeof(0o777));
+print(typeof(true));
+print(typeof("hello"));
+print(typeof('A'));
+print(typeof([1, 2, 3]));
+print(typeof({ x: 10 }));
+print(typeof(null));

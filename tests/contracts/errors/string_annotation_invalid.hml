@@ -1,0 +1,7 @@
+// CONTRACT: Type annotations never parse strings (CLAUDE.md).
+// `let n: i32 = "42";` must be rejected by BOTH backends — string parsing
+// requires the explicit i32("42") form.
+
+let n: i32 = "42";
+print(n);
+print("unreachable");

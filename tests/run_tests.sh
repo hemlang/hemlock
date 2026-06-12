@@ -109,8 +109,8 @@ format_time() {
 echo -e "${BLUE}Running tests...${NC}"
 echo ""
 
-# Find all test files (excluding compiler, parity, and formatter directories which have their own test runners)
-TEST_FILES=$(find "$TEST_DIR" -name "*.hml" -not -path "*/compiler/*" -not -path "*/parity/*" -not -path "*/formatter/*" | sort)
+# Find all test files (excluding compiler, parity, contracts, and formatter directories which have their own test runners)
+TEST_FILES=$(find "$TEST_DIR" -name "*.hml" -not -path "*/compiler/*" -not -path "*/parity/*" -not -path "*/contracts/*" -not -path "*/formatter/*" | sort)
 
 CURRENT_CATEGORY=""
 for test_file in $TEST_FILES; do

@@ -1,0 +1,20 @@
+// CONTRACT: String indexing is codepoint-based (CLAUDE.md, docs/language-guide/strings.md)
+// .length counts runes, .byte_length counts bytes, and find/rfind return
+// codepoint indexes that compose with substr/slice/char_at.
+
+let s = "héllo🙂";
+
+print(s.length);        // 6 runes
+print(s.byte_length);   // 10 bytes (h=1, é=2, l=1, l=1, o=1, emoji=4)
+
+print(s.find("l"));
+print(s.rfind("l"));
+print(s.char_at(1));
+print(s.char_at(5));
+
+// find result composes with substr/slice
+print(s.substr(s.find("l")));   // one-arg substr takes everything to the end
+print(s.slice(1, 3));
+
+// Byte-oriented access is separate and explicit
+print(s.byte_at(0));

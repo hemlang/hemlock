@@ -1,0 +1,27 @@
+// CONTRACT: Catchable runtime errors and their message text.
+// User code matches on these substrings (e.g. e.contains("Division by zero")),
+// so they are public API. Location prefixes ([file:line]) are NOT part of the
+// contract — assert on the stable substring, never the full formatted message.
+
+try {
+    let a = 10 % 0;
+    print(a);
+} catch (e) {
+    print(e.contains("Division by zero"));
+}
+
+try {
+    let n = i32("not a number");
+    print(n);
+} catch (e) {
+    print(e.contains("Cannot parse 'not a number' as number"));
+}
+
+try {
+    let arr = [1, 2, 3];
+    print(arr[10]);
+} catch (e) {
+    print(e.contains("Array index 10 out of bounds (length 3)"));
+}
+
+print("still running");

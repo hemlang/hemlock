@@ -33,6 +33,7 @@ Tests are organized by feature area and subsystem. Common top-level groups inclu
 - **Language semantics** - arithmetic, arrays, async, bitwise operators, control flow, conversions, enums, error handling, exceptions, functions, interpolation, loops, objects, optional chaining, pointers, primitives, and strings.
 - **Runtime and systems features** - buffers, circular references, defer, exec, FFI, file I/O, memory, networking, signals, and command-line args.
 - **Compiler and tooling** - compiler checks, interpreter/compiler parity tests, formatter tests, LSP tests, bundler tests, and AST serialization.
+- **Contract tests** - `tests/contracts/` pins documented language guarantees (type promotion, literal inference, error messages, evaluation semantics) on both backends. Run with `make test-contracts`; see `docs/contributing/contract-testing.md`.
 - **Standard library modules** - `tests/stdlib_<module>/` directories mirror `stdlib/<module>.hml` where practical.
 - **Regression and manual tests** - focused reproductions for bugs and opt-in tests that require special environment setup.
 

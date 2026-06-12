@@ -1,0 +1,25 @@
+// CONTRACT: Bracket notation key coercion (CLAUDE.md, docs/language-guide/objects.md)
+// Non-string keys (integers, bools, runes) coerce to their string form, so
+// map[42] and map["42"] address the same field. has()/delete() follow the
+// same coercion.
+
+let map = {};
+map[42] = "value";
+map[true] = "yes";
+map['A'] = "alpha";
+
+print(map[42]);
+print(map["42"]);          // same field as map[42]
+print(map[true]);
+print(map["true"]);
+print(map['A']);
+print(map["A"]);
+
+print(map.has(42));
+print(map.has("42"));
+map.delete(42);
+print(map.has("42"));
+
+let keys = map.keys();
+keys.sort();
+print(keys.join(","));

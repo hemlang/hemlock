@@ -1,0 +1,26 @@
+// CONTRACT: switch has C-style fall-through (CLAUDE.md, docs/language-guide/control-flow.md)
+// A case without break falls into the next case. This is intentional and
+// must not be "fixed" into implicit break.
+
+fn classify(x: i32) {
+    switch (x) {
+        case 1:
+            print("one");
+        case 2:
+            print("two");
+            break;
+        case 3:
+            print("three");
+            break;
+        default:
+            print("default");
+    }
+}
+
+classify(1);    // falls through: one, two
+print("--");
+classify(2);    // two
+print("--");
+classify(3);    // three
+print("--");
+classify(9);    // default
