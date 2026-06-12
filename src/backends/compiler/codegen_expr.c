@@ -34,6 +34,58 @@ static void emit_closure_env_set(CodegenContext *ctx, const char *env_name,
     }
 }
 
+/*
+ * Resolve a captured variable to its C-side source and emit the env_set.
+ *
+ * Resolution mirrors identifier reads (see codegen_expr_ident):
+ *   - module-locals / block-scoped / shadow names use the bare sanitized name
+ *     so user shadowing works,
+ *   - main-file top-level vars use the _main_ prefix,
+ *   - imported symbols reference their module-prefixed global directly, and
+ *   - everything else falls back to the bare sanitized name.
+ *
+ * The import case matters when the function that builds the closure was inlined
+ * into its caller: the non-inlined function declares a local alias for the
+ * import in its prologue (funcgen_emit_captures), but the inlined copy does not,
+ * so referencing the bare name would be undeclared in the generated C.
+ */
+static void emit_capture(CodegenContext *ctx, const char *env_name,
+                         int index, const char *var) {
+    if ((ctx->current_module && codegen_is_local(ctx, var)) ||
+        (ctx->current_scope && scope_is_defined(ctx->current_scope, var)) ||
+        codegen_is_shadow(ctx, var)) {
+        char *safe_cap = codegen_sanitize_ident(var);
+        emit_closure_env_set(ctx, env_name, index, safe_cap, var);
+        free(safe_cap);
+        return;
+    }
+    if (codegen_is_main_var(ctx, var)) {
+        char main_name[CODEGEN_MANGLED_NAME_SIZE];
+        snprintf(main_name, sizeof(main_name), "_main_%s", var);
+        emit_closure_env_set(ctx, env_name, index, main_name, var);
+        return;
+    }
+    // Imported symbols resolve to their module-prefixed global (matching how
+    // identifier reads resolve imports in codegen_expr_ident). This reference is
+    // always valid, whereas the bare name is only declared as a local alias when
+    // the enclosing function is emitted normally; an inlined copy of that
+    // function (e.g. a helper returning a closure that captures the import) has
+    // no such alias, so the bare name would be undeclared in the generated C.
+    ImportBinding *imp = ctx->current_module
+        ? module_find_import(ctx->current_module, var)
+        : codegen_find_main_import(ctx, var);
+    if (imp) {
+        char prefixed[CODEGEN_MANGLED_NAME_SIZE];
+        snprintf(prefixed, sizeof(prefixed), "%s%s",
+                 imp->module_prefix, imp->original_name);
+        emit_closure_env_set(ctx, env_name, index, prefixed, var);
+        return;
+    }
+    char *safe_cap = codegen_sanitize_ident(var);
+    emit_closure_env_set(ctx, env_name, index, safe_cap, var);
+    free(safe_cap);
+}
+
 char* codegen_expr(CodegenContext *ctx, Expr *expr) {
     char *result = codegen_temp(ctx);
 
@@ -781,35 +833,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 for (int i = 0; i < captured->num_vars; i++) {
                     int shared_idx = shared_env_get_index(ctx, captured->vars[i]);
                     if (shared_idx >= 0) {
-                        // Determine which variable name to use:
-                        // Check block-scope and shadows BEFORE main vars to handle shadowing correctly
-                        // - Block-scoped vars shadow main vars - use bare name
-                        // - Shadow vars (catch params etc.) use bare name
-                        // - Main file vars are stored as _main_<name> in C
-                        // - Module-local vars are stored as <name> in C (sanitized)
-                        if (ctx->current_module && codegen_is_local(ctx, captured->vars[i])) {
-                            char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                            emit_closure_env_set(ctx, ctx->shared_env_name, shared_idx, safe_cap, captured->vars[i]);
-                            free(safe_cap);
-                        } else if (ctx->current_scope && scope_is_defined(ctx->current_scope, captured->vars[i])) {
-                            // Block-local variable shadows any main var with the same name
-                            char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                            emit_closure_env_set(ctx, ctx->shared_env_name, shared_idx, safe_cap, captured->vars[i]);
-                            free(safe_cap);
-                        } else if (codegen_is_shadow(ctx, captured->vars[i])) {
-                            // Shadow variable (catch param etc.) - use bare name
-                            char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                            emit_closure_env_set(ctx, ctx->shared_env_name, shared_idx, safe_cap, captured->vars[i]);
-                            free(safe_cap);
-                        } else if (codegen_is_main_var(ctx, captured->vars[i])) {
-                            char main_name[256];
-                            snprintf(main_name, sizeof(main_name), "_main_%s", captured->vars[i]);
-                            emit_closure_env_set(ctx, ctx->shared_env_name, shared_idx, main_name, captured->vars[i]);
-                        } else {
-                            char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                            emit_closure_env_set(ctx, ctx->shared_env_name, shared_idx, safe_cap, captured->vars[i]);
-                            free(safe_cap);
-                        }
+                        emit_capture(ctx, ctx->shared_env_name, shared_idx, captured->vars[i]);
                     }
                 }
                 int num_required = count_required_params(expr->as.function.param_defaults, expr->as.function.num_params);
@@ -867,37 +891,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlClosureEnv *_env_%d = hml_closure_env_new(%d);",
                               env_id, captured->num_vars);
                 for (int i = 0; i < captured->num_vars; i++) {
-                    // Determine which variable name to use:
-                    // - Block-scoped vars shadow main vars - use bare name
-                    // - Shadow vars (catch params etc.) use bare name
-                    // - Main file vars are stored as _main_<name> in C
-                    // - Module-local vars are stored as sanitized name in C
-                    // Check block-scope and shadows BEFORE main vars to handle shadowing correctly
                     char env_name_buf[64];
                     snprintf(env_name_buf, sizeof(env_name_buf), "_env_%d", env_id);
-                    if (ctx->current_module && codegen_is_local(ctx, captured->vars[i])) {
-                        char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                        emit_closure_env_set(ctx, env_name_buf, i, safe_cap, captured->vars[i]);
-                        free(safe_cap);
-                    } else if (ctx->current_scope && scope_is_defined(ctx->current_scope, captured->vars[i])) {
-                        // Block-local variable shadows any main var with the same name
-                        char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                        emit_closure_env_set(ctx, env_name_buf, i, safe_cap, captured->vars[i]);
-                        free(safe_cap);
-                    } else if (codegen_is_shadow(ctx, captured->vars[i])) {
-                        // Shadow variable (catch param etc.) - use bare name
-                        char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                        emit_closure_env_set(ctx, env_name_buf, i, safe_cap, captured->vars[i]);
-                        free(safe_cap);
-                    } else if (codegen_is_main_var(ctx, captured->vars[i])) {
-                        char main_name[256];
-                        snprintf(main_name, sizeof(main_name), "_main_%s", captured->vars[i]);
-                        emit_closure_env_set(ctx, env_name_buf, i, main_name, captured->vars[i]);
-                    } else {
-                        char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                        emit_closure_env_set(ctx, env_name_buf, i, safe_cap, captured->vars[i]);
-                        free(safe_cap);
-                    }
+                    emit_capture(ctx, env_name_buf, i, captured->vars[i]);
                 }
                 int num_required = count_required_params(expr->as.function.param_defaults, expr->as.function.num_params);
                 int has_rest = expr->as.function.rest_param ? 1 : 0;
