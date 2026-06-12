@@ -3031,10 +3031,15 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                     if (ctx->type_ctx) {
                         CheckedType *arg_type = type_check_infer_expr(ctx->type_ctx, expr->as.call.args[i]);
                         if (arg_type && arg_type->kind != CHECKED_UNKNOWN && arg_type->kind != CHECKED_ANY) {
-                            // Bind parameter name to inferred type (is_const=0, is_param=1, line=0)
+                            // Bind parameter name to inferred type (is_const=0, is_param=1).
                             // is_param=1 prevents unboxing optimization from treating
-                            // inlined params as native C types (they are HmlValue)
-                            type_check_bind(ctx->type_ctx, func_ast->as.function.param_names[i], arg_type, 0, 1, 0);
+                            // inlined params as native C types (they are HmlValue).
+                            // Suppress shadow warnings: this binding is an artifact of the
+                            // inlining transformation, not real shadowing in the user's source.
+                            int saved_suppress = ctx->type_ctx->suppress_shadow_warnings;
+                            ctx->type_ctx->suppress_shadow_warnings = 1;
+                            type_check_bind(ctx->type_ctx, func_ast->as.function.param_names[i], arg_type, 0, 1, func_ast->line);
+                            ctx->type_ctx->suppress_shadow_warnings = saved_suppress;
                         }
                     }
 

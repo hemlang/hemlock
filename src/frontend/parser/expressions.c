@@ -23,6 +23,7 @@ Expr* postfix(Parser *p);
 // been consumed: (params) [: type] { body }  or  (params) [: type] => expr
 // Shared by fn/async fn expressions and object-literal method shorthand.
 static Expr* fn_expression_rest(Parser *p, int is_async_fn) {
+    int fn_start_line = p->previous.line;  // the 'fn' keyword just consumed
     consume(p, TOK_LPAREN, "Expect '(' after 'fn'");
 
     // Parse parameters - start with small capacity and grow as needed
@@ -164,7 +165,9 @@ static Expr* fn_expression_rest(Parser *p, int is_async_fn) {
         body = block_statement(p);
     }
 
-    return expr_function(is_async_fn, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
+    Expr *fn_expr = expr_function(is_async_fn, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
+    fn_expr->line = fn_start_line;
+    return fn_expr;
 }
 
 Expr* primary(Parser *p);
