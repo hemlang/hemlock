@@ -1777,7 +1777,21 @@ void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *clos
         // locals, so it must hold their values before any read.
         for (int i = 0; i < ctx->shared_env_num_vars; i++) {
             const char *var = ctx->shared_env_vars[i];
-            if (codegen_is_local(ctx, var) && !codegen_is_main_var(ctx, var) &&
+            // Imported symbols have no in-scope C local to seed from in a nested
+            // or inlined closure function: codegen_is_local can report true for
+            // an enclosing scope's binding, but that binding is not a C variable
+            // in this separately-emitted function. Seed from the module-prefixed
+            // global instead, which is always a valid reference.
+            ImportBinding *imp = ctx->current_module
+                ? module_find_import(ctx->current_module, var)
+                : codegen_find_main_import(ctx, var);
+            if (imp) {
+                char prefixed[CODEGEN_MANGLED_NAME_SIZE];
+                snprintf(prefixed, sizeof(prefixed), "%s%s",
+                         imp->module_prefix, imp->original_name);
+                codegen_writeln(ctx, "hml_closure_env_set(%s, %d, %s);",
+                              env_name, i, prefixed);
+            } else if (codegen_is_local(ctx, var) && !codegen_is_main_var(ctx, var) &&
                 !codegen_is_ref_param(ctx, var)) {
                 char *safe_var = codegen_sanitize_ident(var);
                 codegen_writeln(ctx, "hml_closure_env_set(%s, %d, %s);",
