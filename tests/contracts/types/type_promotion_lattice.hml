@@ -1,0 +1,38 @@
+// CONTRACT: Type promotion lattice (CLAUDE.md, docs/language-guide/types.md)
+// i8 -> u8 -> i16 -> u16 -> i32 -> u32 -> i64 -> u64 -> f32 -> f64
+// Floats always win, but i64/u64 + f32 promote to f64 to preserve precision.
+
+let v_i8: i8 = 1;
+let v_u8: u8 = 1;
+let v_i16: i16 = 1;
+let v_u16: u16 = 1;
+let v_i32: i32 = 1;
+let v_u32: u32 = 1;
+let v_i64: i64 = 1;
+let v_u64: u64 = 1;
+let v_f32: f32 = 1.0;
+let v_f64: f64 = 1.0;
+
+// Adjacent steps in the lattice
+print(typeof(v_i8 + v_u8));
+print(typeof(v_u8 + v_i16));
+print(typeof(v_i16 + v_u16));
+print(typeof(v_u16 + v_i32));
+print(typeof(v_i32 + v_u32));
+print(typeof(v_u32 + v_i64));
+print(typeof(v_i64 + v_u64));
+
+// Same-type operations keep the type
+print(typeof(v_i8 + v_i8));
+print(typeof(v_u64 + v_u64));
+print(typeof(v_f32 + v_f32));
+
+// Floats always win over integers
+print(typeof(v_i8 + v_f32));
+print(typeof(v_i32 + v_f32));
+print(typeof(v_i32 + v_f64));
+print(typeof(v_f32 + v_f64));
+
+// Precision-preservation exception: 64-bit ints + f32 -> f64
+print(typeof(v_i64 + v_f32));
+print(typeof(v_u64 + v_f32));

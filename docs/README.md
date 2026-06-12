@@ -68,6 +68,7 @@ Welcome to the Hemlock programming language documentation!
 ### Contributing
 - [Contributing Guidelines](contributing/guidelines.md) - How to contribute
 - [Testing Guide](contributing/testing.md) - Writing and running tests, including documentation checks
+- [Contract Testing Guide](contributing/contract-testing.md) - Pinning documented language/stdlib guarantees on both backends
 
 ### Plans & Proposals
 - [HemlockScript WASM](plans/hemlockscript-wasm.md) - WebAssembly compilation plans

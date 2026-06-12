@@ -1,0 +1,10 @@
+// CONTRACT: panic() is NOT catchable (CLAUDE.md, docs/language-guide/error-handling.md)
+// Unlike throw, panic exits immediately even inside try/catch. If this test
+// ever exits 0, the panic/throw distinction has been broken.
+
+try {
+    panic("unrecoverable");
+} catch (e) {
+    print("caught - CONTRACT VIOLATION");
+}
+print("unreachable");

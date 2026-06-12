@@ -1,0 +1,18 @@
+// CONTRACT: String mutability (CLAUDE.md, docs/language-guide/strings.md)
+// Strings are mutable via index assignment, but ALL string methods return
+// new strings and never modify the receiver.
+
+let s = "hello";
+s[0] = 'H';
+print(s);
+
+let up = s.to_upper();
+print(up);
+print(s);               // receiver unchanged by method call
+
+let r = s.replace("H", "J");
+print(r);
+print(s);               // still unchanged
+
+let t = "  pad  ".trim();
+print(t);

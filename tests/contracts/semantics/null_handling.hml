@@ -1,0 +1,19 @@
+// CONTRACT: Null coalescing and safe navigation (CLAUDE.md,
+// docs/language-guide/null-handling.md)
+// ?? substitutes only for null; ?. short-circuits to null without erroring.
+
+let user = { name: null, age: 0 };
+print(user.name ?? "Anonymous");
+print(user.age ?? 99);          // 0 is not null, so ?? keeps it
+
+let config = null;
+config ??= 30;
+print(config);
+config ??= 60;                  // already non-null: no-op
+print(config);
+
+let nested = { a: { b: 42 } };
+print(nested?.a?.b);
+
+let nothing = null;
+print(nothing?.a?.b);           // whole chain short-circuits to null

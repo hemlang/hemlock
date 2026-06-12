@@ -871,6 +871,11 @@ parity: $(TARGET) compiler stdlib
 parity-full: $(TARGET) compiler stdlib
 	@bash tests/run_full_parity.sh
 
+# Run contract test suite (documented behavior pinned on both backends)
+.PHONY: test-contracts
+test-contracts: $(TARGET) compiler stdlib
+	@bash tests/contracts/run_contract_tests.sh
+
 # Run bundler test suite
 .PHONY: test-bundler
 test-bundler: $(TARGET)
@@ -888,7 +893,7 @@ test-memory: compiler
 
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler parity test-bundler test-lsp test-memory test-formatter test-cli
+test-all: test test-compiler parity test-contracts test-bundler test-lsp test-memory test-formatter test-cli
 
 # ========== RELEASE BUILD ==========
 

@@ -100,6 +100,7 @@ The suite is organized by feature area and subsystem rather than by one fixed, e
 - `tests/<language-feature>/` for language semantics such as arithmetic, arrays, async, bitwise operators, control flow, conversions, enums, functions, loops, objects, optional chaining, pointers, primitives, strings, and error handling.
 - `tests/stdlib_<module>/` for standard library modules, mirroring `stdlib/<module>.hml` where practical.
 - `tests/parity/` for interpreter/compiler parity coverage.
+- `tests/contracts/` for contract tests that pin documented language/stdlib guarantees on both backends (see the [Contract Testing Guide](contract-testing.md)).
 - `tests/compiler/`, `tests/formatter/`, `tests/lsp/`, `tests/bundler/`, and `tests/ast_serialize/` for tooling and compiler-specific behavior.
 - `tests/memory/`, `tests/ffi/`, `tests/networking/`, `tests/signals/`, and similar directories for systems/runtime features.
 - `tests/manual/` for opt-in tests that require special environment setup.
@@ -158,6 +159,22 @@ Failed: 0
 # Run multiple categories
 ./tests/run_tests.sh tests/strings/ tests/arrays/
 ```
+
+### Run Contract Tests
+
+Contract tests verify documented guarantees (type promotion, literal
+inference, error messages, evaluation semantics) on **both** backends:
+
+```bash
+make test-contracts
+
+# Or directly, optionally filtered by substring
+bash tests/contracts/run_contract_tests.sh
+bash tests/contracts/run_contract_tests.sh promotion
+```
+
+A failing contract test means user-visible documented behavior changed — see
+the [Contract Testing Guide](contract-testing.md) before "fixing" the test.
 
 ### Run with Valgrind (Memory Leak Check)
 

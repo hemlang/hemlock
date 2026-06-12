@@ -91,7 +91,7 @@ echo "(does not check output parity)"
 echo ""
 
 # Categories to skip entirely (known incompatible or special tests)
-SKIP_CATEGORIES="compiler parity ast_serialize lsp bundler"
+SKIP_CATEGORIES="compiler parity contracts ast_serialize lsp bundler"
 
 # Tests with known compile issues (expected to fail compilation)
 # - tests for invalid syntax that should fail parsing
