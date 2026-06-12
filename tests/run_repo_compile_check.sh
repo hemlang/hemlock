@@ -97,6 +97,12 @@ should_skip() {
     if [[ "$file_name" == "tests/formatter/"* ]]; then
         return 0
     fi
+    # Contract tests have their own dual-backend runner (make test-contracts)
+    # that compiles every test; rejection contracts are intentionally
+    # uncompilable, so checking them here would double-report by design.
+    if [[ "$file_name" == "tests/contracts/"* ]]; then
+        return 0
+    fi
     # Stdlib files with type checker strictness issues (null handling)
     # These need more careful review for nullable type annotations
     case "$file_name" in
