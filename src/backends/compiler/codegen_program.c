@@ -56,12 +56,34 @@ static void codegen_emit_function_attributes(CodegenContext *ctx, Annotation **a
         }
     }
 
-    // Handle @section(name) - place function in custom ELF section
+    // Handle @section(name) - place function in a custom linker section.
+    //
+    // ELF (Linux) and COFF (Windows) accept the raw section name. Mach-O
+    // (macOS) instead requires a "segment,section" pair whose section name is
+    // limited to 16 chars of [A-Za-z0-9_]; functions live in the __TEXT
+    // segment. Emit a preprocessor-guarded attribute so each toolchain gets a
+    // form it accepts (the #if resolves at preprocessing time, leaving one
+    // attribute on the function). Section placement never changes behavior, so
+    // both backends still produce identical output.
     Annotation *sec = annotation_get(annotations, annotation_count, "section");
     if (sec) {
         const char *section_name = annotation_get_string_arg(sec, NULL, NULL);
         if (section_name) {
-            codegen_write(ctx, "__attribute__((section(\"%s\"))) ", section_name);
+            // Sanitize into a Mach-O-legal section name (16 chars max).
+            char macho[17];
+            size_t j = 0;
+            for (const char *p = section_name; *p && j < sizeof(macho) - 1; p++) {
+                char c = *p;
+                int ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                         (c >= '0' && c <= '9') || c == '_';
+                macho[j++] = ok ? c : '_';
+            }
+            macho[j] = '\0';
+            codegen_write(ctx, "\n#if defined(__APPLE__)\n");
+            codegen_write(ctx, "__attribute__((section(\"__TEXT,%s\")))\n", macho);
+            codegen_write(ctx, "#else\n");
+            codegen_write(ctx, "__attribute__((section(\"%s\")))\n", section_name);
+            codegen_write(ctx, "#endif\n");
         }
     }
 }
