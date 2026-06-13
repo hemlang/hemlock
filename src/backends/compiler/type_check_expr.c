@@ -503,6 +503,31 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
                             }
                         }
                         checked_type_free(arg_type);
+
+                        // Structural validation for object literals passed to
+                        // custom-typed parameters. Without this, missing or
+                        // mistyped fields slip past compile time (type_is_assignable
+                        // treats any object literal as assignable to a custom type)
+                        // and only blow up at runtime - and the two backends diverge,
+                        // since the interpreter throws "Object missing required field"
+                        // while the compiled binary silently runs. Mirrors the
+                        // let/const initializer path in type_check_stmt.c.
+                        Expr *arg_expr = expr->as.call.args[i];
+                        if (arg_expr->type == EXPR_OBJECT_LITERAL) {
+                            CheckedType *pt = sig->param_types[param_idx];
+                            if (pt->kind == CHECKED_CUSTOM && pt->type_name) {
+                                type_check_validate_object_literal(ctx, arg_expr,
+                                    pt->type_name, expr->line);
+                            } else if (pt->kind == CHECKED_COMPOUND) {
+                                for (int k = 0; k < pt->num_compound_types; k++) {
+                                    CheckedType *c = pt->compound_types[k];
+                                    if (c && c->kind == CHECKED_CUSTOM && c->type_name) {
+                                        type_check_validate_object_literal(ctx, arg_expr,
+                                            c->type_name, expr->line);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
