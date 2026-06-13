@@ -325,7 +325,7 @@ This produces two files in the `wasm/` directory:
 
 ```bash
 node -- wasm/hemlock.js -e 'print("Hello from WASM!");'
-node -- wasm/hemlock.js examples/fibonacci.hml
+node -- wasm/hemlock.js examples/01-basics/fibonacci.hml
 ```
 
 ### Running in a Browser

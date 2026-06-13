@@ -183,8 +183,8 @@ brew install libwebsockets
 ## Performance Testing
 
 For load testing or benchmarking, see the examples:
-- `examples/websocket_client_lws.hml` - Basic client
-- `examples/websocket_server_lws.hml` - Echo server with concurrent clients
+- `examples/04-projects/websocket_client_lws.hml` - Basic client
+- `examples/04-projects/websocket_server_lws.hml` - Echo server with concurrent clients
 
 ## Extending Tests
 

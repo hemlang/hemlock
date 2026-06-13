@@ -22,11 +22,15 @@ fn create_grid(): array {
 // Count live neighbors for a cell (wrapping at edges)
 fn count_neighbors(grid, x: i32, y: i32): i32 {
 	let count = 0;
+	// Scan the 3x3 block centered on (x, y): the 8 surrounding cells plus self.
 	for (let dy = -1; dy <= 1; dy = dy + 1) {
 		for (let dx = -1; dx <= 1; dx = dx + 1) {
 			if (dx == 0 && dy == 0) {
 			} else {
 				// skip self
+				// Wrap around the edges so the grid behaves like a torus.
+				// Adding WIDTH/HEIGHT before the % keeps the result positive
+				// even when x+dx is -1 (plain % on a negative would misbehave).
 				let nx = (x + dx + WIDTH) % WIDTH;
 				let ny = (y + dy + HEIGHT) % HEIGHT;
 				if (grid[ny][nx] == 1) {
@@ -39,6 +43,9 @@ fn count_neighbors(grid, x: i32, y: i32): i32 {
 }
 
 // Compute next generation
+// Every cell updates "simultaneously", so we must read from the OLD grid while
+// writing into a fresh one. Mutating in place would let already-updated cells
+// pollute the neighbor counts of cells we haven't processed yet.
 fn next_generation(grid): array {
 	let new_grid = create_grid();
 	for (let y = 0; y < HEIGHT; y = y + 1) {
