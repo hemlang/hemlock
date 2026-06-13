@@ -1,5 +1,7 @@
 // Parity test: @section annotation should not change behavior
 // @section(name) places function in custom ELF section (compiler only)
+// Skipped on Mach-O/macOS, which needs "segment,section" attribute syntax.
+// REQUIRES: elf-sections
 
 @section(".text.hot")
 fn critical_path(x: i32): i32 {

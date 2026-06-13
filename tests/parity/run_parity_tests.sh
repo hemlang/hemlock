@@ -100,6 +100,12 @@ check_requirements() {
             http)
                 if [ "$HAS_HTTP" = "0" ]; then echo "http"; return 1; fi
                 ;;
+            elf-sections)
+                # @section(name) emits __attribute__((section("name"))). That
+                # bare-name form is valid on ELF (Linux) and COFF (Windows) but
+                # not Mach-O (macOS), which requires "segment,section" syntax.
+                if [ "$(uname)" = "Darwin" ]; then echo "elf-sections"; return 1; fi
+                ;;
             *)
                 echo "$req (unknown)"; return 1
                 ;;
