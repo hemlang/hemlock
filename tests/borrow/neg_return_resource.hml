@@ -1,0 +1,4 @@
+fn make(): ptr {
+    let p = alloc(64);
+    return p;
+}

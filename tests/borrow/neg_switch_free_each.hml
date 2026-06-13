@@ -1,0 +1,7 @@
+fn main(x: i32) {
+    let p = alloc(64);
+    switch (x) {
+        case 1: free(p); break;
+        default: free(p); break;
+    }
+}

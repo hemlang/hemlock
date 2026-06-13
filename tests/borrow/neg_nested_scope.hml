@@ -1,0 +1,7 @@
+fn main() {
+    let p = alloc(64);
+    {
+        ptr_write_i32(p, 1);
+    }
+    free(p);
+}

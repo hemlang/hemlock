@@ -1,0 +1,4 @@
+fn main(c: bool) {
+    let p = alloc(64);
+    if (c) { free(p); } else { free(p); }
+}

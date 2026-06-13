@@ -1,0 +1,4 @@
+fn main() {
+    let b = buffer(256);
+    b[0] = 1;
+}

@@ -411,6 +411,40 @@ let p: Person = { name: "Alice", age: 30 };
         print("✗ Syntax Error Diagnostics FAILED - no error reported")
         tests.append(("Syntax Error Diagnostics", False))
 
+    # Test 10: Borrow checker diagnostics (use-after-free)
+    print("\n=== Test 10: Borrow Checker Diagnostics ===")
+    uaf_content = "fn main() {\n    let p = alloc(64);\n    free(p);\n    memset(p, 0, 64);\n}\n"
+    change_uaf = {
+        "jsonrpc": "2.0",
+        "method": "textDocument/didChange",
+        "params": {
+            "textDocument": {"uri": test_file_uri, "version": 3},
+            "contentChanges": [{"text": uaf_content}]
+        }
+    }
+    proc.stdin.write(make_message(change_uaf).encode())
+    proc.stdin.flush()
+
+    time.sleep(0.3)
+    responses = read_response(proc)
+    found_borrow = False
+    for r in responses:
+        if 'method' in r and r['method'] == 'textDocument/publishDiagnostics':
+            diags = r['params']['diagnostics']
+            for d in diags:
+                if 'freed' in d.get('message', ''):
+                    print(f"✓ Borrow Checker Diagnostics OK - {d['message']!r} "
+                          f"(severity={d['severity']}, line={d['range']['start']['line']})")
+                    found_borrow = True
+                    break
+            if found_borrow:
+                break
+    if found_borrow:
+        tests.append(("Borrow Checker Diagnostics", True))
+    else:
+        print("✗ Borrow Checker Diagnostics FAILED - no use-after-free reported")
+        tests.append(("Borrow Checker Diagnostics", False))
+
     # Shutdown
     print("\n=== Shutdown ===")
     shutdown = {"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": None}

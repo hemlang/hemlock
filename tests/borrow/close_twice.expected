@@ -1,0 +1,1 @@
+close_twice.hml:4: warning: double free: 'f' was already freed (line 2)

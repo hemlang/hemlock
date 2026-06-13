@@ -1,0 +1,1 @@
+leak_with_return.hml:4: warning: 'scratch' (memory) acquired here is never freed before it goes out of scope (possible leak)

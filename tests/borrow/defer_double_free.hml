@@ -1,0 +1,6 @@
+// An explicit free of a resource already scheduled via defer double-frees.
+fn main() {
+    let p = alloc(64);
+    defer free(p);
+    free(p);
+}
