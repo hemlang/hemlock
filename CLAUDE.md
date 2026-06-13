@@ -24,12 +24,12 @@ Hemlock is a **systems scripting language** with manual memory management and ex
 ### 1. Explicit Over Implicit
 - Semicolons mandatory (no ASI)
 - Manual memory management (alloc/free)
-- Type annotations optional but checked at runtime
+- Type annotations optional but checked: statically by the compiler (`hemlockc`, on by default) and at runtime by the interpreter
 
 ### 2. Dynamic by Default, Typed by Choice
 - Every value has a runtime type tag
 - Literals infer types: `42` → i32, `5000000000` → i64, `3.14` → f64
-- Optional type annotations enforce runtime checks
+- Optional type annotations are enforced by the compiler at compile time and by the interpreter at runtime
 
 ### 3. Unsafe is a Feature
 - Pointer arithmetic allowed (user's responsibility)
