@@ -618,22 +618,35 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
                         if (bound_expr && bound_expr->type == EXPR_NUMBER &&
                             !bound_expr->as.number.is_float) {
-                            // Constant bound - fully optimized loop
-                            int32_t bound = (int32_t)bound_expr->as.number.int_value;
-                            if (counter_on_left) {
-                                codegen_writeln(ctx, "while (%s %s %d) {", safe_name, op_str, bound);
+                            // Constant bound. When the literal fits in int32 we
+                            // compare directly; otherwise promote the i32 counter
+                            // to int64 so the bound isn't silently truncated. This
+                            // keeps parity with the interpreter, which promotes
+                            // both operands of the comparison.
+                            int64_t bound = bound_expr->as.number.int_value;
+                            if (bound >= INT32_MIN && bound <= INT32_MAX) {
+                                if (counter_on_left) {
+                                    codegen_writeln(ctx, "while (%s %s %d) {", safe_name, op_str, (int32_t)bound);
+                                } else {
+                                    codegen_writeln(ctx, "while (%d %s %s) {", (int32_t)bound, op_str, safe_name);
+                                }
+                            } else if (counter_on_left) {
+                                codegen_writeln(ctx, "while ((int64_t)%s %s %" PRId64 "LL) {", safe_name, op_str, bound);
                             } else {
-                                codegen_writeln(ctx, "while (%d %s %s) {", bound, op_str, safe_name);
+                                codegen_writeln(ctx, "while (%" PRId64 "LL %s (int64_t)%s) {", bound, op_str, safe_name);
                             }
                         } else if (bound_expr) {
-                            // Dynamic bound - evaluate once before loop
+                            // Dynamic bound - evaluate once before loop. Convert at
+                            // int64 width and promote the i32 counter so an i64
+                            // bound whose runtime value exceeds int32 range is not
+                            // truncated (parity with the interpreter).
                             char *bound_val = codegen_expr(ctx, bound_expr);
-                            codegen_writeln(ctx, "int32_t _bound = hml_to_i32(%s);", bound_val);
+                            codegen_writeln(ctx, "int64_t _bound = hml_to_i64(%s);", bound_val);
                             codegen_writeln(ctx, "hml_release_if_needed(&%s);", bound_val);
                             if (counter_on_left) {
-                                codegen_writeln(ctx, "while (%s %s _bound) {", safe_name, op_str);
+                                codegen_writeln(ctx, "while ((int64_t)%s %s _bound) {", safe_name, op_str);
                             } else {
-                                codegen_writeln(ctx, "while (_bound %s %s) {", op_str, safe_name);
+                                codegen_writeln(ctx, "while (_bound %s (int64_t)%s) {", op_str, safe_name);
                             }
                             free(bound_val);
                         } else {
@@ -662,9 +675,12 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 Expr *inc = stmt->as.for_loop.increment;
                 if (inc) {
                     if (inc->type == EXPR_POSTFIX_INC || inc->type == EXPR_PREFIX_INC) {
-                        codegen_writeln(ctx, "%s++;", safe_name);
+                        // Defined wraparound (via unsigned) so an overflowing i32
+                        // counter wraps like the interpreter's `i++` instead of
+                        // being undefined behavior the optimizer may exploit.
+                        codegen_writeln(ctx, "%s = (int32_t)((uint32_t)%s + 1u);", safe_name, safe_name);
                     } else if (inc->type == EXPR_POSTFIX_DEC || inc->type == EXPR_PREFIX_DEC) {
-                        codegen_writeln(ctx, "%s--;", safe_name);
+                        codegen_writeln(ctx, "%s = (int32_t)((uint32_t)%s - 1u);", safe_name, safe_name);
                     } else if (inc->type == EXPR_ASSIGN &&
                                strcmp(inc->as.assign.name, counter_name) == 0 &&
                                inc->as.assign.value->type == EXPR_BINARY) {
@@ -1883,8 +1899,13 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             char sanitized[256];
             codegen_ffi_sanitize_libname(stmt->as.import_ffi.library_path,
                                          sanitized, sizeof(sanitized));
+            // Escape the raw path before embedding it in a C string literal;
+            // Windows-style paths (backslashes) or quotes would otherwise emit
+            // malformed C (e.g. `\l`, `\f`) or break the literal entirely.
+            char *escaped_path = codegen_escape_string(stmt->as.import_ffi.library_path);
             codegen_writeln(ctx, "_ffi_lib_%s = hml_ffi_load_import(\"%s\");",
-                            sanitized, stmt->as.import_ffi.library_path);
+                            sanitized, escaped_path);
+            free(escaped_path);
             break;
         }
 

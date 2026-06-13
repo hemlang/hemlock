@@ -419,6 +419,9 @@ void codegen_push_loop_body(CodegenContext *ctx);
 // Pop the loop body locals start (call after loop ends)
 void codegen_pop_loop_body(CodegenContext *ctx);
 
+// Emit hml_release for locals in the half-open index range [start, end).
+void codegen_release_locals_range(CodegenContext *ctx, int start, int end);
+
 // Emit cleanup for block-scoped locals before break/continue
 void codegen_emit_break_cleanup(CodegenContext *ctx);
 

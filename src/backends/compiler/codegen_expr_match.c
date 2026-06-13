@@ -175,6 +175,10 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
                     codegen_writeln(ctx, "hml_retain(&%s);", field->name);
                 }
 
+                // hml_object_get_field returns a retained (owned) value. Bindings
+                // take their own retain, so drop our owned reference here to avoid
+                // leaking the field value on every successful match.
+                codegen_writeln(ctx, "hml_release(&%s);", field_val);
                 free(field_val);
             }
 
@@ -210,10 +214,14 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
                 codegen_writeln(ctx, "if (!_matched) {");
                 codegen_indent_inc(ctx);
                 codegen_writeln(ctx, "HmlValue _v = hml_object_get_field(%s, _key);", scrutinee);
-                codegen_writeln(ctx, "hml_retain(&_v);");
+                // hml_object_set_field retains the value (and strdup's the key),
+                // so release our owned references afterwards to avoid leaking the
+                // copied field value and key string on every match.
                 codegen_writeln(ctx, "hml_object_set_field(%s, _key, _v);", rest_name);
+                codegen_writeln(ctx, "hml_release(&_v);");
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
+                codegen_writeln(ctx, "hml_release(&_key_val);");
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
                 codegen_indent_dec(ctx);
@@ -256,6 +264,9 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
                 codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, hml_val_i32(%d));",
                               elem_val, scrutinee, i);
                 codegen_pattern_match(ctx, pattern->as.array.elements[i].pattern, elem_val, fail_label);
+                // hml_array_get returns a retained value; bindings take their own
+                // retain, so drop our owned reference to avoid a per-match leak.
+                codegen_writeln(ctx, "hml_release(&%s);", elem_val);
                 free(elem_val);
             }
 
@@ -283,8 +294,10 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
                 codegen_indent_inc(ctx);
                 codegen_writeln(ctx, "HmlValue _elem = hml_array_get(%s, hml_val_i32(%d + _i));",
                               scrutinee, required_before);
-                codegen_writeln(ctx, "hml_retain(&_elem);");
+                // Both hml_array_get and hml_array_push retain; release our owned
+                // reference from the get so rest elements aren't leaked.
                 codegen_writeln(ctx, "hml_array_push(%s, _elem);", rest_name);
+                codegen_writeln(ctx, "hml_release(&_elem);");
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
                 codegen_indent_dec(ctx);
@@ -297,6 +310,8 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
                     codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, hml_val_i32(hml_array_length(%s).as.as_i32 - %d));",
                                   elem_val, scrutinee, scrutinee, required_after - i);
                     codegen_pattern_match(ctx, pattern->as.array.elements[pat_idx].pattern, elem_val, fail_label);
+                    // Drop the retained value from hml_array_get (see above).
+                    codegen_writeln(ctx, "hml_release(&%s);", elem_val);
                     free(elem_val);
                 }
             }

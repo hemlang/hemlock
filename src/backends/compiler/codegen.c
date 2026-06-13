@@ -823,15 +823,21 @@ void codegen_pop_loop_body(CodegenContext *ctx) {
     }
 }
 
-// Emit hml_release for locals from current num_locals down to 'start'
-static void codegen_emit_cleanup_range(CodegenContext *ctx, int start) {
-    for (int i = start; i < ctx->num_locals; i++) {
+// Emit hml_release for locals in the half-open index range [start, end).
+void codegen_release_locals_range(CodegenContext *ctx, int start, int end) {
+    if (end > ctx->num_locals) end = ctx->num_locals;
+    for (int i = start; i < end; i++) {
         if (!ctx->local_needs_cleanup[i]) continue;
         if (!ctx->local_vars[i]) continue;
         char *safe = codegen_sanitize_ident(ctx->local_vars[i]);
         codegen_writeln(ctx, "hml_release(&%s);", safe);
         free(safe);
     }
+}
+
+// Emit hml_release for locals from current num_locals down to 'start'
+static void codegen_emit_cleanup_range(CodegenContext *ctx, int start) {
+    codegen_release_locals_range(ctx, start, ctx->num_locals);
 }
 
 void codegen_emit_break_cleanup(CodegenContext *ctx) {
@@ -1087,6 +1093,18 @@ void codegen_format_f64(char *buf, size_t size, double value) {
         snprintf(buf, size, "-0.0");
     } else {
         snprintf(buf, size, "%.17g", value);
+    }
+}
+
+// Format an int64 value as a valid C integer-constant token. Uses the `LL`
+// suffix (not `L`, which is only 32-bit on LLP64/Windows) and emits INT64_MIN
+// as the macro, since `-9223372036854775808LL` is parsed as negation of a value
+// one past LLONG_MAX and is ill-formed.
+void codegen_format_i64(char *buf, size_t size, int64_t value) {
+    if (value == INT64_MIN) {
+        snprintf(buf, size, "INT64_MIN");
+    } else {
+        snprintf(buf, size, "%" PRId64 "LL", value);
     }
 }
 

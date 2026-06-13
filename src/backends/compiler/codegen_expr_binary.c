@@ -40,7 +40,7 @@ char* codegen_native_expr(CodegenContext *ctx, Expr *expr, CheckedTypeKind *out_
                 *out_type = CHECKED_U64;
             } else if (expr->as.number.int_value > 2147483647LL ||
                        expr->as.number.int_value < -2147483648LL) {
-                snprintf(buf, sizeof(buf), "%" PRId64 "LL", expr->as.number.int_value);
+                codegen_format_i64(buf, sizeof(buf), expr->as.number.int_value);
                 *out_type = CHECKED_I64;
             } else {
                 snprintf(buf, sizeof(buf), "%" PRId64, expr->as.number.int_value);
