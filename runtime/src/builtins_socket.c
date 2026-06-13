@@ -166,8 +166,15 @@ HmlValue hml_socket_accept(HmlValue socket_val) {
     struct sockaddr_storage client_addr;
     socklen_t client_len = sizeof(client_addr);
 
-    int client_fd = accept(sock->fd, (struct sockaddr *)&client_addr, &client_len);
+    int client_fd;
+    do {
+        client_fd = accept(sock->fd, (struct sockaddr *)&client_addr, &client_len);
+    } while (client_fd < 0 && hml_sock_errno() == HML_SOCK_EINTR);
     if (client_fd < 0) {
+        // In non-blocking mode, EAGAIN/EWOULDBLOCK means no pending connections.
+        if (sock->nonblocking && HML_SOCK_WOULDBLOCK(hml_sock_errno())) {
+            return hml_val_null();
+        }
         hml_runtime_error("Failed to accept connection: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
@@ -293,8 +300,15 @@ HmlValue hml_socket_send(HmlValue socket_val, HmlValue data) {
         hml_runtime_error("send() expects string or buffer");
     }
 
-    ssize_t sent = send(sock->fd, buf, len, 0);
+    ssize_t sent;
+    do {
+        sent = send(sock->fd, buf, len, 0);
+    } while (sent < 0 && hml_sock_errno() == HML_SOCK_EINTR);
     if (sent < 0) {
+        // In non-blocking mode, EAGAIN/EWOULDBLOCK means the send buffer is full.
+        if (sock->nonblocking && HML_SOCK_WOULDBLOCK(hml_sock_errno())) {
+            return hml_val_i32(0);
+        }
         hml_runtime_error("Failed to send data: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
@@ -318,8 +332,16 @@ HmlValue hml_socket_recv(HmlValue socket_val, HmlValue size) {
     }
 
     void *buf = malloc(sz);
-    ssize_t received = recv(sock->fd, buf, sz, 0);
+    ssize_t received;
+    do {
+        received = recv(sock->fd, buf, sz, 0);
+    } while (received < 0 && hml_sock_errno() == HML_SOCK_EINTR);
     if (received < 0) {
+        // In non-blocking mode, EAGAIN/EWOULDBLOCK means no data available (not an error).
+        if (sock->nonblocking && HML_SOCK_WOULDBLOCK(hml_sock_errno())) {
+            free(buf);
+            return hml_val_null();
+        }
         free(buf);
         hml_runtime_error("Failed to receive data: %s", hml_sock_strerror(hml_sock_errno()));
     }
@@ -609,6 +631,13 @@ HmlValue hml_socket_get_closed(HmlValue socket_val) {
         return hml_val_bool(1);
     }
     return hml_val_bool(socket_val.as.as_socket->closed);
+}
+
+HmlValue hml_socket_get_nonblocking(HmlValue socket_val) {
+    if (socket_val.type != HML_VAL_SOCKET || !socket_val.as.as_socket) {
+        return hml_val_bool(0);
+    }
+    return hml_val_bool(socket_val.as.as_socket->nonblocking);
 }
 
 // ========== DNS/NETWORKING OPERATIONS ==========
