@@ -1004,6 +1004,10 @@ int main(int argc, char **argv) {
     // Configure WASM target
     ctx->target_wasm = opts.target_wasm;
 
+    // Source context for runtime error messages ([file:line] + source snippet).
+    ctx->source_code = source;
+    ctx->source_file = opts.input_file;
+
     // Configure sandbox if enabled
     if (opts.sandbox) {
         // Default sandbox flags: FFI, network, process, file write

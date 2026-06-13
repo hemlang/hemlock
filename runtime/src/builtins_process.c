@@ -1509,7 +1509,7 @@ HmlValue hml_signal(HmlValue signum, HmlValue handler) {
 
     int sig = signum.as.as_i32;
     if (sig < 0 || sig >= HML_MAX_SIGNAL) {
-        hml_runtime_error("signal() signum %d out of range [0, %d)", sig, HML_MAX_SIGNAL);
+        hml_runtime_error_loc("signal() signum %d out of range [0, %d)", sig, HML_MAX_SIGNAL);
     }
 
     // Validate handler is function or null
@@ -1563,7 +1563,7 @@ HmlValue hml_raise(HmlValue signum) {
 
     int sig = signum.as.as_i32;
     if (sig < 0 || sig >= HML_MAX_SIGNAL) {
-        hml_runtime_error("raise() signum %d out of range [0, %d)", sig, HML_MAX_SIGNAL);
+        hml_runtime_error_loc("raise() signum %d out of range [0, %d)", sig, HML_MAX_SIGNAL);
     }
 
     if (raise(sig) != 0) {

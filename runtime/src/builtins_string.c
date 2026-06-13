@@ -661,7 +661,7 @@ HmlValue hml_string_index(HmlValue str, HmlValue index) {
     int char_len = hml_string_codepoint_length(s);
 
     if (idx < 0 || idx >= char_len) {
-        hml_runtime_error("String index %d out of bounds (length=%d)", idx, char_len);
+        hml_runtime_error_loc("String index %d out of bounds (length=%d)", idx, char_len);
     }
 
     int byte_pos = hml_utf8_byte_offset(s->data, s->length, idx);
