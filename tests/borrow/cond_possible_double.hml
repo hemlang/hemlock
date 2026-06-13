@@ -1,0 +1,5 @@
+fn process(retry: bool) {
+    let p = alloc(64);
+    if (retry) { free(p); }
+    free(p);
+}

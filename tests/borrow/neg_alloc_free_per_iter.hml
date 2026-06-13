@@ -1,0 +1,7 @@
+fn main() {
+    for (let i = 0; i < 10; i++) {
+        let p = alloc(64);
+        ptr_write_i32(p, i);
+        free(p);
+    }
+}

@@ -10,6 +10,10 @@
 # The compiler is invoked so it only emits C (no linking); stdout is discarded
 # and stderr (the diagnostics) is captured and compared. The compiler is run
 # from inside this directory so the path prefix is just "<name>.hml".
+#
+# Convention: fixtures named neg_*.hml are "negative" cases whose .expected
+# file is empty — they assert the checker produces NO diagnostic and so guard
+# against false positives. All other fixtures assert an exact diagnostic.
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

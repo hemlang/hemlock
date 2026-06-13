@@ -271,7 +271,7 @@ static void print_usage(const char *progname) {
     fprintf(stderr, "  --cc <path>     C compiler to use (default: gcc)\n");
 #endif
     fprintf(stderr, "  --runtime <p>   Path to runtime library\n");
-    fprintf(stderr, "  --check         Type check only, don't compile\n");
+    fprintf(stderr, "  --check         Static analysis only (type + borrow check), don't compile\n");
     fprintf(stderr, "  --no-type-check Disable type checking (less safe, fewer optimizations)\n");
     fprintf(stderr, "  --strict-types  Strict type checking (warn on implicit any)\n");
     fprintf(stderr, "  --no-borrow-check  Disable Rust-like ownership/borrow checking\n");
@@ -953,20 +953,9 @@ int main(int argc, char **argv) {
             printf("Type checking passed\n");
         }
 
-        // If --check flag was used, exit after type checking
-        if (opts.check_only) {
-            if (!opts.verbose) {
-                printf("%s: no type errors\n", opts.input_file);
-            }
-            type_check_free(type_ctx);
-            for (int i = 0; i < stmt_count; i++) {
-                stmt_free(statements[i]);
-            }
-            free(statements);
-            free(source);
-            return 0;
-        }
-        // Note: type_ctx is kept alive for codegen optimization hints
+        // Note: for --check we do NOT exit here — the borrow checker below
+        // also runs so that `--check` is a complete static-analysis pass.
+        // type_ctx is kept alive for codegen optimization hints / borrow check.
     }
 
     // Borrow / ownership checking (Rust-like, advisory by default).
@@ -998,6 +987,22 @@ int main(int argc, char **argv) {
                 return 1;
             }
         }
+    }
+
+    // If --check was used, this is a static-analysis-only run (type + borrow
+    // checking). Stop before code generation — e.g. `hemlockc --check f.hml &&
+    // hemlock f.hml` to lint then interpret.
+    if (opts.check_only) {
+        if (!opts.verbose) {
+            printf("%s: no errors\n", opts.input_file);
+        }
+        if (type_ctx) type_check_free(type_ctx);
+        for (int i = 0; i < stmt_count; i++) {
+            stmt_free(statements[i]);
+        }
+        free(statements);
+        free(source);
+        return 0;
     }
 
     // Determine C output file

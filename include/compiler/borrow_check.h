@@ -56,6 +56,7 @@ typedef struct BorrowContext {
     void *scope;            // BcScope* linked list (innermost first)
     int scope_depth;
     int diverged;           // set when the current path left via return/break/...
+    int exit_kind;          // how the path left: see BC_EXIT_* in borrow_check.c
     int cur_line;           // line of the statement under analysis (fallback)
 
     // Results

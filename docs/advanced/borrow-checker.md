@@ -135,6 +135,23 @@ defaults:
 `--borrow-error` is the knob for CI: combine it with `--borrow-strict` to make a
 clean ownership analysis a build requirement.
 
+## Checking without compiling
+
+`--check` runs the full static-analysis front end — parse, type check, and
+borrow check — and stops before code generation. Nothing is compiled or
+linked. This makes `hemlockc` usable as a pure linter, including for code you
+intend to run with the interpreter:
+
+```sh
+hemlockc --check app.hml && hemlock app.hml      # lint, then interpret
+hemlockc --check --borrow-strict app.hml         # lint with move/leak checks
+hemlockc --check --borrow-error app.hml          # exit 1 if anything is found
+```
+
+By default `--check` is advisory: borrow findings print as warnings and the
+exit code stays 0. Add `--borrow-error` to make a finding fail the check
+(exit 1) — handy for gating an interpreter run or a pre-commit hook.
+
 ---
 
 ## Scope and limitations
@@ -174,5 +191,18 @@ high-precision and low-noise. Diagnostics are collected through
 make test-borrow
 ```
 
+This runs the dedicated memory-safety suite in `tests/borrow/` and is wired
+into CI (the `borrow-checker` job in `.github/workflows/tests.yml`) and into
+`make test-all`. The suite covers every diagnostic class plus precision cases:
+
+- **Positive** fixtures (e.g. `use_after_free`, `double_free_buffer`,
+  `free_in_while`, `defer_twice`, `strict_double_after_move`, `leak_file`)
+  assert the exact expected diagnostic.
+- **Negative** fixtures (prefixed `neg_`, e.g. `neg_borrow_then_free`,
+  `neg_free_both_branches`, `neg_alloc_free_per_iter`, `neg_switch_free_each`,
+  `neg_return_resource`) assert that no diagnostic is produced — these guard
+  against false positives.
+
 Each `tests/borrow/<name>.hml` has a `<name>.expected` file with the exact
-diagnostics, and an optional `<name>.flags` file for per-test compiler flags.
+diagnostics (empty for negative cases), and an optional `<name>.flags` file for
+per-test compiler flags such as `--borrow-strict`.

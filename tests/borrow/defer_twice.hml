@@ -1,0 +1,5 @@
+fn main() {
+    let p = alloc(64);
+    defer free(p);
+    defer free(p);
+}

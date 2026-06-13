@@ -34,6 +34,15 @@
 
 // ========== INTERNAL TYPES ==========
 
+// How a path leaves its block. Distinguishing break/continue (which leave the
+// enclosing loop/switch) from return/throw (which leave the function) lets the
+// switch merge include cases that end in the normal `break`, while still
+// excluding cases that return out of the function.
+#define BC_EXIT_NONE     0
+#define BC_EXIT_BREAK    1
+#define BC_EXIT_CONTINUE 2
+#define BC_EXIT_RETURN   3
+
 typedef enum {
     BC_OWNED,
     BC_FREED,
@@ -427,7 +436,7 @@ static void bc_expr_use(BorrowContext *ctx, Expr *expr) {
             bc_expr_use(ctx, expr->as.call.func);
             for (int i = 0; i < expr->as.call.num_args; i++)
                 bc_expr_use(ctx, expr->as.call.args[i]);
-            if (bc_is_diverging_call(expr)) ctx->diverged = 1;
+            if (bc_is_diverging_call(expr)) { ctx->diverged = 1; ctx->exit_kind = BC_EXIT_RETURN; }
             break;
         }
         case EXPR_ASSIGN:
@@ -552,14 +561,18 @@ static void bc_block(BorrowContext *ctx, Stmt *block) {
     bc_pop_scope(ctx);
 }
 
-// Analyse `body` as an independent continuation; report whether it diverged.
+// Analyse `body` as an independent continuation. Returns how it exited
+// (BC_EXIT_NONE if it fell through, otherwise BC_EXIT_BREAK/CONTINUE/RETURN).
 static int bc_branch(BorrowContext *ctx, Stmt *body) {
-    int saved = ctx->diverged;
+    int saved_div = ctx->diverged;
+    int saved_kind = ctx->exit_kind;
     ctx->diverged = 0;
+    ctx->exit_kind = BC_EXIT_NONE;
     bc_block(ctx, body);
-    int diverged = ctx->diverged;
-    ctx->diverged = saved;
-    return diverged;
+    int kind = ctx->diverged ? ctx->exit_kind : BC_EXIT_NONE;
+    ctx->diverged = saved_div;
+    ctx->exit_kind = saved_kind;
+    return kind;
 }
 
 static void bc_stmt(BorrowContext *ctx, Stmt *stmt) {
@@ -599,14 +612,20 @@ static void bc_stmt(BorrowContext *ctx, Stmt *stmt) {
                 bc_expr_use(ctx, stmt->as.return_stmt.value);
             }
             ctx->diverged = 1;
+            ctx->exit_kind = BC_EXIT_RETURN;
             break;
         case STMT_THROW:
             bc_expr_use(ctx, stmt->as.throw_stmt.value);
             ctx->diverged = 1;
+            ctx->exit_kind = BC_EXIT_RETURN;
             break;
         case STMT_BREAK:
+            ctx->diverged = 1;
+            ctx->exit_kind = BC_EXIT_BREAK;
+            break;
         case STMT_CONTINUE:
             ctx->diverged = 1;
+            ctx->exit_kind = BC_EXIT_CONTINUE;
             break;
         case STMT_BLOCK:
             bc_block(ctx, stmt);
@@ -632,7 +651,13 @@ static void bc_stmt(BorrowContext *ctx, Stmt *stmt) {
             BcSnap *a = then_div ? NULL : then_state;
             BcSnap *b = else_div ? NULL : else_state;
             bc_merge_two(ctx, a, tn, b, en);
-            if (then_div && else_div) ctx->diverged = 1;
+            if (then_div && else_div) {
+                // Both arms leave; the join is unreachable. Report the exit as
+                // a function-leaving return only if both arms returned.
+                ctx->diverged = 1;
+                ctx->exit_kind = (then_div == BC_EXIT_RETURN || else_div == BC_EXIT_RETURN)
+                                 ? BC_EXIT_RETURN : BC_EXIT_BREAK;
+            }
 
             free(snap); free(then_state); free(else_state);
             break;
@@ -723,8 +748,12 @@ static void bc_stmt(BorrowContext *ctx, Stmt *stmt) {
                 bc_restore(ctx, snap, n);
                 if (stmt->as.switch_stmt.case_values[i])
                     bc_expr_use(ctx, stmt->as.switch_stmt.case_values[i]);
-                int div = bc_branch(ctx, stmt->as.switch_stmt.case_bodies[i]);
-                if (div) continue;
+                int kind = bc_branch(ctx, stmt->as.switch_stmt.case_bodies[i]);
+                // `break` (and fall-through) is the normal case exit: its state
+                // contributes to the post-switch merge. Only a case that leaves
+                // the function (return/throw) or the enclosing loop (continue)
+                // is excluded.
+                if (kind == BC_EXIT_RETURN || kind == BC_EXIT_CONTINUE) continue;
                 int cn; BcSnap *cs = bc_snapshot(ctx, &cn);
                 if (!have_acc) { acc = cs; accn = cn; have_acc = 1; }
                 else { bc_merge_two(ctx, acc, accn, cs, cn);
@@ -803,7 +832,9 @@ static void bc_stmt(BorrowContext *ctx, Stmt *stmt) {
 static void bc_analyze_function(BorrowContext *ctx, Expr *fn) {
     if (!fn || fn->type != EXPR_FUNCTION || !fn->as.function.body) return;
     int saved_div = ctx->diverged;
+    int saved_kind = ctx->exit_kind;
     ctx->diverged = 0;
+    ctx->exit_kind = BC_EXIT_NONE;
     bc_push_scope(ctx);
     // Parameters are borrows from the caller; bind them as untracked so uses
     // inside the body don't trip ownership rules.
@@ -814,6 +845,7 @@ static void bc_analyze_function(BorrowContext *ctx, Expr *fn) {
     bc_block(ctx, fn->as.function.body);
     bc_pop_scope(ctx);
     ctx->diverged = saved_div;
+    ctx->exit_kind = saved_kind;
 }
 
 // ========== PUBLIC API ==========
@@ -836,6 +868,7 @@ int borrow_check_program(BorrowContext *ctx, Stmt **stmts, int stmt_count) {
     bc_push_scope(ctx);  // global scope
     for (int i = 0; i < stmt_count; i++) {
         ctx->diverged = 0;  // each top-level statement starts a fresh path
+        ctx->exit_kind = BC_EXIT_NONE;
         bc_stmt(ctx, stmts[i]);
     }
     bc_pop_scope(ctx);
