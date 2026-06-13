@@ -68,7 +68,7 @@ This directory contains practical examples demonstrating Hemlock's compiler help
 
 ### With Interpreter (warnings expected):
 ```bash
-./hemlock examples/annotations_simple_demo.hml
+./hemlock examples/annotations/annotations_simple_demo.hml
 ```
 
 The interpreter will show warnings about unknown annotations - this is expected. Annotations are compiler hints and don't affect interpreter execution.
@@ -76,11 +76,11 @@ The interpreter will show warnings about unknown annotations - this is expected.
 ### With Compiler (recommended):
 ```bash
 # Generate C code to see attributes
-./hemlockc -c examples/annotations_simple_demo.hml -o /tmp/demo.c
+./hemlockc -c examples/annotations/annotations_simple_demo.hml -o /tmp/demo.c
 grep "__attribute__" /tmp/demo.c
 
 # Compile and run
-./hemlockc examples/annotations_simple_demo.hml -o /tmp/demo
+./hemlockc examples/annotations/annotations_simple_demo.hml -o /tmp/demo
 /tmp/demo
 ```
 

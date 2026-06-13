@@ -110,7 +110,7 @@ should_skip() {
         stdlib/fmt.hml|\
         stdlib/glob.hml|\
         stdlib/semver.hml|\
-        examples/annotations_mixed_optimization.hml)
+        examples/annotations/annotations_mixed_optimization.hml)
             return 0
             ;;
     esac
