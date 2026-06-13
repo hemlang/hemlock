@@ -661,6 +661,12 @@ static void buffer_free(HmlBuffer *buf) {
 
 static void array_free(HmlArray *arr) {
     if (arr) {
+        if (atomic_load(&arr->freed)) {
+            // Array was manually freed via hml_free(): the elements were
+            // already released there. Only free the struct wrapper.
+            free(arr);
+            return;
+        }
         // Release all elements
         for (int i = 0; i < arr->length; i++) {
             hml_release(&arr->elements[i]);
@@ -672,6 +678,17 @@ static void array_free(HmlArray *arr) {
 
 static void object_free(HmlObject *obj) {
     if (obj) {
+        if (atomic_load(&obj->freed)) {
+            // Object was manually freed via hml_free(): its internal data
+            // (fields, names, type_name, hash_table) was already freed there.
+            // Only free the struct wrapper itself (or return it to the pool).
+            if (obj->is_pooled) {
+                obj_pool_free(obj);
+            } else {
+                free(obj);
+            }
+            return;
+        }
         // Release field values and free field names
         for (int i = 0; i < obj->num_fields; i++) {
             free(obj->fields[i].name);

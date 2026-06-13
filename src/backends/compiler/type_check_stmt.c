@@ -7,6 +7,21 @@
 
 #include "type_check_internal.h"
 
+// Report an error if `name` is already declared in the current (innermost)
+// scope. Matches the interpreter, which throws "Variable '%s' already defined
+// in this scope" from env_define() for a let/const redeclaration in the same
+// scope. Shadowing in a nested scope remains legal (handled by type_check_bind).
+static void type_check_redeclaration(TypeCheckContext *ctx, const char *name, int line) {
+    if (!ctx->current_env) return;
+    for (TypeCheckBinding *b = ctx->current_env->bindings; b; b = b->next) {
+        if (strcmp(b->name, name) == 0) {
+            type_error(ctx, line,
+                "Variable '%s' already defined in this scope", name);
+            return;
+        }
+    }
+}
+
 // ========== FUNCTION BODY CHECKING ==========
 
 void type_check_function_body(TypeCheckContext *ctx, Expr *func, const char *name) {
@@ -268,6 +283,7 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
                 declared_type = checked_type_primitive(CHECKED_ANY);
             }
 
+            type_check_redeclaration(ctx, stmt->as.let.name, stmt->line);
             type_check_bind(ctx, stmt->as.let.name, declared_type, 0, 0, stmt->line);
             break;
         }
@@ -309,6 +325,7 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
                 declared_type = checked_type_primitive(CHECKED_ANY);
             }
 
+            type_check_redeclaration(ctx, stmt->as.const_stmt.name, stmt->line);
             type_check_bind(ctx, stmt->as.const_stmt.name, declared_type, 1, 0, stmt->line);
             break;
         }

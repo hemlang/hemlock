@@ -66,6 +66,7 @@ is_expected_fail() {
     case "$file_name" in
         tests/const/const_reassign_error.hml|\
         tests/const/const_reassign_in_scope_error.hml|\
+        tests/const/redeclare_error.hml|\
         tests/typed_arrays/type_mismatch_push_error.hml|\
         tests/primitives/string_conversion_error.hml|\
         tests/primitives/string_to_bool_error.hml|\
