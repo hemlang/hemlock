@@ -2,7 +2,7 @@
 
 **Author:** Claude
 **Date:** 2026-01-08
-**Status:** Partially Implemented (Phase 1-2 completed in v1.9.0; Phase 3-5 remain proposals)
+**Status:** Partially Implemented (Phase 1-2 function annotations in v1.9.0; loop & branch annotations — `@unroll`/`@nounroll`/`@simd`/`@likely`/`@unlikely` — now shipped; memory annotations `@stack`/`@noalias`/`@aligned` remain proposals)
 **Related:** Issue #TBD
 
 ## Table of Contents

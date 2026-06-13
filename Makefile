@@ -859,6 +859,7 @@ fullclean: clean compiler-clean runtime-clean release-clean release-static-clean
 .PHONY: test-compiler
 test-compiler: compiler
 	@bash tests/compiler/run_compiler_tests.sh
+	@bash tests/compiler/annotations/loop_pragma_codegen.sh
 
 # Run borrow / ownership checker diagnostic tests
 .PHONY: test-borrow

@@ -154,6 +154,41 @@ static Annotation **parse_annotations(Parser *p, int *count) {
     return annotations;
 }
 
+// Attach already-parsed annotations to a loop or conditional statement and
+// validate them against the statement's target kind. Ownership of the
+// annotation array is transferred to the statement. Returns 1 on success,
+// 0 if validation reported an error.
+static int attach_stmt_annotations(Stmt *stmt, Annotation **annotations, int count) {
+    switch (stmt->type) {
+        case STMT_WHILE:
+            stmt->as.while_stmt.annotations = annotations;
+            stmt->as.while_stmt.annotation_count = count;
+            break;
+        case STMT_LOOP:
+            stmt->as.loop_stmt.annotations = annotations;
+            stmt->as.loop_stmt.annotation_count = count;
+            break;
+        case STMT_FOR:
+            stmt->as.for_loop.annotations = annotations;
+            stmt->as.for_loop.annotation_count = count;
+            break;
+        case STMT_FOR_IN:
+            stmt->as.for_in.annotations = annotations;
+            stmt->as.for_in.annotation_count = count;
+            break;
+        case STMT_IF:
+            stmt->as.if_stmt.annotations = annotations;
+            stmt->as.if_stmt.annotation_count = count;
+            break;
+        default:
+            return 1;
+    }
+    if (count > 0) {
+        return validate_annotations(stmt);
+    }
+    return 1;
+}
+
 // ========== STATEMENT PARSING ==========
 
 Stmt* statement(Parser *p);
@@ -1832,18 +1867,18 @@ static Stmt* statement_inner(Parser *p) {
 
 not_function:
 
-    // Check if annotations were provided but statement doesn't support them
-    if (annotation_count > 0) {
-        error(p, "Annotations are only valid on 'let', 'const', 'fn', 'define', or 'enum' declarations");
-        // Free the annotations
-        for (int i = 0; i < annotation_count; i++) {
-            annotation_free(annotations[i]);
-        }
-        free(annotations);
-    }
+    // Loop statements (for/while/loop/for-in) and conditionals (if) accept
+    // statement-level annotations (@unroll, @simd, @likely, ...). Attaching a
+    // NULL/0 array is harmless, so attach unconditionally; validation runs only
+    // when annotations are present. Non-annotatable statements below report an
+    // error if annotations were provided.
 
     if (match(p, TOK_IF)) {
-        RETURN_STMT(if_statement(p));
+        Stmt *stmt = if_statement(p);
+        if (!attach_stmt_annotations(stmt, annotations, annotation_count)) {
+            p->had_error = 1;
+        }
+        RETURN_STMT(stmt);
     }
 
     // Check for labeled loop: identifier: while/for/loop
@@ -1867,14 +1902,23 @@ not_function:
                 if (match(p, TOK_WHILE)) {
                     Stmt *stmt = while_statement_with_label(p, label);
                     free(label);
+                    if (!attach_stmt_annotations(stmt, annotations, annotation_count)) {
+                        p->had_error = 1;
+                    }
                     RETURN_STMT(stmt);
                 } else if (match(p, TOK_LOOP)) {
                     Stmt *stmt = loop_statement_with_label(p, label);
                     free(label);
+                    if (!attach_stmt_annotations(stmt, annotations, annotation_count)) {
+                        p->had_error = 1;
+                    }
                     RETURN_STMT(stmt);
                 } else if (match(p, TOK_FOR)) {
                     Stmt *stmt = for_statement_with_label(p, label);
                     free(label);
+                    if (!attach_stmt_annotations(stmt, annotations, annotation_count)) {
+                        p->had_error = 1;
+                    }
                     RETURN_STMT(stmt);
                 }
                 free(label);
@@ -1904,15 +1948,39 @@ not_function:
     }
 
     if (match(p, TOK_WHILE)) {
-        RETURN_STMT(while_statement(p));
+        Stmt *stmt = while_statement(p);
+        if (!attach_stmt_annotations(stmt, annotations, annotation_count)) {
+            p->had_error = 1;
+        }
+        RETURN_STMT(stmt);
     }
 
     if (match(p, TOK_LOOP)) {
-        RETURN_STMT(loop_statement(p));
+        Stmt *stmt = loop_statement(p);
+        if (!attach_stmt_annotations(stmt, annotations, annotation_count)) {
+            p->had_error = 1;
+        }
+        RETURN_STMT(stmt);
     }
 
     if (match(p, TOK_FOR)) {
-        RETURN_STMT(for_statement(p));
+        Stmt *stmt = for_statement(p);
+        if (!attach_stmt_annotations(stmt, annotations, annotation_count)) {
+            p->had_error = 1;
+        }
+        RETURN_STMT(stmt);
+    }
+
+    // Remaining statements do not support annotations.
+    if (annotation_count > 0) {
+        error(p, "Annotations are only valid on 'let', 'const', 'fn', 'define', "
+                 "'enum', loop, and 'if' statements");
+        for (int i = 0; i < annotation_count; i++) {
+            annotation_free(annotations[i]);
+        }
+        free(annotations);
+        annotations = NULL;
+        annotation_count = 0;
     }
 
     if (match(p, TOK_BREAK)) {

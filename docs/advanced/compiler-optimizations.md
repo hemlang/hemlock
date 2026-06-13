@@ -141,7 +141,9 @@ Benchmark improvements from these optimizations (measured on typical workloads):
 
 ## Helper Annotations
 
-The compiler supports 10 optimization annotations that map to GCC/Clang attributes:
+### Function annotations
+
+The compiler supports 10 function-level optimization annotations that map to GCC/Clang attributes:
 
 | Annotation | Effect |
 |------------|--------|
@@ -154,7 +156,7 @@ The compiler supports 10 optimization annotations that map to GCC/Clang attribut
 | `@flatten` | Inline all calls within the function |
 | `@optimize(level)` | Per-function optimization level ("0"-"3", "s", "fast") |
 | `@warn_unused` | Warn if return value is ignored |
-| `@section(name)` | Place function in custom ELF section |
+| `@section(name)` | Place function in a custom linker section (ELF/COFF; mapped into `__TEXT` on macOS) |
 
 ### Example
 
@@ -175,6 +177,53 @@ fn handle_error(msg: string) {
     panic(msg);
 }
 ```
+
+### Loop and branch annotations
+
+Annotations may also be placed directly on loop statements (`for`, `while`,
+`loop`, `for`-in) and on `if` statements. These are hints for the C optimizer:
+the compiler emits the matching `#pragma` / `__builtin_expect` ahead of the
+generated loop or branch, while the interpreter ignores them entirely. Because
+they never change control flow, both backends always produce identical output.
+
+| Annotation | Target | Generated C | Effect |
+|------------|--------|-------------|--------|
+| `@unroll(n)` | loops | `#pragma GCC unroll n` | Unroll the loop by a factor of `n` (1–256) |
+| `@nounroll` | loops | `#pragma GCC unroll 1` | Disable unrolling of the loop |
+| `@simd` | loops | `#pragma GCC ivdep` (Clang: `#pragma clang loop vectorize(enable)`) | Assert no loop-carried dependencies so the compiler may vectorize |
+| `@likely` | `if` | `__builtin_expect(cond, 1)` | Hint the condition is usually true |
+| `@unlikely` | `if` | `__builtin_expect(cond, 0)` | Hint the condition is usually false |
+
+```hemlock
+// Unroll a tight numeric kernel four ways.
+@unroll(4)
+for (let i = 0; i < n; i++) {
+    out[i] = a[i] * b[i];
+}
+
+// Tell GCC this reduction has no aliasing between iterations.
+@simd
+for (let i = 0; i < n; i++) {
+    sum = sum + data[i];
+}
+
+// Steer branch prediction on a hot path.
+@likely
+if (cache.has(key)) {
+    return cache.get(key);
+}
+
+@unlikely
+if (err != null) {
+    handle_error(err);
+}
+```
+
+Annotations are validated against their target: `@unroll` / `@nounroll` /
+`@simd` are only accepted on loops, and `@likely` / `@unlikely` only on `if`
+statements. Misplacing one (for example `@likely` on a `for` loop, or `@unroll`
+without its factor) is a compile-time error in both backends. These hints are
+advisory — GCC is free to ignore a pragma it cannot honor for a given loop.
 
 ---
 

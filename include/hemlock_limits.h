@@ -258,6 +258,9 @@
 // Compiler inlining limits
 #define HML_MAX_INLINE_DEPTH 3  // Maximum nesting depth for function inlining
 
+// Maximum unroll factor accepted by the @unroll(n) loop annotation
+#define HML_MAX_UNROLL_FACTOR 256
+
 // ========== TYPEID CONSTANTS ==========
 
 // Stable type identifiers returned by the typeid() builtin.

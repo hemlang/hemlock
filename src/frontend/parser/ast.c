@@ -697,6 +697,8 @@ Stmt* stmt_if(Expr *condition, Stmt *then_branch, Stmt *else_branch) {
     stmt->as.if_stmt.condition = condition;
     stmt->as.if_stmt.then_branch = then_branch;
     stmt->as.if_stmt.else_branch = else_branch;
+    stmt->as.if_stmt.annotations = NULL;
+    stmt->as.if_stmt.annotation_count = 0;
     return stmt;
 }
 
@@ -712,6 +714,8 @@ Stmt* stmt_while_labeled(const char *label, Expr *condition, Stmt *body) {
     stmt->as.while_stmt.label = label ? strdup(label) : NULL;
     stmt->as.while_stmt.condition = condition;
     stmt->as.while_stmt.body = body;
+    stmt->as.while_stmt.annotations = NULL;
+    stmt->as.while_stmt.annotation_count = 0;
     return stmt;
 }
 
@@ -726,6 +730,8 @@ Stmt* stmt_loop_labeled(const char *label, Stmt *body) {
     stmt->column = 0;
     stmt->as.loop_stmt.label = label ? strdup(label) : NULL;
     stmt->as.loop_stmt.body = body;
+    stmt->as.loop_stmt.annotations = NULL;
+    stmt->as.loop_stmt.annotation_count = 0;
     return stmt;
 }
 
@@ -743,6 +749,8 @@ Stmt* stmt_for_labeled(const char *label, Stmt *initializer, Expr *condition, Ex
     stmt->as.for_loop.condition = condition;
     stmt->as.for_loop.increment = increment;
     stmt->as.for_loop.body = body;
+    stmt->as.for_loop.annotations = NULL;
+    stmt->as.for_loop.annotation_count = 0;
     return stmt;
 }
 
@@ -760,6 +768,8 @@ Stmt* stmt_for_in_labeled(const char *label, char *key_var, char *value_var, Exp
     stmt->as.for_in.value_var = value_var;
     stmt->as.for_in.iterable = iterable;
     stmt->as.for_in.body = body;
+    stmt->as.for_in.annotations = NULL;
+    stmt->as.for_in.annotation_count = 0;
     return stmt;
 }
 
@@ -1457,15 +1467,27 @@ void stmt_free(Stmt *stmt) {
             expr_free(stmt->as.if_stmt.condition);
             stmt_free(stmt->as.if_stmt.then_branch);
             stmt_free(stmt->as.if_stmt.else_branch);
+            for (int i = 0; i < stmt->as.if_stmt.annotation_count; i++) {
+                annotation_free(stmt->as.if_stmt.annotations[i]);
+            }
+            free(stmt->as.if_stmt.annotations);
             break;
         case STMT_WHILE:
             free(stmt->as.while_stmt.label);
             expr_free(stmt->as.while_stmt.condition);
             stmt_free(stmt->as.while_stmt.body);
+            for (int i = 0; i < stmt->as.while_stmt.annotation_count; i++) {
+                annotation_free(stmt->as.while_stmt.annotations[i]);
+            }
+            free(stmt->as.while_stmt.annotations);
             break;
         case STMT_LOOP:
             free(stmt->as.loop_stmt.label);
             stmt_free(stmt->as.loop_stmt.body);
+            for (int i = 0; i < stmt->as.loop_stmt.annotation_count; i++) {
+                annotation_free(stmt->as.loop_stmt.annotations[i]);
+            }
+            free(stmt->as.loop_stmt.annotations);
             break;
         case STMT_FOR:
             free(stmt->as.for_loop.label);
@@ -1473,6 +1495,10 @@ void stmt_free(Stmt *stmt) {
             expr_free(stmt->as.for_loop.condition);
             expr_free(stmt->as.for_loop.increment);
             stmt_free(stmt->as.for_loop.body);
+            for (int i = 0; i < stmt->as.for_loop.annotation_count; i++) {
+                annotation_free(stmt->as.for_loop.annotations[i]);
+            }
+            free(stmt->as.for_loop.annotations);
             break;
         case STMT_FOR_IN:
             free(stmt->as.for_in.label);
@@ -1480,6 +1506,10 @@ void stmt_free(Stmt *stmt) {
             free(stmt->as.for_in.value_var);
             expr_free(stmt->as.for_in.iterable);
             stmt_free(stmt->as.for_in.body);
+            for (int i = 0; i < stmt->as.for_in.annotation_count; i++) {
+                annotation_free(stmt->as.for_in.annotations[i]);
+            }
+            free(stmt->as.for_in.annotations);
             break;
         case STMT_BREAK:
             free(stmt->as.break_stmt.label);

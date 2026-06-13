@@ -56,13 +56,73 @@ static void codegen_emit_function_attributes(CodegenContext *ctx, Annotation **a
         }
     }
 
-    // Handle @section(name) - place function in custom ELF section
+    // Handle @section(name) - place function in a custom linker section.
+    //
+    // ELF (Linux) and COFF (Windows) accept the raw section name. Mach-O
+    // (macOS) instead requires a "segment,section" pair whose section name is
+    // limited to 16 chars of [A-Za-z0-9_]; functions live in the __TEXT
+    // segment. Emit a preprocessor-guarded attribute so each toolchain gets a
+    // form it accepts (the #if resolves at preprocessing time, leaving one
+    // attribute on the function). Section placement never changes behavior, so
+    // both backends still produce identical output.
     Annotation *sec = annotation_get(annotations, annotation_count, "section");
     if (sec) {
         const char *section_name = annotation_get_string_arg(sec, NULL, NULL);
         if (section_name) {
-            codegen_write(ctx, "__attribute__((section(\"%s\"))) ", section_name);
+            // Sanitize into a Mach-O-legal section name (16 chars max).
+            char macho[17];
+            size_t j = 0;
+            for (const char *p = section_name; *p && j < sizeof(macho) - 1; p++) {
+                char c = *p;
+                int ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                         (c >= '0' && c <= '9') || c == '_';
+                macho[j++] = ok ? c : '_';
+            }
+            macho[j] = '\0';
+            codegen_write(ctx, "\n#if defined(__APPLE__)\n");
+            codegen_write(ctx, "__attribute__((section(\"__TEXT,%s\")))\n", macho);
+            codegen_write(ctx, "#else\n");
+            codegen_write(ctx, "__attribute__((section(\"%s\")))\n", section_name);
+            codegen_write(ctx, "#endif\n");
         }
+    }
+}
+
+// Helper: Emit GCC loop pragmas based on Hemlock loop annotations.
+// Must be called immediately before the C loop header so the pragma binds to
+// it. Translates @unroll(n)/@nounroll/@simd into the matching #pragma GCC.
+// The interpreter ignores these annotations, so behavior (and thus parity) is
+// unchanged; only the optimizer's view of the generated loop differs.
+void codegen_emit_loop_pragmas(CodegenContext *ctx, Annotation **annotations, int annotation_count) {
+    if (!annotations || annotation_count == 0) {
+        return;
+    }
+
+    Annotation *unroll = annotation_get(annotations, annotation_count, "unroll");
+    if (unroll) {
+        // @unroll(n) - unroll factor. Clamp to a sane positive range; a factor
+        // of 0 or below is meaningless and is treated as "no explicit factor".
+        int factor = (int)annotation_get_number_arg(unroll, NULL, 0);
+        if (factor > 0 && factor <= HML_MAX_UNROLL_FACTOR) {
+            codegen_writeln(ctx, "#pragma GCC unroll %d", factor);
+        }
+    }
+
+    // @nounroll - disable unrolling (unroll factor of 1).
+    if (annotation_has(annotations, annotation_count, "nounroll")) {
+        codegen_writeln(ctx, "#pragma GCC unroll 1");
+    }
+
+    // @simd - assert the loop has no vector dependencies so the C compiler may
+    // vectorize. GCC and Clang spell this hint differently; emit the right
+    // pragma for whichever compiles the generated C (the #if/#elif resolve at
+    // preprocessing time, leaving exactly one pragma adjacent to the loop).
+    if (annotation_has(annotations, annotation_count, "simd")) {
+        codegen_writeln(ctx, "#if defined(__clang__)");
+        codegen_writeln(ctx, "#pragma clang loop vectorize(enable)");
+        codegen_writeln(ctx, "#elif defined(__GNUC__)");
+        codegen_writeln(ctx, "#pragma GCC ivdep");
+        codegen_writeln(ctx, "#endif");
     }
 }
 
