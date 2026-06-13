@@ -158,7 +158,10 @@ TOOL_SRCS = $(wildcard $(SRC_DIR)/tools/lsp/*.c) \
 # Shared compiler utilities (used by LSP)
 TYPECHECK_SRCS = $(wildcard $(SRC_DIR)/backends/compiler/type_*.c)
 
-COMMON_SRCS = $(FRONTEND_SRCS) $(MODULES_SRCS) $(TYPECHECK_SRCS) $(SHARED_SRCS)
+# Borrow/ownership checker — shared so the LSP can surface its diagnostics
+BORROWCHECK_SRCS = $(SRC_DIR)/backends/compiler/borrow_check.c
+
+COMMON_SRCS = $(FRONTEND_SRCS) $(MODULES_SRCS) $(TYPECHECK_SRCS) $(BORROWCHECK_SRCS) $(SHARED_SRCS)
 SRCS = $(COMMON_SRCS) $(TOOL_SRCS) $(INTERP_SRCS)
 
 COMMON_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(COMMON_SRCS))
@@ -574,7 +577,7 @@ analyze-clean:
 # Modular codegen: core, expr, stmt, closure, program, module
 COMPILER_SRCS = $(SRC_DIR)/backends/compiler/main.c \
                 $(wildcard $(SRC_DIR)/backends/compiler/codegen*.c) \
-                $(SRC_DIR)/backends/compiler/borrow_check.c \
+                $(BORROWCHECK_SRCS) \
                 $(TYPECHECK_SRCS) \
                 $(SHARED_SRCS) \
                 $(FRONTEND_COMPILER_SRCS)

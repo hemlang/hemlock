@@ -154,9 +154,17 @@ the surface:
   acquisitions; arena/stdlib allocators are not yet tracked.
 
 The implementation lives in `src/backends/compiler/borrow_check.c` with the
-public API in `include/compiler/borrow_check.h`. Diagnostics are collectible
-(`borrow_check_enable_collection`) so the LSP can surface them inline in a
-future revision.
+public API in `include/compiler/borrow_check.h`.
+
+## Editor integration (LSP)
+
+The language server runs the borrow checker on every document change and
+publishes its findings inline alongside type-check diagnostics, so
+use-after-free / double-free / free-in-loop warnings appear live in the editor.
+The LSP uses the default (non-strict) mode to keep editor feedback
+high-precision and low-noise. Diagnostics are collected through
+`borrow_check_enable_collection` and mapped to LSP warnings in
+`lsp_document_parse` (`src/tools/lsp/lsp.c`).
 
 ---
 
