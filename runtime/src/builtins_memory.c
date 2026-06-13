@@ -59,7 +59,7 @@ void hml_callback_free(HmlValue callback) {
 
 HmlValue hml_alloc(int32_t size) {
     if (size <= 0) {
-        hml_runtime_error("alloc() requires positive size");
+        hml_runtime_error_loc("alloc() size must be positive");
     }
     void *ptr = malloc(size);
     if (!ptr) {
@@ -186,7 +186,7 @@ void hml_memset(HmlValue ptr, uint8_t byte_val, int32_t size) {
             hml_runtime_error("memset() cannot write to freed buffer");
         }
         if (size > ptr.as.as_buffer->length) {
-            hml_runtime_error("memset() size exceeds buffer length");
+            hml_runtime_error_loc("memset() size exceeds buffer length");
         }
         memset(ptr.as.as_buffer->data, byte_val, (size_t)size);
     } else {
@@ -210,7 +210,7 @@ void hml_memcpy(HmlValue dest, HmlValue src, int32_t size) {
                 hml_runtime_error("memcpy() cannot write to freed destination buffer");
             }
             if (size > dest.as.as_buffer->length) {
-                hml_runtime_error("memcpy() size exceeds destination buffer length");
+                hml_runtime_error_loc("memcpy() size exceeds destination buffer length");
             }
             dest_ptr = dest.as.as_buffer->data;
         }
@@ -226,7 +226,7 @@ void hml_memcpy(HmlValue dest, HmlValue src, int32_t size) {
                 hml_runtime_error("memcpy() cannot read from freed source buffer");
             }
             if (size > src.as.as_buffer->length) {
-                hml_runtime_error("memcpy() size exceeds source buffer length");
+                hml_runtime_error_loc("memcpy() size exceeds source buffer length");
             }
             src_ptr = src.as.as_buffer->data;
         }
@@ -344,7 +344,7 @@ static inline void *hml_extract_ptr_checked(HmlValue val, size_t access_size, co
             hml_runtime_error("%s cannot access freed buffer", operation);
         }
         if ((int64_t)access_size > (int64_t)buf->length) {
-            hml_runtime_error("%s access exceeds buffer length", operation);
+            hml_runtime_error_loc("%s access exceeds buffer length", operation);
         }
         if (!buf->data && access_size > 0) {
             hml_runtime_error("%s cannot access null buffer", operation);

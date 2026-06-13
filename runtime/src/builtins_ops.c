@@ -119,7 +119,7 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
         // Only throw for integer operands where zero division is undefined.
         int either_float = (left.type == HML_VAL_F64 || left.type == HML_VAL_F32 ||
                             right.type == HML_VAL_F64 || right.type == HML_VAL_F32);
-        if (r == 0.0 && !either_float) hml_runtime_error("Division by zero");
+        if (r == 0.0 && !either_float) hml_runtime_error_line("Division by zero");
         return hml_val_f64(l / r);
     }
 
@@ -132,7 +132,7 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             case HML_OP_SUB: return hml_i32_sub(left, right);
             case HML_OP_MUL: return hml_i32_mul(left, right);
             case HML_OP_MOD:
-                if (r == 0) hml_runtime_error("Division by zero");
+                if (r == 0) hml_runtime_error_line("Division by zero");
                 return hml_val_i32(l % r);
             case HML_OP_LESS: return hml_val_bool(l < r);
             case HML_OP_LESS_EQUAL: return hml_val_bool(l <= r);
@@ -144,10 +144,10 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             case HML_OP_BIT_OR: return hml_val_i32(l | r);
             case HML_OP_BIT_XOR: return hml_val_i32(l ^ r);
             case HML_OP_LSHIFT:
-                if (r < 0) hml_runtime_error("Shift amount must be non-negative");
+                if (r < 0) hml_runtime_error_line("Shift amount must be non-negative");
                 return hml_val_i32(r >= 32 ? 0 : (int32_t)((uint32_t)l << r));
             case HML_OP_RSHIFT:
-                if (r < 0) hml_runtime_error("Shift amount must be non-negative");
+                if (r < 0) hml_runtime_error_line("Shift amount must be non-negative");
                 return hml_val_i32(r >= 32 ? (l < 0 ? -1 : 0) : l >> r);
             default: break;
         }
@@ -162,10 +162,10 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             case HML_OP_SUB: return hml_i64_sub(left, right);
             case HML_OP_MUL: return hml_i64_mul(left, right);
             case HML_OP_DIV:
-                if (r == 0) hml_runtime_error("Division by zero");
+                if (r == 0) hml_runtime_error_line("Division by zero");
                 return hml_val_i64(l / r);
             case HML_OP_MOD:
-                if (r == 0) hml_runtime_error("Division by zero");
+                if (r == 0) hml_runtime_error_line("Division by zero");
                 return hml_val_i64(l % r);
             case HML_OP_LESS: return hml_val_bool(l < r);
             case HML_OP_LESS_EQUAL: return hml_val_bool(l <= r);
@@ -177,10 +177,10 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             case HML_OP_BIT_OR: return hml_val_i64(l | r);
             case HML_OP_BIT_XOR: return hml_val_i64(l ^ r);
             case HML_OP_LSHIFT:
-                if (r < 0) hml_runtime_error("Shift amount must be non-negative");
+                if (r < 0) hml_runtime_error_line("Shift amount must be non-negative");
                 return hml_val_i64(r >= 64 ? 0 : (int64_t)((uint64_t)l << r));
             case HML_OP_RSHIFT:
-                if (r < 0) hml_runtime_error("Shift amount must be non-negative");
+                if (r < 0) hml_runtime_error_line("Shift amount must be non-negative");
                 return hml_val_i64(r >= 64 ? (l < 0 ? -1 : 0) : l >> r);
             default: break;
         }
@@ -426,7 +426,7 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
         }
         case HML_OP_DIV:
             if (r == 0) {
-                hml_runtime_error("Division by zero");
+                hml_runtime_error_line("Division by zero");
             }
             if (is_unsigned) {
                 return make_int_result(result_type, (int64_t)(ul / ur));
@@ -434,7 +434,7 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             return make_int_result(result_type, sl / sr);
         case HML_OP_MOD:
             if (r == 0) {
-                hml_runtime_error("Division by zero");
+                hml_runtime_error_line("Division by zero");
             }
             if (is_unsigned) {
                 return make_int_result(result_type, (int64_t)(ul % ur));
@@ -459,14 +459,14 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
         case HML_OP_BIT_XOR:
             return make_int_result(result_type, l ^ r);
         case HML_OP_LSHIFT: {
-            if (r < 0) hml_runtime_error("Shift amount must be non-negative");
+            if (r < 0) hml_runtime_error_line("Shift amount must be non-negative");
             int bw = (result_type == HML_VAL_I8 || result_type == HML_VAL_U8) ? 8 :
                      (result_type == HML_VAL_I16 || result_type == HML_VAL_U16) ? 16 :
                      (result_type == HML_VAL_I32 || result_type == HML_VAL_U32) ? 32 : 64;
             return make_int_result(result_type, r >= bw ? 0 : (int64_t)((uint64_t)l << r));
         }
         case HML_OP_RSHIFT: {
-            if (r < 0) hml_runtime_error("Shift amount must be non-negative");
+            if (r < 0) hml_runtime_error_line("Shift amount must be non-negative");
             int bw = (result_type == HML_VAL_I8 || result_type == HML_VAL_U8) ? 8 :
                      (result_type == HML_VAL_I16 || result_type == HML_VAL_U16) ? 16 :
                      (result_type == HML_VAL_I32 || result_type == HML_VAL_U32) ? 32 : 64;

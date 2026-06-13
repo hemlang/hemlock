@@ -436,6 +436,15 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
     for (int i = 0; i < module->num_statements; i++) {
         Stmt *stmt = module->statements[i];
 
+        // Top-level let/const are emitted inline here (not via codegen_stmt),
+        // so record their source line for runtime error messages. Other
+        // statement kinds fall through to codegen_stmt, which does this itself.
+        if (stmt->line > 0 && (stmt->type == STMT_LET || stmt->type == STMT_CONST) &&
+            !(stmt->type == STMT_LET && stmt->as.let.value &&
+              stmt->as.let.value->type == EXPR_FUNCTION)) {
+            codegen_writeln(ctx, "hml_error_line = %d;", stmt->line);
+        }
+
         // Skip imports (already handled above)
         if (stmt->type == STMT_IMPORT) {
             // Generate import bindings
@@ -1116,6 +1125,18 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     codegen_indent_inc(ctx);
     codegen_writeln(ctx, "hml_runtime_init(argc, argv);");
 
+    // Register source context so runtime errors can print "[file:line] msg"
+    // plus the offending source line + caret, matching the interpreter.
+    if (ctx->source_code && ctx->source_file) {
+        char *esc_file = codegen_escape_string(ctx->source_file);
+        char *esc_src = codegen_escape_string(ctx->source_code);
+        if (esc_file && esc_src) {
+            codegen_writeln(ctx, "hml_set_source(\"%s\", \"%s\");", esc_file, esc_src);
+        }
+        free(esc_file);
+        free(esc_src);
+    }
+
     // Initialize sandbox if enabled
     if (ctx->sandbox_flags != 0) {
         if (ctx->sandbox_root) {
@@ -1229,6 +1250,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             // Top-level const: assign to static global instead of declaring local
             // Use _main_ prefix to avoid C name conflicts
             if (stmt->as.const_stmt.value) {
+                if (stmt->line > 0) codegen_writeln(ctx, "hml_error_line = %d;", stmt->line);
                 char *value = codegen_expr(ctx, stmt->as.const_stmt.value);
                 codegen_writeln(ctx, "_main_%s = %s;", stmt->as.const_stmt.name, value);
                 free(value);
@@ -1239,6 +1261,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             // Top-level let (non-function): assign to static global instead of declaring local
             // Use _main_ prefix to avoid C name conflicts
             if (stmt->as.let.value) {
+                if (stmt->line > 0) codegen_writeln(ctx, "hml_error_line = %d;", stmt->line);
                 char *value = codegen_expr(ctx, stmt->as.let.value);
                 // Check if there's a custom object type annotation (for duck typing)
                 // But first check if it's a type alias - if so, use the resolved type

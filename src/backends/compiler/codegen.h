@@ -245,6 +245,10 @@ typedef struct {
     // WASM target configuration
     int target_wasm;              // Targeting WebAssembly via Emscripten (0 = native, 1 = wasm)
     int string_concat_context;     // Prefer integer division while emitting concat operands
+
+    // Source location tracking (for runtime error messages with source context)
+    const char *source_code;      // Full source text (for embedding; NULL = unavailable)
+    const char *source_file;      // Source file path (for [file:line] error prefix)
 } CodegenContext;
 
 // Initialize code generation context

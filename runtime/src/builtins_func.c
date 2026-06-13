@@ -53,7 +53,85 @@ HmlValue hml_exception_get_value(void) {
     return hml_val_null();
 }
 
-// Runtime error helper - throws catchable exception with formatted message
+// ========== SOURCE LOCATION FOR RUNTIME ERRORS ==========
+// The interpreter prefixes runtime errors with "[file:line]" plus the offending
+// source line and a caret. Compiled binaries reproduce this: codegen embeds the
+// source via hml_set_source() and updates hml_error_line per statement.
+
+static const char *g_source_file = NULL;  // Set once at startup; read-only after.
+static const char *g_source_code = NULL;
+_Thread_local int hml_error_line = 0;      // Updated per statement by generated code.
+
+void hml_set_source(const char *file, const char *code) {
+    g_source_file = file;
+    g_source_code = code;
+}
+
+// Return a pointer to the start of `line_num` in `source`, with its length.
+static const char *hml_get_source_line(const char *source, int line_num, int *line_length) {
+    if (!source || line_num <= 0) { *line_length = 0; return NULL; }
+    const char *p = source;
+    int current_line = 1;
+    while (*p && current_line < line_num) {
+        if (*p == '\n') current_line++;
+        p++;
+    }
+    if (!*p && current_line < line_num) { *line_length = 0; return NULL; }
+    const char *line_start = p;
+    while (*p && *p != '\n') p++;
+    *line_length = (int)(p - line_start);
+    return line_start;
+}
+
+// Build "[file:line] message" plus a source snippet + caret, mirroring the
+// interpreter's format_error_with_context() (column is always 0 here, so the
+// caret sits at the start of the line). Caller frees the result.
+static char *hml_format_error_with_context(const char *file, int line, const char *message) {
+    if (!message) message = "Unknown error";
+    size_t base_size = 1024;
+    char *buffer = malloc(base_size);
+    if (!buffer) return NULL;
+    int offset = 0;
+
+    if (file && line > 0) {
+        offset += snprintf(buffer + offset, base_size - offset, "[%s:%d] ", file, line);
+    } else if (line > 0) {
+        offset += snprintf(buffer + offset, base_size - offset, "[line %d] ", line);
+    }
+    offset += snprintf(buffer + offset, base_size - offset, "%s", message);
+
+    if (g_source_code && line > 0) {
+        int line_length;
+        const char *line_text = hml_get_source_line(g_source_code, line, &line_length);
+        if (line_text && line_length > 0) {
+            int max_display = 80;
+            int display_len = line_length < max_display ? line_length : max_display;
+            size_t needed = (size_t)offset + (size_t)display_len + 100;
+            if (needed > base_size) {
+                char *new_buf = realloc(buffer, needed);
+                if (!new_buf) return buffer;  // best-effort: return what we have
+                buffer = new_buf;
+                base_size = needed;
+            }
+            offset += snprintf(buffer + offset, base_size - offset, "\n  %4d | %.*s",
+                               line, display_len, line_text);
+            if (line_length > max_display) {
+                offset += snprintf(buffer + offset, base_size - offset, "...");
+            }
+            offset += snprintf(buffer + offset, base_size - offset, "\n       | ");
+            if ((size_t)offset + 2 < base_size) {
+                buffer[offset++] = '^';
+                buffer[offset] = '\0';
+            }
+        }
+    }
+    return buffer;
+}
+
+// Runtime error helper - throws catchable exception with a bare message (no
+// source location). This is the default for most builtins, matching the
+// interpreter's throw_runtime_error(). Sites that the interpreter locates use
+// hml_runtime_error_loc()/hml_runtime_error_line() instead.
 void hml_runtime_error(const char *format, ...) {
     char buffer[1024];
     va_list args;
@@ -61,8 +139,48 @@ void hml_runtime_error(const char *format, ...) {
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
 
-    HmlValue error_msg = hml_val_string(buffer);
-    hml_throw(error_msg);
+    hml_throw(hml_val_string(buffer));
+}
+
+// Runtime error with full location: "[file:line] message" plus the offending
+// source line and a caret. Mirrors the interpreter's runtime_error() path
+// (used for index/bounds/field/alloc/join/raise faults).
+void hml_runtime_error_loc(const char *format, ...) {
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    if (hml_error_line > 0) {
+        char *formatted = hml_format_error_with_context(g_source_file, hml_error_line, buffer);
+        if (formatted) {
+            HmlValue error_msg = hml_val_string(formatted);
+            free(formatted);
+            hml_throw(error_msg);
+            return;
+        }
+    }
+    hml_throw(hml_val_string(buffer));
+}
+
+// Runtime error with line-only prefix "[line N] message" (no file, no snippet).
+// Matches the interpreter's runtime_error_at() — used for operator-level faults
+// such as division by zero and negative shift amounts.
+void hml_runtime_error_line(const char *format, ...) {
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    if (hml_error_line > 0) {
+        char full[1100];
+        snprintf(full, sizeof(full), "[line %d] %s", hml_error_line, buffer);
+        hml_throw(hml_val_string(full));
+    } else {
+        hml_throw(hml_val_string(buffer));
+    }
 }
 
 // ========== ENV-FIRST BUILTIN WRAPPERS ==========

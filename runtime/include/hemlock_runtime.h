@@ -521,6 +521,17 @@ HmlValue hml_exception_get_value(void);
 // but the code after the call site will not execute.
 __attribute__((noreturn)) void hml_runtime_error(const char *format, ...);
 
+// Located variant: "[file:line] message" plus source line + caret.
+__attribute__((noreturn)) void hml_runtime_error_loc(const char *format, ...);
+
+// Line-only variant: "[line N] message" with no file path or source snippet.
+__attribute__((noreturn)) void hml_runtime_error_line(const char *format, ...);
+
+// Source context for runtime error messages. Set once at program start by
+// generated main(); hml_error_line is updated per statement by generated code.
+void hml_set_source(const char *file, const char *code);
+extern _Thread_local int hml_error_line;
+
 // ========== DEFER SUPPORT ==========
 
 typedef void (*HmlDeferFn)(void *arg);

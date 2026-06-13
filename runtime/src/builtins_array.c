@@ -59,7 +59,7 @@ HmlValue hml_array_get(HmlValue arr, HmlValue index) {
     HmlArray *a = arr.as.as_array;
 
     if (idx < 0 || idx >= a->length) {
-        hml_runtime_error("Array index %d out of bounds (length %d)", idx, a->length);
+        hml_runtime_error_loc("Array index %d out of bounds (length %d)", idx, a->length);
     }
 
     HmlValue result = a->elements[idx];

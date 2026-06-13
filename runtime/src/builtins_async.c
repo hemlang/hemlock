@@ -402,12 +402,12 @@ HmlValue hml_join(HmlValue task_val) {
 
     if (task->joined) {
         pthread_mutex_unlock(&task->sync->mutex);
-        hml_runtime_error("task handle already joined");
+        hml_runtime_error_loc("task handle already joined");
     }
 
     if (task->detached) {
         pthread_mutex_unlock(&task->sync->mutex);
-        hml_runtime_error("cannot join detached task");
+        hml_runtime_error_loc("cannot join detached task");
     }
 
     // Mark as joined while holding mutex to prevent concurrent join/detach

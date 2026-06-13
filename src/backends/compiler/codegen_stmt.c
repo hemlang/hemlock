@@ -18,6 +18,24 @@ static char *codegen_emit_condition_bool(CodegenContext *ctx, Expr *condition) {
 }
 
 void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
+    // Record the current source line so runtime errors can report it (and the
+    // matching source snippet), mirroring the interpreter's per-statement
+    // current_line. Limited to executable statement kinds — declarations and
+    // type/definition statements don't emit inline code in this context.
+    if (stmt->line > 0) {
+        switch (stmt->type) {
+            case STMT_LET:
+            case STMT_CONST:
+            case STMT_EXPR:
+            case STMT_RETURN:
+            case STMT_THROW:
+                codegen_writeln(ctx, "hml_error_line = %d;", stmt->line);
+                break;
+            default:
+                break;
+        }
+    }
+
     switch (stmt->type) {
         case STMT_LET: {
             codegen_add_local(ctx, stmt->as.let.name);
