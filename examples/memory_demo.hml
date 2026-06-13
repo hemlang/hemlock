@@ -1,21 +1,37 @@
 // Memory Management Demo
+//
+// In Hemlock, memory is yours to manage. Nothing is garbage-collected behind
+// your back, so this example walks through the four things you actually do
+// with memory: ask how big a type is, allocate it, use it safely, resize it,
+// and hand it back. The golden rule: every alloc/talloc/buffer you make, you
+// free exactly once.
 
 // 1. sizeof() - Query type sizes
+// You allocate in *bytes*, but you think in *types*. sizeof() bridges the two
+// so you never have to hard-code "an i32 is 4 bytes" (which can change across
+// platforms for types like ptr).
 print(sizeof(u8));  // 1
 print(sizeof(i32));  // 4
 print(sizeof(f64));  // 8
 print(sizeof(ptr));  // 8 (on 64-bit systems)
 
 // 2. talloc() - Typed allocation
+// talloc(T, n) reserves room for n values of type T. It's just alloc() with
+// the byte math done for you: talloc(i32, 10) is alloc(sizeof(i32) * 10).
 let numbers = talloc(i32, 10);  // allocate 10 i32s (40 bytes)
-print(numbers);
+print(numbers);  // prints the raw address - this is a pointer, not the data
 
-// Initialize the array using memset
+// Fresh memory contains garbage (whatever was there before). memset() zeroes
+// it so we start from a known state - the same discipline C programmers use.
 let elem_size = sizeof(i32);
 let total_bytes = elem_size * 10;
 memset(numbers, 0, total_bytes);
 
 // 3. buffer() - Safe wrapper with bounds checking
+// This is the "safe by choice" half of Hemlock. A raw ptr lets you read/write
+// anywhere (fast, dangerous); a buffer remembers its own length and traps
+// out-of-bounds access instead of corrupting memory. Reach for buffer when you
+// want safety, ptr when you want raw control.
 let buf = buffer(256);
 buf[0] = 72;  // 'H'
 buf[1] = 101;  // 'e'
@@ -23,9 +39,12 @@ buf[2] = 108;  // 'l'
 buf[3] = 108;  // 'l'
 buf[4] = 111;  // 'o'
 print(buf[0]);
-print(buf.length);
+print(buf.length);  // a buffer knows its size; a raw ptr does not
 
 // 4. realloc() - Resize allocations
+// realloc() grows (or shrinks) a block. The returned pointer may differ from
+// the old one if the data had to move, so ALWAYS reassign: `p = realloc(p, n)`.
+// Using the old pointer after a realloc is a classic use-after-free bug.
 let p = alloc(64);
 print(p);
 p = realloc(p, 128);
@@ -34,6 +53,9 @@ p = realloc(p, 256);
 print(p);
 
 // Clean up
+// Each allocation above is freed exactly once. Forgetting one is a leak;
+// freeing one twice is a double-free crash. Hemlock won't stop you from either
+// - that visibility is the point.
 free(numbers);
 free(buf);
 free(p);

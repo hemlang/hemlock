@@ -29,7 +29,11 @@ async fn philosopher(id: i32, name: string, left_fork, right_fork, stats_channel
 	let meals_eaten = 0;
 	let max_meals = 3;
 
-	// To avoid deadlock, use resource hierarchy: always pick up lower-numbered fork first
+	// Deadlock avoidance via resource hierarchy:
+	// The classic deadlock is everyone grabbing their LEFT fork at once, then
+	// waiting forever for a right fork nobody will release. We break the cycle
+	// by giving forks a global order and always acquiring the lower-numbered
+	// one first. With no circular wait possible, deadlock cannot occur.
 	let first_fork = left_fork;
 	let second_fork = right_fork;
 	let first_id = id;
@@ -115,10 +119,13 @@ fn main() {
 	print("");
 
 	// Create fork channels - each starts with one "token" (fork is available)
+	// A size-1 buffered channel makes a perfect binary semaphore/mutex: it can
+	// hold exactly one token. recv() = "pick up the fork" (blocks if empty, so
+	// only one philosopher holds it at a time); send() = "put the fork back".
 	let forks = [];
 	for (let i = 0; i < 5; i = i + 1) {
 		let fork = channel(1);  // Buffered channel of size 1
-		fork.send(true);  // Fork starts available
+		fork.send(true);  // Seed the token so the fork starts available
 		forks.push(fork);
 	}
 

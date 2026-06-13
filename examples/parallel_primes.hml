@@ -72,22 +72,29 @@ fn main() {
 	print(BOLD + "=== Parallel Computation ===" + RESET);
 	let parallel_start = now();
 
+	// Split the range [2, limit) into one contiguous chunk per worker. Because
+	// the chunks don't overlap, the workers never touch the same data and need
+	// no locking - this is the easiest and most scalable kind of parallelism.
 	let tasks = [];
 	for (let i = 0; i < num_workers; i = i + 1) {
 		let start: i64 = i * chunk_size;
 		let end: i64 = start + chunk_size;
 		if (i == 0) {
-			start = 2;  // Skip 0 and 1
+			start = 2;  // Skip 0 and 1 (not prime)
 		}
 		if (i == num_workers - 1) {
-			end = limit;  // Cover remainder
+			end = limit;  // Last worker absorbs any remainder from the division
 		}
 
+		// spawn() launches the work on its own OS thread and returns
+		// immediately - we do NOT wait here, so all workers run at once.
 		let task = spawn(count_primes_in_range, start, end, i);
 		tasks.push(task);
 	}
 
-	// Collect results
+	// Now collect results. join() blocks until that worker finishes and hands
+	// back its return value. We spawned everything first and join second so the
+	// threads overlap; joining inside the spawn loop would serialize them.
 	let total_parallel: i64 = 0;
 	for (let i = 0; i < tasks.length; i = i + 1) {
 		let count = join(tasks[i]);
