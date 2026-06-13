@@ -66,6 +66,37 @@ static void codegen_emit_function_attributes(CodegenContext *ctx, Annotation **a
     }
 }
 
+// Helper: Emit GCC loop pragmas based on Hemlock loop annotations.
+// Must be called immediately before the C loop header so the pragma binds to
+// it. Translates @unroll(n)/@nounroll/@simd into the matching #pragma GCC.
+// The interpreter ignores these annotations, so behavior (and thus parity) is
+// unchanged; only the optimizer's view of the generated loop differs.
+void codegen_emit_loop_pragmas(CodegenContext *ctx, Annotation **annotations, int annotation_count) {
+    if (!annotations || annotation_count == 0) {
+        return;
+    }
+
+    Annotation *unroll = annotation_get(annotations, annotation_count, "unroll");
+    if (unroll) {
+        // @unroll(n) - unroll factor. Clamp to a sane positive range; a factor
+        // of 0 or below is meaningless and is treated as "no explicit factor".
+        int factor = (int)annotation_get_number_arg(unroll, NULL, 0);
+        if (factor > 0 && factor <= HML_MAX_UNROLL_FACTOR) {
+            codegen_writeln(ctx, "#pragma GCC unroll %d", factor);
+        }
+    }
+
+    // @nounroll - disable unrolling (unroll factor of 1).
+    if (annotation_has(annotations, annotation_count, "nounroll")) {
+        codegen_writeln(ctx, "#pragma GCC unroll 1");
+    }
+
+    // @simd - assert the loop has no vector dependencies so GCC may vectorize.
+    if (annotation_has(annotations, annotation_count, "simd")) {
+        codegen_writeln(ctx, "#pragma GCC ivdep");
+    }
+}
+
 // Check if a statement is a function definition (let name = fn() {} or export fn name())
 int is_function_def(Stmt *stmt, char **name_out, Expr **func_out) {
     // Direct let statement with function

@@ -226,6 +226,9 @@ void codegen_closure_wrapper(CodegenContext *ctx, ClosureInfo *closure);
 // Generate a top-level function declaration
 void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, Annotation **annotations, int annotation_count, int is_export);
 
+// Emit GCC loop pragmas (@unroll/@nounroll/@simd) immediately before a C loop header
+void codegen_emit_loop_pragmas(CodegenContext *ctx, Annotation **annotations, int annotation_count);
+
 // Check if a statement is a function definition
 int is_function_def(Stmt *stmt, char **name_out, Expr **func_out);
 

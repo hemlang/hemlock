@@ -10,7 +10,9 @@ typedef enum {
     ANNOT_TARGET_ENUM     = 1 << 2,  // Enums
     ANNOT_TARGET_LET      = 1 << 3,  // Variables (let)
     ANNOT_TARGET_CONST    = 1 << 4,  // Constants
-    ANNOT_TARGET_ALL      = 0xFF,    // All declarations
+    ANNOT_TARGET_LOOP     = 1 << 5,  // Loop statements (for, while, loop, for-in)
+    ANNOT_TARGET_COND     = 1 << 6,  // Conditional statements (if)
+    ANNOT_TARGET_ALL      = 0xFF,    // All declarations and statements
 } AnnotationTarget;
 
 // Annotation specification

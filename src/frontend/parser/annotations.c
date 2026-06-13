@@ -26,6 +26,15 @@ static const AnnotationSpec known_annotations[] = {
     {"packed",     ANNOT_TARGET_DEFINE, 0, 0, 0},  // No struct padding
     {"section",    ANNOT_TARGET_FN | ANNOT_TARGET_LET, 1, 1, 1},  // Custom ELF section
 
+    // Loop hints (compiler backend emits GCC pragmas; interpreter ignores them)
+    {"unroll",     ANNOT_TARGET_LOOP, 1, 1, 1},  // Requires 1 argument (unroll factor)
+    {"nounroll",   ANNOT_TARGET_LOOP, 0, 0, 0},  // Disable unrolling
+    {"simd",       ANNOT_TARGET_LOOP, 0, 0, 0},  // Hint loop is vectorizable
+
+    // Branch hints (compiler backend emits __builtin_expect; interpreter ignores)
+    {"likely",     ANNOT_TARGET_COND, 0, 0, 0},  // Condition is usually true
+    {"unlikely",   ANNOT_TARGET_COND, 0, 0, 0},  // Condition is usually false
+
     // Deprecation
     {"deprecated", ANNOT_TARGET_ALL, 1, 0, 2},
 
@@ -58,6 +67,8 @@ static const char *target_name(AnnotationTarget target) {
         case ANNOT_TARGET_ENUM: return "enum";
         case ANNOT_TARGET_LET: return "variable";
         case ANNOT_TARGET_CONST: return "constant";
+        case ANNOT_TARGET_LOOP: return "loop";
+        case ANNOT_TARGET_COND: return "conditional";
         default: return "declaration";
     }
 }
@@ -76,6 +87,13 @@ static AnnotationTarget stmt_to_target(Stmt *stmt) {
             return ANNOT_TARGET_DEFINE;
         case STMT_ENUM:
             return ANNOT_TARGET_ENUM;
+        case STMT_WHILE:
+        case STMT_LOOP:
+        case STMT_FOR:
+        case STMT_FOR_IN:
+            return ANNOT_TARGET_LOOP;
+        case STMT_IF:
+            return ANNOT_TARGET_COND;
         default:
             return 0;
     }
@@ -96,6 +114,21 @@ static Annotation **get_annotations_from_stmt(Stmt *stmt, int *count) {
         case STMT_ENUM:
             *count = stmt->as.enum_decl.annotation_count;
             return stmt->as.enum_decl.annotations;
+        case STMT_WHILE:
+            *count = stmt->as.while_stmt.annotation_count;
+            return stmt->as.while_stmt.annotations;
+        case STMT_LOOP:
+            *count = stmt->as.loop_stmt.annotation_count;
+            return stmt->as.loop_stmt.annotations;
+        case STMT_FOR:
+            *count = stmt->as.for_loop.annotation_count;
+            return stmt->as.for_loop.annotations;
+        case STMT_FOR_IN:
+            *count = stmt->as.for_in.annotation_count;
+            return stmt->as.for_in.annotations;
+        case STMT_IF:
+            *count = stmt->as.if_stmt.annotation_count;
+            return stmt->as.if_stmt.annotations;
         default:
             return NULL;
     }

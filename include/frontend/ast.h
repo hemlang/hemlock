@@ -432,15 +432,21 @@ struct Stmt {
             Expr *condition;
             Stmt *then_branch;
             Stmt *else_branch;  // can be NULL
+            Annotation **annotations;   // branch hints (@likely / @unlikely)
+            int annotation_count;
         } if_stmt;
         struct {
             char *label;        // optional loop label (NULL if unlabeled)
             Expr *condition;
             Stmt *body;
+            Annotation **annotations;   // loop hints (@unroll / @simd / ...)
+            int annotation_count;
         } while_stmt;
         struct {
             char *label;        // optional loop label (NULL if unlabeled)
             Stmt *body;         // no condition - always infinite
+            Annotation **annotations;   // loop hints (@unroll / @simd / ...)
+            int annotation_count;
         } loop_stmt;
         struct {
             char *label;        // optional loop label (NULL if unlabeled)
@@ -448,6 +454,8 @@ struct Stmt {
             Expr *condition;    // i < 10
             Expr *increment;    // i = i + 1
             Stmt *body;
+            Annotation **annotations;   // loop hints (@unroll / @simd / ...)
+            int annotation_count;
         } for_loop;
         struct {
             char *label;        // optional loop label (NULL if unlabeled)
@@ -455,6 +463,8 @@ struct Stmt {
             char *value_var;    // variable name
             Expr *iterable;     // array or object to iterate
             Stmt *body;
+            Annotation **annotations;   // loop hints (@unroll / @simd / ...)
+            int annotation_count;
         } for_in;
         struct {
             char *label;        // optional target label (NULL for innermost loop)

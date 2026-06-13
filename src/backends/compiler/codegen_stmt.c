@@ -330,7 +330,16 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             }
 
             char *cond_bool = codegen_emit_condition_bool(ctx, stmt->as.if_stmt.condition);
-            codegen_writeln(ctx, "if (%s) {", cond_bool);
+            // @likely / @unlikely branch hints -> __builtin_expect
+            int annc = stmt->as.if_stmt.annotation_count;
+            Annotation **anns = stmt->as.if_stmt.annotations;
+            if (annc > 0 && annotation_has(anns, annc, "likely")) {
+                codegen_writeln(ctx, "if (__builtin_expect(!!(%s), 1)) {", cond_bool);
+            } else if (annc > 0 && annotation_has(anns, annc, "unlikely")) {
+                codegen_writeln(ctx, "if (__builtin_expect(!!(%s), 0)) {", cond_bool);
+            } else {
+                codegen_writeln(ctx, "if (%s) {", cond_bool);
+            }
             codegen_indent_inc(ctx);
             codegen_stmt(ctx, stmt->as.if_stmt.then_branch);
             codegen_indent_dec(ctx);
@@ -428,6 +437,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
             }
 
+            codegen_emit_loop_pragmas(ctx, stmt->as.while_stmt.annotations,
+                                      stmt->as.while_stmt.annotation_count);
             codegen_writeln(ctx, "while (1) {");
             codegen_indent_inc(ctx);
 
@@ -489,6 +500,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_push_loop_label(ctx, loop_label, break_label, continue_label);
             }
 
+            codegen_emit_loop_pragmas(ctx, stmt->as.loop_stmt.annotations,
+                                      stmt->as.loop_stmt.annotation_count);
             codegen_writeln(ctx, "while (1) {");
             codegen_indent_inc(ctx);
 
@@ -516,6 +529,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
         case STMT_FOR: {
             ctx->loop_depth++;
             const char *loop_label = stmt->as.for_loop.label;
+            Annotation **for_ann = stmt->as.for_loop.annotations;
+            int for_ann_count = stmt->as.for_loop.annotation_count;
             char *loop_break_label = NULL;
             char *loop_continue_label = NULL;
 
@@ -620,6 +635,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                             !bound_expr->as.number.is_float) {
                             // Constant bound - fully optimized loop
                             int32_t bound = (int32_t)bound_expr->as.number.int_value;
+                            codegen_emit_loop_pragmas(ctx, for_ann, for_ann_count);
                             if (counter_on_left) {
                                 codegen_writeln(ctx, "while (%s %s %d) {", safe_name, op_str, bound);
                             } else {
@@ -630,6 +646,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                             char *bound_val = codegen_expr(ctx, bound_expr);
                             codegen_writeln(ctx, "int32_t _bound = hml_to_i32(%s);", bound_val);
                             codegen_writeln(ctx, "hml_release_if_needed(&%s);", bound_val);
+                            codegen_emit_loop_pragmas(ctx, for_ann, for_ann_count);
                             if (counter_on_left) {
                                 codegen_writeln(ctx, "while (%s %s _bound) {", safe_name, op_str);
                             } else {
@@ -638,12 +655,15 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                             free(bound_val);
                         } else {
                             // Fallback
+                            codegen_emit_loop_pragmas(ctx, for_ann, for_ann_count);
                             codegen_writeln(ctx, "while (1) {");
                         }
                     } else {
+                        codegen_emit_loop_pragmas(ctx, for_ann, for_ann_count);
                         codegen_writeln(ctx, "while (1) {");
                     }
                 } else {
+                    codegen_emit_loop_pragmas(ctx, for_ann, for_ann_count);
                     codegen_writeln(ctx, "while (1) {");
                 }
 
@@ -717,6 +737,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
                 codegen_push_for_continue(ctx, continue_label);
 
+                codegen_emit_loop_pragmas(ctx, for_ann, for_ann_count);
                 codegen_writeln(ctx, "while (1) {");
                 codegen_indent_inc(ctx);
                 // Condition
@@ -840,6 +861,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             // of the iterable during the loop is observed (the interpreter
             // checks the live length each pass). Cheap: array/object lengths
             // are field reads and strings cache their codepoint count.
+            codegen_emit_loop_pragmas(ctx, stmt->as.for_in.annotations,
+                                      stmt->as.for_in.annotation_count);
             codegen_writeln(ctx, "while (%s < hml_iter_length(%s)) {", idx_var, iter_val);
             codegen_indent_inc(ctx);
 
