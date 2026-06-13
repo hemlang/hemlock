@@ -164,6 +164,14 @@ void hml_runtime_error_loc(const char *format, ...) {
     hml_throw(hml_val_string(buffer));
 }
 
+// Fatal, non-catchable runtime error: prints "Runtime error: <msg>" and exits.
+// Mirrors the interpreter's ctx-less runtime_error() path (used where the
+// interpreter raises a fatal error rather than a catchable exception).
+void hml_fatal_error(const char *message) {
+    fprintf(stderr, "Runtime error: %s\n", message);
+    exit(1);
+}
+
 // Runtime error with line-only prefix "[line N] message" (no file, no snippet).
 // Matches the interpreter's runtime_error_at() — used for operator-level faults
 // such as division by zero and negative shift amounts.

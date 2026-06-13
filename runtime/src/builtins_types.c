@@ -119,9 +119,12 @@ HmlValue hml_validate_object_type(HmlValue obj, const char *type_name) {
                     }
 
                     if (!type_ok) {
-                        fprintf(stderr, "Error: Field '%s' has wrong type for '%s'\n",
-                                field->name, type_name);
-                        exit(1);
+                        // Coerce to the field's annotated type. This matches the
+                        // interpreter, which applies type-annotation coercion to
+                        // fields and throws a catchable conversion error (e.g.
+                        // "Cannot convert string to i32 via type annotation...")
+                        // rather than a generic "wrong type" message.
+                        o->fields[j].value = hml_convert_to_type(val, field->type_kind);
                     }
                 }
                 break;
@@ -133,7 +136,7 @@ HmlValue hml_validate_object_type(HmlValue obj, const char *type_name) {
                 // Add default value
                 hml_object_set_field(obj, field->name, field->default_value);
             } else {
-                fprintf(stderr, "Error: Object missing required field '%s' for type '%s'\n",
+                fprintf(stderr, "Runtime error: Object missing required field '%s' for type '%s'\n",
                         field->name, type_name);
                 exit(1);
             }
