@@ -22,6 +22,30 @@ static void type_check_redeclaration(TypeCheckContext *ctx, const char *name, in
     }
 }
 
+// Convert a method's AST type to a CheckedType. checked_type_from_ast() does
+// not model TYPE_FUNCTION (it yields CHECKED_ANY), which would drop the return
+// type needed to validate method signatures. Handle the function case here,
+// locally, so we don't change the global conversion's behavior elsewhere.
+static CheckedType *type_check_method_type_from_ast(TypeCheckContext *ctx, Type *mt) {
+    if (mt && mt->kind == TYPE_FUNCTION) {
+        CheckedType *ft = calloc(1, sizeof(CheckedType));
+        ft->kind = CHECKED_FUNCTION;
+        ft->num_params = mt->fn_num_params;
+        if (mt->fn_num_params > 0 && mt->fn_param_types) {
+            ft->param_types = calloc(mt->fn_num_params, sizeof(CheckedType*));
+            for (int i = 0; i < mt->fn_num_params; i++) {
+                ft->param_types[i] = checked_type_from_ast_ctx(ctx, mt->fn_param_types[i]);
+            }
+        }
+        ft->return_type = mt->fn_return_type
+            ? checked_type_from_ast_ctx(ctx, mt->fn_return_type)
+            : checked_type_primitive(CHECKED_VOID);
+        ft->has_rest_param = (mt->fn_rest_param_name != NULL);
+        return ft;
+    }
+    return checked_type_from_ast_ctx(ctx, mt);
+}
+
 // ========== FUNCTION BODY CHECKING ==========
 
 void type_check_function_body(TypeCheckContext *ctx, Expr *func, const char *name) {
@@ -151,6 +175,45 @@ void type_check_validate_object_literal(TypeCheckContext *ctx, Expr *expr,
                           checked_type_name(actual_type));
             }
             checked_type_free(actual_type);
+        }
+    }
+
+    // Check method signatures: a provided method's return type must match the
+    // one declared in the `define`. The interpreter enforces this at runtime;
+    // the compiler catches it at compile time (consistent with how it already
+    // rejects other invalid declarations, e.g. typed-array push mismatches).
+    for (int i = 0; i < def->num_methods; i++) {
+        CheckedType *method_type = def->method_types ? def->method_types[i] : NULL;
+        if (!method_type || method_type->kind != CHECKED_FUNCTION || !method_type->return_type) {
+            continue;
+        }
+        CheckedType *expected_ret = method_type->return_type;
+        // Only flag when the declared return type is a concrete primitive
+        // (i8..rune, incl. bool/string), where a mismatch is unambiguous.
+        // Skip custom types (e.g. Self), generics, objects, and any — those
+        // need structural/substitution reasoning and would false-positive.
+        if (expected_ret->kind < CHECKED_I8 || expected_ret->kind > CHECKED_RUNE) {
+            continue;
+        }
+
+        const char *method_name = def->method_names[i];
+        for (int j = 0; j < expr->as.object_literal.num_fields; j++) {
+            const char *fname = expr->as.object_literal.field_names[j];
+            if (!fname || strcmp(fname, method_name) != 0) continue;
+
+            Expr *mval = expr->as.object_literal.field_values[j];
+            if (!mval || mval->type != EXPR_FUNCTION) break;  // not a fn literal — skip
+            CheckedType *actual = type_check_infer_expr(ctx, mval);
+            if (actual && actual->kind == CHECKED_FUNCTION && actual->return_type &&
+                !type_is_assignable(expected_ret, actual->return_type)) {
+                type_error(ctx, line,
+                    "method '%s' of type '%s' must return '%s', got '%s'",
+                    method_name, type_name,
+                    checked_type_name(expected_ret),
+                    checked_type_name(actual->return_type));
+            }
+            checked_type_free(actual);
+            break;
         }
     }
 }
@@ -467,7 +530,7 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
                 method_types = calloc(stmt->as.define_object.num_methods, sizeof(CheckedType*));
                 for (int i = 0; i < stmt->as.define_object.num_methods; i++) {
                     if (stmt->as.define_object.method_types[i]) {
-                        method_types[i] = checked_type_from_ast_ctx(ctx, stmt->as.define_object.method_types[i]);
+                        method_types[i] = type_check_method_type_from_ast(ctx, stmt->as.define_object.method_types[i]);
                     } else {
                         method_types[i] = checked_type_primitive(CHECKED_ANY);
                     }
@@ -683,7 +746,7 @@ void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int count)
                 method_types = calloc(stmt->as.define_object.num_methods, sizeof(CheckedType*));
                 for (int j = 0; j < stmt->as.define_object.num_methods; j++) {
                     if (stmt->as.define_object.method_types[j]) {
-                        method_types[j] = checked_type_from_ast_ctx(ctx, stmt->as.define_object.method_types[j]);
+                        method_types[j] = type_check_method_type_from_ast(ctx, stmt->as.define_object.method_types[j]);
                     } else {
                         method_types[j] = checked_type_primitive(CHECKED_ANY);
                     }
