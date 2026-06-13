@@ -8,6 +8,7 @@
 
 #include "frontend.h"
 #include "tools/type_check.h"
+#include "tools/borrow_check.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -311,6 +312,33 @@ void lsp_document_parse(LSPServer *server, LSPDocument *doc) {
 
         // Clean up type checker
         type_check_free(type_ctx);
+
+        // Run the borrow / ownership checker and surface its findings as
+        // diagnostics. Uses the default (non-strict) mode for editor feedback:
+        // high-precision use-after-free / double-free / free-in-loop checks
+        // without the noisier move/leak warnings.
+        BorrowContext *borrow_ctx = borrow_check_new(type_check_path);
+        if (borrow_ctx) {
+            borrow_check_enable_collection(borrow_ctx, doc->content);
+            borrow_check_program(borrow_ctx, statements, stmt_count);
+
+            for (BorrowDiag *bd = borrow_ctx->diags; bd; bd = bd->next) {
+                int lsp_line = bd->line > 0 ? bd->line - 1 : 0;
+
+                LSPRange range = {
+                    .start = { .line = lsp_line, .character = bd->column },
+                    .end   = { .line = lsp_line, .character = bd->end_column }
+                };
+
+                LSPDiagnosticSeverity severity = bd->is_error ?
+                    LSP_SEVERITY_ERROR : LSP_SEVERITY_WARNING;
+
+                lsp_document_add_diagnostic(doc, range, severity, bd->message);
+            }
+
+            borrow_check_free(borrow_ctx);
+        }
+
         free(document_path);
     }
 }

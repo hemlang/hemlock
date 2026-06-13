@@ -521,6 +521,9 @@ HmlValue hml_exception_get_value(void);
 // but the code after the call site will not execute.
 __attribute__((noreturn)) void hml_runtime_error(const char *format, ...);
 
+// Fatal, non-catchable error: prints "Runtime error: <msg>" and exits.
+__attribute__((noreturn)) void hml_fatal_error(const char *message);
+
 // Located variant: "[file:line] message" plus source line + caret.
 __attribute__((noreturn)) void hml_runtime_error_loc(const char *format, ...);
 

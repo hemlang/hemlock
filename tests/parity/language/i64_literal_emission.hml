@@ -1,0 +1,27 @@
+// Regression: 64-bit integer literals were emitted into generated C with the
+// `L` suffix (e.g. `5000000000L`). `long` is only 32-bit on LLP64 targets
+// (Windows), so the value overflowed; and a folded INT64_MIN emitted
+// `-9223372036854775808LL`, which C parses as negation of a value one past
+// LLONG_MAX and is ill-formed. Literals now use `LL` and emit INT64_MIN as the
+// macro, matching the interpreter on every target.
+
+let big: i64 = 5000000000;
+print(big);
+
+let neg: i64 = -5000000000;
+print(neg);
+
+// INT64_MIN reached via constant folding (~i64_max == i64_min).
+let imin = ~9223372036854775807;
+print(imin);
+
+// i64 arithmetic with large literal operands.
+let sum = 5000000000 + 3000000000;
+print(sum);
+
+let prod = 100000 * 100000;   // 10_000_000_000, exceeds i32
+print(prod);
+
+// u64 max still round-trips.
+let umax: u64 = 18446744073709551615;
+print(umax);

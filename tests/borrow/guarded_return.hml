@@ -1,0 +1,10 @@
+// The free in the guarded branch returns, so the trailing free is not a
+// double free. Diverging branches must be excluded from the merge.
+fn cleanup(c: bool) {
+    let p = alloc(64);
+    if (c) {
+        free(p);
+        return;
+    }
+    free(p);
+}

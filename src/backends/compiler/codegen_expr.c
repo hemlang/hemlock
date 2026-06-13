@@ -102,7 +102,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 if (expr->as.number.int_value >= INT32_MIN && expr->as.number.int_value <= INT32_MAX) {
                     codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%d);", result, (int32_t)expr->as.number.int_value);
                 } else {
-                    codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%" PRId64 "L);", result, expr->as.number.int_value);
+                    char ibuf[32];
+                    codegen_format_i64(ibuf, sizeof(ibuf), expr->as.number.int_value);
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%s);", result, ibuf);
                 }
             }
             break;
@@ -181,7 +183,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     if (val >= INT32_MIN && val <= INT32_MAX) {
                         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%d);", result, (int32_t)val);
                     } else {
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%" PRId64 "L);", result, val);
+                        char ibuf[32];
+                        codegen_format_i64(ibuf, sizeof(ibuf), val);
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%s);", result, ibuf);
                     }
                     break;
                 }
@@ -1571,13 +1575,20 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 // Generate pattern match condition
                 codegen_pattern_match(ctx, arm->pattern, scrutinee, next_arm);
 
+                // Locals added by the pattern are bindings (e.g. `n`, destructured
+                // fields/elements). They each hold a retained reference that must be
+                // released when the arm finishes, otherwise every successful match
+                // leaks the bound heap values.
+                int arm_bindings_end = ctx->num_locals;
+
                 // Generate guard check if present
                 if (arm->guard) {
                     char *guard_val = codegen_expr(ctx, arm->guard);
                     codegen_writeln(ctx, "if (!hml_to_bool(%s)) {", guard_val);
                     codegen_indent_inc(ctx);
                     codegen_writeln(ctx, "hml_release(&%s);", guard_val);
-                    // Release any bindings created by pattern before jumping
+                    // Release bindings created by the pattern before jumping away.
+                    codegen_release_locals_range(ctx, arm_locals_start, arm_bindings_end);
                     codegen_writeln(ctx, "goto %s;", next_arm);
                     codegen_indent_dec(ctx);
                     codegen_writeln(ctx, "}");
@@ -1585,10 +1596,15 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     free(guard_val);
                 }
 
-                // Evaluate body and store result
+                // Evaluate body and store result. The body retains its own value
+                // (codegen_expr returns an owned temp), so the result is independent
+                // of the pattern bindings and they can be safely released below.
                 char *body_val = codegen_expr(ctx, arm->body);
                 codegen_writeln(ctx, "%s = %s;", result, body_val);
                 free(body_val);
+
+                // Release pattern bindings now that the body result is captured.
+                codegen_release_locals_range(ctx, arm_locals_start, arm_bindings_end);
 
                 // Jump to end
                 codegen_writeln(ctx, "goto %s;", end_label);

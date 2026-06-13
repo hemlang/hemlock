@@ -1,0 +1,5 @@
+// Strict mode only: a resource that is never freed before going out of scope.
+fn main() {
+    let p = alloc(64);
+    memset(p, 0, 64);
+}

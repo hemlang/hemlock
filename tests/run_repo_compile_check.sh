@@ -80,6 +80,7 @@ is_expected_fail() {
         tests/circular_refs/test_array_self_reference.hml|\
         tests/circular_refs/test_complex_nested.hml|\
         tests/circular_refs/test_object_array_cycle.hml|\
+        tests/objects/method_signature_errors.hml|\
         tests/annotations/validation_invalid_target.hml)
             return 0
             ;;

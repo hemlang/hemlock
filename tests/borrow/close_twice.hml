@@ -1,0 +1,5 @@
+fn main() {
+    let f = open("x.txt", "r");
+    f.close();
+    f.close();
+}

@@ -77,6 +77,38 @@ jobs:
     - name: Run compiler tests
       run: make test-compiler
 
+  # Borrow / ownership checker - static memory-safety analysis diagnostics
+  borrow-checker:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+
+    - name: Build and install USearch
+      run: |
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+          -DUSEARCH_BUILD_LIB_C=ON \
+          -DUSEARCH_BUILD_TEST_C=OFF \
+          -DUSEARCH_BUILD_TEST_CPP=OFF \
+          -DUSEARCH_BUILD_BENCH_CPP=OFF
+        cmake --build /tmp/usearch/build --config Release
+        sudo cp $(find /tmp/usearch/build -name 'libusearch_c.so' | head -1) /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
+        sudo ldconfig
+        ls -la /usr/local/lib/libusearch*
+
+    - name: Build compiler
+      run: make compiler
+
+    - name: Run borrow checker tests
+      run: make test-borrow
+
   # Compiler memory regression tests - detect leaks in compiled binaries
   memory:
     runs-on: ubuntu-latest

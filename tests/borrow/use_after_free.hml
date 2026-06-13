@@ -1,0 +1,6 @@
+// Using a resource after it has been freed.
+fn main() {
+    let p = alloc(64);
+    free(p);
+    memset(p, 0, 64);
+}
