@@ -733,9 +733,9 @@ Uses 1 thread per task, which can be inefficient for many short tasks.
 
 **Current:** 1000 tasks = 1000 threads (heavy overhead)
 
-**Planned:** Thread pool with work stealing for better efficiency
+**Workaround:** Use the `ThreadPool` from `@stdlib/async` to bound the number of worker threads for many short tasks.
 
-### 3. No Async I/O Integration
+### 2. No Async I/O Integration
 
 File/network operations still block the thread:
 
@@ -748,20 +748,16 @@ async fn read_file(path: string) {
 }
 ```
 
-**Workaround:** Use multiple threads for concurrent I/O operations
+**Workaround:** Use multiple threads for concurrent I/O operations, or `@stdlib/async_fs` for async file I/O.
 
-### 4. Fixed Channel Capacity
+### 3. Fixed Channel Capacity
 
-Channel capacity is set at creation and cannot be resized:
+Channel buffer size is set at creation and cannot be resized:
 
 ```hemlock
 let ch = channel(10);
 // Cannot dynamically resize to 20
 ```
-
-### 5. Channel Size is Fixed
-
-Channel buffer size cannot be changed after creation.
 
 ## Common Patterns
 

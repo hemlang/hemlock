@@ -71,12 +71,9 @@ Welcome to the Hemlock programming language documentation!
 - [Testing Guide](contributing/testing.md) - Writing and running tests, including documentation checks
 - [Contract Testing Guide](contributing/contract-testing.md) - Pinning documented language/stdlib guarantees on both backends
 
-### Plans & Proposals
-- [HemlockScript WASM](plans/hemlockscript-wasm.md) - WebAssembly compilation plans
-- [Memory Leak Prevention Plan](plans/MEMORY_LEAK_PREVENTION_PLAN.md) - Memory leak detection and prevention strategy
-- [Compiler Helper Annotations](proposals/compiler-helper-annotations.md) - Compiler optimization annotations proposal
-- [Vector DB Stdlib](proposals/vector-db-stdlib.md) - Vector database stdlib module proposal
-- [Annotations Implementation Summary](annotations-implementation-summary.md) - Annotations implementation overview
+### Proposals
+- [Compiler Helper Annotations](proposals/compiler-helper-annotations.md) - Compiler optimization annotations (Phase 1-2 implemented; later phases proposed)
+- [Source Side-Effect Imports](proposals/source-side-effect-imports.md) - Side-effect import design (implemented in 2.7.0)
 
 ## Quick Reference
 

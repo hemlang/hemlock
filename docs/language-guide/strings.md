@@ -198,7 +198,7 @@ let s = "Hello" + '!';          // "Hello!"
 
 ## String Methods
 
-Hemlock provides 20 string methods for comprehensive text manipulation.
+Hemlock provides 23 string methods for comprehensive text manipulation. This guide covers the most common ones; see the [String API reference](../reference/string-api.md) for the complete list.
 
 ### Substring & Slicing
 
@@ -233,6 +233,13 @@ let s = "hello world";
 let pos = s.find("world");      // 6 (index of first occurrence)
 let pos2 = s.find("foo");       // -1 (not found)
 let pos3 = s.find("l");         // 2 (first 'l')
+```
+
+**`rfind(needle)`** - Find last occurrence (codepoint index, `-1` if absent):
+```hemlock
+let path = "src/lib/model.gguf";
+let pos = path.rfind("/");           // 7 (last '/')
+let base = path.substr(path.rfind("/") + 1);  // "model.gguf"
 ```
 
 **`contains(needle)`** - Check if string contains substring:

@@ -373,35 +373,16 @@ let arr = [1, 2, 3, 4, 5];
 process_array(arr);  // Pass to C function
 ```
 
-**3. Function Pointer Callbacks** ✅ (Implemented!)
-```hemlock
-import { callback, callback_free } from "@stdlib/ffi";
+> Function pointer callbacks are already supported — see the [FFI Callbacks](#ffi-callbacks) section below.
 
-// Pass Hemlock functions to C as callbacks
-fn my_compare(a: ptr, b: ptr): i32 {
-    let va = ptr_deref_i32(a);
-    let vb = ptr_deref_i32(b);
-    return va - vb;
-}
-
-// Create a C-callable function pointer
-let cmp = callback(my_compare, ["ptr", "ptr"], "i32");
-
-// Use with qsort or any C function expecting a callback
-qsort(arr, count, elem_size, cmp);
-
-// Clean up when done
-callback_free(cmp);
-```
-
-**4. String Marshaling**
+**3. String Marshaling**
 ```hemlock
 // Future: Automatic string conversion
 let s = "hello";
 c_string_function(s);  // Auto-convert to C string
 ```
 
-**5. Error Handling**
+**4. Error Handling**
 ```hemlock
 // Future: Better error reporting
 try {
@@ -411,7 +392,7 @@ try {
 }
 ```
 
-**6. Type Safety**
+**5. Type Safety**
 ```hemlock
 // Future: Type annotations for FFI
 @ffi("libm.so")

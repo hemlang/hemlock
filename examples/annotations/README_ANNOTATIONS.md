@@ -125,6 +125,7 @@ Annotations provide hints but don't guarantee specific behavior:
 
 ## See Also
 
-- `docs/annotations-implementation-summary.md` - Implementation details
+- `docs/advanced/compiler-optimizations.md` - Inlining, unboxing, and annotations
+- `docs/proposals/compiler-helper-annotations.md` - Annotation reference and design
 - `CLAUDE.md` - Full annotation reference
 - `tests/compiler/annotations/` - Test suite
