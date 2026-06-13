@@ -1,0 +1,7 @@
+// Strict mode: a leak must be reported even when the function ends in a
+// return (the return value is unrelated to the leaked resource).
+fn build(): i32 {
+    let scratch = alloc(1024);
+    ptr_write_i32(scratch, 7);
+    return 7;
+}

@@ -181,7 +181,12 @@ static void bc_pop_scope(BorrowContext *ctx) {
     if (!s) return;
     BcBinding *b = s->bindings;
     while (b) {
-        if (ctx->strict && !ctx->diverged && b->resource_id >= 0 && !b->moved) {
+        // A resource still OWNED (not freed, moved, escaped, or deferred) when
+        // its binding leaves scope is a leak. This is independent of whether
+        // the path diverged via return: escape (return p) is tracked separately
+        // by bc_mark_escape, so a returning function with an unreleased local
+        // is still a leak.
+        if (ctx->strict && b->resource_id >= 0 && !b->moved) {
             BcResource *r = bc_res(ctx, b->resource_id);
             // Only complain once (about the originating binding) for live,
             // non-escaped, non-deferred resources.
