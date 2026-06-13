@@ -156,7 +156,7 @@ The compiler supports 10 function-level optimization annotations that map to GCC
 | `@flatten` | Inline all calls within the function |
 | `@optimize(level)` | Per-function optimization level ("0"-"3", "s", "fast") |
 | `@warn_unused` | Warn if return value is ignored |
-| `@section(name)` | Place function in custom ELF section |
+| `@section(name)` | Place function in a custom linker section (ELF/COFF; mapped into `__TEXT` on macOS) |
 
 ### Example
 
