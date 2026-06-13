@@ -1,0 +1,7 @@
+// Freeing a resource acquired outside a loop double-frees on later iterations.
+fn main() {
+    let p = alloc(64);
+    for (let i = 0; i < 10; i++) {
+        free(p);
+    }
+}

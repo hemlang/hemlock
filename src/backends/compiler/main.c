@@ -27,6 +27,7 @@
 #include "../../include/hemlock_limits.h"
 #include "codegen.h"
 #include "compiler/type_check.h"
+#include "compiler/borrow_check.h"
 
 #define HEMLOCK_BUILD_DATE __DATE__
 #define HEMLOCK_BUILD_TIME __TIME__
@@ -243,6 +244,9 @@ typedef struct {
     const char *runtime_path;    // Path to runtime library
     int type_check;              // Enable compile-time type checking (default: on)
     int strict_types;            // Enable strict type checking (warn on implicit any)
+    int borrow_check;            // Enable Rust-like ownership/borrow checking (default: on)
+    int borrow_strict;           // Strict borrow checking (move tracking + leak detection)
+    int borrow_error;            // Treat borrow-check findings as errors (fail the build)
     int check_only;              // Only type check, don't compile
     int static_link;             // Static link all libraries for standalone binary
     int stack_check;             // Enable stack overflow checking (default: on)
@@ -270,6 +274,9 @@ static void print_usage(const char *progname) {
     fprintf(stderr, "  --check         Type check only, don't compile\n");
     fprintf(stderr, "  --no-type-check Disable type checking (less safe, fewer optimizations)\n");
     fprintf(stderr, "  --strict-types  Strict type checking (warn on implicit any)\n");
+    fprintf(stderr, "  --no-borrow-check  Disable Rust-like ownership/borrow checking\n");
+    fprintf(stderr, "  --borrow-strict   Strict borrow checking (move tracking + leak detection)\n");
+    fprintf(stderr, "  --borrow-error    Treat borrow-check findings as errors (fail the build)\n");
     fprintf(stderr, "  --no-stack-check  Disable stack overflow checking (faster, but no protection)\n");
     fprintf(stderr, "  --static        Static-link the volatile native libs (default on Linux)\n");
     fprintf(stderr, "  --dynamic       Dynamic-link instead (default on macOS; needed for runtime FFI)\n");
@@ -300,6 +307,9 @@ static Options parse_args(int argc, char **argv) {
         .runtime_path = NULL,
         .type_check = 1,         // Type checking ON by default
         .strict_types = 0,
+        .borrow_check = 1,       // Borrow checking ON by default (advisory warnings)
+        .borrow_strict = 0,
+        .borrow_error = 0,
         .check_only = 0,
         .static_link = 0,
         .stack_check = 1,        // Stack overflow checking ON by default
@@ -355,6 +365,14 @@ static Options parse_args(int argc, char **argv) {
         } else if (strcmp(argv[i], "--strict-types") == 0) {
             opts.type_check = 1;  // Implies type checking
             opts.strict_types = 1;
+        } else if (strcmp(argv[i], "--no-borrow-check") == 0) {
+            opts.borrow_check = 0;
+        } else if (strcmp(argv[i], "--borrow-strict") == 0) {
+            opts.borrow_check = 1;
+            opts.borrow_strict = 1;
+        } else if (strcmp(argv[i], "--borrow-error") == 0) {
+            opts.borrow_check = 1;
+            opts.borrow_error = 1;
         } else if (strcmp(argv[i], "--static") == 0) {
             opts.static_link = 1;   // default since 2.6.0; kept as an explicit no-op
         } else if (strcmp(argv[i], "--dynamic") == 0) {
@@ -949,6 +967,37 @@ int main(int argc, char **argv) {
             return 0;
         }
         // Note: type_ctx is kept alive for codegen optimization hints
+    }
+
+    // Borrow / ownership checking (Rust-like, advisory by default).
+    // Runs as a non-fatal warning pass unless --borrow-error is given.
+    if (opts.borrow_check) {
+        if (opts.verbose) {
+            printf("Borrow checking...\n");
+        }
+        BorrowContext *bc = borrow_check_new(opts.input_file);
+        if (bc) {
+            bc->strict = opts.borrow_strict;
+            bc->errors_are_fatal = opts.borrow_error;
+            int bc_errors = borrow_check_program(bc, statements, stmt_count);
+            int bc_warnings = bc->warning_count;
+            if (opts.verbose && bc_warnings == 0 && bc->error_count == 0) {
+                printf("Borrow checking passed\n");
+            }
+            borrow_check_free(bc);
+
+            if (bc_errors > 0) {
+                fprintf(stderr, "%d borrow error%s found\n",
+                        bc_errors, bc_errors > 1 ? "s" : "");
+                if (type_ctx) type_check_free(type_ctx);
+                for (int i = 0; i < stmt_count; i++) {
+                    stmt_free(statements[i]);
+                }
+                free(statements);
+                free(source);
+                return 1;
+            }
+        }
     }
 
     // Determine C output file

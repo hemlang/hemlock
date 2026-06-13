@@ -574,6 +574,7 @@ analyze-clean:
 # Modular codegen: core, expr, stmt, closure, program, module
 COMPILER_SRCS = $(SRC_DIR)/backends/compiler/main.c \
                 $(wildcard $(SRC_DIR)/backends/compiler/codegen*.c) \
+                $(SRC_DIR)/backends/compiler/borrow_check.c \
                 $(TYPECHECK_SRCS) \
                 $(SHARED_SRCS) \
                 $(FRONTEND_COMPILER_SRCS)
@@ -856,6 +857,11 @@ fullclean: clean compiler-clean runtime-clean release-clean release-static-clean
 test-compiler: compiler
 	@bash tests/compiler/run_compiler_tests.sh
 
+# Run borrow / ownership checker diagnostic tests
+.PHONY: test-borrow
+test-borrow: compiler
+	@bash tests/borrow/run_borrow_tests.sh
+
 # Check that interpreter tests compile (does not check output parity)
 .PHONY: compile-check
 compile-check: compiler
@@ -893,7 +899,7 @@ test-memory: compiler
 
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler parity test-contracts test-bundler test-lsp test-memory test-formatter test-cli
+test-all: test test-compiler test-borrow parity test-contracts test-bundler test-lsp test-memory test-formatter test-cli
 
 # ========== RELEASE BUILD ==========
 
