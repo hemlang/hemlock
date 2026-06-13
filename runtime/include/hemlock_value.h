@@ -637,7 +637,8 @@ static inline void hml_array_set_i32_fast(HmlArray *arr, int32_t index, HmlValue
         // hml_array_set(): typed arrays must reject mismatched values before
         // mutating or changing reference counts.
         if (arr->element_type != HML_VAL_NULL && val.type != arr->element_type) {
-            hml_runtime_error("Type mismatch in typed array - expected element of specific type");
+            extern __attribute__((noreturn)) void hml_fatal_error(const char *message);
+            hml_fatal_error("Type mismatch in typed array - expected element of specific type");
         }
 
         HmlValue old = arr->elements[index];

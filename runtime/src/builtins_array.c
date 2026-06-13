@@ -76,9 +76,10 @@ void hml_array_set(HmlValue arr, HmlValue index, HmlValue val) {
     int idx = hml_to_i32(index);
     HmlArray *a = arr.as.as_array;
 
-    // Check element type for typed arrays
+    // Check element type for typed arrays. The interpreter raises this as a
+    // fatal (non-catchable) error for index assignment, so match that.
     if (a->element_type != HML_VAL_NULL && val.type != a->element_type) {
-        hml_runtime_error("Type mismatch in typed array - expected element of specific type");
+        hml_fatal_error("Type mismatch in typed array - expected element of specific type");
     }
 
     if (idx < 0) {
