@@ -444,6 +444,17 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"closed\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
+            } else if (strcmp(expr->as.get_property.property, "nonblocking") == 0) {
+                codegen_writeln(ctx, "HmlValue %s;", result);
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_socket_get_nonblocking(%s);", result, obj);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"nonblocking\");", result, obj);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
             // String byte_length property
             } else if (strcmp(expr->as.get_property.property, "byte_length") == 0) {
                 codegen_writeln(ctx, "HmlValue %s;", result);

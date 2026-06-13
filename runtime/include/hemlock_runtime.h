@@ -739,6 +739,7 @@ HmlValue hml_socket_get_fd(HmlValue socket_val);
 HmlValue hml_socket_get_address(HmlValue socket_val);
 HmlValue hml_socket_get_port(HmlValue socket_val);
 HmlValue hml_socket_get_closed(HmlValue socket_val);
+HmlValue hml_socket_get_nonblocking(HmlValue socket_val);
 
 // Socket builtin wrappers
 HmlValue hml_builtin_socket_create(HmlClosureEnv *env, HmlValue domain, HmlValue sock_type, HmlValue protocol);

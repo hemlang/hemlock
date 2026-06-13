@@ -228,11 +228,25 @@ run_test() {
     local c_file="$TEMP_DIR/${base_name}_$$.c"
     local exe_file="$TEMP_DIR/${base_name}_$$"
 
-    if ! timeout "$TEST_TIMEOUT" "$HEMLOCKC" "$test_file" -c --emit-c "$c_file" 2>/dev/null; then
+    # Capture hemlockc stderr so shared-frontend diagnostics can be folded
+    # into the comparison (see compile_warnings below).
+    local hemlockc_stderr
+    hemlockc_stderr=$(timeout "$TEST_TIMEOUT" "$HEMLOCKC" "$test_file" -c --emit-c "$c_file" 2>&1 >/dev/null)
+    if [ $? -ne 0 ]; then
         echo -e "${YELLOW}◐${NC} $test_name (hemlockc failed)"
         COMPILE_ERROR=$((COMPILE_ERROR + 1))
         return
     fi
+
+    # Deprecation and annotation-validation warnings live in the SHARED
+    # frontend (resolver + parser), so BOTH backends emit them: the
+    # interpreter at run time (captured in interp_output), the compiler at
+    # compile time (hemlockc stderr). Capture only those shared diagnostics
+    # — format "[line N:C] Warning: ..." — and prepend them to the compiled
+    # program output below, so the comparison is apples-to-apples. Compiler-
+    # only warnings (type checker: "<file>:N: warning: ...") are excluded.
+    local compile_warnings
+    compile_warnings=$(echo "$hemlockc_stderr" | grep -E '^\[line [0-9]+:[0-9]+\] Warning:')
 
     # Compile C to executable
     if ! gcc -o "$exe_file" "$c_file" -I"$ROOT_DIR/runtime/include" -L"$ROOT_DIR" \
@@ -254,6 +268,13 @@ run_test() {
         COMPILED_TIMEOUT=$((COMPILED_TIMEOUT + 1))
         rm -f "$c_file" "$exe_file"
         return
+    fi
+
+    # Prepend shared-frontend compile-time warnings: the interpreter prints
+    # these before any program output (they are emitted during resolve, before
+    # execution), so the compiled side must show them first too.
+    if [ -n "$compile_warnings" ]; then
+        compiled_output=$(printf '%s\n%s' "$compile_warnings" "$compiled_output")
     fi
 
     # Normalize outputs for comparison
