@@ -91,9 +91,16 @@ void codegen_emit_loop_pragmas(CodegenContext *ctx, Annotation **annotations, in
         codegen_writeln(ctx, "#pragma GCC unroll 1");
     }
 
-    // @simd - assert the loop has no vector dependencies so GCC may vectorize.
+    // @simd - assert the loop has no vector dependencies so the C compiler may
+    // vectorize. GCC and Clang spell this hint differently; emit the right
+    // pragma for whichever compiles the generated C (the #if/#elif resolve at
+    // preprocessing time, leaving exactly one pragma adjacent to the loop).
     if (annotation_has(annotations, annotation_count, "simd")) {
+        codegen_writeln(ctx, "#if defined(__clang__)");
+        codegen_writeln(ctx, "#pragma clang loop vectorize(enable)");
+        codegen_writeln(ctx, "#elif defined(__GNUC__)");
         codegen_writeln(ctx, "#pragma GCC ivdep");
+        codegen_writeln(ctx, "#endif");
     }
 }
 

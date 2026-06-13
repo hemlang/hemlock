@@ -190,7 +190,7 @@ they never change control flow, both backends always produce identical output.
 |------------|--------|-------------|--------|
 | `@unroll(n)` | loops | `#pragma GCC unroll n` | Unroll the loop by a factor of `n` (1–256) |
 | `@nounroll` | loops | `#pragma GCC unroll 1` | Disable unrolling of the loop |
-| `@simd` | loops | `#pragma GCC ivdep` | Assert no loop-carried dependencies so GCC may vectorize |
+| `@simd` | loops | `#pragma GCC ivdep` (Clang: `#pragma clang loop vectorize(enable)`) | Assert no loop-carried dependencies so the compiler may vectorize |
 | `@likely` | `if` | `__builtin_expect(cond, 1)` | Hint the condition is usually true |
 | `@unlikely` | `if` | `__builtin_expect(cond, 0)` | Hint the condition is usually false |
 
