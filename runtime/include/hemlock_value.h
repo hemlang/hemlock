@@ -286,6 +286,10 @@ HmlValue hml_val_string_owned(char *str, int length, int capacity);
 HmlValue hml_val_rune(uint32_t codepoint);
 HmlValue hml_val_ptr(void *ptr);
 HmlValue hml_val_buffer(int size);
+// Like hml_val_buffer, but the backing data is allocated with at least the
+// given alignment (a power of two). Used by the @aligned(n) annotation. The
+// data stays free()-compatible, so the normal buffer free path is unchanged.
+HmlValue hml_val_buffer_aligned(int size, int align);
 HmlValue hml_val_array(void);
 HmlValue hml_val_object(void);
 HmlValue hml_val_null(void);

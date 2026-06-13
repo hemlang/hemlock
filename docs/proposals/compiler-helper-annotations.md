@@ -2,7 +2,13 @@
 
 **Author:** Claude
 **Date:** 2026-01-08
-**Status:** Partially Implemented (Phase 1-2 function annotations in v1.9.0; loop & branch annotations — `@unroll`/`@nounroll`/`@simd`/`@likely`/`@unlikely` — now shipped; memory annotations `@stack`/`@noalias`/`@aligned` remain proposals)
+**Status:** Mostly Implemented. Phase 1-2 function annotations shipped in
+v1.9.0; loop & branch annotations (`@unroll`/`@nounroll`/`@simd`/`@likely`/
+`@unlikely`) and the `@aligned(n)` memory annotation are now shipped. `@stack`
+and `@noalias` remain proposals: `@stack` needs a sound buffer escape analysis
+(the current escape analysis is unboxing-oriented and treats `f(buf)` as
+non-escaping, which would dangle a stack buffer), and `@noalias` has no raw
+pointer to qualify because all parameters are passed as boxed `HmlValue`.
 **Related:** Issue #TBD
 
 ## Table of Contents

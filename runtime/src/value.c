@@ -392,6 +392,54 @@ HmlValue hml_val_buffer(int size) {
     return v;
 }
 
+HmlValue hml_val_buffer_aligned(int size, int align) {
+    HmlBuffer *b = calloc(1, sizeof(HmlBuffer));
+    if (!b) {
+        return hml_val_null();
+    }
+
+    size_t alloc_size = (size_t)(size > 0 ? size : 1);
+    void *data = NULL;
+
+#if defined(_WIN32)
+    // MSVCRT has no free()-compatible aligned allocator (_aligned_malloc needs
+    // _aligned_free), so honor the request only at default alignment. The
+    // buffer is still correct; @aligned is a best-effort hint here.
+    (void)align;
+    data = calloc(alloc_size, 1);
+#else
+    size_t a = (size_t)align;
+    // posix_memalign requires the alignment to be a power of two and a multiple
+    // of sizeof(void*). The caller guarantees a power of two; round up the
+    // minimum so a request like @aligned(2) is still valid.
+    if (a < sizeof(void *)) {
+        a = sizeof(void *);
+    }
+    if (posix_memalign(&data, a, alloc_size) != 0) {
+        data = NULL;
+    } else {
+        memset(data, 0, alloc_size);  // Match hml_val_buffer's zero-init
+    }
+#endif
+
+    if (!data) {
+        free(b);
+        return hml_val_null();
+    }
+
+    b->data = data;
+    b->length = size;
+    b->capacity = size;
+    b->ref_count = 1;
+    atomic_store(&b->freed, 0);
+    b->parent = NULL;
+
+    HmlValue v;
+    v.type = HML_VAL_BUFFER;
+    v.as.as_buffer = b;
+    return v;
+}
+
 HmlValue hml_val_array(void) {
     HmlValue v;
     v.type = HML_VAL_ARRAY;

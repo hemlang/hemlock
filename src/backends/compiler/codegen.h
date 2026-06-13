@@ -224,6 +224,10 @@ typedef struct {
     int optimize;                 // Optimization level (0 = none, 1+ = optimize)
     int stack_check;              // Enable stack overflow checking (1 = on, 0 = off)
 
+    // @aligned(n) on a `let b = buffer(N)`: alignment (power of two) for the
+    // next buffer() allocation, consumed by the buffer codegen. 0 = none.
+    int pending_buffer_align;
+
     // Defer optimization tracking
     int has_defers;               // Whether any defer statements exist in current function
     int defer_unwind_active;      // Whether the current function emitted a defer

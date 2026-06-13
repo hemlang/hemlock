@@ -126,6 +126,30 @@ void codegen_emit_loop_pragmas(CodegenContext *ctx, Annotation **annotations, in
     }
 }
 
+// Return the requested alignment for a `let x = buffer(N)` carrying an
+// @aligned(n) annotation, or 0 if the let has no usable alignment hint. Only a
+// positive power of two on a direct buffer() initializer qualifies. Assign the
+// result to ctx->pending_buffer_align immediately before emitting the let value
+// so the buffer() codegen can consume it.
+int codegen_buffer_align_for_let(Stmt *stmt) {
+    if (stmt->type != STMT_LET || stmt->as.let.annotation_count == 0 ||
+        !stmt->as.let.value || stmt->as.let.value->type != EXPR_CALL) {
+        return 0;
+    }
+    Expr *callee = stmt->as.let.value->as.call.func;
+    if (!callee || callee->type != EXPR_IDENT ||
+        strcmp(callee->as.ident.name, "buffer") != 0) {
+        return 0;
+    }
+    Annotation *al = annotation_get(stmt->as.let.annotations,
+                                    stmt->as.let.annotation_count, "aligned");
+    if (!al) {
+        return 0;
+    }
+    int a = (int)annotation_get_number_arg(al, NULL, 0);
+    return (a > 0 && (a & (a - 1)) == 0) ? a : 0;  // power of two only
+}
+
 // Check if a statement is a function definition (let name = fn() {} or export fn name())
 int is_function_def(Stmt *stmt, char **name_out, Expr **func_out) {
     // Direct let statement with function
@@ -557,6 +581,7 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
             // Non-function let statement - assign to module global
             char mangled[CODEGEN_MANGLED_NAME_SIZE];
             snprintf(mangled, sizeof(mangled), "%s%s", module->module_prefix, stmt->as.let.name);
+            ctx->pending_buffer_align = codegen_buffer_align_for_let(stmt);
             char *value = codegen_expr(ctx, stmt->as.let.value);
 
             // Handle type annotations (same as codegen_stmt for local variables)
@@ -1322,6 +1347,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             // Use _main_ prefix to avoid C name conflicts
             if (stmt->as.let.value) {
                 if (stmt->line > 0) codegen_writeln(ctx, "hml_error_line = %d;", stmt->line);
+                ctx->pending_buffer_align = codegen_buffer_align_for_let(stmt);
                 char *value = codegen_expr(ctx, stmt->as.let.value);
                 // Check if there's a custom object type annotation (for duck typing)
                 // But first check if it's a type alias - if so, use the resolved type

@@ -1,0 +1,40 @@
+// Parity test: @aligned(n) must not change observable behavior.
+//
+// On the compiler backend, @aligned(n) on a `let b = buffer(N)` makes the
+// buffer's backing storage over-aligned to n bytes (via hml_val_buffer_aligned).
+// The interpreter ignores the hint and uses default alignment. Alignment is not
+// observable in program output, so both backends must produce identical results.
+
+@aligned(64)
+let a = buffer(128);
+memset(a, 0, 128);
+a[0] = 10;
+a[127] = 20;
+print(a[0] + a[127]);   // 30
+print(a.length);        // 128
+
+// Aligned buffer participates in normal buffer operations.
+@aligned(32)
+let b = buffer(8);
+ptr_write_f32(b, 1.5);
+print(ptr_read_f32(b)); // 1.5
+
+// A non-power-of-two argument is ignored (falls back to a normal buffer); the
+// buffer still works correctly.
+@aligned(48)
+let c = buffer(16);
+c[0] = 5;
+print(c[0]);            // 5
+
+// Plain (unannotated) buffers are unaffected.
+let d = buffer(4);
+d[3] = 99;
+print(d[3]);            // 99
+
+// An aligned buffer can be explicitly freed like any other (the backing
+// storage stays free()-compatible).
+@aligned(128)
+let e = buffer(256);
+e[200] = 7;
+print(e[200]);          // 7
+free(e);

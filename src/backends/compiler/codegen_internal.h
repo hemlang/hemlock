@@ -232,6 +232,9 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
 // Emit GCC loop pragmas (@unroll/@nounroll/@simd) immediately before a C loop header
 void codegen_emit_loop_pragmas(CodegenContext *ctx, Annotation **annotations, int annotation_count);
 
+// Alignment requested by @aligned(n) on a `let x = buffer(N)` (0 if none).
+int codegen_buffer_align_for_let(Stmt *stmt);
+
 // Check if a statement is a function definition
 int is_function_def(Stmt *stmt, char **name_out, Expr **func_out);
 

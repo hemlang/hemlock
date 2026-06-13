@@ -119,6 +119,7 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->type_ctx = NULL;  // Set by caller (main.c) if type checking enabled
     ctx->optimize = 1;  // Enable optimization by default
     ctx->stack_check = 1;  // Enable stack checking by default (can be overridden by caller)
+    ctx->pending_buffer_align = 0;  // No pending @aligned(n) buffer request
     ctx->has_defers = 0;  // Track if any defers exist in current function
     ctx->defer_unwind_active = 0;
     ctx->tail_call_func_name = NULL;  // Tail call optimization tracking

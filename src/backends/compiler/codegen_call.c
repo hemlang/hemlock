@@ -258,8 +258,17 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
 
         // Handle buffer builtin
         if (strcmp(fn_name, "buffer") == 0 && expr->as.call.num_args == 1) {
+            // @aligned(n) on the enclosing `let` requests an over-aligned
+            // allocation (consumed here so it never leaks to a later buffer).
+            int align = ctx->pending_buffer_align;
+            ctx->pending_buffer_align = 0;
             char *size = codegen_expr(ctx, expr->as.call.args[0]);
-            codegen_writeln(ctx, "HmlValue %s = hml_val_buffer(hml_to_i32(%s));", result, size);
+            if (align > 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_buffer_aligned(hml_to_i32(%s), %d);",
+                                result, size, align);
+            } else {
+                codegen_writeln(ctx, "HmlValue %s = hml_val_buffer(hml_to_i32(%s));", result, size);
+            }
             codegen_writeln(ctx, "hml_release(&%s);", size);
             free(size);
             return result;

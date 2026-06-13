@@ -45,6 +45,11 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             }
             char *safe_name = codegen_sanitize_ident(stmt->as.let.name);
 
+            // @aligned(n): when this let initializes a buffer(N), request an
+            // over-aligned allocation. The flag is consumed by the buffer()
+            // codegen (a no-op if the value turns out not to be a buffer call).
+            ctx->pending_buffer_align = codegen_buffer_align_for_let(stmt);
+
             // OPTIMIZATION: Check if this typed variable can be unboxed
             // Unboxed variables use native C types for 5-10x faster arithmetic
             // IMPORTANT: Skip unboxing for main-level variables - they're pre-declared as HmlValue

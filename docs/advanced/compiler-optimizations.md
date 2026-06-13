@@ -225,6 +225,36 @@ statements. Misplacing one (for example `@likely` on a `for` loop, or `@unroll`
 without its factor) is a compile-time error in both backends. These hints are
 advisory — GCC is free to ignore a pragma it cannot honor for a given loop.
 
+### Memory annotations
+
+| Annotation | Target | Effect |
+|------------|--------|--------|
+| `@aligned(n)` | `let x = buffer(N)` | Over-align the buffer's backing storage to `n` bytes (`n` a power of two) |
+
+```hemlock
+// Cache-line aligned scratch buffer for a tight SIMD kernel.
+@aligned(64)
+let scratch = buffer(4096);
+```
+
+The compiler lowers `@aligned(n)` to `hml_val_buffer_aligned(N, n)`, which
+allocates the buffer data with `posix_memalign` (the storage stays
+`free()`-compatible, so freeing and slicing work normally). `n` must be a
+positive power of two; any other value is ignored and the buffer is allocated
+normally. On Windows the request degrades to default alignment (MSVCRT lacks a
+`free()`-compatible aligned allocator). The interpreter ignores the hint, and
+because alignment is not observable in program output, both backends behave
+identically.
+
+> **Not yet implemented:** `@stack` (stack-allocate a buffer) and `@noalias`
+> (promise pointer parameters don't alias) from the original proposal are not
+> available. `@stack` needs a sound *buffer* escape analysis — the existing
+> escape analysis is tuned for unboxing primitives and treats `f(buf)` as
+> non-escaping, which would let a stack buffer dangle. `@noalias` has nothing
+> to attach to: Hemlock passes every parameter as a boxed `HmlValue`, so there
+> is no raw C pointer for `restrict` to qualify. Both are tracked as future
+> work rather than shipped as silent no-ops.
+
 ---
 
 ## Allocation Pools
