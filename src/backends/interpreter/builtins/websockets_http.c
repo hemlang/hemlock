@@ -909,7 +909,7 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     return val_ptr(resp);
 }
 
-// __lws_http_get_timeout(url: string, timeout_ms: i32): ptr
+// __lws_http_get_timeout(url: string, timeout_ms: i32, headers?: array): ptr
 // HTTP GET with configurable timeout
 Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *ctx) {
     // SANDBOX: Check if network is allowed
@@ -920,9 +920,9 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
 
     lws_init_logging();
 
-    if (num_args != 2) {
+    if (num_args < 2 || num_args > 3) {
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_get_timeout() expects 2 arguments (url, timeout_ms)");
+        ctx->exception_state.exception_value = val_string("__lws_http_get_timeout() expects 2-3 arguments (url, timeout_ms, headers?)");
         return val_null();
     }
 
@@ -963,6 +963,11 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to allocate response");
         return val_null();
+    }
+
+    // Parse optional custom headers
+    if (num_args == 3) {
+        parse_headers_into_resp(resp, args[2]);
     }
 
     resp->body_capacity = 4096;
@@ -1010,6 +1015,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     if (!lws_client_connect_via_info(&connect_info)) {
         if (!ssl) lws_context_destroy(context);
         free(resp->body);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to connect");
@@ -1028,6 +1034,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");

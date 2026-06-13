@@ -993,6 +993,21 @@ HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
     return hml_val_ptr(resp);
 }
 
+// HTTP GET with configurable timeout and custom headers
+HmlValue hml_lws_http_get_timeout_with_headers(HmlValue url_val, HmlValue timeout_val, HmlValue headers_val) {
+    hml_lws_init_logging();
+    if (url_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_get_timeout() expects string URL");
+    }
+    return hml_lws_http_perform("GET",
+                                 url_val.as.as_string->data,
+                                 "",
+                                 "",
+                                 headers_val,
+                                 hml_extract_timeout_ms(timeout_val),
+                                 /*force_body=*/0);
+}
+
 // HTTP POST with configurable timeout
 HmlValue hml_lws_http_post_timeout(HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue timeout_val) {
     hml_lws_init_logging();
@@ -2526,6 +2541,11 @@ HmlValue hml_lws_http_request_with_headers(HmlValue method_val, HmlValue url_val
 
 HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
     (void)url_val; (void)timeout_val;
+    hml_runtime_error("HTTP support not available (libwebsockets not installed)");
+}
+
+HmlValue hml_lws_http_get_timeout_with_headers(HmlValue url_val, HmlValue timeout_val, HmlValue headers_val) {
+    (void)url_val; (void)timeout_val; (void)headers_val;
     hml_runtime_error("HTTP support not available (libwebsockets not installed)");
 }
 
