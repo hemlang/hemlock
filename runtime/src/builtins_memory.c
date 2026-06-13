@@ -95,26 +95,58 @@ void hml_free(HmlValue ptr_or_buffer) {
             b->length = 0;
         }
     } else if (ptr_or_buffer.type == HML_VAL_ARRAY) {
-        if (ptr_or_buffer.as.as_array) {
-            HmlArray *arr = ptr_or_buffer.as.as_array;
-            // Release all elements
+        HmlArray *arr = ptr_or_buffer.as.as_array;
+        if (arr) {
+            // Atomically check and set the freed flag to detect double-free.
+            int expected = 0;
+            if (!atomic_compare_exchange_strong(&arr->freed, &expected, 1)) {
+                hml_runtime_error("double free detected on array");
+            }
+            // Release all elements (decrements their ref_counts)
             for (int i = 0; i < arr->length; i++) {
                 hml_release(&arr->elements[i]);
             }
+            // Free internal data but keep the struct alive so the refcount
+            // cleanup path (array_free) can detect the manual free and only
+            // free the wrapper. Freeing it here too is a double-free, because
+            // the value is still reachable via locals/statics that release it
+            // on scope exit. This also breaks circular references safely.
             free(arr->elements);
-            free(arr);
+            arr->elements = NULL;
+            arr->length = 0;
+            arr->capacity = 0;
         }
     } else if (ptr_or_buffer.type == HML_VAL_OBJECT) {
-        if (ptr_or_buffer.as.as_object) {
-            HmlObject *obj = ptr_or_buffer.as.as_object;
-            // Release all field values and free names
+        HmlObject *obj = ptr_or_buffer.as.as_object;
+        if (obj) {
+            // Atomically check and set the freed flag to detect double-free.
+            int expected = 0;
+            if (!atomic_compare_exchange_strong(&obj->freed, &expected, 1)) {
+                hml_runtime_error("double free detected on object");
+            }
+            // Release all field values and free names (decrements ref_counts)
             for (int i = 0; i < obj->num_fields; i++) {
                 hml_release(&obj->fields[i].value);
                 free(obj->fields[i].name);
             }
-            free(obj->fields);
+            // Free internal data but keep the struct alive so the refcount
+            // cleanup path (object_free) can detect the manual free and only
+            // free the wrapper. Freeing it here too is a double-free, because
+            // the value is still reachable via locals/statics that release it
+            // on scope exit. This also breaks circular references safely.
+            // For pooled objects the fields array may point to pool-owned
+            // storage, so leave it for obj_pool_free() during final cleanup.
+            if (!obj->is_pooled) {
+                free(obj->fields);
+            }
             if (obj->type_name) free(obj->type_name);
-            free(obj);
+            free(obj->hash_table);
+            obj->fields = NULL;
+            obj->type_name = NULL;
+            obj->hash_table = NULL;
+            obj->num_fields = 0;
+            obj->capacity = 0;
+            obj->hash_capacity = 0;
         }
     } else if (ptr_or_buffer.type == HML_VAL_NULL) {
         // free(null) is a safe no-op (like C's free(NULL))
