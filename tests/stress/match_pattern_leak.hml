@@ -1,0 +1,37 @@
+// Regression: match-expression pattern bindings leaked the matched heap
+// values on every successful match. Several compounding codegen bugs:
+//   - object/array field temporaries from hml_object_get_field /
+//     hml_array_get (which return a retained +1) were never released after
+//     the sub-pattern consumed them; bindings added a second retain
+//   - match arm bindings (destructured fields/elements, `n`, rest) were
+//     never released when the arm finished — only `num_locals` was rewound
+//   - object `...rest` construction double-retained each copied value
+//     (hml_object_set_field already retains) and leaked the per-field key
+//     string from hml_object_key_at()
+//   - array `...rest` construction double-retained each element
+//     (hml_array_push already retains)                       [fixed here]
+//
+// A request handler matching on JSON-ish objects/arrays bled several MB per
+// thousand matches this way. Bounded + finite so LeakSanitizer reports at
+// exit; run via `run_stress.sh lsan`. Must leak nothing per-iteration.
+
+fn classify(v): i64 {
+    return match (v) {
+        { kind: "packet", payload: data } => data.length,   // object field binding (heap value)
+        { id, ...rest } => id + rest.keys().length,         // object shorthand + rest (string keys/values)
+        [head, ...tail] => head.length + tail.length,       // array element binding + rest (heap elems)
+        msg if typeof(msg) == "string" => msg.length,       // guard + binding
+        other => -1
+    };
+}
+
+let n = 0;
+let total = 0;
+while (n < 4000) {
+    total = total + classify({ kind: "packet", payload: ["alpha", "beta", "gamma"] });
+    total = total + classify({ id: 7, name: "widget", label: "ok", group: "core" });
+    total = total + classify(["one", "two", "three", "four"]);
+    total = total + classify("hello world");
+    n = n + 1;
+}
+print("match_pattern_leak: ok total=" + total);

@@ -172,6 +172,9 @@ int codegen_is_extern_fn(CodegenContext *ctx, const char *name);
 // Format an f64 constant as a valid C expression (handles inf/nan/-0.0)
 void codegen_format_f64(char *buf, size_t size, double value);
 
+// Format an i64 constant as a valid C integer token (LL suffix, INT64_MIN macro)
+void codegen_format_i64(char *buf, size_t size, int64_t value);
+
 // Main file import tracking
 void codegen_add_main_import(CodegenContext *ctx, const char *local_name,
                              const char *original_name, const char *module_prefix,
