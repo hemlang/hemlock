@@ -27,11 +27,13 @@
  * reported as warnings by default and never fail the build. They are
  * advisory: the programmer keeps explicit control.
  *
- * The analysis is intraprocedural and flow-sensitive (branches/loops are
- * merged conservatively, diverging paths via return/break/throw are
- * excluded from merges). Lifetimes and interprocedural borrow checking
- * are intentionally out of scope for this first stage; the architecture
- * leaves room for them (see docs/advanced/borrow-checker.md).
+ * The analysis is flow-sensitive (branches/loops are merged conservatively,
+ * diverging paths via return/break/throw are excluded from merges). A
+ * lightweight interprocedural layer summarises which parameters each named
+ * function releases, so passing a resource to a consuming function transfers
+ * ownership at the call site. Resources stored into objects/arrays escape.
+ * Full lifetime/region analysis remains out of scope (see
+ * docs/advanced/borrow-checker.md).
  */
 
 #ifndef HEMLOCK_BORROW_CHECK_H
@@ -68,6 +70,12 @@ typedef struct BorrowContext {
     int diverged;           // set when the current path left via return/break/...
     int exit_kind;          // how the path left: see BC_EXIT_* in borrow_check.c
     int cur_line;           // line of the statement under analysis (fallback)
+
+    // Interprocedural summaries: which parameters each named function releases.
+    void *summaries;        // BcFnSummary dynamic array
+    int num_summaries;
+    int cap_summaries;
+    int summary_mode;       // building a summary: suppress diagnostics + interproc
 
     // Results
     int warning_count;

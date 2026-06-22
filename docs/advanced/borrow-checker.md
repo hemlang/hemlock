@@ -143,6 +143,58 @@ defaults:
 
 ---
 
+## Crossing function boundaries
+
+The checker summarises how each top-level function treats its parameters. If a
+function releases one of its parameters, passing a resource to it **transfers
+ownership** — the resource is consumed at the call site, so using or freeing it
+afterwards is reported just as if you had released it inline:
+
+```hemlock
+fn consume(p: ptr) {
+    free(p);
+}
+
+fn main() {
+    let p = alloc(64);
+    consume(p);
+    memset(p, 0, 64);   // warning: use of 'p' after it was freed
+    free(p);            // warning: double free
+}
+```
+
+A function that only *reads* a parameter borrows it — passing a resource to it is
+fine, and you remain responsible for releasing it:
+
+```hemlock
+fn use_it(p: ptr) { memset(p, 0, 16); }   // borrow, not release
+
+fn main() {
+    let p = alloc(64);
+    use_it(p);          // still owned here
+    free(p);            // fine
+}
+```
+
+Summaries are order-independent (a function may be defined after its callers) and
+conservative: a parameter freed only on *some* paths makes the call a *possible*
+consume, and calls using named arguments are left untouched. The analysis is
+one level deep — it does not yet follow a parameter that is forwarded into a
+*second* consuming function.
+
+Storing a resource into a container (object literal, array, field, or index
+assignment) hands ownership to that container, so it is treated as an escape and
+does not trip leak detection in strict mode:
+
+```hemlock
+fn main() {
+    let p = alloc(64);
+    let holder = { data: p };   // ownership moves into `holder`; no leak warning
+}
+```
+
+---
+
 ## Flags
 
 | Flag | Effect |
@@ -176,19 +228,20 @@ exit code stays 0. Add `--borrow-error` to make a finding fail the check
 
 ## Scope and limitations
 
-This is the **first stage** of the analysis. It is intraprocedural and tracks
-resources from the built-in acquisition functions. The following are
-intentionally out of scope for now and may be layered on later without changing
-the surface:
+The analysis is flow-sensitive, tracks the built-in acquisition functions, and
+carries a one-level interprocedural summary (consuming functions + container
+escape). The following are intentionally out of scope for now and may be layered
+on later without changing the surface:
 
 - **Lifetimes** — no `'a`-style lifetime parameters or borrow regions.
-- **Interprocedural ownership** — passing a resource to a user function is
-  treated as a borrow, not a move; the checker does not yet read callee
-  signatures to decide whether a callee consumes its argument.
+- **Transitive consumption** — a function that forwards its parameter into a
+  *second* consuming function is not yet recognised as consuming; only a
+  parameter released directly in the body is summarised.
 - **Borrow-conflict checking** — simultaneous mutable/immutable borrows are not
   yet modeled (Hemlock has no borrow syntax beyond `ref`/`const` parameters).
-- **Custom allocators** — only `alloc`/`buffer`/`open` are recognized as
-  acquisitions; arena/stdlib allocators are not yet tracked.
+- **Custom allocators** — only the built-in acquisitions (`alloc`, `buffer`,
+  `open`, `channel`, `spawn`, `ffi_open`, `mmap_open`) are recognized; arena and
+  other stdlib allocators are not yet tracked.
 
 The implementation lives in `src/backends/compiler/borrow_check.c` with the
 public API in `include/compiler/borrow_check.h`.

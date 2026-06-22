@@ -1,0 +1,8 @@
+fn use_it(p: ptr) {
+    memset(p, 0, 16);
+}
+fn main() {
+    let p = alloc(64);
+    use_it(p);
+    free(p);
+}

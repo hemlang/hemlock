@@ -1,0 +1,8 @@
+fn shut(f) {
+    f.close();
+}
+fn main() {
+    let f = open("x.txt", "r");
+    shut(f);
+    let s = f.read();
+}
