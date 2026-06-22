@@ -285,6 +285,31 @@ static void bc_analyze_function(BorrowContext *ctx, Expr *fn);
 
 // ========== ACQUISITION / RELEASE RECOGNITION ==========
 
+// Acquisition builtins and the resource kind each produces. A *resource* is
+// anything obtained from one of these and released by an explicit operation;
+// the kind drives both the diagnostic wording and the release-method match.
+static const struct { const char *name; const char *kind; } BC_ACQUIRE[] = {
+    {"alloc",          "memory"},       // raw memory      -> free()
+    {"buffer",         "buffer"},       // safe buffer     -> free()
+    {"open",           "file"},         // file handle     -> .close()
+    {"channel",        "channel"},      // channel         -> .close()
+    {"spawn",          "task"},         // async task      -> join()/detach()/await
+    {"spawn_with",     "task"},
+    {"ffi_open",       "ffi library"},  // dynamic FFI lib -> ffi_close()
+    {"mmap_open",      "mapping"},      // memory mapping  -> mmap_close()
+    {"mmap_open_anon", "mapping"},
+};
+
+// Function-call release builtins whose *first* argument is the released binding,
+// paired with the canonical op verb used in diagnostics.
+static const struct { const char *name; const char *op; } BC_RELEASE_FN[] = {
+    {"free",       "free"},
+    {"ffi_close",  "ffi_close"},
+    {"mmap_close", "mmap_close"},
+    {"join",       "join"},
+    {"detach",     "detach"},
+};
+
 // If `e` acquires an owned resource, return its kind string, else NULL.
 static const char *bc_acquire_kind(Expr *e) {
     if (!e || e->type != EXPR_CALL) return NULL;
@@ -292,29 +317,61 @@ static const char *bc_acquire_kind(Expr *e) {
     if (!f || f->type != EXPR_IDENT) return NULL;
     const char *name = f->as.ident.name;
     if (!name) return NULL;
-    if (strcmp(name, "alloc") == 0) return "memory";
-    if (strcmp(name, "buffer") == 0) return "buffer";
-    if (strcmp(name, "open") == 0) return "file";
+    for (size_t i = 0; i < sizeof(BC_ACQUIRE) / sizeof(BC_ACQUIRE[0]); i++)
+        if (strcmp(name, BC_ACQUIRE[i].name) == 0) return BC_ACQUIRE[i].kind;
     return NULL;
 }
 
-// If `e` is `free(x)` or `x.close()`, return the released binding's name and
-// kind hint via out-params; return 1 on match.
+// Is `op` the correct release operation for a resource of `kind`?
+static int bc_op_matches_kind(const char *op, const char *kind) {
+    if (!op || !kind) return 1;
+    if (strcmp(op, "free") == 0)
+        return strcmp(kind, "memory") == 0 || strcmp(kind, "buffer") == 0;
+    if (strcmp(op, "close") == 0)
+        return strcmp(kind, "file") == 0 || strcmp(kind, "channel") == 0;
+    if (strcmp(op, "join") == 0 || strcmp(op, "detach") == 0 ||
+        strcmp(op, "await") == 0)
+        return strcmp(kind, "task") == 0;
+    if (strcmp(op, "ffi_close") == 0) return strcmp(kind, "ffi library") == 0;
+    if (strcmp(op, "mmap_close") == 0) return strcmp(kind, "mapping") == 0;
+    return 1;  // unknown op: don't second-guess
+}
+
+// Human-readable hint naming the correct release operation for `kind`.
+static const char *bc_kind_release_hint(const char *kind) {
+    if (!kind) return "the matching release";
+    if (strcmp(kind, "memory") == 0 || strcmp(kind, "buffer") == 0)
+        return "free()";
+    if (strcmp(kind, "file") == 0 || strcmp(kind, "channel") == 0)
+        return ".close()";
+    if (strcmp(kind, "task") == 0) return "join(), detach() or await";
+    if (strcmp(kind, "ffi library") == 0) return "ffi_close()";
+    if (strcmp(kind, "mapping") == 0) return "mmap_close()";
+    return "the matching release";
+}
+
+// If `e` is a recognised release form, return the released binding's name and
+// op verb via out-params; return 1 on match.
+//   free(x) / ffi_close(x) / mmap_close(x) / join(x) / detach(x)   (first arg)
+//   x.close()                                                      (method)
 static int bc_release_target(Expr *e, const char **out_name, const char **out_op) {
     if (!e || e->type != EXPR_CALL) return 0;
     Expr *f = e->as.call.func;
     if (!f) return 0;
 
-    // free(x)
+    // Function-style release: <fn>(x, ...)
     if (f->type == EXPR_IDENT && f->as.ident.name &&
-        strcmp(f->as.ident.name, "free") == 0 &&
         e->as.call.num_args >= 1 && e->as.call.args[0] &&
         e->as.call.args[0]->type == EXPR_IDENT) {
-        *out_name = e->as.call.args[0]->as.ident.name;
-        *out_op = "free";
-        return 1;
+        for (size_t i = 0; i < sizeof(BC_RELEASE_FN) / sizeof(BC_RELEASE_FN[0]); i++) {
+            if (strcmp(f->as.ident.name, BC_RELEASE_FN[i].name) == 0) {
+                *out_name = e->as.call.args[0]->as.ident.name;
+                *out_op = BC_RELEASE_FN[i].op;
+                return 1;
+            }
+        }
     }
-    // x.close()
+    // Method-style release: x.close()
     if (f->type == EXPR_GET_PROPERTY && f->as.get_property.property &&
         strcmp(f->as.get_property.property, "close") == 0 &&
         f->as.get_property.object &&
@@ -369,6 +426,15 @@ static void bc_release(BorrowContext *ctx, const char *name, const char *op, int
     }
     BcResource *r = bc_res(ctx, b->resource_id);
     if (!r) return;
+    // Wrong release operation for this kind of resource (e.g. free() on a file).
+    // The release almost certainly did not happen, so leave the state untouched
+    // — that keeps any real leak / correct-release diagnostics intact.
+    if (!bc_op_matches_kind(op, r->kind)) {
+        bc_warn(ctx, line,
+                "'%s' (%s) cannot be released with %s(); use %s",
+                name, r->kind, op, bc_kind_release_hint(r->kind));
+        return;
+    }
     switch (r->state) {
         case BC_FREED:
             bc_warn(ctx, line,
@@ -475,7 +541,22 @@ static void bc_expr_use(BorrowContext *ctx, Expr *expr) {
         case EXPR_PREFIX_DEC: bc_expr_use(ctx, expr->as.prefix_dec.operand); break;
         case EXPR_POSTFIX_INC: bc_expr_use(ctx, expr->as.postfix_inc.operand); break;
         case EXPR_POSTFIX_DEC: bc_expr_use(ctx, expr->as.postfix_dec.operand); break;
-        case EXPR_AWAIT: bc_expr_use(ctx, expr->as.await_expr.awaited_expr); break;
+        case EXPR_AWAIT: {
+            // `await t` consumes the task `t` (like join). If the awaited
+            // expression names a tracked task, treat it as a release; otherwise
+            // it is an ordinary use of the awaited value.
+            Expr *a = expr->as.await_expr.awaited_expr;
+            if (a && a->type == EXPR_IDENT && a->as.ident.name) {
+                BcBinding *b = bc_lookup(ctx, a->as.ident.name);
+                BcResource *r = b ? bc_res(ctx, b->resource_id) : NULL;
+                if (r && strcmp(r->kind, "task") == 0) {
+                    bc_release(ctx, a->as.ident.name, "await", expr->line);
+                    break;
+                }
+            }
+            bc_expr_use(ctx, a);
+            break;
+        }
         case EXPR_STRING_INTERPOLATION:
             for (int i = 0; i < expr->as.string_interpolation.num_parts; i++)
                 bc_expr_use(ctx, expr->as.string_interpolation.expr_parts[i]);

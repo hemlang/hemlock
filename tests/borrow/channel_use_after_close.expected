@@ -1,0 +1,1 @@
+channel_use_after_close.hml:4: warning: use of 'ch' after it was freed (line 2)

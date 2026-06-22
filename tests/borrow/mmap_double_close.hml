@@ -1,0 +1,6 @@
+import { mmap_open, mmap_close } from "@stdlib/mmap";
+fn main() {
+    let m = mmap_open("data.bin", "r");
+    mmap_close(m);
+    mmap_close(m);
+}

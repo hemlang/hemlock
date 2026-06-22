@@ -28,18 +28,38 @@ Source (.hml)
 
 | Diagnostic | When | Default |
 |------------|------|---------|
-| **use-after-free** | a resource is read/passed after `free()`/`.close()` | on |
-| **double-free** | `free()`/`.close()` on an already-released resource | on |
+| **use-after-free** | a resource is read/passed after it was released | on |
+| **double-free** | a resource is released when it was already released | on |
+| **release mismatch** | a resource is released with the wrong operation (e.g. `free()` on a file) | on |
 | **free-inside-loop** | a resource acquired outside a loop is freed in its body (next iteration double-frees) | on |
 | **defer/explicit double-free** | a resource freed explicitly *and* via `defer free(x)` | on |
 | **use-after-move** | a binding is used after its resource was moved away | strict only |
-| **leaked resource** | an owned resource goes out of scope without being freed, moved, or returned | strict only |
+| **leaked resource** | an owned resource goes out of scope without being released, moved, or returned | strict only |
 
-A *resource* is anything acquired through an explicit acquisition builtin:
+A *resource* is anything acquired through an explicit acquisition builtin. The
+checker knows each resource's correct release operation and tracks them all
+uniformly:
 
-- `alloc(n)` → raw memory (released by `free`)
-- `buffer(n)` → safe buffer (released by `free`)
-- `open(path, mode)` → file handle (released by `.close()`)
+| Acquisition | Resource | Released by |
+|-------------|----------|-------------|
+| `alloc(n)` | raw memory | `free(x)` |
+| `buffer(n)` | safe buffer | `free(x)` |
+| `open(path, mode)` | file handle | `x.close()` |
+| `channel(n)` | channel | `x.close()` |
+| `spawn(fn, …)` / `spawn_with(…)` | async task | `join(x)`, `detach(x)`, or `await x` |
+| `ffi_open(path)` | dynamic FFI library | `ffi_close(x)` |
+| `mmap_open(…)` / `mmap_open_anon(…)` | memory mapping | `mmap_close(x)` |
+
+Releasing a resource with the wrong operation — `free()` on a file, `.close()`
+on raw memory, `free()` on a task — is reported as a **release mismatch** and the
+resource is treated as still live (so any real leak is still caught):
+
+```hemlock
+fn main() {
+    let f = open("x.txt", "r");
+    free(f);   // warning: 'f' (file) cannot be released with free(); use .close()
+}
+```
 
 ---
 

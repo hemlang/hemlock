@@ -1,0 +1,1 @@
+mismatch_close_mem.hml:3: warning: 'p' (memory) cannot be released with close(); use free()

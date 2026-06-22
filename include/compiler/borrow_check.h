@@ -3,15 +3,25 @@
  *
  * An opt-out, Rust-inspired static analysis pass that runs after type
  * checking and before code generation. It models ownership of resources
- * acquired through explicit acquisition builtins (alloc/buffer/open) and
- * reports the memory-safety bugs Hemlock deliberately permits at runtime:
+ * acquired through explicit acquisition builtins and reports the
+ * memory-safety bugs Hemlock deliberately permits at runtime.
  *
- *   - use-after-free        (using a resource after free()/close())
- *   - double-free           (free()/close() on an already-released resource)
+ * Tracked resources and their release operations:
+ *   alloc()/buffer()          raw memory / buffer   -> free()
+ *   open()                    file handle           -> .close()
+ *   channel()                 channel               -> .close()
+ *   spawn()/spawn_with()      async task            -> join()/detach()/await
+ *   ffi_open()                dynamic FFI library   -> ffi_close()
+ *   mmap_open()/_anon()       memory mapping        -> mmap_close()
+ *
+ * Diagnostics:
+ *   - use-after-free        (using a resource after it was released)
+ *   - double-free           (releasing an already-released resource)
+ *   - release mismatch      (releasing a resource with the wrong operation)
  *   - use-after-move        (strict mode: using a binding whose resource moved)
  *   - free-inside-loop      (a resource acquired outside a loop freed in its body)
  *   - defer/explicit double  (free() of a resource already scheduled via defer)
- *   - leaked resource        (strict mode: owner dropped without free/move/return)
+ *   - leaked resource        (strict mode: owner dropped without release/move/return)
  *
  * In keeping with Hemlock's "unsafe is a feature" philosophy these are
  * reported as warnings by default and never fail the build. They are

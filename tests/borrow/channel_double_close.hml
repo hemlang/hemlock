@@ -1,0 +1,5 @@
+fn main() {
+    let ch = channel(10);
+    ch.close();
+    ch.close();
+}
