@@ -1,0 +1,8 @@
+fn main() {
+    let p = alloc(64);
+    consume(p);
+    free(p);
+}
+fn consume(p: ptr) {
+    free(p);
+}

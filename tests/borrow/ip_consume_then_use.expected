@@ -1,0 +1,1 @@
+ip_consume_then_use.hml:7: warning: use of 'p' after it was freed (line 5)

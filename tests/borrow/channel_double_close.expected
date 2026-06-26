@@ -1,0 +1,1 @@
+channel_double_close.hml:4: warning: double free: 'ch' was already freed (line 2)

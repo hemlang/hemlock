@@ -1,0 +1,10 @@
+fn maybe(p: ptr, c: bool) {
+    if (c) {
+        free(p);
+    }
+}
+fn main() {
+    let p = alloc(64);
+    maybe(p, true);
+    free(p);
+}
