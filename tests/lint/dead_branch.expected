@@ -1,0 +1,2 @@
+dead_branch.hml:2: warning: condition is always false; this branch never executes
+dead_branch.hml:5: warning: condition is always true; the else branch never executes

@@ -1,0 +1,1 @@
+unreachable.hml:4: warning: unreachable code: control always leaves via the return on line 3

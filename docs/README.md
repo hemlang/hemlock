@@ -38,6 +38,7 @@ Welcome to the Hemlock programming language documentation!
 - [File I/O](advanced/file-io.md) - File operations and resource management
 - [Memory Ownership](advanced/memory-ownership.md) - Memory ownership semantics and lifetime management
 - [Borrow Checker](advanced/borrow-checker.md) - Rust-like ownership analysis (use-after-free, double-free, leaks)
+- [Static Lint](advanced/lint.md) - Catch unreachable code, dead branches, self-assignment, and more before shipping
 - [Signal Handling](advanced/signals.md) - POSIX signal handling
 - [Command-Line Arguments](advanced/command-line-args.md) - Access program arguments
 - [Command Execution](advanced/command-execution.md) - Execute shell commands

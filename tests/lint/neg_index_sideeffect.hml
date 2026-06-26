@@ -1,0 +1,8 @@
+let calls = 0;
+fn next(): i32 {
+    calls = calls + 1;
+    return calls % 2;
+}
+let a = [10, 20];
+a[next()] = a[next()];
+print(a[0]);

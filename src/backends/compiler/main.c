@@ -28,6 +28,7 @@
 #include "codegen.h"
 #include "compiler/type_check.h"
 #include "compiler/borrow_check.h"
+#include "compiler/lint.h"
 
 #define HEMLOCK_BUILD_DATE __DATE__
 #define HEMLOCK_BUILD_TIME __TIME__
@@ -247,6 +248,9 @@ typedef struct {
     int borrow_check;            // Enable Rust-like ownership/borrow checking (default: on)
     int borrow_strict;           // Strict borrow checking (move tracking + leak detection)
     int borrow_error;            // Treat borrow-check findings as errors (fail the build)
+    int lint;                    // Enable static lint / diagnostics pass (default: on)
+    int lint_strict;             // Strict lint (also flag unused variables)
+    int lint_error;              // Treat lint findings as errors (fail the build)
     int check_only;              // Only type check, don't compile
     int static_link;             // Static link all libraries for standalone binary
     int stack_check;             // Enable stack overflow checking (default: on)
@@ -277,6 +281,9 @@ static void print_usage(const char *progname) {
     fprintf(stderr, "  --no-borrow-check  Disable Rust-like ownership/borrow checking\n");
     fprintf(stderr, "  --borrow-strict   Strict borrow checking (move tracking + leak detection)\n");
     fprintf(stderr, "  --borrow-error    Treat borrow-check findings as errors (fail the build)\n");
+    fprintf(stderr, "  --no-lint         Disable static lint pass (unreachable code, dead branches, ...)\n");
+    fprintf(stderr, "  --lint-strict     Strict lint (also flag unused variables)\n");
+    fprintf(stderr, "  --lint-error      Treat lint findings as errors (fail the build)\n");
     fprintf(stderr, "  --no-stack-check  Disable stack overflow checking (faster, but no protection)\n");
     fprintf(stderr, "  --static        Static-link the volatile native libs (default on Linux)\n");
     fprintf(stderr, "  --dynamic       Dynamic-link instead (default on macOS; needed for runtime FFI)\n");
@@ -310,6 +317,9 @@ static Options parse_args(int argc, char **argv) {
         .borrow_check = 1,       // Borrow checking ON by default (advisory warnings)
         .borrow_strict = 0,
         .borrow_error = 0,
+        .lint = 1,               // Lint pass ON by default (advisory warnings)
+        .lint_strict = 0,
+        .lint_error = 0,
         .check_only = 0,
         .static_link = 0,
         .stack_check = 1,        // Stack overflow checking ON by default
@@ -373,6 +383,14 @@ static Options parse_args(int argc, char **argv) {
         } else if (strcmp(argv[i], "--borrow-error") == 0) {
             opts.borrow_check = 1;
             opts.borrow_error = 1;
+        } else if (strcmp(argv[i], "--no-lint") == 0) {
+            opts.lint = 0;
+        } else if (strcmp(argv[i], "--lint-strict") == 0) {
+            opts.lint = 1;
+            opts.lint_strict = 1;
+        } else if (strcmp(argv[i], "--lint-error") == 0) {
+            opts.lint = 1;
+            opts.lint_error = 1;
         } else if (strcmp(argv[i], "--static") == 0) {
             opts.static_link = 1;   // default since 2.6.0; kept as an explicit no-op
         } else if (strcmp(argv[i], "--dynamic") == 0) {
@@ -909,6 +927,38 @@ int main(int argc, char **argv) {
         printf("Resolving variables...\n");
     }
     resolve_program(statements, stmt_count);
+
+    // Static lint / diagnostics (advisory by default). Flags well-typed,
+    // memory-safe code that is almost certainly a mistake: unreachable code,
+    // dead branches, self-assignment, modulo-by-zero, and (strict) unused
+    // variables. Runs on the source as written — before the optimizer can
+    // fold away dead branches — and is non-fatal unless --lint-error is given.
+    if (opts.lint) {
+        if (opts.verbose) {
+            printf("Linting...\n");
+        }
+        LintContext *lc = lint_new(opts.input_file);
+        if (lc) {
+            lc->strict = opts.lint_strict;
+            lc->errors_are_fatal = opts.lint_error;
+            int lint_errors = lint_program(lc, statements, stmt_count);
+            if (opts.verbose && lc->warning_count == 0 && lc->error_count == 0) {
+                printf("Lint passed\n");
+            }
+            lint_free(lc);
+
+            if (lint_errors > 0) {
+                fprintf(stderr, "%d lint error%s found\n",
+                        lint_errors, lint_errors > 1 ? "s" : "");
+                for (int i = 0; i < stmt_count; i++) {
+                    stmt_free(statements[i]);
+                }
+                free(statements);
+                free(source);
+                return 1;
+            }
+        }
+    }
 
     // Optimize AST (constant folding, boolean simplification, strength reduction)
     // This runs before type checking to simplify patterns for analysis

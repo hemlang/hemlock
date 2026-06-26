@@ -161,6 +161,9 @@ TYPECHECK_SRCS = $(wildcard $(SRC_DIR)/backends/compiler/type_*.c)
 # Borrow/ownership checker — shared so the LSP can surface its diagnostics
 BORROWCHECK_SRCS = $(SRC_DIR)/backends/compiler/borrow_check.c
 
+# Static lint / diagnostics pass (compiler-only)
+LINTCHECK_SRCS = $(SRC_DIR)/backends/compiler/lint.c
+
 COMMON_SRCS = $(FRONTEND_SRCS) $(MODULES_SRCS) $(TYPECHECK_SRCS) $(BORROWCHECK_SRCS) $(SHARED_SRCS)
 SRCS = $(COMMON_SRCS) $(TOOL_SRCS) $(INTERP_SRCS)
 
@@ -578,6 +581,7 @@ analyze-clean:
 COMPILER_SRCS = $(SRC_DIR)/backends/compiler/main.c \
                 $(wildcard $(SRC_DIR)/backends/compiler/codegen*.c) \
                 $(BORROWCHECK_SRCS) \
+                $(LINTCHECK_SRCS) \
                 $(TYPECHECK_SRCS) \
                 $(SHARED_SRCS) \
                 $(FRONTEND_COMPILER_SRCS)
@@ -866,6 +870,11 @@ test-compiler: compiler
 test-borrow: compiler
 	@bash tests/borrow/run_borrow_tests.sh
 
+# Run static lint / diagnostics tests
+.PHONY: test-lint
+test-lint: compiler
+	@bash tests/lint/run_lint_tests.sh
+
 # Check that interpreter tests compile (does not check output parity)
 .PHONY: compile-check
 compile-check: compiler
@@ -903,7 +912,7 @@ test-memory: compiler
 
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler test-borrow parity test-contracts test-bundler test-lsp test-memory test-formatter test-cli
+test-all: test test-compiler test-borrow test-lint parity test-contracts test-bundler test-lsp test-memory test-formatter test-cli
 
 # ========== RELEASE BUILD ==========
 
