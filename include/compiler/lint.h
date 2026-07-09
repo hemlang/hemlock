@@ -12,7 +12,12 @@
  *                            or after an if/else where both arms always diverge)
  *   - dead branches         (`if`/`while` conditions that are constant)
  *   - self-assignment       (`x = x`, `obj.f = obj.f`, `a[i] = a[i]`)
+ *   - self-comparison       (`x < x`, `x > x`, `x && x`, `x || x` — always
+ *                            false / redundant; ==//!=/<=/>= are exempt since
+ *                            NaN makes them type-dependent)
  *   - modulo by zero        (`x % 0` with a literal zero — traps at runtime)
+ *   - duplicate fields      (`{ a: 1, a: 2 }` — the later value silently wins)
+ *   - duplicate cases       (repeated literal switch case — unreachable)
  *   - unused variables      (strict mode: a let/const that is never read)
  *
  * Only the program's own top-level module is analysed; imported modules are

@@ -1,0 +1,13 @@
+let base = { a: 1 };
+let obj = { ...base, a: 2 };
+let k1 = 1;
+let k2 = 1;
+fn pick(n: i32): string {
+    switch (n) {
+        case k1: return "first";
+        case k2: return "second";
+        default: return "other";
+    }
+}
+print(obj.a);
+print(pick(1));

@@ -42,13 +42,19 @@ about library code you did not write.
 | **dead branch** | an `if`/`while` condition is a constant (`if (false)`, `while (0)`) | on |
 | **redundant branch** | an `if (true) { … } else { … }` whose `else` can never run | on |
 | **self-assignment** | `x = x`, `obj.f = obj.f`, or `a[i] = a[i]` — a no-op | on |
+| **self-comparison** | `x < x` / `x > x` (always false), `x && x` / `x \|\| x` (redundant) | on |
 | **modulo by zero** | `x % 0` with a literal zero divisor — traps at runtime | on |
+| **duplicate field** | `{ a: 1, a: 2 }` — the later value silently wins | on |
+| **duplicate case** | a repeated literal `switch` case — the second is unreachable | on |
 | **unused variable** | a `let`/`const` that is never read in its scope | strict only |
 
 Every diagnostic is something the compiler is **certain** about. The analysis is
 intentionally conservative — for example, self-assignment is only reported when
 both sides are side-effect-free, so `a[next()] = a[next()]` is left alone, and
-`while (true)` (a deliberate idiom) is never flagged. There are no false
+`while (true)` (a deliberate idiom) is never flagged. Self-comparison exempts
+`==`, `!=`, `<=`, and `>=` entirely: for floats every comparison with NaN is
+false, so `x == x` is *not* always true and `x != x` is the canonical NaN
+check — only `<` and `>` (false even for NaN) are reported. There are no false
 positives to silence.
 
 ### Examples

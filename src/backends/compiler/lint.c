@@ -401,6 +401,53 @@ static void lint_check_self_assign(LintContext *ctx, Expr *e) {
     }
 }
 
+/* A bare literal (its self-comparison is constant-folder territory, and
+ * language tests exercise operators on literals deliberately). */
+static int lint_is_literal(Expr *e) {
+    if (!e) return 0;
+    switch (e->type) {
+        case EXPR_NUMBER:
+        case EXPR_STRING:
+        case EXPR_BOOL:
+        case EXPR_RUNE:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/*
+ * Comparison/combination of a variable with itself: `x < x` / `x > x` are
+ * always false, `x && x` / `x || x` are redundant. Only fires when both sides
+ * are pure and structurally identical (lint_pure_equal), so `a[next()] <
+ * a[next()]` is left alone, and not when both sides are bare literals (`1 <
+ * 1` is the constant folder's job and appears deliberately in operator
+ * tests).
+ *
+ * `==`, `!=`, `<=`, `>=` are deliberately NOT flagged: for floats, every
+ * comparison with NaN is false, so `x == x` / `x <= x` are NOT always true —
+ * `x != x` is the canonical NaN check — and the linter cannot see types.
+ * `<` and `>` are safe: false for NaN too, so "always false" always holds.
+ */
+static void lint_check_self_compare(LintContext *ctx, Expr *e) {
+    if (!lint_pure_equal(e->as.binary.left, e->as.binary.right)) return;
+    if (lint_is_literal(e->as.binary.left)) return;
+    switch (e->as.binary.op) {
+        case OP_LESS:
+        case OP_GREATER:
+            lint_warn(ctx, lint_eline(ctx, e),
+                      "comparison of an expression with itself is always false");
+            break;
+        case OP_AND:
+        case OP_OR:
+            lint_warn(ctx, lint_eline(ctx, e),
+                      "logical operator with identical operands is redundant");
+            break;
+        default:
+            break;
+    }
+}
+
 /* A constant `if`/`while` condition: the branch/loop is dead or redundant. */
 static void lint_check_const_condition(LintContext *ctx, Expr *cond,
                                        int has_else, int is_while, int line) {
@@ -421,6 +468,61 @@ static void lint_check_const_condition(LintContext *ctx, Expr *cond,
     }
 }
 
+/* Duplicate field names in an object literal: `{ a: 1, a: 2 }` — the later
+ * value silently wins, so the first is a certain mistake. Spread entries
+ * (field_names[i] == NULL) are skipped. */
+static void lint_check_dup_fields(LintContext *ctx, Expr *e) {
+    int n = e->as.object_literal.num_fields;
+    for (int i = 0; i < n; i++) {
+        const char *name = e->as.object_literal.field_names[i];
+        if (!name) continue;  /* spread */
+        for (int j = i + 1; j < n; j++) {
+            const char *other = e->as.object_literal.field_names[j];
+            if (other && strcmp(name, other) == 0) {
+                lint_warn(ctx, lint_eline(ctx, e),
+                          "duplicate field '%s' in object literal; the later value wins",
+                          name);
+                break;  /* one report per name */
+            }
+        }
+    }
+}
+
+/* A literal usable for exact duplicate-case comparison. */
+static int lint_is_case_literal(Expr *e) {
+    if (!e) return 0;
+    switch (e->type) {
+        case EXPR_NUMBER:
+        case EXPR_STRING:
+        case EXPR_BOOL:
+        case EXPR_RUNE:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/* Duplicate literal case values in a switch: the second case can never be
+ * reached. Only literal values are compared — identifiers or computed cases
+ * are left alone since their values are not known here. */
+static void lint_check_dup_cases(LintContext *ctx, Stmt *s) {
+    int n = s->as.switch_stmt.num_cases;
+    for (int i = 0; i < n; i++) {
+        Expr *a = s->as.switch_stmt.case_values[i];
+        if (!lint_is_case_literal(a)) continue;  /* default or computed */
+        for (int j = i + 1; j < n; j++) {
+            Expr *b = s->as.switch_stmt.case_values[j];
+            if (b && lint_is_case_literal(b) && lint_pure_equal(a, b)) {
+                lint_warn(ctx, b->line > 0 ? b->line : s->line,
+                          "duplicate case value in switch; this case is unreachable"
+                          " (first occurrence on line %d)",
+                          a->line > 0 ? a->line : s->line);
+                break;  /* one report per value */
+            }
+        }
+    }
+}
+
 /* ========== RECURSIVE WALK ========== */
 
 static void lint_expr(LintContext *ctx, Expr *e);
@@ -435,6 +537,7 @@ static void lint_expr(LintContext *ctx, Expr *e) {
             if (e->as.binary.op == OP_MOD && lint_is_int_zero(e->as.binary.right))
                 lint_warn(ctx, lint_eline(ctx, e),
                           "modulo by zero: this operation traps at runtime");
+            lint_check_self_compare(ctx, e);
             lint_expr(ctx, e->as.binary.left);
             lint_expr(ctx, e->as.binary.right);
             break;
@@ -481,6 +584,7 @@ static void lint_expr(LintContext *ctx, Expr *e) {
                 lint_expr(ctx, e->as.array_literal.elements[i]);
             break;
         case EXPR_OBJECT_LITERAL:
+            lint_check_dup_fields(ctx, e);
             for (int i = 0; i < e->as.object_literal.num_fields; i++)
                 lint_expr(ctx, e->as.object_literal.field_values[i]);
             break;
@@ -609,6 +713,7 @@ static void lint_stmt(LintContext *ctx, Stmt *s) {
             break;
         case STMT_SWITCH:
             lint_expr(ctx, s->as.switch_stmt.expr);
+            lint_check_dup_cases(ctx, s);
             for (int i = 0; i < s->as.switch_stmt.num_cases; i++) {
                 lint_expr(ctx, s->as.switch_stmt.case_values[i]);
                 lint_stmt(ctx, s->as.switch_stmt.case_bodies[i]);

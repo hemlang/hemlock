@@ -1,0 +1,8 @@
+fn f(x: i32, flag: bool): bool {
+    if (x < x) { print("never"); }
+    if (x > x) { print("never"); }
+    let r = flag && flag;
+    let s = flag || flag;
+    return r || s;
+}
+print(f(1, true));

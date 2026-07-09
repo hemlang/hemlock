@@ -104,7 +104,8 @@ echo ""
 
 # Categories to skip entirely (known incompatible or special tests)
 # - compiler/parity/ast_serialize/lsp: special test categories
-SKIP_CATEGORIES="compiler parity contracts ast_serialize lsp"
+# - lint: compiler-diagnostic fixtures; some trap at runtime by design
+SKIP_CATEGORIES="compiler parity contracts ast_serialize lsp lint"
 
 # Tests with non-deterministic output (race conditions, timing, etc.)
 # These test correctness but not output matching
