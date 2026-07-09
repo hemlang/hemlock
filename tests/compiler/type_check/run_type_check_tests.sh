@@ -313,6 +313,34 @@ else
     ((FAILED++))
 fi
 
+# Test 21: Unknown named argument is rejected
+echo "Test 21: Unknown named argument"
+cat > /tmp/test_unknown_named.hml << 'EOF'
+fn process(name: string, count: i32): string { return name; }
+let x = process(nam: "Alice", count: 5);
+EOF
+if $HEMLOCKC --check /tmp/test_unknown_named.hml 2>&1 | grep -q "unknown named argument 'nam'"; then
+    echo "  PASSED: Caught unknown named argument"
+    ((PASSED++))
+else
+    echo "  FAILED: Did not catch unknown named argument"
+    ((FAILED++))
+fi
+
+# Test 22: Valid named arguments still accepted
+echo "Test 22: Valid named arguments pass"
+cat > /tmp/test_valid_named.hml << 'EOF'
+fn process(name: string, count: i32): string { return name; }
+let x = process(name: "Alice", count: 5);
+EOF
+if $HEMLOCKC --check /tmp/test_valid_named.hml 2>&1 | grep -q "unknown named argument"; then
+    echo "  FAILED: Valid named argument incorrectly flagged"
+    ((FAILED++))
+else
+    echo "  PASSED: Valid named arguments accepted"
+    ((PASSED++))
+fi
+
 echo ""
 echo "=== Type Check Test Results ==="
 echo "Passed: $PASSED"

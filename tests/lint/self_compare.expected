@@ -1,0 +1,4 @@
+self_compare.hml:2: warning: comparison of an expression with itself is always false
+self_compare.hml:3: warning: comparison of an expression with itself is always false
+self_compare.hml:4: warning: logical operator with identical operands is redundant
+self_compare.hml:5: warning: logical operator with identical operands is redundant

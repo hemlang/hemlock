@@ -1,0 +1,7 @@
+fn spin(): i32 {
+    loop {
+        print("tick");
+    }
+    return 1;
+}
+print(spin());

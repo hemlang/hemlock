@@ -1,23 +1,23 @@
 #!/bin/bash
 
-# Hemlock Borrow Checker Test Runner
+# Hemlock Static Lint Test Runner
 #
-# For each tests/borrow/<name>.hml there is a <name>.expected file holding the
-# borrow-check diagnostics the compiler should emit (without the leading path,
-# i.e. lines of the form "<name>.hml:LINE: warning: ...", in order). An optional
-# <name>.flags file supplies extra hemlockc flags (e.g. --borrow-strict).
+# For each tests/lint/<name>.hml there is a <name>.expected file holding the
+# lint diagnostics the compiler should emit (without the leading path, i.e.
+# lines of the form "<name>.hml:LINE: warning: ...", in order). An optional
+# <name>.flags file supplies extra hemlockc flags (e.g. --lint-strict).
 #
 # The compiler is invoked so it only emits C (no linking); stdout is discarded
-# and stderr (the diagnostics) is captured and compared. The compiler is run
-# from inside this directory so the path prefix is just "<name>.hml".
+# and stderr (the diagnostics) is captured and compared. Borrow checking is
+# disabled so only lint diagnostics appear. The compiler is run from inside
+# this directory so the path prefix is just "<name>.hml".
 #
 # Convention: fixtures named neg_*.hml are "negative" cases whose .expected
-# file is empty — they assert the checker produces NO diagnostic and so guard
+# file is empty — they assert the linter produces NO diagnostic and so guard
 # against false positives. All other fixtures assert an exact diagnostic.
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
@@ -25,7 +25,7 @@ PASS_COUNT=0
 FAIL_COUNT=0
 
 echo "======================================"
-echo "   Hemlock Borrow Checker Test Suite"
+echo "      Hemlock Lint Test Suite"
 echo "======================================"
 echo ""
 
@@ -40,13 +40,13 @@ else
 fi
 
 HEMLOCKC="$PROJECT_ROOT/hemlockc"
-TEST_DIR="$PROJECT_ROOT/tests/borrow"
+TEST_DIR="$PROJECT_ROOT/tests/lint"
 
 if [ ! -x "$HEMLOCKC" ]; then
     echo -e "${BLUE}Building compiler...${NC}"
-    if ! make -C "$PROJECT_ROOT" compiler > /tmp/borrow_build.log 2>&1; then
+    if ! make -C "$PROJECT_ROOT" compiler > /tmp/lint_build.log 2>&1; then
         echo -e "${RED}✗ Build failed${NC}"
-        cat /tmp/borrow_build.log
+        cat /tmp/lint_build.log
         exit 1
     fi
 fi
@@ -67,8 +67,8 @@ for test_file in *.hml; do
     [ -f "$flags_file" ] && extra_flags="$(cat "$flags_file")"
 
     # Compile to C only; capture stderr diagnostics, discard stdout/C output.
-    # Disable the lint pass so only borrow-checker diagnostics are compared.
-    actual=$("$HEMLOCKC" --no-lint $extra_flags -c --emit-c "$TMP_C" "$test_file" 2>&1 1>/dev/null)
+    # Disable borrow checking so only lint diagnostics are compared.
+    actual=$("$HEMLOCKC" --no-borrow-check $extra_flags -c --emit-c "$TMP_C" "$test_file" 2>&1 1>/dev/null)
     expected=$(cat "$expected_file")
 
     if [ "$actual" = "$expected" ]; then
@@ -93,9 +93,9 @@ echo -e "${RED}Failed:${NC}  $FAIL_COUNT"
 echo "======================================"
 
 if [ $FAIL_COUNT -eq 0 ]; then
-    echo -e "${GREEN}All borrow checker tests passed! 🎉${NC}"
+    echo -e "${GREEN}All lint tests passed! 🎉${NC}"
     exit 0
 else
-    echo -e "${RED}Some borrow checker tests failed.${NC}"
+    echo -e "${RED}Some lint tests failed.${NC}"
     exit 1
 fi

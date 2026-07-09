@@ -1,0 +1,1 @@
+dup_case.hml:5: warning: duplicate case value in switch; this case is unreachable (first occurrence on line 3)

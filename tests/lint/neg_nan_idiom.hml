@@ -1,0 +1,8 @@
+fn is_nan(x: f64): bool {
+    return x != x;
+}
+fn same(x: f64): bool {
+    return x == x && x <= x && x >= x;
+}
+print(is_nan(0.0 / 0.0));
+print(same(1.5));
