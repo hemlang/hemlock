@@ -38,7 +38,7 @@ about library code you did not write.
 
 | Diagnostic | When | Default |
 |------------|------|---------|
-| **unreachable code** | a statement follows one that always diverges (`return`/`break`/`continue`/`throw`/`panic()`, or an `if`/`else` whose arms all diverge) | on |
+| **unreachable code** | a statement follows one that always diverges (`return`/`break`/`continue`/`throw`/`panic()`, an `if`/`else` whose arms all diverge, or an infinite `loop`/`while (true)` with no `break` bound to it) | on |
 | **dead branch** | an `if`/`while` condition is a constant (`if (false)`, `while (0)`) | on |
 | **redundant branch** | an `if (true) { … } else { … }` whose `else` can never run | on |
 | **self-assignment** | `x = x`, `obj.f = obj.f`, or `a[i] = a[i]` — a no-op | on |

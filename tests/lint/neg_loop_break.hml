@@ -1,0 +1,23 @@
+fn counted(): i32 {
+    let i = 0;
+    loop {
+        i = i + 1;
+        if (i >= 3) { break; }
+    }
+    return i;
+}
+fn labeled(): i32 {
+    outer: loop {
+        loop { break outer; }
+    }
+    return 2;
+}
+fn conditional(): i32 {
+    while (true) {
+        if (1 > 2) { break; }
+        return 3;
+    }
+    return 4;
+}
+print(counted());
+print(labeled());

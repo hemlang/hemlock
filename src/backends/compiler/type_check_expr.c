@@ -467,8 +467,21 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
                                 }
                             }
 
-                            // If parameter not found, skip type checking (runtime will catch it)
-                            if (param_idx < 0) continue;
+                            // A named argument that matches no parameter is a
+                            // guaranteed runtime throw in the interpreter
+                            // ("Unknown parameter name"), while the compiled
+                            // binary silently binds it positionally — reject it
+                            // here so a typo like `f(nam: ...)` can't compile
+                            // into divergent behavior. Only when the signature
+                            // carries parameter names; otherwise stay silent.
+                            if (param_idx < 0) {
+                                if (sig->param_names) {
+                                    type_error(ctx, expr->line,
+                                        "unknown named argument '%s' to '%s': no parameter with that name",
+                                        arg_name, name);
+                                }
+                                continue;
+                            }
                         }
 
                         if (!sig->param_types[param_idx]) continue;

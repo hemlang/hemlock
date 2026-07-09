@@ -130,10 +130,58 @@ static int lint_pure_equal(Expr *a, Expr *b) {
 }
 
 /*
+ * Does `s` contain a break that would exit a loop enclosing it? `depth` is
+ * the number of loop/switch levels between that enclosing loop and `s` (0 =
+ * directly inside it): an unlabeled break only escapes when depth is 0, since
+ * deeper ones bind to the nested loop/switch instead. A labeled break escapes
+ * when it names `label`, at any depth. Used to decide whether an infinite
+ * loop can ever fall through to the statement after it.
+ */
+static int lint_has_escaping_break(Stmt *s, const char *label, int depth) {
+    if (!s) return 0;
+    switch (s->type) {
+        case STMT_BREAK:
+            if (s->as.break_stmt.label)
+                return label && strcmp(s->as.break_stmt.label, label) == 0;
+            return depth == 0;
+        case STMT_BLOCK:
+            for (int i = 0; i < s->as.block.count; i++)
+                if (lint_has_escaping_break(s->as.block.statements[i], label, depth))
+                    return 1;
+            return 0;
+        case STMT_IF:
+            return lint_has_escaping_break(s->as.if_stmt.then_branch, label, depth) ||
+                   lint_has_escaping_break(s->as.if_stmt.else_branch, label, depth);
+        case STMT_TRY:
+            return lint_has_escaping_break(s->as.try_stmt.try_block, label, depth) ||
+                   lint_has_escaping_break(s->as.try_stmt.catch_block, label, depth) ||
+                   lint_has_escaping_break(s->as.try_stmt.finally_block, label, depth);
+        case STMT_WHILE:
+            return lint_has_escaping_break(s->as.while_stmt.body, label, depth + 1);
+        case STMT_LOOP:
+            return lint_has_escaping_break(s->as.loop_stmt.body, label, depth + 1);
+        case STMT_FOR:
+            return lint_has_escaping_break(s->as.for_loop.body, label, depth + 1);
+        case STMT_FOR_IN:
+            return lint_has_escaping_break(s->as.for_in.body, label, depth + 1);
+        case STMT_SWITCH:
+            /* An unlabeled break inside a switch binds to the switch. */
+            for (int i = 0; i < s->as.switch_stmt.num_cases; i++)
+                if (lint_has_escaping_break(s->as.switch_stmt.case_bodies[i], label, depth + 1))
+                    return 1;
+            return 0;
+        default:
+            return 0;
+    }
+}
+
+/*
  * Does control unconditionally leave the program point after this statement
  * (so anything textually following it in the same block is unreachable)?
- * Only cases the compiler is certain about are claimed; loops, switch, and
- * try are treated as falling through to avoid false "unreachable" reports.
+ * Only cases the compiler is certain about are claimed; conditional loops,
+ * switch, and try are treated as falling through to avoid false reports.
+ * An infinite loop (`loop`, or `while (true)`) falls through only via a
+ * break bound to it — with none, everything after it is unreachable.
  */
 static int lint_stmt_diverges(Stmt *s) {
     if (!s) return 0;
@@ -153,6 +201,16 @@ static int lint_stmt_diverges(Stmt *s) {
             return s->as.if_stmt.else_branch &&
                    lint_stmt_diverges(s->as.if_stmt.then_branch) &&
                    lint_stmt_diverges(s->as.if_stmt.else_branch);
+        case STMT_LOOP:
+            return !lint_has_escaping_break(s->as.loop_stmt.body,
+                                            s->as.loop_stmt.label, 0);
+        case STMT_WHILE: {
+            int truthy;
+            if (lint_const_truth(s->as.while_stmt.condition, &truthy) && truthy)
+                return !lint_has_escaping_break(s->as.while_stmt.body,
+                                                s->as.while_stmt.label, 0);
+            return 0;
+        }
         default:
             return 0;
     }
@@ -653,9 +711,15 @@ static void lint_check_unreachable(LintContext *ctx, Stmt **stmts, int count) {
     for (int i = 0; i < count; i++) {
         Stmt *s = stmts[i];
         if (diverged_at >= 0 && !lint_is_hoisted_decl(s)) {
-            lint_warn(ctx, s->line,
-                      "unreachable code: control always leaves via the %s on line %d",
-                      lint_diverge_word(stmts[diverged_at]), stmts[diverged_at]->line);
+            Stmt *d = stmts[diverged_at];
+            if (d->type == STMT_LOOP || d->type == STMT_WHILE)
+                lint_warn(ctx, s->line,
+                          "unreachable code: the infinite loop on line %d has no break and never falls through",
+                          d->line);
+            else
+                lint_warn(ctx, s->line,
+                          "unreachable code: control always leaves via the %s on line %d",
+                          lint_diverge_word(d), d->line);
             return;
         }
         if (diverged_at < 0 && lint_stmt_diverges(s)) diverged_at = i;

@@ -9,7 +9,8 @@
  * ship a binary:
  *
  *   - unreachable code      (statements after return/break/continue/throw/panic,
- *                            or after an if/else where both arms always diverge)
+ *                            after an if/else where both arms always diverge, or
+ *                            after an infinite loop with no break bound to it)
  *   - dead branches         (`if`/`while` conditions that are constant)
  *   - self-assignment       (`x = x`, `obj.f = obj.f`, `a[i] = a[i]`)
  *   - self-comparison       (`x < x`, `x > x`, `x && x`, `x || x` — always
