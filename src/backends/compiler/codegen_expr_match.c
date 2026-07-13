@@ -134,12 +134,12 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
                 codegen_writeln(ctx, "}");
 
                 if (next_alt_label) {
-                    codegen_writeln(ctx, "%s:;", next_alt_label);
+                    codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", next_alt_label);
                     free(next_alt_label);
                 }
             }
 
-            codegen_writeln(ctx, "%s:;", success_label);
+            codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", success_label);
             free(success_label);
             break;
         }

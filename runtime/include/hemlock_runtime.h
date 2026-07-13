@@ -1207,6 +1207,26 @@ HmlValue hml_builtin_set_stack_limit(HmlClosureEnv *env, HmlValue limit);
     } \
 } while(0)
 
+// Warning suppression for generated code. Codegen emits labels and bindings
+// unconditionally (loop break/continue targets, match arms, import aliases)
+// that any given program may never reference; these keep --emit-c output
+// clean under -Wall -Wextra without per-site liveness analysis.
+#if defined(__GNUC__) || defined(__clang__)
+#define HML_UNUSED_LABEL __attribute__((unused))
+#define HML_MAYBE_UNUSED __attribute__((unused))
+#else
+#define HML_UNUSED_LABEL
+#define HML_MAYBE_UNUSED
+#endif
+
+// Per-function optimization level (@optimize annotation). GCC-only: clang has
+// no per-function optimize attribute and warns -Wunknown-attributes on it.
+#if defined(__GNUC__) && !defined(__clang__)
+#define HML_ATTR_OPTIMIZE(level) __attribute__((optimize(level)))
+#else
+#define HML_ATTR_OPTIMIZE(level)
+#endif
+
 // ========== ATOMIC OPERATIONS ==========
 
 // i32 atomic operations

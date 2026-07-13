@@ -1566,7 +1566,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *next_arm = (i + 1 < expr->as.match_expr.num_arms) ? arm_labels[i + 1] : no_match_label;
 
                 codegen_writeln(ctx, "// Match arm %d", i);
-                codegen_writeln(ctx, "%s:;", arm_labels[i]);
+                codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", arm_labels[i]);
                 int arm_locals_start = ctx->num_locals;
                 codegen_push_scope(ctx);
                 codegen_writeln(ctx, "{");
@@ -1617,12 +1617,12 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             }
 
             // No match - runtime error
-            codegen_writeln(ctx, "%s:;", no_match_label);
+            codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", no_match_label);
             codegen_writeln(ctx, "hml_runtime_error(\"No pattern matched in match expression\");");
             codegen_writeln(ctx, "%s = hml_val_null();", result);
 
             // End label
-            codegen_writeln(ctx, "%s:;", end_label);
+            codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", end_label);
 
             // Cleanup
             codegen_writeln(ctx, "hml_release(&%s);", scrutinee);

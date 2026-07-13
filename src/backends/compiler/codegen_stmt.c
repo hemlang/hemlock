@@ -60,7 +60,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                         if (c_type && unbox_cast) {
                             // Generate unboxed variable with native C type
                             char *value = codegen_expr(ctx, stmt->as.let.value);
-                            codegen_writeln(ctx, "%s %s = %s(%s);", c_type, safe_name, unbox_cast, value);
+                            codegen_writeln(ctx, "%s %s HML_MAYBE_UNUSED = %s(%s);", c_type, safe_name, unbox_cast, value);
                             codegen_writeln(ctx, "hml_release(&%s);", value);
                             free(value);
                             free(safe_name);
@@ -83,7 +83,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     if (c_type && unbox_cast) {
                         // Generate unboxed variable with inferred native C type
                         char *value = codegen_expr(ctx, stmt->as.let.value);
-                        codegen_writeln(ctx, "%s %s = %s(%s);", c_type, safe_name, unbox_cast, value);
+                        codegen_writeln(ctx, "%s %s HML_MAYBE_UNUSED = %s(%s);", c_type, safe_name, unbox_cast, value);
                         codegen_writeln(ctx, "hml_release(&%s);", value);
                         free(value);
                         free(safe_name);
@@ -443,7 +443,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_indent_inc(ctx);
 
             if (loop_label) {
-                codegen_writeln(ctx, "%s:;", continue_label);
+                codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", continue_label);
             }
 
             char *cond_bool = codegen_emit_condition_bool(ctx, stmt->as.while_stmt.condition);
@@ -477,7 +477,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             }
 
             if (loop_label) {
-                codegen_writeln(ctx, "%s:;", break_label);
+                codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", break_label);
                 codegen_pop_loop_label(ctx);
                 free(break_label);
                 free(continue_label);
@@ -506,7 +506,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_indent_inc(ctx);
 
             if (loop_label) {
-                codegen_writeln(ctx, "%s:;", continue_label);
+                codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", continue_label);
             }
 
             codegen_push_loop_body(ctx);
@@ -516,7 +516,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_writeln(ctx, "}");
 
             if (loop_label) {
-                codegen_writeln(ctx, "%s:;", break_label);
+                codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", break_label);
                 codegen_pop_loop_label(ctx);
                 free(break_label);
                 free(continue_label);
@@ -639,17 +639,26 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                             // keeps parity with the interpreter, which promotes
                             // both operands of the comparison.
                             int64_t bound = bound_expr->as.number.int_value;
+                            int bound_fits_i32 = (bound >= INT32_MIN && bound <= INT32_MAX);
+                            if (!bound_fits_i32) {
+                                // Bind the literal through a const local: comparing
+                                // the promoted counter against the bare literal trips
+                                // -Wtype-limits ("always true"); the local folds
+                                // identically under optimization. Declared before the
+                                // loop pragmas, which must immediately precede the loop.
+                                codegen_writeln(ctx, "const int64_t _bound = %" PRId64 "LL;", bound);
+                            }
                             codegen_emit_loop_pragmas(ctx, for_ann, for_ann_count);
-                            if (bound >= INT32_MIN && bound <= INT32_MAX) {
+                            if (bound_fits_i32) {
                                 if (counter_on_left) {
                                     codegen_writeln(ctx, "while (%s %s %d) {", safe_name, op_str, (int32_t)bound);
                                 } else {
                                     codegen_writeln(ctx, "while (%d %s %s) {", (int32_t)bound, op_str, safe_name);
                                 }
                             } else if (counter_on_left) {
-                                codegen_writeln(ctx, "while ((int64_t)%s %s %" PRId64 "LL) {", safe_name, op_str, bound);
+                                codegen_writeln(ctx, "while ((int64_t)%s %s _bound) {", safe_name, op_str);
                             } else {
-                                codegen_writeln(ctx, "while (%" PRId64 "LL %s (int64_t)%s) {", bound, op_str, safe_name);
+                                codegen_writeln(ctx, "while (_bound %s (int64_t)%s) {", op_str, safe_name);
                             }
                         } else if (bound_expr) {
                             // Dynamic bound - evaluate once before loop. Convert at
@@ -689,7 +698,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_pop_loop_body(ctx);
 
                 // Continue label
-                codegen_writeln(ctx, "%s:;", continue_label);
+                codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", continue_label);
 
                 // Optimized increment
                 Expr *inc = stmt->as.for_loop.increment;
@@ -767,7 +776,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_stmt(ctx, stmt->as.for_loop.body);
                 codegen_pop_loop_body(ctx);
                 // Continue label - continue jumps here to execute increment
-                codegen_writeln(ctx, "%s:;", continue_label);
+                codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", continue_label);
                 // Increment
                 if (stmt->as.for_loop.increment) {
                     char *inc = codegen_expr(ctx, stmt->as.for_loop.increment);
@@ -794,7 +803,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             }
 
             if (loop_label) {
-                codegen_writeln(ctx, "%s:;", loop_break_label);
+                codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", loop_break_label);
                 codegen_pop_loop_label(ctx);
                 free(loop_break_label);
                 free(loop_continue_label);
@@ -958,7 +967,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_pop_loop_body(ctx);
 
             // Continue label - continue jumps here to release variables and increment
-            codegen_writeln(ctx, "%s:;", continue_label);
+            codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", continue_label);
 
             // Release loop variables
             if (stmt->as.for_in.key_var) {
@@ -993,7 +1002,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             free(continue_label);
 
             if (loop_label) {
-                codegen_writeln(ctx, "%s:;", loop_break_label);
+                codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", loop_break_label);
                 codegen_pop_loop_label(ctx);
                 free(loop_break_label);
                 free(loop_continue_label);
@@ -1405,7 +1414,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_pop_try_finally(ctx);
 
                     // Generate the finally label (jumped to from return statements in try)
-                    codegen_writeln(ctx, "%s:;", finally_label);
+                    codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", finally_label);
                 }
 
                 codegen_stmt(ctx, stmt->as.try_stmt.finally_block);
@@ -1537,13 +1546,13 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             // Generate case bodies with labels - fall-through happens naturally
             for (int i = 0; i < num_cases; i++) {
-                codegen_writeln(ctx, "%s:;", case_labels[i]);
+                codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", case_labels[i]);
                 codegen_stmt(ctx, stmt->as.switch_stmt.case_bodies[i]);
                 // No automatic break - fall through to next case
             }
 
             // End label for cleanup
-            codegen_writeln(ctx, "%s:;", end_label);
+            codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;", end_label);
 
             // Release case values
             for (int i = 0; i < num_cases; i++) {
@@ -1814,7 +1823,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                         // so even if sanitization were bypassed, the generated C code compiles.
                         char *safe_name = codegen_sanitize_ident(exp->name);
                         codegen_write(ctx, "#undef %s\n", exp->name);
-                        codegen_writeln(ctx, "HmlValue %s = %s;", safe_name, exp->mangled_name);
+                        codegen_writeln(ctx, "HmlValue %s HML_MAYBE_UNUSED = %s;", safe_name, exp->mangled_name);
                         codegen_add_local(ctx, exp->name);
                         free(safe_name);
                     }
@@ -1832,14 +1841,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                         // Defense-in-depth: #undef any name that could be a C preprocessor macro
                         char *safe_bind = codegen_sanitize_ident(bind_name);
                         codegen_write(ctx, "#undef %s\n", bind_name);
-                        codegen_writeln(ctx, "HmlValue %s = %s;", safe_bind, exp->mangled_name);
+                        codegen_writeln(ctx, "HmlValue %s HML_MAYBE_UNUSED = %s;", safe_bind, exp->mangled_name);
                         codegen_add_local(ctx, bind_name);
                         free(safe_bind);
                     } else {
                         codegen_error(ctx, stmt->line, "'%s' is not exported from module \"%s\"",
                                      import_name, stmt->as.import_stmt.module_path);
                         char *safe_bind = codegen_sanitize_ident(bind_name);
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", safe_bind);
+                        codegen_writeln(ctx, "HmlValue %s HML_MAYBE_UNUSED = hml_val_null();", safe_bind);
                         codegen_add_local(ctx, bind_name);
                         free(safe_bind);
                     }

@@ -51,7 +51,9 @@ static void codegen_emit_function_attributes(CodegenContext *ctx, Annotation **a
             if (strcmp(level, "0") == 0 || strcmp(level, "1") == 0 ||
                 strcmp(level, "2") == 0 || strcmp(level, "3") == 0 ||
                 strcmp(level, "s") == 0 || strcmp(level, "fast") == 0) {
-                codegen_write(ctx, "__attribute__((optimize(\"-O%s\"))) ", level);
+                // Via HML_ATTR_OPTIMIZE so clang (no per-function optimize
+                // attribute) doesn't warn -Wunknown-attributes
+                codegen_write(ctx, "HML_ATTR_OPTIMIZE(\"-O%s\") ", level);
             }
         }
     }
@@ -215,11 +217,13 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
         ctx->tail_call_func_name = name;  // Borrowed reference
         ctx->tail_call_label = codegen_label(ctx);
         ctx->tail_call_func_expr = func;
-        // Emit local iteration counter for tail-call depth checking
+        // Emit local iteration counter for tail-call depth checking. The
+        // (void) covers the rare case where the recursive call ends up
+        // emitted through a path that never expands HML_TAIL_CALL_CHECK.
         if (ctx->stack_check) {
-            codegen_writeln(ctx, "int _tail_depth = 0;");
+            codegen_writeln(ctx, "int _tail_depth = 0; (void)_tail_depth;");
         }
-        codegen_writeln(ctx, "%s:;  // tail call target", ctx->tail_call_label);
+        codegen_writeln(ctx, "%s: HML_UNUSED_LABEL;  // tail call target", ctx->tail_call_label);
     }
 
     // Set up shared environment for closures
@@ -273,6 +277,7 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     }
     codegen_write(ctx, ") {\n");
     codegen_indent_inc(ctx);
+    codegen_writeln(ctx, "(void)_closure_env;");
 
     // Save state and initialize for closure body
     FuncGenState saved_state;

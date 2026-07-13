@@ -1323,6 +1323,7 @@ char* codegen_escape_string(const char *str) {
     }
     char *p = escaped;
 
+    char prev = '\0';
     while (*str) {
         switch (*str) {
             case '\n': *p++ = '\\'; *p++ = 'n'; break;
@@ -1330,8 +1331,16 @@ char* codegen_escape_string(const char *str) {
             case '\t': *p++ = '\\'; *p++ = 't'; break;
             case '\\': *p++ = '\\'; *p++ = '\\'; break;
             case '"':  *p++ = '\\'; *p++ = '"'; break;
+            case '?':
+                // Break up "??" so the literal can't form a trigraph
+                // ("??=" in a source string becomes "#" under -std=c11,
+                // and default GCC prints a -Wtrigraphs warning)
+                if (prev == '?') { *p++ = '\\'; }
+                *p++ = '?';
+                break;
             default:   *p++ = *str; break;
         }
+        prev = *str;
         str++;
     }
     *p = '\0';
@@ -1723,6 +1732,19 @@ void funcgen_add_params(CodegenContext *ctx, Expr *func) {
     }
     if (func->as.function.rest_param) {
         codegen_add_local(ctx, func->as.function.rest_param);
+    }
+
+    // A parameter the body never reads is legal Hemlock; keep the generated
+    // definition quiet under -Wunused-parameter
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
+        codegen_writeln(ctx, "(void)%s;", safe_param);
+        free(safe_param);
+    }
+    if (func->as.function.rest_param) {
+        char *safe_rest = codegen_sanitize_ident(func->as.function.rest_param);
+        codegen_writeln(ctx, "(void)%s;", safe_rest);
+        free(safe_rest);
     }
 }
 
