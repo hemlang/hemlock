@@ -1,3 +1,4 @@
+// @expect-compile-fail pushing the wrong element type is a compile error
 // Test type mismatch when pushing to typed array
 
 let arr: array<u8> = [1, 2, 3];

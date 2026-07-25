@@ -1,3 +1,4 @@
+// @expect-compile-fail bitwise operators reject floats
 // Test bitwise operations on float (should error)
 // Expected: ERROR
 

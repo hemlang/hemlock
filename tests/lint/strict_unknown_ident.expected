@@ -1,3 +1,3 @@
-strict_unknown_ident.hml:8: warning: identifier 'NOPE' has unknown type
-error (line 8): undefined variable 'NOPE'
+strict_unknown_ident.hml:9: warning: identifier 'NOPE' has unknown type
+error (line 9): undefined variable 'NOPE'
 1 error generated

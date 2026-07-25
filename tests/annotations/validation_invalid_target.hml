@@ -1,3 +1,4 @@
+// @expect-compile-fail annotation applied to an invalid target
 // Test invalid target error
 
 @inline

@@ -53,40 +53,21 @@ echo "This checks that all .hml files COMPILE"
 echo ""
 
 is_expected_fail() {
-    local file_name="$1"
-    # Type checking tests that intentionally have type errors
-    if [[ "$file_name" == "tests/compiler/type_check/"* ]]; then
-        return 0
-    fi
-    # Parser/syntax error tests in specific directories
-    if [[ "$file_name" == "tests/parser/"*"invalid"* ]]; then
-        return 0
-    fi
-    # Specific files that test compile-time errors
-    case "$file_name" in
-        tests/const/const_reassign_error.hml|\
-        tests/const/const_reassign_in_scope_error.hml|\
-        tests/const/redeclare_error.hml|\
-        tests/typed_arrays/type_mismatch_push_error.hml|\
-        tests/primitives/string_conversion_error.hml|\
-        tests/primitives/string_to_bool_error.hml|\
-        tests/primitives/binary_invalid.hml|\
-        tests/primitives/hex_invalid.hml|\
-        tests/functions/optional_params_validation.hml|\
-        tests/functions/edge_arity_mismatch.hml|\
-        tests/functions/fn_param_self_invalid.hml|\
-        tests/arrays/edge_map_filter_reduce.hml|\
-        tests/bitwise/edge_bitwise_on_float.hml|\
-        tests/circular_refs/test_array_self_reference.hml|\
-        tests/circular_refs/test_complex_nested.hml|\
-        tests/circular_refs/test_object_array_cycle.hml|\
-        tests/objects/method_signature_errors.hml|\
-        tests/annotations/validation_invalid_target.hml|\
-        tests/lint/strict_unknown_ident.hml)
-            return 0
-            ;;
-    esac
-    return 1
+    # A fixture that is *supposed* to fail compilation marks itself, near the
+    # top of the file:
+    #
+    #     // @expect-compile-fail <short reason>
+    #
+    # The expectation lives next to the code that encodes it, so adding a new
+    # negative fixture needs no edit here. Previously this was a hand-kept
+    # path list; it drifted, and a new fixture failed CI because its author
+    # (reasonably) never thought to update a shell script.
+    #
+    # Only the head of the file is scanned, so the string appearing in prose
+    # further down does not silently flip an expectation.
+    local file_path="$1"
+    head -n 20 "$file_path" 2>/dev/null \
+        | grep -qE '^[[:space:]]*//[[:space:]]*@expect-compile-fail([[:space:]]|$)'
 }
 
 # Files to skip entirely (not counted in totals) - incomplete or special-purpose files
@@ -135,7 +116,7 @@ run_compile_check() {
 
     local c_file="$TEMP_DIR/${base_name}_$$.c"
 
-    if is_expected_fail "$test_name"; then
+    if is_expected_fail "$test_file"; then
         if ! timeout "$COMPILE_TIMEOUT" "$HEMLOCKC" "$test_file" -c --emit-c "$c_file" 2>/dev/null; then
             echo -e "${GREEN}✓${NC} $test_name (expected compile failure)"
             EXPECTED_FAIL_PASS=$((EXPECTED_FAIL_PASS + 1))
