@@ -736,12 +736,20 @@ Expr* primary(Parser *p) {
         advance(p);
         char *name = token_text(&p->previous);
         Expr *ident = expr_ident(name);
+        // expr_ident() defaults line/column to 0. Diagnostics that anchor on
+        // an identifier (e.g. --strict-types "identifier has unknown type")
+        // reported "file:0" without this.
+        ident->line = p->previous.line;
+        ident->column = p->previous.column;
         free(name);
         return ident;
     }
 
     if (match(p, TOK_SELF)) {
-        return expr_ident("self");
+        Expr *self_ident = expr_ident("self");
+        self_ident->line = p->previous.line;
+        self_ident->column = p->previous.column;
+        return self_ident;
     }
 
     if (match(p, TOK_LPAREN)) {

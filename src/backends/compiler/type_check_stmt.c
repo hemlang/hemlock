@@ -603,6 +603,35 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
             }
             break;
 
+        case STMT_IMPORT: {
+            // Bind every imported name so it resolves during inference.
+            // Modules are type-checked separately (type_check_program only
+            // ever sees the entry file's statements), so we cannot know the
+            // exported type here -- bind ANY. Without this the bindings are
+            // simply absent, and any inference over an imported symbol
+            // (notably `"" + IMPORTED` in a concat) reported it as an
+            // unknown identifier under --strict-types.
+            if (stmt->as.import_stmt.is_namespace) {
+                if (stmt->as.import_stmt.namespace_name) {
+                    type_check_bind(ctx, stmt->as.import_stmt.namespace_name,
+                                    checked_type_primitive(CHECKED_ANY), 0, 0, stmt->line);
+                }
+            } else if (stmt->as.import_stmt.import_names) {
+                for (int i = 0; i < stmt->as.import_stmt.num_imports; i++) {
+                    // An alias shadows the original name at the use site.
+                    const char *bound = stmt->as.import_stmt.import_aliases
+                                     && stmt->as.import_stmt.import_aliases[i]
+                                      ? stmt->as.import_stmt.import_aliases[i]
+                                      : stmt->as.import_stmt.import_names[i];
+                    if (bound) {
+                        type_check_bind(ctx, bound,
+                                        checked_type_primitive(CHECKED_ANY), 0, 0, stmt->line);
+                    }
+                }
+            }
+            break;
+        }
+
         default:
             break;
     }
@@ -776,6 +805,25 @@ void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int count)
 // ========== MAIN ENTRY POINT ==========
 
 int type_check_program(TypeCheckContext *ctx, Stmt **stmts, int stmt_count) {
+    // Note every top-level let/const name before checking anything, so a
+    // function body that references a module-level binding declared later in
+    // the file is not reported as an unknown identifier. Names only -- the
+    // bindings themselves are still created in source order, so genuine
+    // redeclaration and shadowing checks are unaffected.
+    for (int i = 0; i < stmt_count; i++) {
+        Stmt *s = stmts[i];
+        if (!s) continue;
+        if (s->type == STMT_EXPORT && s->as.export_stmt.is_declaration
+            && s->as.export_stmt.declaration) {
+            s = s->as.export_stmt.declaration;
+        }
+        if (s->type == STMT_LET) {
+            type_check_note_module_level(ctx, s->as.let.name);
+        } else if (s->type == STMT_CONST) {
+            type_check_note_module_level(ctx, s->as.const_stmt.name);
+        }
+    }
+
     // First pass: collect all function signatures, object definitions, enums
     collect_function_signatures(ctx, stmts, stmt_count);
 

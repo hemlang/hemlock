@@ -148,7 +148,37 @@ void type_check_free(TypeCheckContext *ctx) {
 
     free(ctx->current_function_name);
     checked_type_free(ctx->current_return_type);
+    for (int i = 0; i < ctx->num_module_level_names; i++) {
+        free(ctx->module_level_names[i]);
+    }
+    free(ctx->module_level_names);
     free(ctx);
+}
+
+// Record a name declared by a top-level let/const. See the field comment in
+// TypeCheckContext: function bodies may reference these before the checker
+// reaches the declaration in source order.
+void type_check_note_module_level(TypeCheckContext *ctx, const char *name) {
+    if (!ctx || !name) return;
+    for (int i = 0; i < ctx->num_module_level_names; i++) {
+        if (strcmp(ctx->module_level_names[i], name) == 0) return;
+    }
+    if (ctx->num_module_level_names == ctx->cap_module_level_names) {
+        int cap = ctx->cap_module_level_names ? ctx->cap_module_level_names * 2 : 16;
+        char **grown = realloc(ctx->module_level_names, (size_t)cap * sizeof(char *));
+        if (!grown) return;
+        ctx->module_level_names = grown;
+        ctx->cap_module_level_names = cap;
+    }
+    ctx->module_level_names[ctx->num_module_level_names++] = strdup(name);
+}
+
+int type_check_is_module_level(TypeCheckContext *ctx, const char *name) {
+    if (!ctx || !name) return 0;
+    for (int i = 0; i < ctx->num_module_level_names; i++) {
+        if (strcmp(ctx->module_level_names[i], name) == 0) return 1;
+    }
+    return 0;
 }
 
 // ========== ENVIRONMENT OPERATIONS ==========

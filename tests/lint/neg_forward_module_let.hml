@@ -1,0 +1,11 @@
+// A function body may reference a module-level binding declared further down
+// the file -- the body only runs after module init, so this is legal. The
+// type checker walks statements in source order, and used to report the
+// forward reference as an unknown identifier under --strict-types.
+fn describe(): string {
+	return "timeout=" + TIMEOUT_SECONDS;
+}
+
+let TIMEOUT_SECONDS = 90;
+
+print(describe());

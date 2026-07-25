@@ -109,8 +109,10 @@ CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr) {
                 return checked_type_primitive(CHECKED_ENUM);
             }
 
-            // Unknown identifier - warn if configured
-            if (ctx->warn_implicit_any) {
+            // Unknown identifier - warn if configured. A name declared by a
+            // top-level let/const further down the file is not unknown; the
+            // body referencing it only runs after module init.
+            if (ctx->warn_implicit_any && !type_check_is_module_level(ctx, name)) {
                 type_warning(ctx, expr->line,
                     "identifier '%s' has unknown type", name);
             }
