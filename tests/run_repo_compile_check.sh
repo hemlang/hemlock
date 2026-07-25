@@ -81,7 +81,8 @@ is_expected_fail() {
         tests/circular_refs/test_complex_nested.hml|\
         tests/circular_refs/test_object_array_cycle.hml|\
         tests/objects/method_signature_errors.hml|\
-        tests/annotations/validation_invalid_target.hml)
+        tests/annotations/validation_invalid_target.hml|\
+        tests/lint/strict_unknown_ident.hml)
             return 0
             ;;
     esac
