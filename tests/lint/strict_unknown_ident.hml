@@ -1,0 +1,8 @@
+// An identifier the type checker cannot resolve is reported with its real
+// source line. It used to say "…hml:0:" because the parser never stamped
+// line/column onto identifier expressions. Resolving to nothing is also a
+// hard error, so the compile failure below is expected and part of the
+// asserted output -- the point of the fixture is the ":3:" in the warning.
+let a = 1;
+let b = 2;
+print("" + NOPE);

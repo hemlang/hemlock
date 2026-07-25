@@ -207,9 +207,24 @@ typedef struct {
     const char *source;         // Source code (for column calculation)
     int collect_errors;         // If true, collect errors instead of printing
     int suppress_shadow_warnings; // If true, skip shadow warnings (e.g. during codegen inlining)
+
+    // Names declared by a top-level let/const anywhere in the entry file.
+    // Statements are checked in source order, but a function body may legally
+    // reference a module-level binding declared further down (the body only
+    // runs after module init). Collected up front so such a forward reference
+    // is not misreported as an unknown identifier.
+    char **module_level_names;
+    int num_module_level_names;
+    int cap_module_level_names;
 } TypeCheckContext;
 
 // ========== CONTEXT MANAGEMENT ==========
+
+// Record / query a name declared by a top-level let or const. Used to keep a
+// forward reference from inside a function body from being reported as an
+// unknown identifier.
+void type_check_note_module_level(TypeCheckContext *ctx, const char *name);
+int type_check_is_module_level(TypeCheckContext *ctx, const char *name);
 
 // Create a new type check context
 TypeCheckContext* type_check_new(const char *filename);
