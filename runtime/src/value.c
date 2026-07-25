@@ -242,32 +242,40 @@ HmlValue hml_val_bool(int val) {
     return v;
 }
 
-// Pre-allocated single-character ASCII strings (immortal, never freed)
-// Uses SSO - data stored inline in each HmlString struct
-static HmlString *ascii_strings[128] = {0};
-
-static void init_ascii_strings(void) {
-    static int initialized = 0;
-    if (initialized) return;
-    for (int i = 0; i < 128; i++) {
-        ascii_strings[i] = malloc(sizeof(HmlString));
-        if (!ascii_strings[i]) {
-            // Fatal error during initialization - cannot continue
-            fprintf(stderr, "Fatal: Failed to allocate ASCII string pool\n");
-            exit(1);
-        }
-        // Use SSO for ASCII cache - store data inline
-        ascii_strings[i]->inline_data[0] = (char)i;
-        ascii_strings[i]->inline_data[1] = '\0';
-        ascii_strings[i]->data = ascii_strings[i]->inline_data;
-        ascii_strings[i]->length = 1;
-        ascii_strings[i]->char_length = 1;
-        ascii_strings[i]->capacity = HML_SSO_THRESHOLD + 1;
-        ascii_strings[i]->is_sso = 1;
-        ascii_strings[i]->ref_count = HML_REFCOUNT_IMMORTAL;  // frozen: retain/release never touch it
-    }
-    initialized = 1;
+// Pre-allocated single-character ASCII strings (immortal, never freed).
+// Uses SSO - data stored inline in each HmlString struct.
+//
+// Statically initialized rather than built on first use. The previous lazy
+// init guarded a 128-entry fill with a plain `static int initialized`, which
+// is a data race: two threads could both observe 0 and both fill the table
+// (double-allocating every entry), and because `initialized = 1` was written
+// *after* the fill with no release barrier, a third thread could see the flag
+// set and read a not-yet-published entry — a garbage HmlString*, not merely a
+// sanitizer complaint. ThreadSanitizer flagged it at this function under the
+// concurrent_object_read stress test.
+//
+// Static storage removes the failure mode instead of synchronizing it: no
+// runtime init at all, so no race, no 128 startup mallocs, and no per-call
+// branch on what is a hot path (every single-char string goes through here).
+// Each entry's `data` points at its own `inline_data`; that is an address
+// constant, which is valid in a static initializer.
+#define HML_ASCII_ENT(c) {                        \
+    .data        = hml_ascii_pool[(c)].inline_data, \
+    .length      = 1,                             \
+    .char_length = 1,                             \
+    .capacity    = HML_SSO_THRESHOLD + 1,         \
+    .ref_count   = HML_REFCOUNT_IMMORTAL,         \
+    .is_sso      = 1,                             \
+    .inline_data = { (char)(c), '\0' }            \
 }
+#define HML_ASCII_4(n)  HML_ASCII_ENT(n), HML_ASCII_ENT((n)+1), \
+                        HML_ASCII_ENT((n)+2), HML_ASCII_ENT((n)+3)
+#define HML_ASCII_16(n) HML_ASCII_4(n), HML_ASCII_4((n)+4), \
+                        HML_ASCII_4((n)+8), HML_ASCII_4((n)+12)
+#define HML_ASCII_64(n) HML_ASCII_16(n), HML_ASCII_16((n)+16), \
+                        HML_ASCII_16((n)+32), HML_ASCII_16((n)+48)
+
+static HmlString hml_ascii_pool[128] = { HML_ASCII_64(0), HML_ASCII_64(64) };
 
 HmlValue hml_val_string(const char *str) {
     HmlValue v;
@@ -275,10 +283,9 @@ HmlValue hml_val_string(const char *str) {
 
     int len = (str != NULL) ? strlen(str) : 0;
 
-    // Fast path: single ASCII character - return pre-allocated string
+    // Fast path: single ASCII character - return the pre-allocated string.
     if (len == 1 && (unsigned char)str[0] < 128) {
-        init_ascii_strings();
-        v.as.as_string = ascii_strings[(unsigned char)str[0]];
+        v.as.as_string = &hml_ascii_pool[(unsigned char)str[0]];
         return v;
     }
 
