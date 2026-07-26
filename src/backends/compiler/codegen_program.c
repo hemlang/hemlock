@@ -191,8 +191,9 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
     // Type checking is done in a separate pass before codegen.
     (void)name;  // Suppress unused warning when optimization disabled
 
-    // Add parameters as locals and apply defaults
+    // Add parameters as locals, take ownership of them, and apply defaults
     funcgen_add_params(ctx, func);
+    funcgen_retain_params(ctx, func);
     funcgen_apply_defaults(ctx, func);
 
     // Body-locals start after params (for cleanup at function exit)
@@ -234,6 +235,7 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
 
     // Release body-local variables and shared env before returning
     codegen_emit_local_cleanup(ctx, NULL);
+    codegen_emit_param_cleanup(ctx);
 
     // Decrement call depth and return
     if (ctx->stack_check) {
@@ -286,8 +288,9 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
         ctx->num_locals = 0;
     }
 
-    // Add parameters as locals
+    // Add parameters as locals and take ownership of them
     funcgen_add_params(ctx, func);
+    funcgen_retain_params(ctx, func);
 
     // Extract captured variables from environment
     for (int i = 0; i < closure->num_captured; i++) {
@@ -377,15 +380,10 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     codegen_defer_execute_all(ctx);
     codegen_emit_defer_exit(ctx);
 
-    // Release body-local variables before returning
+    // Release body-local variables, owned params, and captures before returning
     codegen_emit_local_cleanup(ctx, NULL);
-
-    // Release captured variables before return
-    for (int i = 0; i < closure->num_captured; i++) {
-        char *safe_cap = codegen_sanitize_ident(closure->captured_vars[i]);
-        codegen_writeln(ctx, "hml_release(&%s);", safe_cap);
-        free(safe_cap);
-    }
+    codegen_emit_param_cleanup(ctx);
+    codegen_emit_capture_cleanup(ctx);
 
     // Decrement call depth and return
     if (ctx->stack_check) {
@@ -725,18 +723,21 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, MemBuffer
             FuncGenState saved_state;
             funcgen_save_state(ctx, &saved_state);
 
-            // Add parameters, apply defaults, set up shared env, and generate body
+            // Add parameters (taking ownership), apply defaults, set up
+            // shared env, and generate body
             funcgen_add_params(ctx, func);
+            funcgen_retain_params(ctx, func);
             funcgen_apply_defaults(ctx, func);
             ctx->locals_body_start = ctx->num_locals;
             codegen_emit_defer_prologue(ctx, func->as.function.body);
             funcgen_setup_shared_env(ctx, func, NULL);
             funcgen_generate_body(ctx, func);
 
-            // Execute defers, release locals, and return
+            // Execute defers, release locals and owned params, and return
             codegen_defer_execute_all(ctx);
             codegen_emit_defer_exit(ctx);
             codegen_emit_local_cleanup(ctx, NULL);
+            codegen_emit_param_cleanup(ctx);
             codegen_writeln(ctx, "return hml_val_null();");
 
             // Restore state

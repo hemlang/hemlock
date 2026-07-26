@@ -723,6 +723,14 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
         }
 
         case STMT_TRY: {
+            // Remember the stack-trace depth at try entry: unwinding to the
+            // catch block abandons every frame pushed inside the try body
+            // (including the <throw> marker frames pushed by STMT_THROW).
+            // Without truncating, each caught exception permanently leaked
+            // its frames, and enough caught throws made every later call
+            // fail with "Maximum call stack depth exceeded".
+            int try_entry_stack_depth = ctx->call_stack.count;
+
             // Execute try block
             eval_stmt(stmt->as.try_stmt.try_block, env, ctx);
 
@@ -730,6 +738,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             if (ctx->exception_state.is_throwing) {
                 // Exception thrown - execute catch block if present
                 if (stmt->as.try_stmt.catch_block != NULL) {
+                    // The exception is being caught: discard the stale
+                    // stack-trace frames from the unwound try body. (When
+                    // there is no catch block the exception keeps
+                    // propagating and the frames stay for the final trace.)
+                    ctx->call_stack.count = try_entry_stack_depth;
                     // Create new scope for catch parameter
                     Environment *catch_env = env_new(env);
                     // Use env_define (not env_set) to create a new variable that shadows outer scope

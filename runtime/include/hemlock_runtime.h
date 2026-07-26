@@ -341,6 +341,10 @@ HmlValue hml_string_concat_many(HmlValue arr);  // Concatenate array of strings
 // String index access (returns rune)
 HmlValue hml_string_index(HmlValue str, HmlValue index);
 void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue rune);
+// Variable-slot variant: copy-on-writes immortal (pooled) strings into the
+// slot before mutating, so `s[i] = c` on a 1-char literal cannot corrupt the
+// shared ASCII pool. Codegen uses this whenever the target is a plain variable.
+void hml_string_index_assign_var(HmlValue *slot, HmlValue index, HmlValue rune);
 
 // String to array conversion
 HmlValue hml_string_chars(HmlValue str);   // Returns array of runes
@@ -747,6 +751,9 @@ void hml_socket_listen(HmlValue socket_val, HmlValue backlog);
 HmlValue hml_socket_accept(HmlValue socket_val);
 void hml_socket_connect(HmlValue socket_val, HmlValue address, HmlValue port);
 void hml_socket_close(HmlValue socket_val);
+// Refcount-zero teardown (closes fd if open, frees the handle struct).
+// Called by hml_release; not for direct use from generated code.
+void hml_socket_destroy(HmlSocket *sock);
 
 // Socket I/O
 HmlValue hml_socket_send(HmlValue socket_val, HmlValue data);

@@ -30,6 +30,13 @@ void hml_exception_pop(void) {
     }
 }
 
+// CONSUMES exception_value: the caller's owned reference transfers into the
+// exception context (released later by hml_exception_pop). hml_throw never
+// returns, so a caller-side release after it is unreachable - retaining here
+// instead (as this used to) leaked one reference per throw, which bled
+// continuously in servers that signal errors with catchable exceptions.
+// Callers that throw a value they do NOT own must retain it first (see
+// hml_assert).
 void hml_throw(HmlValue exception_value) {
     if (!g_exception_stack || !g_exception_stack->is_active) {
         // Uncaught exception
@@ -40,7 +47,6 @@ void hml_throw(HmlValue exception_value) {
     }
 
     g_exception_stack->exception_value = exception_value;
-    hml_retain(&g_exception_stack->exception_value);
     longjmp(g_exception_stack->exception_buf, 1);
 }
 

@@ -181,6 +181,9 @@ void hml_socket_listen(HmlValue s, HmlValue b) { (void)s;(void)b; WASM_STUB_PANI
 HmlValue hml_socket_accept(HmlValue s) { (void)s; WASM_STUB_PANIC_RETURN("socket_accept"); }
 void hml_socket_connect(HmlValue s, HmlValue a, HmlValue p) { (void)s;(void)a;(void)p; WASM_STUB_PANIC("socket_connect"); }
 void hml_socket_close(HmlValue s) { (void)s; WASM_STUB_PANIC("socket_close"); }
+// Sockets can never be created on WASM (socket_create panics), but hml_release
+// dispatches here for HML_VAL_SOCKET values; free defensively without closing.
+void hml_socket_destroy(HmlSocket *sock) { if (sock) { free(sock->address); free(sock); } }
 HmlValue hml_socket_send(HmlValue s, HmlValue d) { (void)s;(void)d; WASM_STUB_PANIC_RETURN("socket_send"); }
 HmlValue hml_socket_recv(HmlValue s, HmlValue sz) { (void)s;(void)sz; WASM_STUB_PANIC_RETURN("socket_recv"); }
 HmlValue hml_socket_sendto(HmlValue s, HmlValue a, HmlValue p, HmlValue d) { (void)s;(void)a;(void)p;(void)d; WASM_STUB_PANIC_RETURN("socket_sendto"); }

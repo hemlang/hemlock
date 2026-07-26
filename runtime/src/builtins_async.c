@@ -307,18 +307,24 @@ HmlValue hml_spawn_with(HmlValue options, HmlValue fn, HmlValue *args, int num_a
     if (hml_object_has_field(options, "stack_size")) {
         HmlValue sv = hml_object_get_field(options, "stack_size");
         if (!hml_is_integer(sv)) {
+            hml_release(&sv);
             hml_runtime_error("spawn_with() stack_size must be an integer");
         }
         int64_t sz = hml_to_i64(sv);
+        hml_release(&sv);
         if (sz <= 0) {
             hml_runtime_error("spawn_with() stack_size must be positive");
         }
         stack_size = (size_t)sz;
     }
 
+    // nv stays live until task->name is strdup'd below (thread_name borrows
+    // its string data); released right after.
+    HmlValue nv = hml_val_null();
     if (hml_object_has_field(options, "name")) {
-        HmlValue nv = hml_object_get_field(options, "name");
+        nv = hml_object_get_field(options, "name");
         if (nv.type != HML_VAL_STRING) {
+            hml_release(&nv);
             hml_runtime_error("spawn_with() name must be a string");
         }
         thread_name = hml_to_string_ptr(nv);
@@ -351,8 +357,9 @@ HmlValue hml_spawn_with(HmlValue options, HmlValue fn, HmlValue *args, int num_a
         task->args = NULL;
     }
 
-    // Set debug name
+    // Set debug name (copies nv's data; the name option ref can go now)
     task->name = thread_name ? strdup(thread_name) : NULL;
+    hml_release(&nv);
 
     // Initialize sync structures
     task->sync = malloc(sizeof(HmlTaskSync));
@@ -575,7 +582,19 @@ void hml_channel_send(HmlValue channel, HmlValue value) {
     }
 
     if (ch->capacity == 0) {
-        // Unbuffered channel - rendezvous with receiver
+        // Unbuffered channel - rendezvous with receiver.
+        // If another sender already staged a value, wait for its rendezvous
+        // to complete first: overwriting ch->unbuffered_value here leaked the
+        // other sender's retained value and silently dropped its message
+        // (its send() still reported success).
+        while (ch->sender_waiting && !ch->closed) {
+            pthread_cond_wait(&ch->sync->not_full, &ch->sync->mutex);
+        }
+        if (ch->closed) {
+            pthread_mutex_unlock(&ch->sync->mutex);
+            hml_runtime_error("cannot send to closed channel");
+        }
+
         hml_retain(&value);
         ch->unbuffered_value = value;
         ch->sender_waiting = 1;
@@ -649,8 +668,10 @@ HmlValue hml_channel_recv(HmlValue channel) {
         ch->unbuffered_value = hml_val_null();
         ch->sender_waiting = 0;
 
-        // Signal sender that value was received
+        // Signal sender that value was received, and wake any sender
+        // queued waiting for the rendezvous slot to free up
         pthread_cond_signal(&ch->sync->rendezvous);
+        pthread_cond_signal(&ch->sync->not_full);
         pthread_mutex_unlock(&ch->sync->mutex);
 
         return value;
@@ -721,8 +742,10 @@ HmlValue hml_channel_recv_timeout(HmlValue channel, HmlValue timeout_val) {
         ch->unbuffered_value = hml_val_null();
         ch->sender_waiting = 0;
 
-        // Signal sender that value was received
+        // Signal sender that value was received, and wake any sender
+        // queued waiting for the rendezvous slot to free up
         pthread_cond_signal(&ch->sync->rendezvous);
+        pthread_cond_signal(&ch->sync->not_full);
         pthread_mutex_unlock(&ch->sync->mutex);
 
         return value;
@@ -782,7 +805,22 @@ HmlValue hml_channel_send_timeout(HmlValue channel, HmlValue value, HmlValue tim
     }
 
     if (ch->capacity == 0) {
-        // Unbuffered channel with timeout - rendezvous with receiver
+        // Unbuffered channel with timeout - rendezvous with receiver.
+        // Wait for any in-progress sender's rendezvous first (see
+        // hml_channel_send: staging over it leaks + drops that message).
+        while (ch->sender_waiting && !ch->closed) {
+            int rc = pthread_cond_timedwait(&ch->sync->not_full,
+                                            &ch->sync->mutex, &deadline);
+            if (rc == ETIMEDOUT) {
+                pthread_mutex_unlock(&ch->sync->mutex);
+                return hml_val_bool(0);  // Timeout - send failed
+            }
+        }
+        if (ch->closed) {
+            pthread_mutex_unlock(&ch->sync->mutex);
+            hml_runtime_error("cannot send to closed channel");
+        }
+
         hml_retain(&value);
         ch->unbuffered_value = value;
         ch->sender_waiting = 1;
@@ -915,14 +953,19 @@ HmlValue hml_select(HmlValue channels, HmlValue timeout) {
                 ch->unbuffered_value = hml_val_null();
                 ch->sender_waiting = 0;
 
-                // Signal sender that value was received
+                // Signal sender that value was received, and wake any sender
+                // queued waiting for the rendezvous slot to free up
                 pthread_cond_signal(&ch->sync->rendezvous);
+                pthread_cond_signal(&ch->sync->not_full);
                 pthread_mutex_unlock(&ch->sync->mutex);
 
                 // Create result object { channel, value }
                 HmlValue result = hml_val_object();
                 hml_object_set_field(result, "channel", arr->elements[i]);
                 hml_object_set_field(result, "value", msg);
+                // We took over the channel's reference to msg; set_field
+                // retained its own copy, so drop ours.
+                hml_release(&msg);
                 return result;
             }
 
@@ -941,6 +984,9 @@ HmlValue hml_select(HmlValue channels, HmlValue timeout) {
                 HmlValue result = hml_val_object();
                 hml_object_set_field(result, "channel", arr->elements[i]);
                 hml_object_set_field(result, "value", msg);
+                // We took over the buffer slot's reference to msg; set_field
+                // retained its own copy, so drop ours.
+                hml_release(&msg);
                 return result;
             }
 
@@ -1031,23 +1077,32 @@ HmlValue hml_poll(HmlValue fds, HmlValue timeout) {
         HmlValue item = arr->elements[i];
 
         if (item.type != HML_VAL_OBJECT) {
+            for (int j = 0; j < i; j++) hml_release(&original_fds[j]);
             free(pfds);
             free(original_fds);
             hml_runtime_error("poll() array elements must be objects with 'fd' and 'events'");
         }
 
-        // Get fd field
+        // Get fd field. get_field returns an owned (retained) reference;
+        // original_fds[i] takes over that ownership - no extra retain
+        // (a second retain here leaked one fd reference per entry per call).
         HmlValue fd_val = hml_object_get_field(item, "fd");
         HmlValue events_val = hml_object_get_field(item, "events");
 
         int fd = hml_get_fd_from_value(fd_val);
         if (fd < 0) {
+            hml_release(&fd_val);
+            hml_release(&events_val);
+            for (int j = 0; j < i; j++) hml_release(&original_fds[j]);
             free(pfds);
             free(original_fds);
             hml_runtime_error("poll() fd must be a socket or file");
         }
 
         if (!hml_is_integer(events_val)) {
+            hml_release(&fd_val);
+            hml_release(&events_val);
+            for (int j = 0; j < i; j++) hml_release(&original_fds[j]);
             free(pfds);
             free(original_fds);
             hml_runtime_error("poll() events must be an integer");
@@ -1056,8 +1111,8 @@ HmlValue hml_poll(HmlValue fds, HmlValue timeout) {
         pfds[i].fd = fd;
         pfds[i].events = (short)hml_to_i32(events_val);
         pfds[i].revents = 0;
+        hml_release(&events_val);
         original_fds[i] = fd_val;
-        hml_retain(&original_fds[i]);
     }
 
     // Call poll

@@ -246,7 +246,7 @@ static void value_break_cycles_internal(Value val, VisitedSet *visited) {
                 Function *fn = val.as.as_function;
                 if (fn->closure_env) {
                     env_release(fn->closure_env);
-                    fn->closure_env = NULL;  // Prevent double-release in value_free
+                    fn->closure_env = NULL;  // Prevent double-release when the function is released
                 }
             }
             break;

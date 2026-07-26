@@ -45,6 +45,7 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->local_vars = NULL;
     ctx->local_needs_cleanup = NULL;
     ctx->local_annots = NULL;
+    ctx->local_is_raw = NULL;
     ctx->main_annot_names = NULL;
     ctx->main_annot_types = NULL;
     ctx->num_main_annots = 0;
@@ -60,6 +61,7 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->func_params = NULL;
     ctx->num_func_params = 0;
     ctx->func_param_is_ref = NULL;
+    ctx->func_rest_param = NULL;
     ctx->defer_stack = NULL;
     ctx->defer_scope_depth = 0;
     ctx->current_closure = NULL;
@@ -146,6 +148,7 @@ void codegen_free(CodegenContext *ctx) {
         }
         free(ctx->local_vars);
         free(ctx->local_needs_cleanup);
+        free(ctx->local_is_raw);
         free(ctx->local_annots);
         for (int i = 0; i < ctx->num_main_annots; i++) free(ctx->main_annot_names[i]);
         free(ctx->main_annot_names);
@@ -425,50 +428,63 @@ void codegen_add_local(CodegenContext *ctx, const char *name) {
         char **new_vars = realloc(ctx->local_vars, (size_t)new_cap * sizeof(char*));
         int *new_cleanup = realloc(ctx->local_needs_cleanup, (size_t)new_cap * sizeof(int));
         const char **new_annots = realloc(ctx->local_annots, (size_t)new_cap * sizeof(const char*));
-        if (!new_vars || !new_cleanup || !new_annots) {
+        int *new_raw = realloc(ctx->local_is_raw, (size_t)new_cap * sizeof(int));
+        if (!new_vars || !new_cleanup || !new_annots || !new_raw) {
             fprintf(stderr, "error: Failed to expand local variable storage\n");
             exit(1);
         }
         ctx->local_vars = new_vars;
         ctx->local_needs_cleanup = new_cleanup;
         ctx->local_annots = new_annots;
+        ctx->local_is_raw = new_raw;
         ctx->local_capacity = new_cap;
     }
     // 1 = boxed HmlValue (needs hml_release), 0 = unboxed primitive (int32_t etc.)
     // Scope management is handled by restoring num_locals at block exit.
     ctx->local_needs_cleanup[ctx->num_locals] = 1;
     ctx->local_annots[ctx->num_locals] = NULL;
+    ctx->local_is_raw[ctx->num_locals] = 0;
     ctx->local_vars[ctx->num_locals++] = strdup(name);
+}
+
+// Register a raw C temp name (e.g. "_tmp7") as a cleanup-tracked local so
+// return/break/continue cleanup releases it. Emitted verbatim - the sanitizer
+// would otherwise mangle the leading "_tmp" prefix (reserved for temps).
+void codegen_add_local_raw(CodegenContext *ctx, const char *c_name) {
+    codegen_add_local(ctx, c_name);
+    ctx->local_is_raw[ctx->num_locals - 1] = 1;
 }
 
 int codegen_is_local(CodegenContext *ctx, const char *name) {
     for (int i = 0; i < ctx->num_locals; i++) {
-        if (strcmp(ctx->local_vars[i], name) == 0) {
+        if (ctx->local_vars[i] && strcmp(ctx->local_vars[i], name) == 0) {
             return 1;
         }
     }
     return 0;
 }
 
-// Remove a local variable from scope (used for catch params that go out of scope)
-// Search from the end so that the most recently added duplicate is removed first,
-// preserving earlier entries (e.g., function parameters) when inlined functions
-// add and then remove parameters with the same name.
+// Remove a local variable from scope (used for catch params and switch temps
+// that go out of scope, and inlined function params).
+// Search from the end so that the most recently added duplicate is removed
+// first, preserving earlier entries (e.g., function parameters) when inlined
+// functions add and then remove parameters with the same name.
+//
+// Removal punches a NULL hole in place instead of shifting and decrementing
+// num_locals. The old shift-and-decrement was unsafe: contexts that reset
+// num_locals to 0 (module function/closure bodies) and later have it restored
+// by funcgen_restore_state would "resurrect" the array region above the
+// shrunk count - including the slot the shift had NULLed - leaving a NULL
+// entry inside the live range that crashed codegen_is_local's strcmp.
+// All iterators over local_vars skip NULL entries.
 void codegen_remove_local(CodegenContext *ctx, const char *name) {
     for (int i = ctx->num_locals - 1; i >= 0; i--) {
-        if (strcmp(ctx->local_vars[i], name) == 0) {
+        if (ctx->local_vars[i] && strcmp(ctx->local_vars[i], name) == 0) {
             free(ctx->local_vars[i]);
-            // Shift remaining elements down
-            for (int j = i; j < ctx->num_locals - 1; j++) {
-                ctx->local_vars[j] = ctx->local_vars[j + 1];
-                ctx->local_needs_cleanup[j] = ctx->local_needs_cleanup[j + 1];
-                ctx->local_annots[j] = ctx->local_annots[j + 1];
-            }
-            // Clear the last slot to prevent double-free when num_locals is restored
-            ctx->local_vars[ctx->num_locals - 1] = NULL;
-            ctx->local_needs_cleanup[ctx->num_locals - 1] = 0;
-            ctx->local_annots[ctx->num_locals - 1] = NULL;
-            ctx->num_locals--;
+            ctx->local_vars[i] = NULL;
+            ctx->local_needs_cleanup[i] = 0;
+            ctx->local_annots[i] = NULL;
+            ctx->local_is_raw[i] = 0;
             return;
         }
     }
@@ -567,7 +583,8 @@ void codegen_emit_local_cleanup(CodegenContext *ctx, const char *skip_var) {
         if (!ctx->local_needs_cleanup[i]) continue;
         if (!ctx->local_vars[i]) continue;
         if (skip_var && strcmp(ctx->local_vars[i], skip_var) == 0) continue;
-        char *safe = codegen_sanitize_ident(ctx->local_vars[i]);
+        char *safe = ctx->local_is_raw[i] ? strdup(ctx->local_vars[i])
+                                          : codegen_sanitize_ident(ctx->local_vars[i]);
         codegen_writeln(ctx, "hml_release(&%s);", safe);
         free(safe);
     }
@@ -920,7 +937,8 @@ void codegen_release_locals_range(CodegenContext *ctx, int start, int end) {
     for (int i = start; i < end; i++) {
         if (!ctx->local_needs_cleanup[i]) continue;
         if (!ctx->local_vars[i]) continue;
-        char *safe = codegen_sanitize_ident(ctx->local_vars[i]);
+        char *safe = ctx->local_is_raw[i] ? strdup(ctx->local_vars[i])
+                                          : codegen_sanitize_ident(ctx->local_vars[i]);
         codegen_writeln(ctx, "hml_release(&%s);", safe);
         free(safe);
     }
@@ -1740,6 +1758,7 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     state->func_params = ctx->func_params;
     state->num_func_params = ctx->num_func_params;
     state->func_param_is_ref = ctx->func_param_is_ref;
+    state->func_rest_param = ctx->func_rest_param;
 
     // Initialize for new function
     ctx->defer_stack = NULL;
@@ -1760,6 +1779,7 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->func_params = NULL;
     ctx->num_func_params = 0;
     ctx->func_param_is_ref = NULL;
+    ctx->func_rest_param = NULL;
 }
 
 void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
@@ -1799,6 +1819,7 @@ void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->func_params = state->func_params;
     ctx->num_func_params = state->num_func_params;
     ctx->func_param_is_ref = state->func_param_is_ref;
+    ctx->func_rest_param = state->func_rest_param;
     shared_env_clear(ctx);
 }
 
@@ -1808,6 +1829,7 @@ void funcgen_add_params(CodegenContext *ctx, Expr *func) {
     ctx->func_params = func->as.function.param_names;
     ctx->num_func_params = func->as.function.num_params;
     ctx->func_param_is_ref = func->as.function.param_is_ref;
+    ctx->func_rest_param = func->as.function.rest_param;
 
     for (int i = 0; i < func->as.function.num_params; i++) {
         codegen_add_local(ctx, func->as.function.param_names[i]);
@@ -1836,6 +1858,67 @@ int codegen_is_ref_param(CodegenContext *ctx, const char *name) {
         }
     }
     return 0;
+}
+
+// Promote parameters to owned references (see codegen_internal.h).
+// Emitted before funcgen_apply_defaults: an applied default overwrites an
+// incoming null (nothing to release) and is already owned, so it must not
+// be retained again.
+void funcgen_retain_params(CodegenContext *ctx, Expr *func) {
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        int is_ref = func->as.function.param_is_ref && func->as.function.param_is_ref[i];
+        if (is_ref) continue;  // ref params alias the caller's variable
+        char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
+        codegen_writeln(ctx, "hml_retain_if_needed(&%s);", safe_param);
+        free(safe_param);
+    }
+    if (func->as.function.rest_param) {
+        char *safe_rest = codegen_sanitize_ident(func->as.function.rest_param);
+        codegen_writeln(ctx, "hml_retain_if_needed(&%s);", safe_rest);
+        free(safe_rest);
+    }
+}
+
+// Release owned parameters on function exit - counterpart of
+// funcgen_retain_params. Uses ctx->func_params so it works from any
+// statement context (return sites) without the function Expr at hand.
+void codegen_emit_param_cleanup(CodegenContext *ctx) {
+    for (int i = 0; i < ctx->num_func_params; i++) {
+        if (ctx->func_param_is_ref && ctx->func_param_is_ref[i]) continue;
+        char *safe_param = codegen_sanitize_ident(ctx->func_params[i]);
+        codegen_writeln(ctx, "hml_release_if_needed(&%s);", safe_param);
+        free(safe_param);
+    }
+    if (ctx->func_rest_param) {
+        char *safe_rest = codegen_sanitize_ident(ctx->func_rest_param);
+        codegen_writeln(ctx, "hml_release_if_needed(&%s);", safe_rest);
+        free(safe_rest);
+    }
+}
+
+// Release the current closure's captured-variable C locals (each holds an
+// owned reference: extraction either hml_retain_if_needed's a global/module
+// value or hml_closure_env_get's a retained copy). Skips captures that share
+// a name with a parameter - extraction skips those, so no C local exists
+// beyond the parameter itself (released by codegen_emit_param_cleanup).
+// No-op outside closure bodies.
+void codegen_emit_capture_cleanup(CodegenContext *ctx) {
+    if (!ctx->current_closure) return;
+    for (int i = 0; i < ctx->current_closure->num_captured; i++) {
+        const char *var_name = ctx->current_closure->captured_vars[i];
+        int is_param = 0;
+        for (int j = 0; j < ctx->num_func_params; j++) {
+            if (strcmp(var_name, ctx->func_params[j]) == 0) { is_param = 1; break; }
+        }
+        if (!is_param && ctx->func_rest_param &&
+            strcmp(var_name, ctx->func_rest_param) == 0) {
+            is_param = 1;
+        }
+        if (is_param) continue;
+        char *safe_cap = codegen_sanitize_ident(var_name);
+        codegen_writeln(ctx, "hml_release(&%s);", safe_cap);
+        free(safe_cap);
+    }
 }
 
 void funcgen_apply_defaults(CodegenContext *ctx, Expr *func) {

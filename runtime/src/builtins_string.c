@@ -683,6 +683,17 @@ void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue val) {
         hml_runtime_error("String index assignment requires string");
     }
 
+    // Refuse to mutate immortal (pooled) strings: every 1-char ASCII literal
+    // in the process shares one static pool entry, so writing through it
+    // would silently rewrite every other occurrence of that literal (e.g.
+    // `let s = "x"; s[0] = 'y';` used to make every later "x" print as "y").
+    // Assignments whose target is a plain variable never reach this check -
+    // codegen routes them through hml_string_index_assign_var, which
+    // copy-on-writes the pooled entry into a private mutable string first.
+    if (atomic_load(&str.as.as_string->ref_count) >= HML_REFCOUNT_IMMORTAL_MIN) {
+        hml_runtime_error("Cannot mutate a shared string literal");
+    }
+
     // Accept both rune and integer types (convert integer to rune)
     uint32_t rune_val = 0;
     if (val.type == HML_VAL_RUNE) {
@@ -765,6 +776,28 @@ void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue val) {
             s->char_length = -1;  // Invalidate cached character count
         }
     }
+}
+
+// Index-assign through a variable slot. When the slot holds an immortal
+// (pooled) string, copy-on-write it into a private mutable string first and
+// rebind the slot, so the mutation is visible through the variable without
+// corrupting the shared pool entry. Non-pooled strings mutate in place,
+// preserving alias semantics (`let b = a; a[0] = 'H';` changes both).
+void hml_string_index_assign_var(HmlValue *slot, HmlValue index, HmlValue val) {
+    if (slot && slot->type == HML_VAL_STRING && slot->as.as_string &&
+        atomic_load(&slot->as.as_string->ref_count) >= HML_REFCOUNT_IMMORTAL_MIN) {
+        HmlString *s = slot->as.as_string;
+        char *copy = malloc((size_t)s->length + 1);
+        if (!copy) {
+            hml_runtime_error("Out of memory copying string for mutation");
+        }
+        memcpy(copy, s->data, (size_t)s->length);
+        copy[s->length] = '\0';
+        // hml_val_string_owned never returns a pooled entry. The immortal
+        // source needs (and must have) no release.
+        *slot = hml_val_string_owned(copy, s->length, s->length + 1);
+    }
+    hml_string_index_assign(*slot, index, val);
 }
 
 // UTF-8 helper wrappers for legacy code

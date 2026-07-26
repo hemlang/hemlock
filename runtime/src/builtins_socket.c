@@ -73,8 +73,23 @@ HmlValue hml_socket_create(HmlValue domain, HmlValue sock_type, HmlValue protoco
     sock->closed = 0;
     sock->listening = 0;
     sock->nonblocking = 0;
+    atomic_store(&sock->ref_count, 1);  // Caller owns the first reference
 
     return hml_val_socket(sock);
+}
+
+// Final teardown when a socket's refcount reaches zero (called from
+// hml_release in value.c). Mirrors the interpreter's socket_free():
+// dropping the last reference to an open socket also closes the fd, so
+// accepted-connection handles no longer leak the struct, address string,
+// and descriptor in long-running compiled servers.
+void hml_socket_destroy(HmlSocket *sock) {
+    if (!sock) return;
+    if (!sock->closed && sock->fd >= 0) {
+        hml_closesocket(sock->fd);
+    }
+    free(sock->address);
+    free(sock);
 }
 
 // socket.bind(address, port)
@@ -200,6 +215,8 @@ HmlValue hml_socket_accept(HmlValue socket_val) {
     client_sock->type = sock->type;
     client_sock->closed = 0;
     client_sock->listening = 0;
+    client_sock->nonblocking = 0;
+    atomic_store(&client_sock->ref_count, 1);  // Caller owns the first reference
 
     if (sock->domain == AF_UNIX) {
         struct sockaddr_un *addr_un = (struct sockaddr_un *)&client_addr;

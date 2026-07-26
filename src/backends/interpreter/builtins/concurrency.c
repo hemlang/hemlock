@@ -630,8 +630,10 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
                 *(ch->unbuffered_value) = val_null();
                 ch->sender_waiting = 0;
 
-                // Signal sender that value was received
+                // Signal sender that value was received, and wake any sender
+                // queued waiting for the rendezvous slot to free up
                 pthread_cond_signal((pthread_cond_t*)ch->rendezvous);
+                pthread_cond_signal((pthread_cond_t*)ch->not_full);
                 pthread_mutex_unlock(mutex);
 
                 // Create result object { channel, value }
