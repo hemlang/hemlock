@@ -1,0 +1,37 @@
+// Parity: the buffer safety invariants both backends must enforce
+// identically. See docs/design/memory-safety-model.md.
+
+fn view_scope(b: buffer) {
+    let s = b.slice(0, 4);
+    print("view " + s.length);
+    // free(root) refused while the view lives (temporal safety, F1)
+    try { free(b); print("no error"); } catch (e) { print("refused free with live view"); }
+    // views themselves can never be freed
+    try { free(s); print("no error"); } catch (e) { print("refused view free"); }
+}
+
+let b = buffer(8);
+print("zeroed " + b[0]);
+view_scope(b);
+free(b);
+print("freed after view scope");
+
+try { b[0] = 1; print("no error"); } catch (e) { print("caught write after free"); }
+try { print(b[0]); } catch (e) { print("caught read after free"); }
+try { free(b); print("no error"); } catch (e) { print("caught double free"); }
+print("length " + b.length);
+
+try { let z = buffer(0); print("no error"); } catch (e) { print("caught zero size"); }
+
+let big = buffer(16);
+let i = 0;
+while (i < 16) { big[i] = i; i = i + 1; }
+// Overlapping views of one root: copies must have memmove semantics (F2)
+memcpy(big.slice(0, 12), big.slice(4, 16), 8);
+print("overlap memcpy " + big[0] + " " + big[7]);
+i = 0;
+while (i < 16) { big[i] = i; i = i + 1; }
+big.write_bytes(4, big.slice(0, 12), 8);
+print("overlap write_bytes " + big[4] + " " + big[11]);
+
+print("done");

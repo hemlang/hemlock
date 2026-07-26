@@ -61,6 +61,7 @@ Welcome to the Hemlock programming language documentation!
 
 ### Design & Philosophy
 - [Design Philosophy](design/philosophy.md) - Core principles and goals
+- [Memory-Safety Model](design/memory-safety-model.md) - The buffer invariants, the safe-fragment theorem, and the proof obligations at every `ptr` crossing
 - [Implementation Details](design/implementation.md) - How Hemlock works internally
 - [Signature Syntax](design/signature-syntax.md) - Type system extensions and design
 

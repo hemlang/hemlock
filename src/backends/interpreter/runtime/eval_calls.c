@@ -212,7 +212,9 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         view->ref_count = 1;
                         atomic_store(&view->freed, 0);
                         view->parent = root;
+                        atomic_store(&view->view_count, 0);
                         buffer_retain(root);  // Keep root alive
+                        atomic_fetch_add(&root->view_count, 1);  // Block free() while view lives
 
                         Value result = {0};
                         result.type = VAL_BUFFER;
@@ -255,7 +257,10 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                 VALUE_RELEASE(method_self);
                                 return val_null();
                             }
-                            memcpy((uint8_t *)buf->data + off, src->data, len);
+                            // memmove: dest and src may be overlapping views of one root
+                            if (len > 0) {
+                                memmove((uint8_t *)buf->data + off, src->data, len);
+                            }
                             VALUE_RELEASE(off_val); VALUE_RELEASE(src_val); VALUE_RELEASE(len_val);
                             VALUE_RELEASE(method_self);
                             return val_null();
@@ -396,7 +401,10 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             new_buf->ref_count = 1;
                             atomic_store(&new_buf->freed, 0);
                             new_buf->parent = NULL;
-                            memcpy(new_buf->data, (uint8_t *)buf->data + off, len);
+                            atomic_store(&new_buf->view_count, 0);
+                            if (len > 0) {
+                                memcpy(new_buf->data, (uint8_t *)buf->data + off, len);
+                            }
                             Value result = {0};
                             result.type = VAL_BUFFER;
                             result.as.as_buffer = new_buf;

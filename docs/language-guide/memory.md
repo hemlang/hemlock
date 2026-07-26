@@ -90,9 +90,9 @@ fn safe_example() {
 // ADVANCED: Raw pointer (only when you need it)
 fn raw_example() {
     let data = alloc(10);
-    *data = 65;             // OK
-    *(data + 5) = 66;       // OK
-    *(data + 100) = 67;     // DANGER - No bounds check, corrupts memory!
+    data[0] = 65;           // OK
+    data[5] = 66;           // OK
+    data[100] = 67;         // DANGER - No bounds check, corrupts memory!
     free(data);             // Clean up
 }
 ```
@@ -244,7 +244,7 @@ free(p);  // You must remember to free
 let p = alloc(10);
 let q = p + 100;  // Way past allocation - allowed but dangerous
 free(p);
-let x = *p;       // Dangling pointer - undefined behavior
+let x = p[0];     // Dangling pointer - undefined behavior
 free(p);          // Double-free - will crash
 ```
 
@@ -441,9 +441,9 @@ if (p != null) {
 **Allowed but undefined behavior:**
 ```hemlock
 let p = alloc(100);
-*p = 42;      // OK
+p[0] = 42;      // OK
 free(p);
-let x = *p;   // UNDEFINED: Reading freed memory
+let x = p[0];   // UNDEFINED: Reading freed memory
 ```
 
 **Prevention:** Don't access memory after freeing.
@@ -477,7 +477,7 @@ fn safe_function() {
 ```hemlock
 let p = alloc(10);
 let q = p + 100;  // Way past allocation boundary
-*q = 42;          // UNDEFINED: Out of bounds write
+q[0] = 42;        // UNDEFINED: Out of bounds write
 free(p);
 ```
 
@@ -589,5 +589,6 @@ Current limitations to be aware of:
 ## See Also
 
 - **Design Philosophy**: See CLAUDE.md section "Memory Management"
+- **Memory-Safety Model**: See [Memory-Safety Model](../design/memory-safety-model.md) for the formal invariants behind `buffer`, the guarantees of buffer-only code, and the exact obligations at every `ptr` crossing
 - **Type System**: See [Types](types.md) for `ptr` and `buffer` type details
 - **FFI**: Raw pointers are essential for Foreign Function Interface

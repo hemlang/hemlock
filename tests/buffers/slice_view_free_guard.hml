@@ -1,0 +1,54 @@
+// expect: pass
+// Regression test: free(root) while a slice view is alive must be refused
+// with a catchable error. The view's data points into the root's allocation
+// and keeps its own nonzero length, so freeing the root would leave the view
+// dangling — its bounds check alone cannot save it. Previously the guard was
+// a refcount-threshold heuristic that did not fire here, and s[0] after
+// free(b) read freed memory. See docs/design/memory-safety-model.md (F1).
+
+let b = buffer(8);
+b[0] = 65;
+let s = b.slice(0, 4);
+
+try {
+    free(b);
+    print("no error");
+} catch (e) {
+    print("refused: " + e.contains("live slice view"));
+}
+
+// Root and view remain fully usable after the refused free
+print(b[0]);
+print(s[0]);
+print(s.length);
+
+// A view of a view also counts against the root
+let s2 = s.slice(0, 2);
+try {
+    free(b);
+    print("no error");
+} catch (e) {
+    print("refused with nested view");
+}
+
+// Releasing every view makes the root freeable again
+s = null;
+s2 = null;
+free(b);
+print("freed after views released");
+
+// ... and the usual use-after-free / double-free guards still apply
+try {
+    print(b[0]);
+    print("no error");
+} catch (e) {
+    print("caught read after free");
+}
+try {
+    free(b);
+    print("no error");
+} catch (e) {
+    print("caught double free");
+}
+
+print("done");

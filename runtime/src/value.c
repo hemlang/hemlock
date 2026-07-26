@@ -378,11 +378,16 @@ HmlValue hml_val_ptr(void *ptr) {
 }
 
 HmlValue hml_val_buffer(int size) {
+    if (size < 0) {
+        hml_runtime_error("buffer() size must be positive");
+    }
     HmlBuffer *b = calloc(1, sizeof(HmlBuffer));
     if (!b) {
         return hml_val_null();
     }
-    b->data = calloc(size, 1);  // Zero-initialized
+    // size == 0 (internal callers: empty reads, deep copies of freed
+    // buffers) still gets a valid 1-byte allocation so data is never NULL.
+    b->data = calloc(size > 0 ? size : 1, 1);  // Zero-initialized
     if (!b->data) {
         free(b);
         return hml_val_null();
@@ -709,7 +714,9 @@ static void string_free(HmlString *str) {
 static void buffer_free(HmlBuffer *buf) {
     if (buf) {
         if (buf->parent) {
-            // Zero-copy view: release parent instead of freeing data
+            // Zero-copy view: the root becomes freeable again once its last
+            // view is gone, then release the parent instead of freeing data
+            atomic_fetch_sub(&buf->parent->view_count, 1);
             if (atomic_fetch_sub(&buf->parent->ref_count, 1) <= 1) {
                 buffer_free(buf->parent);
             }
