@@ -954,7 +954,10 @@ void hml_assert(HmlValue condition, HmlValue message) {
         // Throw catchable exception (match interpreter behavior)
         HmlValue exception_msg;
         if (message.type == HML_VAL_STRING && message.as.as_string) {
+            // hml_throw consumes its argument, but `message` is a borrowed
+            // builtin parameter - take our own reference to hand over.
             exception_msg = message;
+            hml_retain(&exception_msg);
         } else {
             exception_msg = hml_val_string("assertion failed");
         }

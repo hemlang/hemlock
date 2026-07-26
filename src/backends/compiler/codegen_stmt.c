@@ -789,7 +789,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 for (int i = for_locals_start; i < ctx->num_locals; i++) {
                     if (!ctx->local_needs_cleanup[i]) continue;
                     if (!ctx->local_vars[i]) continue;
-                    char *safe = codegen_sanitize_ident(ctx->local_vars[i]);
+                    char *safe = ctx->local_is_raw[i] ? strdup(ctx->local_vars[i])
+                                                      : codegen_sanitize_ident(ctx->local_vars[i]);
                     codegen_writeln(ctx, "hml_release(&%s);", safe);
                     free(safe);
                 }
@@ -1046,7 +1047,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 for (int i = block_locals_start; i < ctx->num_locals; i++) {
                     if (!ctx->local_needs_cleanup[i]) continue;
                     if (!ctx->local_vars[i]) continue;
-                    char *safe = codegen_sanitize_ident(ctx->local_vars[i]);
+                    char *safe = ctx->local_is_raw[i] ? strdup(ctx->local_vars[i])
+                                                      : codegen_sanitize_ident(ctx->local_vars[i]);
                     codegen_writeln(ctx, "hml_release(&%s);", safe);
                     free(safe);
                 }
@@ -1109,8 +1111,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_defer_execute_all(ctx);
                 // Pop this function's defer unwind context and run its defers
                 codegen_emit_defer_exit(ctx);
-                // Release body-local variables
+                // Release body-local variables, owned params, and captures
                 codegen_emit_local_cleanup(ctx, NULL);
+                codegen_emit_param_cleanup(ctx);
+                codegen_emit_capture_cleanup(ctx);
                 if (ctx->stack_check) {
                     codegen_writeln(ctx, "HML_CALL_EXIT();");
                 }
@@ -1217,8 +1221,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_emit_return_try_pops(ctx);
                     // Pop this function's defer unwind context and run its defers
                     codegen_emit_defer_exit(ctx);
-                    // Release body-local variables
+                    // Release body-local variables, owned params, and captures
                     codegen_emit_local_cleanup(ctx, NULL);
+                    codegen_emit_param_cleanup(ctx);
+                    codegen_emit_capture_cleanup(ctx);
                     if (ctx->stack_check) {
                         codegen_writeln(ctx, "HML_CALL_EXIT();");
                     }
@@ -1230,8 +1236,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_emit_return_try_pops(ctx);
                     // Pop this function's defer unwind context and run its defers
                     codegen_emit_defer_exit(ctx);
-                    // Release body-local variables
+                    // Release body-local variables, owned params, and captures
                     codegen_emit_local_cleanup(ctx, NULL);
+                    codegen_emit_param_cleanup(ctx);
+                    codegen_emit_capture_cleanup(ctx);
                     if (ctx->stack_check) {
                         codegen_writeln(ctx, "HML_CALL_EXIT();");
                     }
@@ -1344,6 +1352,16 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_writeln(ctx, "HmlValue _saved_exception = hml_val_null();");
             }
 
+            // Snapshot `self` so exception unwinding can restore it: a throw
+            // inside a method call longjmps past hml_call_method's epilogue
+            // (which normally restores the previous hml_self), so without
+            // this a caught exception left `self` pointing at the innermost
+            // throwing receiver for the rest of the enclosing method.
+            char *saved_self_var = codegen_temp(ctx);
+            if (has_catch || has_finally) {
+                codegen_writeln(ctx, "HmlValue %s = hml_self;", saved_self_var);
+            }
+
             codegen_writeln(ctx, "if (setjmp(_ex_ctx->exception_buf) == 0) {");
             codegen_indent_inc(ctx);
             // Track that we are now emitting code inside a try-body whose
@@ -1364,6 +1382,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             if (has_catch) {
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
+                // Unwinding skipped the method-call epilogues; restore `self`.
+                codegen_writeln(ctx, "hml_self = %s;", saved_self_var);
                 // Save exception value BEFORE popping the context (pop frees it).
                 // Then pop BEFORE executing catch body so that a rethrow (throw e)
                 // inside catch propagates to the outer handler instead of
@@ -1389,10 +1409,17 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 if (stmt->as.try_stmt.catch_param) {
                     char *safe_catch_param = codegen_sanitize_ident(stmt->as.try_stmt.catch_param);
                     codegen_add_shadow(ctx, stmt->as.try_stmt.catch_param);
+                    // Also register as a cleanup-tracked local: it holds an
+                    // owned reference, so a `return` inside the catch block
+                    // must release it (codegen_emit_local_cleanup covers
+                    // registered locals only). Removed again below so the
+                    // function-exit cleanup doesn't release it twice.
+                    codegen_add_local(ctx, stmt->as.try_stmt.catch_param);
                     codegen_writeln(ctx, "HmlValue %s = %s;", safe_catch_param, saved_ex_var);
                     codegen_stmt(ctx, stmt->as.try_stmt.catch_block);
                     codegen_writeln(ctx, "hml_release(&%s);", safe_catch_param);
                     // Remove catch param from shadow vars so outer scope variable is used again
+                    codegen_remove_local(ctx, stmt->as.try_stmt.catch_param);
                     codegen_remove_shadow(ctx, stmt->as.try_stmt.catch_param);
                     free(safe_catch_param);
                 } else {
@@ -1408,6 +1435,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_indent_dec(ctx);
                     codegen_writeln(ctx, "} else {");
                     codegen_indent_inc(ctx);
+                    // Unwinding skipped the method-call epilogues; restore `self`.
+                    codegen_writeln(ctx, "hml_self = %s;", saved_self_var);
                     // Catch body threw: save the exception for re-throw
                     // after the finally block runs.
                     codegen_writeln(ctx, "_had_exception = 1;");
@@ -1422,6 +1451,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 // try-finally without catch: save exception for re-throw
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
+                // Unwinding skipped the method-call epilogues; restore `self`.
+                codegen_writeln(ctx, "hml_self = %s;", saved_self_var);
                 codegen_writeln(ctx, "_had_exception = 1;");
                 codegen_writeln(ctx, "_saved_exception = hml_exception_get_value();");
                 codegen_indent_dec(ctx);
@@ -1468,8 +1499,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     codegen_emit_return_try_pops(ctx);
                     // Pop this function's defer unwind context and run its defers
                     codegen_emit_defer_exit(ctx);
-                    // Release body-local variables before returning
+                    // Release body-local variables, owned params, and captures
                     codegen_emit_local_cleanup(ctx, NULL);
+                    codegen_emit_param_cleanup(ctx);
+                    codegen_emit_capture_cleanup(ctx);
                     if (ctx->stack_check) {
                         codegen_writeln(ctx, "HML_CALL_EXIT();");
                     }
@@ -1483,6 +1516,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
             }
 
+            free(saved_self_var);
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
             break;
@@ -1560,6 +1594,22 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
             }
 
+            // Register the subject and case-value temps as cleanup-tracked
+            // locals while the case bodies are generated: a return, continue,
+            // or labeled break inside a case jumps past the release block
+            // after end_label, and the jump-site cleanup only releases
+            // registered locals. Without this every such jump leaked the
+            // switch subject and case temporaries (e.g. a heap-string
+            // subject in a `while { switch(s) { default: continue; } }`
+            // loop leaked three blocks per iteration). Removed again after
+            // the end-label releases so nothing releases them twice.
+            codegen_add_local_raw(ctx, expr_val);
+            for (int i = 0; i < num_cases; i++) {
+                if (case_vals[i]) {
+                    codegen_add_local_raw(ctx, case_vals[i]);
+                }
+            }
+
             // Generate case matching logic - jump to first matching case
             for (int i = 0; i < num_cases; i++) {
                 if (case_vals[i] == NULL) continue;  // Skip default in matching
@@ -1584,16 +1634,18 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             // End label for cleanup
             codegen_writeln(ctx, "%s:;", end_label);
 
-            // Release case values
-            for (int i = 0; i < num_cases; i++) {
+            // Release case values (and unregister the temps - reverse order)
+            for (int i = num_cases - 1; i >= 0; i--) {
                 if (case_vals[i]) {
                     codegen_writeln(ctx, "hml_release(&%s);", case_vals[i]);
+                    codegen_remove_local(ctx, case_vals[i]);
                     free(case_vals[i]);
                 }
             }
             free(case_vals);
 
             codegen_writeln(ctx, "hml_release(&%s);", expr_val);
+            codegen_remove_local(ctx, expr_val);
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
 

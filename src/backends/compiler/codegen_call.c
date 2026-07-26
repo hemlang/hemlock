@@ -247,10 +247,16 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         }
 
         // Handle free builtin
-        // Note: Don't call hml_release after hml_free - the memory is already freed
+        // The temp holds an owned reference from evaluating the argument, and
+        // hml_free is engineered so a subsequent hml_release is safe (freed
+        // flag set / internal data nulled; the release just drops the
+        // reference and frees the wrapper struct at zero). Skipping this
+        // release leaked the HmlBuffer/HmlArray/HmlObject wrapper on every
+        // free() call. Raw pointers are a no-op release anyway.
         if (strcmp(fn_name, "free") == 0 && expr->as.call.num_args == 1) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
             codegen_writeln(ctx, "hml_free(%s);", ptr);
+            codegen_writeln(ctx, "hml_release_if_needed(&%s);", ptr);
             codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
             free(ptr);
             return result;
@@ -3149,13 +3155,15 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 }
             }
 
-            // For rest params, we need to collect extra args into an array
+            // For rest params, collect extra args into an array. Always
+            // materialize a temp (even when empty) so it can be released
+            // after the call - an inline `hml_val_array()` argument leaked
+            // one array wrapper per call (the callee borrows its params).
             char *rest_array_temp = NULL;
-            if (has_rest && expr->as.call.num_args > expected_params && arg_temps) {
-                // Create array for rest args
+            if (has_rest) {
                 rest_array_temp = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_val_array();", rest_array_temp);
-                for (int i = expected_params; i < expr->as.call.num_args; i++) {
+                for (int i = expected_params; i < expr->as.call.num_args && arg_temps; i++) {
                     codegen_writeln(ctx, "hml_array_push(%s, %s);", rest_array_temp, arg_temps[i]);
                 }
             }
@@ -3172,13 +3180,9 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             for (int i = regular_args; i < expected_params; i++) {
                 fprintf(ctx->output, ", hml_val_null()");
             }
-            // Pass rest array (or empty array if no extra args)
+            // Pass rest array
             if (has_rest) {
-                if (rest_array_temp) {
-                    fprintf(ctx->output, ", %s", rest_array_temp);
-                } else {
-                    fprintf(ctx->output, ", hml_val_array()");
-                }
+                fprintf(ctx->output, ", %s", rest_array_temp);
             }
             fprintf(ctx->output, ");\n");
 
@@ -3234,13 +3238,15 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                     }
                 }
 
-                // For rest params, we need to collect extra args into an array
+                // For rest params, collect extra args into an array. Always
+                // materialize a temp (even when empty) so it can be released
+                // after the call - an inline `hml_val_array()` argument leaked
+                // one array wrapper per call (the callee borrows its params).
                 char *rest_array_temp = NULL;
-                if (has_rest && expr->as.call.num_args > expected_params && arg_temps) {
-                    // Create array for rest args
+                if (has_rest) {
                     rest_array_temp = codegen_temp(ctx);
                     codegen_writeln(ctx, "HmlValue %s = hml_val_array();", rest_array_temp);
-                    for (int i = expected_params; i < expr->as.call.num_args; i++) {
+                    for (int i = expected_params; i < expr->as.call.num_args && arg_temps; i++) {
                         codegen_writeln(ctx, "hml_array_push(%s, %s);", rest_array_temp, arg_temps[i]);
                     }
                 }
@@ -3257,13 +3263,9 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 for (int i = regular_args; i < expected_params; i++) {
                     fprintf(ctx->output, ", hml_val_null()");
                 }
-                // Pass rest array (or empty array if no extra args)
+                // Pass rest array
                 if (has_rest) {
-                    if (rest_array_temp) {
-                        fprintf(ctx->output, ", %s", rest_array_temp);
-                    } else {
-                        fprintf(ctx->output, ", hml_val_array()");
-                    }
+                    fprintf(ctx->output, ", %s", rest_array_temp);
                 }
                 fprintf(ctx->output, ");\n");
 

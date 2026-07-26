@@ -254,6 +254,7 @@ struct HmlSocket {
     int closed;             // 1 if closed
     int listening;          // 1 if in listening mode
     int nonblocking;        // 1 if in non-blocking mode
+    _Atomic int ref_count;  // Reference count (handle freed when it reaches 0)
 };
 
 // Type definition for duck typing
@@ -608,11 +609,15 @@ static inline HmlValue hml_i64_rshift(HmlValue left, HmlValue right) {
 
 // Fast path: Check if value needs refcounting (primitives don't)
 // Defined early so it can be used by array_get_i32_fast
+// MUST stay in sync with the switches in hml_retain()/hml_release() (value.c).
+// A type listed in one place but not the other causes asymmetric
+// retain/release (leak or use-after-free) for values of that type stored in
+// arrays/objects/closures.
 static inline int hml_needs_refcount(HmlValue val) {
     return val.type == HML_VAL_STRING || val.type == HML_VAL_BUFFER ||
            val.type == HML_VAL_ARRAY || val.type == HML_VAL_OBJECT ||
            val.type == HML_VAL_FUNCTION || val.type == HML_VAL_TASK ||
-           val.type == HML_VAL_CHANNEL;
+           val.type == HML_VAL_CHANNEL || val.type == HML_VAL_SOCKET;
 }
 
 // Fast path: array[i32] access (bounds checked, skip retain for primitives)

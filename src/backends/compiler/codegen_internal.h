@@ -83,6 +83,7 @@ typedef struct {
     char **func_params;       // Saved ctx->func_params
     int num_func_params;      // Saved ctx->num_func_params
     int *func_param_is_ref;   // Saved ctx->func_param_is_ref
+    const char *func_rest_param; // Saved ctx->func_rest_param
 } FuncGenState;
 
 // Save function generation state before entering a function body
@@ -99,6 +100,25 @@ int codegen_is_func_param(CodegenContext *ctx, const char *name);
 
 // Apply default values for optional parameters
 void funcgen_apply_defaults(CodegenContext *ctx, Expr *func);
+
+// Promote parameters to owned references: emit hml_retain_if_needed() for
+// every non-ref parameter (and the rest parameter). Must be emitted BEFORE
+// funcgen_apply_defaults so an applied default (an owned value assigned over
+// the incoming null) is not retained a second time. Owned params make
+// release-then-assign correct for parameter reassignment in the body and for
+// tail-call parameter rebinding; the matching releases are emitted by
+// codegen_emit_param_cleanup on every function exit path.
+void funcgen_retain_params(CodegenContext *ctx, Expr *func);
+
+// Emit hml_release_if_needed() for every non-ref parameter (and the rest
+// parameter) - the counterpart of funcgen_retain_params. Called on function
+// exit paths AFTER codegen_emit_local_cleanup. Not called on the tail-call
+// loop-back path, which rebinds parameters itself (release old + assign new).
+void codegen_emit_param_cleanup(CodegenContext *ctx);
+
+// Release the current closure's captured-variable C locals (owned refs).
+// No-op outside closure bodies. Called on every function exit path.
+void codegen_emit_capture_cleanup(CodegenContext *ctx);
 
 // Scan for closures and create shared environment if needed
 void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *closure);
@@ -117,6 +137,10 @@ void codegen_emit_local_cleanup(CodegenContext *ctx, const char *skip_var);
 
 // Remove a local variable from scope (used for catch params that go out of scope)
 void codegen_remove_local(CodegenContext *ctx, const char *name);
+
+// Register a raw C temp name (e.g. "_tmp7") as a cleanup-tracked local;
+// cleanup emits it verbatim instead of running it through the sanitizer.
+void codegen_add_local_raw(CodegenContext *ctx, const char *c_name);
 
 // Shadow variable tracking (locals that shadow main vars, like catch params)
 void codegen_add_shadow(CodegenContext *ctx, const char *name);

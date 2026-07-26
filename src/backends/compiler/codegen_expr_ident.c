@@ -36,7 +36,7 @@ static int codegen_is_leaked_main_local(CodegenContext *ctx, const char *name) {
     // a body-local, this is a genuine local that shadows the leaked name.
     int last = -1;
     for (int i = 0; i < ctx->num_locals; i++) {
-        if (strcmp(ctx->local_vars[i], name) == 0) last = i;
+        if (ctx->local_vars[i] && strcmp(ctx->local_vars[i], name) == 0) last = i;
     }
     if (last < 0 || last >= ctx->locals_body_start) return 0;
 

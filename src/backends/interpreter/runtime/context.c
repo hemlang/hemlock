@@ -451,8 +451,27 @@ void defer_stack_execute(DeferStack *stack, ExecutionContext *ctx) {
         // Temporarily clear exception state to allow defer to run
         ctx->exception_state.is_throwing = 0;
 
-        // Execute the deferred call
-        eval_expr(stack->calls[i], stack->envs[i], ctx);
+        // Save the pending return state: the deferred expression is usually
+        // a function call, and the callee's `return` overwrites
+        // ctx->return_state.return_value. Without restoring it, a deferred
+        // call to a value-returning function clobbered the enclosing
+        // function's return value (e.g. its typed return then failed with
+        // "Cannot convert type to target type"). The compiled backend
+        // already isolates defer results; this matches it.
+        int was_returning = ctx->return_state.is_returning;
+        Value saved_return = ctx->return_state.return_value;
+        ctx->return_state.is_returning = 0;
+
+        // Execute the deferred call and release its (discarded) result -
+        // eval_expr returns an owned value, and dropping it leaked one
+        // reference per deferred call with a heap-typed return value
+        // (mirrors STMT_EXPR's release of unused results).
+        Value defer_result = eval_expr(stack->calls[i], stack->envs[i], ctx);
+        VALUE_RELEASE(defer_result);
+
+        // Restore the enclosing function's pending return
+        ctx->return_state.is_returning = was_returning;
+        ctx->return_state.return_value = saved_return;
 
         // If defer itself threw, propagate that exception (overrides previous)
         // Otherwise, restore the saved exception state

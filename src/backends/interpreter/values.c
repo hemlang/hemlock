@@ -1665,9 +1665,6 @@ void visited_set_add(VisitedSet *set, void *ptr) {
     set->pointers[set->count++] = ptr;
 }
 
-// Forward declarations for internal versions
-static void value_free_internal(Value val, VisitedSet *visited);
-
 // Internal version of object_free with cycle detection
 static void object_free_internal(Object *obj, VisitedSet *visited) {
     if (!obj) return;
@@ -1744,115 +1741,13 @@ static void array_free_internal(Array *arr, VisitedSet *visited) {
     free(arr);
 }
 
-// Internal version of value_free with cycle detection
-static void value_free_internal(Value val, VisitedSet *visited) {
-    switch (val.type) {
-        case VAL_STRING:
-            if (val.as.as_string) {
-                string_free(val.as.as_string);
-            }
-            break;
-        case VAL_RUNE:
-            // No cleanup needed for rune (primitive value)
-            break;
-        case VAL_BUFFER:
-            if (val.as.as_buffer) {
-                buffer_free(val.as.as_buffer);
-            }
-            break;
-        case VAL_ARRAY:
-            if (val.as.as_array) {
-                array_free_internal(val.as.as_array, visited);
-            }
-            break;
-        case VAL_FILE:
-            if (val.as.as_file) {
-                file_free(val.as.as_file);
-            }
-            break;
-        case VAL_SOCKET:
-            if (val.as.as_socket) {
-                socket_free(val.as.as_socket);
-            }
-            break;
-        case VAL_WEBSOCKET:
-            if (val.as.as_websocket) {
-                websocket_free(val.as.as_websocket);
-            }
-            break;
-        case VAL_OBJECT:
-            if (val.as.as_object) {
-                object_free_internal(val.as.as_object, visited);
-            }
-            break;
-        case VAL_FUNCTION:
-            if (val.as.as_function) {
-                // Use function_release to respect reference counting
-                // This is critical for async tasks that may retain function references
-                function_release(val.as.as_function);
-            }
-            break;
-        case VAL_FFI_FUNCTION:
-            // Owned by the FFI function registry; freed in ffi_cleanup().
-            // Freeing here would double-free (FFI values are not refcounted
-            // and may be referenced from multiple environments).
-            break;
-        case VAL_TASK:
-            if (val.as.as_task) {
-                task_release(val.as.as_task);
-            }
-            break;
-        case VAL_CHANNEL:
-            if (val.as.as_channel) {
-                channel_free(val.as.as_channel);
-            }
-            break;
-        case VAL_REF:
-            if (val.as.as_ref) {
-                reference_free(val.as.as_ref);
-            }
-            break;
-        case VAL_PTR:
-            // Raw pointers are user-managed - do not free
-            break;
-        case VAL_I8:
-        case VAL_I16:
-        case VAL_I32:
-        case VAL_I64:
-        case VAL_U8:
-        case VAL_U16:
-        case VAL_U32:
-        case VAL_U64:
-        case VAL_F32:
-        case VAL_F64:
-        case VAL_BOOL:
-        case VAL_NULL:
-        case VAL_TYPE:
-        case VAL_BUILTIN_FN:
-            // These types have no heap allocation
-            break;
-    }
-}
-
-// Public API - recursively free a Value and all its heap-allocated contents
-// Now handles circular references safely
-void value_free(Value val) {
-    VisitedSet *visited = visited_set_new();
-    if (!visited) {
-        fprintf(stderr, "Runtime error: Failed to allocate visited set for value_free\n");
-        exit(1);
-    }
-    value_free_internal(val, visited);
-    visited_set_free(visited);
-}
-
-// Fast path check - most values don't need refcounting
+// Fast path check - most values don't need refcounting.
+// Delegates to the VALUE_NEEDS_REFCOUNT macro (internal.h) so the macro fast
+// path and the function-call path can never disagree about which types are
+// refcounted — historical desyncs (VAL_SOCKET, VAL_WEBSOCKET missing from the
+// macro) caused over-releases and use-after-free.
 static inline int value_needs_refcount(ValueType type) {
-    // Only heap-allocated types need refcounting
-    return type == VAL_STRING || type == VAL_BUFFER || type == VAL_ARRAY ||
-           type == VAL_OBJECT || type == VAL_FUNCTION || type == VAL_TASK ||
-           type == VAL_SOCKET || type == VAL_WEBSOCKET ||
-           type == VAL_CHANNEL || type == VAL_REF;
+    return VALUE_NEEDS_REFCOUNT(type);
 }
 
 // Public API - increment reference count for heap-allocated values

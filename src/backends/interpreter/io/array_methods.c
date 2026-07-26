@@ -511,7 +511,11 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
             // Empty array handling
             if (arr->length == 0) {
                 if (num_args == 2) {
-                    return args[1];  // Return initial value
+                    // Return initial value. Retain it: the caller releases
+                    // every args[i] after the method returns, so returning
+                    // it borrowed over-released heap-typed initial values.
+                    value_retain(args[1]);
+                    return args[1];
                 } else {
                     return throw_runtime_error(ctx, "reduce() on empty array with no initial value");
                 }

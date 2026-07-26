@@ -42,7 +42,19 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
         }
 
         if (ch->capacity == 0) {
-            // Unbuffered channel - rendezvous with receiver
+            // Unbuffered channel - rendezvous with receiver.
+            // If another sender already staged a value, wait for its
+            // rendezvous to complete first: overwriting unbuffered_value
+            // here would leak the other sender's retained value and
+            // silently drop its message.
+            while (ch->sender_waiting && !ch->closed) {
+                pthread_cond_wait(not_full, mutex);
+            }
+            if (ch->closed) {
+                pthread_mutex_unlock(mutex);
+                return throw_runtime_error(ctx, "cannot send to closed channel");
+            }
+
             value_retain(msg);
             *(ch->unbuffered_value) = msg;
             ch->sender_waiting = 1;
@@ -120,8 +132,10 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
             *(ch->unbuffered_value) = val_null();
             ch->sender_waiting = 0;
 
-            // Signal sender that value was received
+            // Signal sender that value was received, and wake any sender
+            // queued waiting for the rendezvous slot to free up
             pthread_cond_signal(rendezvous);
+            pthread_cond_signal(not_full);
             pthread_mutex_unlock(mutex);
 
             return msg;
@@ -198,8 +212,10 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
             *(ch->unbuffered_value) = val_null();
             ch->sender_waiting = 0;
 
-            // Signal sender that value was received
+            // Signal sender that value was received, and wake any sender
+            // queued waiting for the rendezvous slot to free up
             pthread_cond_signal(rendezvous);
+            pthread_cond_signal(not_full);
             pthread_mutex_unlock(mutex);
 
             return msg;

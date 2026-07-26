@@ -1,0 +1,109 @@
+// Leak regression harness for the reference-count audit fixes.
+// Each loop targets a code path that used to leak one reference (or a
+// wrapper struct) per iteration in compiled binaries; run under
+// LeakSanitizer via `run_stress.sh lsan`, this file must leak nothing
+// per iteration.
+//
+// Covered paths:
+//   1. throw/catch          - hml_throw used to retain the exception value
+//                             instead of consuming it (+1 ref per throw).
+//   2. catch + return       - the catch parameter was not registered for
+//                             cleanup, so `return` inside catch leaked it.
+//   3. free(buffer)         - codegen skipped the post-free release, leaking
+//                             the HmlBuffer wrapper struct per free() call.
+//   4. rest-param calls     - calling a rest-param function with no extra
+//                             args passed an inline hml_val_array() that was
+//                             never released.
+//   5. switch + continue    - continue/return jumping out of a switch
+//                             skipped the subject/case-value temp releases.
+//   6. select() over channels - the received value's channel reference was
+//                             retained again by set_field and never dropped.
+//   7. parameter reassignment - params are now owned; reassigning must not
+//                             leak the incoming value or the new one.
+
+let ITER = 20000;
+
+// 1. throw/catch loop
+for (let i = 0; i < ITER; i++) {
+    try {
+        throw "exception payload string " + i;
+    } catch (e) {}
+}
+
+// 2. return from catch
+fn catches(): i32 {
+    try {
+        throw "another payload string that is long enough to heap-allocate";
+    } catch (e) {
+        return 1;
+    }
+    return 0;
+}
+for (let i = 0; i < ITER; i++) {
+    catches();
+}
+
+// 3. free(buffer) wrapper
+for (let i = 0; i < ITER; i++) {
+    let b = buffer(64);
+    free(b);
+}
+
+// 4. rest params with no extra args
+fn variadic(...args): i32 {
+    return args.length;
+}
+for (let i = 0; i < ITER; i++) {
+    variadic();
+}
+
+// 5. switch subject/case temps on continue and return
+fn switcher(x: string): i32 {
+    switch (x) {
+        case "match target string value": return 1;
+        default: return 0;
+    }
+}
+let i = 0;
+while (i < ITER) {
+    i = i + 1;
+    let s = "switch subject string " + i;
+    switch (s) {
+        case "never matches": break;
+        default: continue;
+    }
+}
+for (let j = 0; j < ITER; j++) {
+    switcher("match target string value");
+}
+
+// 6. select() receive
+async fn feeder(ch, n: i32): i32 {
+    for (let k = 0; k < n; k++) {
+        ch.send("select message payload " + k);
+    }
+    return n;
+}
+let ch = channel(16);
+let t = spawn(feeder, ch, 2000);
+let received = 0;
+while (received < 2000) {
+    let r = select([ch]);
+    if (r.value != null) {
+        received = received + 1;
+    }
+}
+join(t);
+ch.close();
+
+// 7. parameter reassignment (owned params)
+fn rebind(s: string): string {
+    s = s + "!";
+    s = s + "?";
+    return s;
+}
+for (let k = 0; k < ITER; k++) {
+    rebind("parameter string payload " + k);
+}
+
+print("refcount leak paths done");

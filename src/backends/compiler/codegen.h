@@ -111,6 +111,8 @@ typedef struct {
     int num_main_annots;
     int main_annot_capacity;
     int *local_needs_cleanup; // Parallel array: 1 = needs hml_release at function exit
+    int *local_is_raw;      // Parallel array: 1 = entry is a raw C name (codegen temp),
+                            // emitted verbatim by cleanup instead of sanitized
     int num_locals;         // Number of local variables
     int local_capacity;     // Capacity of local vars array
     int locals_body_start;  // Index where body-locals begin (after params + captures)
@@ -126,6 +128,7 @@ typedef struct {
     char **func_params;     // Current function parameters
     int num_func_params;    // Number of current function parameters
     int *func_param_is_ref; // Which params are ref (pass-by-reference)
+    const char *func_rest_param; // Rest parameter name (NULL if none)
 
     // Defer support
     DeferEntry *defer_stack;  // Stack of deferred expressions (LIFO)

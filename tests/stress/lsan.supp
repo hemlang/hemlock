@@ -8,12 +8,7 @@
 # leaks (the bug class this guard exists for).
 leak:hml_get_args
 
-# hml_socket_accept(): accepted client sockets are never freed —
-# HmlSocket carries no refcount and HML_VAL_SOCKET is absent from
-# hml_release (sockets are treated as "OS resource, shared by
-# reference"). This is a real but small (~50 B + strdup'd peer addr
-# per accepted connection) KNOWN gap, tracked for a socket-lifetime
-# refcount change. Suppressed so the lsan lane stays green and keeps
-# guarding the refcount/ownership leak class it was built for; remove
-# this line when the socket-lifetime fix lands so the guard re-arms.
-leak:hml_socket_accept
+# (The former hml_socket_accept suppression is gone: HmlSocket is now
+# reference-counted — hml_retain/hml_release manage the handle and the
+# last release closes a still-open fd and frees the struct — so accepted
+# client sockets no longer leak and LeakSanitizer guards that path again.)

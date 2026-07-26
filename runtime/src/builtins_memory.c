@@ -79,6 +79,14 @@ void hml_free(HmlValue ptr_or_buffer) {
             if (b->parent) {
                 hml_runtime_error("cannot free() a buffer slice view");
             }
+            // Atomically check and set the freed flag to detect double-free.
+            // This matches the interpreter (catchable error) and arms the
+            // freed-buffer guards in memset()/memcpy()/ptr_read/ptr_write,
+            // which check this flag but previously never saw it set.
+            int expected = 0;
+            if (!atomic_compare_exchange_strong(&b->freed, &expected, 1)) {
+                hml_runtime_error("double free detected on buffer");
+            }
             // Free the (potentially large) backing allocation now, but do
             // NOT free the HmlBuffer handle and do NOT touch ref_count: the
             // value is still reachable by the refcount system (a top-level
@@ -87,7 +95,7 @@ void hml_free(HmlValue ptr_or_buffer) {
             // this same struct. Freeing it here too is a double-free +
             // use-after-free — silent under glibc, fatal under macOS
             // libsystem_malloc. Nulling data makes the later buffer_free()
-            // a safe no-op and a repeated free() idempotent.
+            // a safe no-op.
             if (b->data) {
                 free(b->data);
                 b->data = NULL;

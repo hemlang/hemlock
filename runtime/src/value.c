@@ -688,6 +688,9 @@ void hml_retain(HmlValue *val) {
         case HML_VAL_TASK:
             if (val->as.as_task) atomic_fetch_add(&val->as.as_task->ref_count, 1);
             break;
+        case HML_VAL_SOCKET:
+            if (val->as.as_socket) atomic_fetch_add(&val->as.as_socket->ref_count, 1);
+            break;
         default:
             break;  // Primitive types don't need reference counting
     }
@@ -917,6 +920,17 @@ void hml_release(HmlValue *val) {
                     channel_free(val->as.as_channel);
                 }
                 val->as.as_channel = NULL;
+            }
+            break;
+        case HML_VAL_SOCKET:
+            if (val->as.as_socket) {
+                if (atomic_fetch_sub(&val->as.as_socket->ref_count, 1) <= 1) {
+                    // Defined in builtins_socket.c (stubbed on WASM): closes
+                    // the fd if still open and frees the handle struct.
+                    extern void hml_socket_destroy(HmlSocket *sock);
+                    hml_socket_destroy(val->as.as_socket);
+                }
+                val->as.as_socket = NULL;
             }
             break;
         default:

@@ -629,6 +629,45 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             char *idx = codegen_expr(ctx, expr->as.index_assign.index);
             char *value = codegen_expr(ctx, expr->as.index_assign.value);
 
+            // For string index assignment on a plain variable, pass the
+            // variable's slot so pooled (immortal) 1-char literals can be
+            // copy-on-written instead of corrupting the shared ASCII pool.
+            // string_lvalue is "&var" (or the pointer itself for ref params),
+            // or NULL when the target is not a simple variable.
+            char *string_lvalue = NULL;
+            {
+                Expr *target = expr->as.index_assign.object;
+                if (target && target->type == EXPR_IDENT) {
+                    const char *name = target->as.ident.name;
+                    char buf[CODEGEN_MANGLED_NAME_SIZE + 8];
+                    if (codegen_is_ref_param(ctx, name)) {
+                        char *safe = codegen_sanitize_ident(name);
+                        snprintf(buf, sizeof(buf), "%s", safe);  // already HmlValue*
+                        free(safe);
+                        string_lvalue = strdup(buf);
+                    } else if (ctx->current_module && !codegen_is_local(ctx, name)) {
+                        if (module_find_export(ctx->current_module, name) ||
+                            !module_find_import(ctx->current_module, name)) {
+                            snprintf(buf, sizeof(buf), "&%s%s",
+                                     ctx->current_module->module_prefix, name);
+                            string_lvalue = strdup(buf);
+                        }
+                    } else if (codegen_is_shadow(ctx, name) ||
+                               (codegen_is_local(ctx, name) &&
+                                (ctx->current_module || ctx->in_function ||
+                                 !codegen_is_main_var(ctx, name)))) {
+                        char *safe = codegen_sanitize_ident(name);
+                        snprintf(buf, sizeof(buf), "&%s", safe);
+                        free(safe);
+                        string_lvalue = strdup(buf);
+                    } else if (codegen_is_main_var(ctx, name) &&
+                               !codegen_find_main_import(ctx, name)) {
+                        snprintf(buf, sizeof(buf), "&_main_%s", name);
+                        string_lvalue = strdup(buf);
+                    }
+                }
+            }
+
             if (obj_is_array && idx_is_i32) {
                 // OPTIMIZATION: Both array and i32 index known at compile time
                 codegen_writeln(ctx, "hml_array_set_i32_fast(%s.as.as_array, %s.as.as_i32, %s);", obj, idx, value);
@@ -640,7 +679,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", obj);
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "hml_string_index_assign(%s, %s, %s);", obj, idx, value);
+                if (string_lvalue) {
+                    codegen_writeln(ctx, "hml_string_index_assign_var(%s, %s, %s);", string_lvalue, idx, value);
+                } else {
+                    codegen_writeln(ctx, "hml_string_index_assign(%s, %s, %s);", obj, idx, value);
+                }
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj);
                 codegen_indent_inc(ctx);
@@ -663,7 +706,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", obj);
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "hml_string_index_assign(%s, %s, %s);", obj, idx, value);
+                if (string_lvalue) {
+                    codegen_writeln(ctx, "hml_string_index_assign_var(%s, %s, %s);", string_lvalue, idx, value);
+                } else {
+                    codegen_writeln(ctx, "hml_string_index_assign(%s, %s, %s);", obj, idx, value);
+                }
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj);
                 codegen_indent_inc(ctx);
@@ -686,6 +733,26 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             }
+            // If the target variable was copy-on-written (pooled string) and
+            // is captured by closures, propagate the rebound value to the
+            // shared environment, mirroring EXPR_ASSIGN.
+            if (string_lvalue && string_lvalue[0] == '&') {
+                const char *target_name = expr->as.index_assign.object->as.ident.name;
+                const char *c_name = string_lvalue + 1;  // skip '&'
+                if (ctx->current_closure && ctx->current_closure->num_captured > 0) {
+                    for (int i = 0; i < ctx->current_closure->num_captured; i++) {
+                        if (strcmp(ctx->current_closure->captured_vars[i], target_name) == 0) {
+                            int env_index = ctx->current_closure->shared_env_indices ?
+                                           ctx->current_closure->shared_env_indices[i] : i;
+                            codegen_writeln(ctx, "hml_closure_env_set(_closure_env, %d, %s);", env_index, c_name);
+                            break;
+                        }
+                    }
+                }
+                codegen_sync_captured_var(ctx, target_name, c_name);
+            }
+            free(string_lvalue);
+
             // The expression value of `obj[idx] = v` is v; hand the
             // caller an independent owned reference.
             codegen_writeln(ctx, "HmlValue %s = %s;", result, value);
