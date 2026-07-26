@@ -50,6 +50,7 @@ Welcome to the Hemlock programming language documentation!
 
 ### API Reference
 - [Standard Library Overview](reference/stdlib-overview.md) - All 53 stdlib modules by category
+- [Stdlib API Index](reference/stdlib-api-index.md) - Generated one-line-per-symbol index of every stdlib export
 - [Type System Reference](reference/type-system.md) - Complete type reference
 - [Operators Reference](reference/operators.md) - All operators and precedence
 - [Built-in Functions](reference/builtins.md) - Global functions and constants

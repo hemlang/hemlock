@@ -920,7 +920,7 @@ Stmt* stmt_import_named(char **import_names, char **import_aliases, int num_impo
     stmt->as.import_stmt.import_names = import_names;
     stmt->as.import_stmt.import_aliases = import_aliases;
     stmt->as.import_stmt.num_imports = num_imports;
-    stmt->as.import_stmt.module_path = strdup(module_path);
+    stmt->as.import_stmt.module_path = module_path ? strdup(module_path) : NULL;
     return stmt;
 }
 
@@ -934,7 +934,7 @@ Stmt* stmt_import_namespace(const char *namespace_name, const char *module_path)
     stmt->as.import_stmt.import_names = NULL;
     stmt->as.import_stmt.import_aliases = NULL;
     stmt->as.import_stmt.num_imports = 0;
-    stmt->as.import_stmt.module_path = strdup(module_path);
+    stmt->as.import_stmt.module_path = module_path ? strdup(module_path) : NULL;
     return stmt;
 }
 
@@ -948,7 +948,7 @@ Stmt* stmt_import_star(const char *module_path) {
     stmt->as.import_stmt.import_names = NULL;
     stmt->as.import_stmt.import_aliases = NULL;
     stmt->as.import_stmt.num_imports = 0;
-    stmt->as.import_stmt.module_path = strdup(module_path);
+    stmt->as.import_stmt.module_path = module_path ? strdup(module_path) : NULL;
     return stmt;
 }
 
@@ -993,7 +993,7 @@ Stmt* stmt_export_reexport(char **export_names, char **export_aliases, int num_e
     stmt->as.export_stmt.export_names = export_names;
     stmt->as.export_stmt.export_aliases = export_aliases;
     stmt->as.export_stmt.num_exports = num_exports;
-    stmt->as.export_stmt.module_path = strdup(module_path);
+    stmt->as.export_stmt.module_path = module_path ? strdup(module_path) : NULL;
     return stmt;
 }
 

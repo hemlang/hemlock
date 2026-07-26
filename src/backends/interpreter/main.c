@@ -1942,7 +1942,44 @@ int main(int argc, char **argv) {
     if (command_to_run != NULL) {
         // Execute code string
         ffi_init();
-        run_source(command_to_run, 0, NULL, stack_depth, sandbox_flags, sandbox_root);
+        if (has_modules(command_to_run)) {
+            // Route through the module system so imports work, mirroring
+            // run_file(). Without this, import statements in -e code bind
+            // nothing and every imported name is undefined.
+            set_current_source_file("<command-line>");
+            set_current_source_code(command_to_run);
+
+            ExecutionContext *ctx = exec_context_new();
+            if (stack_depth > 0) {
+                ctx->max_stack_depth = stack_depth;
+            }
+            if (sandbox_flags != 0) {
+                ctx->sandbox_flags = sandbox_flags;
+                if (sandbox_root) {
+                    ctx->sandbox_root = strdup(sandbox_root);
+                }
+            }
+
+            Environment *global_env = env_new(NULL);
+            register_builtins(global_env, 0, NULL, ctx);
+
+            int result = execute_source_with_modules(command_to_run, global_env, 0, NULL, ctx);
+
+            env_break_cycles(global_env);
+            env_release(global_env);
+            exec_context_free(ctx);
+            set_current_source_file(NULL);
+            set_current_source_code(NULL);
+
+            if (result != 0) {
+                ffi_cleanup();
+                cleanup_object_types();
+                cleanup_enum_types();
+                return 1;
+            }
+        } else {
+            run_source(command_to_run, 0, NULL, stack_depth, sandbox_flags, sandbox_root);
+        }
         ffi_cleanup();
 
         if (interactive_mode) {

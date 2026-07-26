@@ -294,6 +294,15 @@ jobs:
     - name: Run formatter tests
       run: make test-formatter
 
+  # Documentation audit: link checks + stdlib API index freshness (no build)
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check docs and stdlib API index
+      run: make docs-check
+
   # Static checker (`hemlock check`) tests
   check:
     runs-on: ubuntu-latest

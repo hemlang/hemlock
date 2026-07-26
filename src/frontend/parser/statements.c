@@ -677,7 +677,10 @@ static Stmt* import_statement(Parser *p) {
 
             consume_contextual(p, "from", "Expect 'from' in import statement");
             consume(p, TOK_STRING, "Expect module path string");
-            char *module_path = p->previous.string_value;
+            // On a failed consume p->previous is not a string token; a stale
+            // string_value here would be strdup'd and double-freed.
+            char *module_path =
+                (p->previous.type == TOK_STRING) ? p->previous.string_value : NULL;
 
             consume(p, TOK_SEMICOLON, "Expect ';' after import statement");
 
@@ -689,7 +692,10 @@ static Stmt* import_statement(Parser *p) {
             // Star import: import * from "module" (imports all exports into current scope)
             consume_contextual(p, "from", "Expect 'from' after '*' in import statement");
             consume(p, TOK_STRING, "Expect module path string");
-            char *module_path = p->previous.string_value;
+            // On a failed consume p->previous is not a string token; a stale
+            // string_value here would be strdup'd and double-freed.
+            char *module_path =
+                (p->previous.type == TOK_STRING) ? p->previous.string_value : NULL;
 
             consume(p, TOK_SEMICOLON, "Expect ';' after import statement");
 
@@ -749,7 +755,9 @@ static Stmt* import_statement(Parser *p) {
     consume(p, TOK_RBRACE, "Expect '}' after import list");
     consume_contextual(p, "from", "Expect 'from' in import statement");
     consume(p, TOK_STRING, "Expect module path string");
-    char *module_path = p->previous.string_value;
+    // See note above: a failed consume must not surface a stale string_value.
+    char *module_path =
+        (p->previous.type == TOK_STRING) ? p->previous.string_value : NULL;
 
     consume(p, TOK_SEMICOLON, "Expect ';' after import statement");
 
@@ -810,7 +818,10 @@ static Stmt* export_statement(Parser *p) {
         // Check for re-export
         if (match_contextual(p, "from")) {
             consume(p, TOK_STRING, "Expect module path string");
-            char *module_path = p->previous.string_value;
+            // On a failed consume p->previous is not a string token; a stale
+            // string_value here would be strdup'd and double-freed.
+            char *module_path =
+                (p->previous.type == TOK_STRING) ? p->previous.string_value : NULL;
             consume(p, TOK_SEMICOLON, "Expect ';' after export statement");
 
             Stmt *stmt = stmt_export_reexport(export_names, export_aliases, num_exports, module_path);
