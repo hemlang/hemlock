@@ -1320,6 +1320,13 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         } else if (stmt->type == STMT_LET) {
             // Top-level let (non-function): assign to static global instead of declaring local
             // Use _main_ prefix to avoid C name conflicts
+            // Record primitive annotations so reassignments enforce them
+            {
+                const char *annot_hml_type = codegen_annot_primitive_name(stmt->as.let.type_annotation);
+                if (annot_hml_type) {
+                    codegen_set_main_annot(ctx, stmt->as.let.name, annot_hml_type);
+                }
+            }
             if (stmt->as.let.value) {
                 if (stmt->line > 0) codegen_writeln(ctx, "hml_error_line = %d;", stmt->line);
                 char *value = codegen_expr(ctx, stmt->as.let.value);

@@ -218,6 +218,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
         case EXPR_ASSIGN: {
             Value new_value = eval_expr(expr->as.assign.value, env, ctx);
+            if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(new_value);
+                return val_null();
+            }
             // Check if target is a reference (from ref parameter)
             Value target;
             if (expr->as.assign.resolved.is_resolved) {
@@ -232,6 +236,22 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 return new_value;
             }
             VALUE_RELEASE(target);
+            // Enforce the variable's declared type on reassignment using the
+            // same conversion as the declaration (annotations are enforced at
+            // runtime by the interpreter — CLAUDE.md/docs/language-guide/types.md)
+            {
+                Type *declared = expr->as.assign.resolved.is_resolved
+                    ? env_get_declared_type_resolved(env, expr->as.assign.resolved.depth,
+                                                     expr->as.assign.resolved.slot)
+                    : env_get_declared_type(env, expr->as.assign.name);
+                if (declared != NULL) {
+                    new_value = convert_to_type(new_value, declared, env, ctx);
+                    if (ctx->exception_state.is_throwing) {
+                        VALUE_RELEASE(new_value);
+                        return val_null();
+                    }
+                }
+            }
             // Regular assignment
             if (expr->as.assign.resolved.is_resolved) {
                 env_set_resolved(env, expr->as.assign.resolved.depth, expr->as.assign.resolved.slot, new_value, ctx);

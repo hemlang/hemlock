@@ -22,6 +22,10 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 }
             }
             env_define(env, stmt->as.let.name, value, 0, ctx);  // 0 = mutable
+            // Remember the annotation so reassignments enforce it too
+            if (stmt->as.let.type_annotation != NULL && !ctx->exception_state.is_throwing) {
+                env_set_declared_type_last(env, stmt->as.let.type_annotation);
+            }
             VALUE_RELEASE(value);  // Release original reference (env_define retains)
             break;
         }

@@ -43,6 +43,15 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             if (ctx->current_scope) {
                 scope_add_var(ctx->current_scope, stmt->as.let.name);
             }
+            // Record primitive annotations so reassignments enforce them with
+            // the same hml_convert_to_type the declaration uses (matches the
+            // interpreter's runtime annotation enforcement).
+            {
+                const char *annot_hml_type = codegen_annot_primitive_name(stmt->as.let.type_annotation);
+                if (annot_hml_type) {
+                    codegen_set_local_annot(ctx, stmt->as.let.name, annot_hml_type);
+                }
+            }
             char *safe_name = codegen_sanitize_ident(stmt->as.let.name);
 
             // OPTIMIZATION: Check if this typed variable can be unboxed

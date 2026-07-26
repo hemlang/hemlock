@@ -252,6 +252,15 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     if (unbox_cast && box_func) {
                         char *value = codegen_expr(ctx, expr->as.assign.value);
                         char *safe_var_name = codegen_sanitize_ident(expr->as.assign.name);
+                        // Annotated variables enforce their declared type on
+                        // reassignment (hml_convert_to_type errors on invalid
+                        // conversions like string -> i32, mirroring the
+                        // interpreter). Inference-unboxed variables skip this:
+                        // escape analysis already proved type-stable use.
+                        const char *annot = codegen_get_local_annot(ctx, expr->as.assign.name);
+                        if (annot && type_check_is_typed_var(ctx->type_ctx, expr->as.assign.name)) {
+                            codegen_writeln(ctx, "%s = hml_convert_to_type(%s, %s);", value, value, annot);
+                        }
                         // Unbox value and assign to native variable
                         codegen_writeln(ctx, "%s = %s(%s);", safe_var_name, unbox_cast, value);
                         codegen_writeln(ctx, "hml_release(&%s);", value);
@@ -314,6 +323,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             }
 
             char *value = codegen_expr(ctx, expr->as.assign.value);
+            // Enforce the variable's declared type annotation on reassignment
+            // (same conversion as the declaration; mirrors the interpreter).
+            {
+                const char *annot = codegen_get_local_annot(ctx, expr->as.assign.name);
+                if (!annot && codegen_is_main_var(ctx, expr->as.assign.name) &&
+                    !codegen_is_local(ctx, expr->as.assign.name)) {
+                    annot = codegen_get_main_annot(ctx, expr->as.assign.name);
+                }
+                if (annot) {
+                    codegen_writeln(ctx, "%s = hml_convert_to_type(%s, %s);", value, value, annot);
+                }
+            }
             // Determine the correct variable name with prefix
             // Note: safe_var_name is allocated when needed and must be freed
             char *safe_var_name = NULL;
