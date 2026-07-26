@@ -5,6 +5,13 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Compiled code no longer leaks memory when a runtime error or `throw` unwinds the stack — the long-deferred `throw_indirect` exception-unwind leak class is closed.** `hml_throw` longjmps straight to the nearest `try`'s `setjmp`, skipping every release the generated code emits after the throwing operation, so owned expression temporaries live mid-expression (concat operands, retained variable copies, call arguments), heap locals in the throwing frame, and locals in every *intermediate* frame between the throw and the catch all leaked on each caught error (16 KB of temps per caught throw turned into a 1.6 GB peak in a 100k-iteration error loop; now flat at ~2 MB). Fixed with the unwind-cleanup registry designed in `tests/leakhunt/README.md`: generated code registers the C slot of every owned temporary, local, parameter, capture, and catch/loop/pattern binding in a thread-local registry (`hml_uw_track`/`hml_uw_mark`/`hml_uw_reset`, inline in `hemlock_runtime.h`); each expression node pops its children's entries and registers its own result, statements/blocks/loop iterations/match arms reset to entry watermarks (so entries never outlive the C scope they point into and moved-out values stop being releasable at the move boundary), and `hml_throw` releases every slot registered after the target handler was installed *before* its `longjmp` — at that moment every skipped frame is still alive, so the slots are valid, and `hml_release`'s payload-NULLing makes already-released slots safe no-ops. `hml_exception_push` snapshots the watermark, so nested try/catch, finally re-throws, defer unwinding, and tasks (thread-local registry, freed at task exit) compose. Costs ~3-4% on expression-heavy code (primitive-valued temps skip registration). Regression-locked under LeakSanitizer (`tests/stress/{throw_unwind,throw_indirect,expr_temp_unwind}_leak.hml`, `tests/leakhunt` sweep all-pass) and semantically guarded by the new `exception_unwind_semantics` parity test (assignment-moves before a throwing argument, match guards that throw, finally-wins-over-return, rethrow, tail calls, deep propagation).
+- **`tests/leakhunt/run.sh` and `tests/stress/run_stress.sh` now probe for libwebsockets** instead of assuming it (mirroring `runtime/Makefile`), and the stress harness skips `http_*` tests when it is absent — the sanitizer lanes work on hosts without libwebsockets installed.
+
 ## [2.8.1] - 2026-06-10
 
 ### Added

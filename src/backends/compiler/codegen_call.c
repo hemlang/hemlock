@@ -3065,6 +3065,12 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
 
                     char *param_name = codegen_sanitize_ident(func_ast->as.function.param_names[i]);
                     codegen_writeln(ctx, "HmlValue %s = %s;", param_name, arg_vals[i]);
+                    // Ownership moved into the inlined parameter: null the
+                    // argument temp so the unwind registry can't release the
+                    // param's value if the inlined body throws.
+                    if (strncmp(arg_vals[i], "_tmp", 4) == 0) {
+                        codegen_writeln(ctx, "%s = hml_val_null();", arg_vals[i]);
+                    }
                     codegen_add_local(ctx, func_ast->as.function.param_names[i]);
                     // Also add as shadow so inlined params shadow main-level vars
                     // (without this, `a` resolves to `_main_a` during main-scope inlining)

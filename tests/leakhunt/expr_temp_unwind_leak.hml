@@ -1,0 +1,30 @@
+// Single construct: owned expression TEMPORARIES live mid-expression
+// when a runtime error unwinds. `payload.to_upper()` allocates a fresh
+// string temp; `boom()` throws while that temp is live in the caller's
+// C frame, and the concat never runs. The temp's release site is after
+// the throwing call, so without unwind cleanup it leaks per caught
+// error. Also covers a catchable RUNTIME error (array index out of
+// bounds) with a live temp, not just user `throw`.
+fn boom(): string {
+	throw "x";
+}
+let payload = "abcdefghij";
+let arr = [1, 2, 3];
+let round = 0;
+let caught = 0;
+while (round < 2000) {
+	try {
+		let s = payload.to_upper() + boom();
+		print(s);
+	} catch (e) {
+		caught = caught + 1;
+	}
+	try {
+		let t = payload.to_lower() + arr[99];
+		print(t);
+	} catch (e) {
+		caught = caught + 1;
+	}
+	round = round + 1;
+}
+print("expr_temp_unwind_leak: ok caught=" + caught);

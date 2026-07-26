@@ -9,15 +9,65 @@
 // ========== STATEMENT CODE GENERATION ==========
 
 static char *codegen_emit_condition_bool(CodegenContext *ctx, Expr *condition) {
+    // Mark/reset around the condition: loop conditions re-run every
+    // iteration outside any statement wrapper, so without this the
+    // condition's registry entry would accumulate per iteration.
+    int uw_id = ctx->temp_counter++;
+    codegen_writeln(ctx, "size_t _uwc%d = hml_uw_mark();", uw_id);
     char *cond_val = codegen_expr(ctx, condition);
     char *cond_bool = codegen_temp(ctx);
     codegen_writeln(ctx, "int %s = hml_to_bool(%s);", cond_bool, cond_val);
     codegen_writeln(ctx, "hml_release(&%s);", cond_val);
+    codegen_writeln(ctx, "hml_uw_reset(_uwc%d);", uw_id);
     free(cond_val);
     return cond_bool;
 }
 
+static void codegen_stmt_dispatch(CodegenContext *ctx, Stmt *stmt);
+
+// Wrap every executable statement in an unwind-registry mark/reset pair.
+// Each expression the statement evaluates leaves exactly one registry entry
+// (its result slot, see the codegen_expr wrapper); the reset discards those
+// entries once the statement has consumed them. This closes the two windows
+// the registry design depends on: entries never outlive the statement whose
+// C slots they point into, and a value moved out of its temp (let/assign)
+// stops being releasable by the unwind loop at the statement boundary.
 void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
+    switch (stmt->type) {
+        // No expression evaluation, or control never reaches a trailing
+        // reset (return/throw manage the registry themselves).
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+        case STMT_RETURN:
+        case STMT_THROW:
+        case STMT_DEFINE_OBJECT:
+        case STMT_ENUM:
+        case STMT_IMPORT:
+        case STMT_IMPORT_FFI:
+        case STMT_EXTERN_FN:
+        case STMT_TYPE_ALIAS:
+            codegen_stmt_dispatch(ctx, stmt);
+            return;
+        default:
+            break;
+    }
+    int uw_id = ctx->temp_counter++;
+    codegen_writeln(ctx, "size_t _uws%d = hml_uw_mark();", uw_id);
+    codegen_stmt_dispatch(ctx, stmt);
+    codegen_writeln(ctx, "hml_uw_reset(_uws%d);", uw_id);
+    // A let-statement declared a boxed local: register it now, after the
+    // reset, so its entry lives until the enclosing block's reset drops it
+    // (the slot itself dies with the block's C scope). Unwinding releases
+    // the local's current owned value; normal scope-exit cleanup nulls the
+    // slot first, making the unwind release a no-op.
+    if (ctx->uw_pending_local) {
+        codegen_writeln(ctx, "hml_uw_track(&%s);", ctx->uw_pending_local);
+        free(ctx->uw_pending_local);
+        ctx->uw_pending_local = NULL;
+    }
+}
+
+static void codegen_stmt_dispatch(CodegenContext *ctx, Stmt *stmt) {
     // Record the current source line so runtime errors can report it (and the
     // matching source snippet), mirroring the interpreter's per-statement
     // current_line. Limited to executable statement kinds — declarations and
@@ -262,6 +312,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             // function, seed the shared environment (the source of truth for
             // captured locals) with its initial value
             codegen_sync_captured_var(ctx, stmt->as.let.name, safe_name);
+            // Hand the boxed local to the codegen_stmt wrapper for unwind
+            // registration (after the statement's registry reset, so the
+            // entry survives until the local's scope exits). The slot always
+            // owns its current value - declaration moves the initializer in,
+            // reassignment releases the old value first - so a throw
+            // anywhere in the local's lifetime can safely release it.
+            free(ctx->uw_pending_local);
+            ctx->uw_pending_local = strdup(safe_name);
             free(safe_name);
             break;
         }
@@ -446,13 +504,22 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
             }
 
-            codegen_emit_loop_pragmas(ctx, stmt->as.while_stmt.annotations,
-                                      stmt->as.while_stmt.annotation_count);
-            codegen_writeln(ctx, "while (1) {");
-            codegen_indent_inc(ctx);
-
-            if (loop_label) {
-                codegen_writeln(ctx, "%s:;", continue_label);
+            // Per-iteration unwind-registry reset (the reset is placed after
+            // the continue label so `continue` paths hit it too): entries
+            // registered in the body must not accumulate across iterations.
+            // The mark is emitted BEFORE the loop pragmas - a pragma must be
+            // immediately followed by the loop statement.
+            {
+                int uw_loop_id = ctx->temp_counter++;
+                codegen_writeln(ctx, "size_t _uwl%d = hml_uw_mark();", uw_loop_id);
+                codegen_emit_loop_pragmas(ctx, stmt->as.while_stmt.annotations,
+                                          stmt->as.while_stmt.annotation_count);
+                codegen_writeln(ctx, "while (1) {");
+                codegen_indent_inc(ctx);
+                if (loop_label) {
+                    codegen_writeln(ctx, "%s:;", continue_label);
+                }
+                codegen_writeln(ctx, "hml_uw_reset(_uwl%d);", uw_loop_id);
             }
 
             char *cond_bool = codegen_emit_condition_bool(ctx, stmt->as.while_stmt.condition);
@@ -509,13 +576,19 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_push_loop_label(ctx, loop_label, break_label, continue_label);
             }
 
-            codegen_emit_loop_pragmas(ctx, stmt->as.loop_stmt.annotations,
-                                      stmt->as.loop_stmt.annotation_count);
-            codegen_writeln(ctx, "while (1) {");
-            codegen_indent_inc(ctx);
-
-            if (loop_label) {
-                codegen_writeln(ctx, "%s:;", continue_label);
+            // Per-iteration unwind-registry reset (see STMT_WHILE); mark
+            // emitted before the pragmas (pragma must precede the loop).
+            {
+                int uw_loop_id = ctx->temp_counter++;
+                codegen_writeln(ctx, "size_t _uwl%d = hml_uw_mark();", uw_loop_id);
+                codegen_emit_loop_pragmas(ctx, stmt->as.loop_stmt.annotations,
+                                          stmt->as.loop_stmt.annotation_count);
+                codegen_writeln(ctx, "while (1) {");
+                codegen_indent_inc(ctx);
+                if (loop_label) {
+                    codegen_writeln(ctx, "%s:;", continue_label);
+                }
+                codegen_writeln(ctx, "hml_uw_reset(_uwl%d);", uw_loop_id);
             }
 
             codegen_push_loop_body(ctx);
@@ -611,6 +684,8 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     continue_label = codegen_label(ctx);
                 }
                 codegen_push_for_continue(ctx, continue_label);
+                // Watermark for this for-loop's per-iteration registry reset
+                codegen_writeln(ctx, "size_t _uwl_for = hml_uw_mark();");
 
                 // Generate optimized condition
                 Expr *cond = stmt->as.for_loop.condition;
@@ -690,6 +765,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 }
 
                 codegen_indent_inc(ctx);
+                // Per-iteration unwind-registry reset (see STMT_WHILE); the
+                // matching mark is emitted right before the loop below.
+                codegen_writeln(ctx, "hml_uw_reset(_uwl_for);");
 
                 // Body - but we need to handle references to the counter specially
                 // The body expects an HmlValue, so we create a temporary when needed
@@ -761,10 +839,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     continue_label = codegen_label(ctx);
                 }
                 codegen_push_for_continue(ctx, continue_label);
+                // Watermark for this for-loop's per-iteration registry reset
+                codegen_writeln(ctx, "size_t _uwl_for = hml_uw_mark();");
 
                 codegen_emit_loop_pragmas(ctx, for_ann, for_ann_count);
                 codegen_writeln(ctx, "while (1) {");
                 codegen_indent_inc(ctx);
+                // Per-iteration unwind-registry reset (see STMT_WHILE).
+                codegen_writeln(ctx, "hml_uw_reset(_uwl_for);");
                 // Condition
                 if (stmt->as.for_loop.condition) {
                     char *cond_bool = codegen_emit_condition_bool(ctx, stmt->as.for_loop.condition);
@@ -777,10 +859,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_pop_loop_body(ctx);
                 // Continue label - continue jumps here to execute increment
                 codegen_writeln(ctx, "%s:;", continue_label);
-                // Increment
+                // Increment. Mark/reset per iteration so the increment's
+                // registry entry doesn't accumulate across iterations.
                 if (stmt->as.for_loop.increment) {
+                    int uw_id = ctx->temp_counter++;
+                    codegen_writeln(ctx, "size_t _uwc%d = hml_uw_mark();", uw_id);
                     char *inc = codegen_expr(ctx, stmt->as.for_loop.increment);
                     codegen_writeln(ctx, "hml_release(&%s);", inc);
+                    codegen_writeln(ctx, "hml_uw_reset(_uwc%d);", uw_id);
                     free(inc);
                 }
                 codegen_indent_dec(ctx);
@@ -887,10 +973,18 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             // of the iterable during the loop is observed (the interpreter
             // checks the live length each pass). Cheap: array/object lengths
             // are field reads and strings cache their codepoint count.
+            // Per-iteration unwind-registry reset: entries registered inside
+            // the body (or by the loop vars below) must not accumulate
+            // across iterations - especially via `continue`, which skips the
+            // body block's own reset. Mark emitted before the pragmas
+            // (a pragma must be immediately followed by the loop statement).
+            int uw_loop_id = ctx->temp_counter++;
+            codegen_writeln(ctx, "size_t _uwl%d = hml_uw_mark();", uw_loop_id);
             codegen_emit_loop_pragmas(ctx, stmt->as.for_in.annotations,
                                       stmt->as.for_in.annotation_count);
             codegen_writeln(ctx, "while (%s < hml_iter_length(%s)) {", idx_var, iter_val);
             codegen_indent_inc(ctx);
+            codegen_writeln(ctx, "hml_uw_reset(_uwl%d);", uw_loop_id);
 
             // Create key and value variables based on iterable type
             // Sanitize variable names to avoid C keyword conflicts
@@ -961,6 +1055,16 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_sync_captured_var(ctx, stmt->as.for_in.key_var, safe_key_var);
             }
             codegen_sync_captured_var(ctx, stmt->as.for_in.value_var, safe_value_var);
+
+            // Register the per-iteration loop variables (owned references
+            // from hml_object_*_at / hml_array_get / hml_string_rune_at):
+            // a throw inside the body releases them; the per-iteration
+            // reset above drops the entries on the normal path (after the
+            // continue-label releases NULL the slots).
+            if (stmt->as.for_in.key_var) {
+                codegen_writeln(ctx, "hml_uw_track(&%s);", safe_key_var);
+            }
+            codegen_writeln(ctx, "hml_uw_track(&%s);", safe_value_var);
 
             // Generate body
             codegen_push_loop_body(ctx);
@@ -1079,6 +1183,12 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 if (stmt->as.return_stmt.value) {
                     char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
                     codegen_writeln(ctx, "%s = %s;", ret_var, value);
+                    // Ownership moved into ret_var: null the temp so the
+                    // unwind registry can't release it if the finally block
+                    // (or a defer) throws before the eventual return.
+                    if (strncmp(value, "_tmp", 4) == 0) {
+                        codegen_writeln(ctx, "%s = hml_val_null();", value);
+                    }
                     free(value);
                 } else {
                     codegen_writeln(ctx, "%s = hml_val_null();", ret_var);
@@ -1092,6 +1202,13 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 // is included.
                 codegen_emit_return_try_pops(ctx);
                 codegen_writeln(ctx, "%s = 1;", has_ret);
+                // The goto leaves the try-body C scope: drop registry entries
+                // pointing into it, then re-register the still-live owned
+                // params and the saved return value so a throwing finally
+                // block releases them instead of leaking them.
+                codegen_writeln(ctx, "hml_uw_reset(_uw_fnm);");
+                funcgen_track_owned_params(ctx);
+                codegen_writeln(ctx, "hml_uw_track(&%s);", ret_var);
                 codegen_writeln(ctx, "goto %s;", finally_label);
             } else if (ctx->defer_stack) {
                 // We have defers - need to save return value, execute defers, then return
@@ -1099,10 +1216,19 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 if (stmt->as.return_stmt.value) {
                     char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
                     codegen_writeln(ctx, "HmlValue %s = %s;", ret_val, value);
+                    // Ownership moved into ret_val: null the temp so a
+                    // throwing defer can't make the unwind registry release
+                    // the value ret_val now owns.
+                    if (strncmp(value, "_tmp", 4) == 0) {
+                        codegen_writeln(ctx, "%s = hml_val_null();", value);
+                    }
                     free(value);
                 } else {
                     codegen_writeln(ctx, "HmlValue %s = hml_val_null();", ret_val);
                 }
+                // Register the saved return value: if a defer below throws,
+                // the unwind releases it instead of leaking it.
+                codegen_writeln(ctx, "hml_uw_track(&%s);", ret_val);
                 // Pop any exception contexts pushed by enclosing try-bodies
                 // before returning, so a later throw on this thread does not
                 // longjmp into this now-defunct stack frame.
@@ -1118,6 +1244,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 if (ctx->stack_check) {
                     codegen_writeln(ctx, "HML_CALL_EXIT();");
                 }
+                // Drop this frame's registry entries (the return value moves
+                // to the caller; its entry must be discarded, not released).
+                codegen_writeln(ctx, "hml_uw_reset(_uw_fnm);");
                 codegen_writeln(ctx, "return %s;", ret_val);
                 free(ret_val);
             } else {
@@ -1207,6 +1336,12 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     if (ctx->stack_check) {
                         codegen_writeln(ctx, "HML_TAIL_CALL_CHECK(_tail_depth);");
                     }
+                    // Drop registry entries from this iteration (argument
+                    // temps were moved into the parameters above) so the
+                    // registry doesn't grow with tail-call depth, then
+                    // re-register the parameters for the next iteration.
+                    codegen_writeln(ctx, "hml_uw_reset(_uw_fnm);");
+                    funcgen_track_owned_params(ctx);
                     // Jump back to the start of the function
                     codegen_writeln(ctx, "goto %s;", ctx->tail_call_label);
                 } else if (stmt->as.return_stmt.value) {
@@ -1228,6 +1363,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     if (ctx->stack_check) {
                         codegen_writeln(ctx, "HML_CALL_EXIT();");
                     }
+                    // Drop this frame's registry entries (the return value
+                    // moves to the caller; discard its entry, don't release).
+                    codegen_writeln(ctx, "hml_uw_reset(_uw_fnm);");
                     codegen_writeln(ctx, "return %s;", value);
                     free(value);
                 } else {
@@ -1243,6 +1381,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     if (ctx->stack_check) {
                         codegen_writeln(ctx, "HML_CALL_EXIT();");
                     }
+                    codegen_writeln(ctx, "hml_uw_reset(_uw_fnm);");
                     codegen_writeln(ctx, "return hml_val_null();");
                 }
             }
@@ -1416,6 +1555,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     // function-exit cleanup doesn't release it twice.
                     codegen_add_local(ctx, stmt->as.try_stmt.catch_param);
                     codegen_writeln(ctx, "HmlValue %s = %s;", safe_catch_param, saved_ex_var);
+                    // Register the catch param: a throw escaping the catch
+                    // body releases it instead of leaking it. The entry is
+                    // dropped by the enclosing statement wrapper's reset.
+                    codegen_writeln(ctx, "hml_uw_track(&%s);", safe_catch_param);
                     codegen_stmt(ctx, stmt->as.try_stmt.catch_block);
                     codegen_writeln(ctx, "hml_release(&%s);", safe_catch_param);
                     // Remove catch param from shadow vars so outer scope variable is used again
@@ -1506,6 +1649,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     if (ctx->stack_check) {
                         codegen_writeln(ctx, "HML_CALL_EXIT();");
                     }
+                    // Drop this frame's registry entries (the return value
+                    // moves to the caller; discard its entry, don't release).
+                    codegen_writeln(ctx, "hml_uw_reset(_uw_fnm);");
                     codegen_writeln(ctx, "return %s;", return_value_var);
                     codegen_indent_dec(ctx);
                     codegen_writeln(ctx, "}");
@@ -1528,7 +1674,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             if (ctx->defer_stack) {
                 codegen_defer_execute_all(ctx);
             }
-            codegen_writeln(ctx, "hml_throw(%s);", value);
+            if (strncmp(value, "_tmp", 4) == 0) {
+                // hml_throw consumes the value; hml_throw_temp additionally
+                // nulls the temp's slot first so the unwind registry can't
+                // release what the exception context now owns.
+                codegen_writeln(ctx, "hml_throw_temp(&%s);", value);
+            } else {
+                codegen_writeln(ctx, "hml_throw(%s);", value);
+            }
             free(value);
             break;
         }

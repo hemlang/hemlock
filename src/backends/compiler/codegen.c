@@ -1879,6 +1879,45 @@ void funcgen_retain_params(CodegenContext *ctx, Expr *func) {
     }
 }
 
+// Register owned parameters (and closure captures, when present) in the
+// unwind registry, so a throw unwinding through this frame releases them
+// instead of leaking the references funcgen_retain_params took. Emitted
+// after the prologue's hml_uw_reset(_uw_fnm) so the entries sit just above
+// the frame watermark: return-site resets drop them (normal cleanup
+// releases and NULLs the slots), hml_throw releases whatever they still
+// own. Uses ctx->func_params/ctx->current_closure like the cleanup
+// helpers, so it stays in sync with what cleanup releases.
+void funcgen_track_owned_params(CodegenContext *ctx) {
+    for (int i = 0; i < ctx->num_func_params; i++) {
+        if (ctx->func_param_is_ref && ctx->func_param_is_ref[i]) continue;
+        char *safe_param = codegen_sanitize_ident(ctx->func_params[i]);
+        codegen_writeln(ctx, "hml_uw_track(&%s);", safe_param);
+        free(safe_param);
+    }
+    if (ctx->func_rest_param) {
+        char *safe_rest = codegen_sanitize_ident(ctx->func_rest_param);
+        codegen_writeln(ctx, "hml_uw_track(&%s);", safe_rest);
+        free(safe_rest);
+    }
+    if (ctx->current_closure) {
+        for (int i = 0; i < ctx->current_closure->num_captured; i++) {
+            const char *var_name = ctx->current_closure->captured_vars[i];
+            int is_param = 0;
+            for (int j = 0; j < ctx->num_func_params; j++) {
+                if (strcmp(var_name, ctx->func_params[j]) == 0) { is_param = 1; break; }
+            }
+            if (!is_param && ctx->func_rest_param &&
+                strcmp(var_name, ctx->func_rest_param) == 0) {
+                is_param = 1;
+            }
+            if (is_param) continue;
+            char *safe_cap = codegen_sanitize_ident(var_name);
+            codegen_writeln(ctx, "hml_uw_track(&%s);", safe_cap);
+            free(safe_cap);
+        }
+    }
+}
+
 // Release owned parameters on function exit - counterpart of
 // funcgen_retain_params. Uses ctx->func_params so it works from any
 // statement context (return sites) without the function Expr at hand.

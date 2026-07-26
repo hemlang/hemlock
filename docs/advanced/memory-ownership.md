@@ -258,6 +258,14 @@ The runtime provides these guarantees:
 2. **No leak on exception** - Temporaries released during stack unwinding
 3. **Defer runs on exception** - Cleanup code executes
 
+The interpreter releases values as errors propagate through its
+evaluator. Compiled code implements guarantee 2 with an
+*unwind-cleanup registry*: generated code registers the slot of every
+owned temporary and local in a thread-local registry, and `hml_throw`
+releases everything registered after the target `try` was entered
+before it longjmps — so temporaries live mid-expression and locals in
+frames between the throw and the catch are freed, not leaked.
+
 ### Expression Evaluation
 
 ```hemlock

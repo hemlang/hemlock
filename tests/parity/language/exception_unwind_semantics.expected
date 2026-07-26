@@ -1,0 +1,15 @@
+1: caught kaboom
+1: hello still hello
+2: caught kaboom
+2: x = made-two
+3: caught index error
+3: arr[1] = 20
+4: caught guard-boom
+4: matched 1
+5: caught 3
+6: finally ran
+6: made-six
+6: caught finally-boom
+7: inner-made-seven
+8: depth-0
+done

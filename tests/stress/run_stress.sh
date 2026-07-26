@@ -58,10 +58,17 @@ fi
 
 # Base runtime cflags mirror runtime/Makefile (Linux path) minus the
 # optimization level we override for sanitizer-friendly stacks.
-LWS_CFLAGS="$(pkg-config --cflags libwebsockets 2>/dev/null || true)"
+# Probe for libwebsockets like runtime/Makefile does (the CFLAGS override
+# bypasses the Makefile's own probe): hosts without it build the runtime
+# with HTTP/websocket support compiled out.
+if pkg-config --exists libwebsockets 2>/dev/null; then
+  LWS_CFLAGS="-DHML_HAVE_LIBWEBSOCKETS $(pkg-config --cflags libwebsockets)"
+else
+  LWS_CFLAGS=""
+fi
 RT_CFLAGS="-Wall -std=c11 -O1 -g -fPIC -Iinclude -I../src/shared \
 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -DHML_HAVE_ZLIB \
--DHML_HAVE_LIBWEBSOCKETS $LWS_CFLAGS $SAN_CFLAGS"
+$LWS_CFLAGS $SAN_CFLAGS"
 
 # Build the instrumented runtime into an ISOLATED build dir. Never
 # touch runtime/build — that holds the normal -fPIC objects the
@@ -80,7 +87,10 @@ if [ ! -f "$RT_LIB" ]; then
   exit 2
 fi
 
-LIBS="-lm -lpthread -lffi -ldl -lz -lwebsockets -lssl -lcrypto"
+LIBS="-lm -lpthread -lffi -ldl -lz -lssl -lcrypto"
+if pkg-config --exists libwebsockets 2>/dev/null; then
+  LIBS="$LIBS -lwebsockets"
+fi
 fail=0
 pass=0
 
@@ -101,6 +111,15 @@ for src in $glob; do
   name="$(basename "$src" .hml)"
   cfile="$WORK/$name.c"
   bin="$WORK/$name"
+
+  # HTTP tests need the runtime built with libwebsockets; on hosts
+  # without it HTTP support is compiled out and the test can only
+  # throw "HTTP support not available" - skip instead of failing.
+  case "$name" in http_*)
+    if ! pkg-config --exists libwebsockets 2>/dev/null; then
+      echo "SKIP  $name  (libwebsockets not installed)"; continue
+    fi
+  esac
 
   if ! "$HEMLOCKC" --emit-c "$cfile" "$src" >/dev/null 2>"$WORK/$name.gen.log"; then
     echo "FAIL  $name  (codegen failed)"; cat "$WORK/$name.gen.log"; fail=$((fail+1)); continue

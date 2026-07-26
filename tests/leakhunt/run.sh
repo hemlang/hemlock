@@ -53,16 +53,26 @@ RT_LIB="$RT_CACHE/libhemlock_runtime.a"
 if [ $REBUILD_RT -eq 1 ] || [ ! -f "$RT_LIB" ]; then
   echo "--- building instrumented runtime (cache: $RT_CACHE)"
   rm -rf "$RT_CACHE"; mkdir -p "$RT_CACHE"
-  LWS_CFLAGS="$(pkg-config --cflags libwebsockets 2>/dev/null || true)"
+  # Probe for libwebsockets like runtime/Makefile does (the CFLAGS
+  # override below bypasses the Makefile's own probe): hosts without it
+  # build the runtime with HTTP/websocket support compiled out.
+  if pkg-config --exists libwebsockets 2>/dev/null; then
+    LWS_CFLAGS="-DHML_HAVE_LIBWEBSOCKETS $(pkg-config --cflags libwebsockets)"
+  else
+    LWS_CFLAGS=""
+  fi
   RT_CFLAGS="-Wall -std=c11 -O1 -g -fPIC -Iinclude -I../src/shared \
 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -DHML_HAVE_ZLIB \
--DHML_HAVE_LIBWEBSOCKETS $LWS_CFLAGS $SAN_CFLAGS"
+$LWS_CFLAGS $SAN_CFLAGS"
   ( cd "$RT_DIR" && make static BUILD_DIR="$RT_CACHE" CFLAGS="$RT_CFLAGS" \
     >"$RT_CACHE/build.log" 2>&1 )
   [ -f "$RT_LIB" ] || { echo "FATAL: sanitizer runtime build failed"; tail -20 "$RT_CACHE/build.log"; exit 2; }
 fi
 
-LIBS="-lm -lpthread -lffi -ldl -lz -lwebsockets -lssl -lcrypto"
+LIBS="-lm -lpthread -lffi -ldl -lz -lssl -lcrypto"
+if pkg-config --exists libwebsockets 2>/dev/null; then
+  LIBS="$LIBS -lwebsockets"
+fi
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 
 if [ -n "$ONLY" ]; then glob="$LH_DIR/$ONLY.hml"; else glob="$LH_DIR"/*_leak.hml; fi

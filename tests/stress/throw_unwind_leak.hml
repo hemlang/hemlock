@@ -1,0 +1,27 @@
+// Regression: heap locals allocated inside a try scope leaked on
+// every caught exception. hml_throw longjmps straight to the
+// nearest try's setjmp, skipping the normal-path releases emitted
+// after the throwing operation, so the array + object + string
+// built before the throw leaked per throw on hot error paths.
+// Fixed by the unwind-cleanup registry: generated code registers
+// the C slot of every owned local/temporary (hml_uw_track), and
+// hml_throw releases every slot registered after the target
+// handler was installed before its longjmp (slots are still live
+// there - the frames between throw and catch die only at the
+// longjmp itself). See hml_uw_* in runtime/include/hemlock_runtime.h.
+//
+// Bounded + finite so LeakSanitizer reports at exit; run via
+// `run_stress.sh lsan`. Must leak nothing per-iteration.
+fn boom(r: i64): i64 {
+	let big = ["a-" + r, "b-" + r, "c-" + r];
+	let o = { data: big, tag: "t-" + r };
+	if (r >= 0) { throw "x"; }
+	return big.length + o.tag.length;
+}
+let round = 0;
+let caught = 0;
+while (round < 2000) {
+	try { let z = boom(round); } catch (e) { caught = caught + 1; }
+	round = round + 1;
+}
+print("throw_unwind_leak: ok caught=" + caught);

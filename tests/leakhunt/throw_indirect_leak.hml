@@ -1,0 +1,23 @@
+// Single construct: a throw propagating through INTERMEDIATE frames
+// that hold heap locals. hml_throw longjmps straight to the nearest
+// try's setjmp, skipping every C frame in between, so without unwind
+// cleanup the middle frame's locals (array + object + string) leak on
+// every caught exception. Distinct from try_unwind_leak (the THROWING
+// frame's locals): here the leaking frame neither throws nor catches.
+fn inner(r: i64): i64 {
+	if (r >= 0) { throw "x"; }
+	return r;
+}
+fn middle(r: i64): i64 {
+	let big = ["a-" + r, "b-" + r, "c-" + r];
+	let o = { data: big, tag: "t-" + r };
+	let s = "hold-" + r;
+	return inner(r) + big.length + o.tag.length + s.length;
+}
+let round = 0;
+let caught = 0;
+while (round < 2000) {
+	try { let z = middle(round); } catch (e) { caught = caught + 1; }
+	round = round + 1;
+}
+print("throw_indirect_leak: ok caught=" + caught);

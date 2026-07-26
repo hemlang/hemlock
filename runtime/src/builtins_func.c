@@ -12,10 +12,33 @@
 
 // ========== EXCEPTION HANDLING ==========
 
+// Unwind-cleanup registry (see hemlock_runtime.h for the design notes).
+_Thread_local HmlValue **hml_uw_slots = NULL;
+_Thread_local size_t hml_uw_sp = 0;
+_Thread_local size_t hml_uw_cap = 0;
+
+void hml_uw_grow(void) {
+    size_t new_cap = hml_uw_cap ? hml_uw_cap * 2 : HML_UW_SLOTS_INITIAL_CAP;
+    HmlValue **new_slots = realloc(hml_uw_slots, new_cap * sizeof(HmlValue *));
+    if (!new_slots) {
+        hml_fatal_error("Out of memory growing unwind-cleanup registry");
+    }
+    hml_uw_slots = new_slots;
+    hml_uw_cap = new_cap;
+}
+
+void hml_uw_thread_cleanup(void) {
+    free(hml_uw_slots);
+    hml_uw_slots = NULL;
+    hml_uw_sp = 0;
+    hml_uw_cap = 0;
+}
+
 HmlExceptionContext* hml_exception_push(void) {
     HmlExceptionContext *ctx = malloc(sizeof(HmlExceptionContext));
     ctx->is_active = 1;
     ctx->exception_value = hml_val_null();
+    ctx->uw_mark = hml_uw_sp;
     ctx->prev = g_exception_stack;
     g_exception_stack = ctx;
     return ctx;
@@ -46,8 +69,26 @@ void hml_throw(HmlValue exception_value) {
         exit(1);
     }
 
-    g_exception_stack->exception_value = exception_value;
-    longjmp(g_exception_stack->exception_buf, 1);
+    // Release expression temporaries registered since the target handler
+    // was installed: the longjmp below skips the release calls after the
+    // throwing operation. Already-released slots are NULLed payloads
+    // (no-ops), moved slots were discarded by their mover, and every
+    // remaining slot is a still-live C local of a frame between here and
+    // the setjmp (frames are only abandoned by the longjmp itself).
+    HmlExceptionContext *target = g_exception_stack;
+    for (size_t i = target->uw_mark; i < hml_uw_sp; i++) {
+        hml_release(hml_uw_slots[i]);
+    }
+    hml_uw_sp = target->uw_mark;
+
+    target->exception_value = exception_value;
+    longjmp(target->exception_buf, 1);
+}
+
+void hml_throw_temp(HmlValue *slot) {
+    HmlValue v = *slot;
+    *slot = hml_val_null();
+    hml_throw(v);
 }
 
 HmlValue hml_exception_get_value(void) {

@@ -105,15 +105,23 @@ exit except small fixed singletons (those are suppressed in
   `STMT_RETURN`). Verified PASS (was 11 blocks), no regression,
   regression-locked `tests/stress/throw_unwind_leak.hml`. Scope: the
   *throwing* function's own locals only.
-- ⏳ `throw_indirect` — **NEW, found while verifying try_unwind**:
-  locals in *intermediate* frames between the throw and the catch
-  leak (9 blocks) — `hml_throw` longjmps straight to the setjmp,
-  skipping every frame in between, so their normal-path cleanup never
-  runs. Harder class: a throw-site emit can't fix it (the throw site
-  doesn't know the callers' locals). Needs either per-call-site
-  setjmp + frame-local cleanup + re-throw, or a runtime scope-cleanup
-  registration stack that `hml_throw` unwinds. Real design effort —
-  land deliberately, not rushed. Repro: `throw_indirect_leak.hml`.
+- ✅ `throw_indirect` — **FIXED & shipped** via the unwind-cleanup
+  registry (the CORRECTED DESIGN below, implemented as designed):
+  generated code registers the C slot of every owned expression
+  temporary / local / param / capture in a thread-local registry
+  (`hml_uw_track`, inline in `hemlock_runtime.h`); every expression
+  node pops its children and registers its own result, statements
+  and scopes reset to entry watermarks, and `hml_throw` releases
+  every slot registered after the target handler was installed
+  BEFORE its `longjmp` (all intermediate frames are still alive at
+  that point, so the slots are valid). This also re-fixes
+  `try_unwind` (the reverted 2.5.0 attempt) and mid-expression
+  temporary leaks (`expr_temp_unwind_leak.hml`). Verified: full
+  leakhunt sweep PASS, `make stress-lsan`/`stress-asan` green,
+  54/54 compiler tests, 309/309 parity (incl. the new
+  `exception_unwind_semantics` semantic guards). Regression-locked:
+  `tests/stress/{throw_unwind,throw_indirect,expr_temp_unwind}_leak.hml`.
+  Repro: `throw_indirect_leak.hml`.
 - ✅ `closure_capture` — **FIXED & shipped**. Closure-prologue
   `hml_closure_env_get` retains each capture; its release was emitted
   only by an explicit loop at the implicit fall-through return, so
@@ -128,10 +136,11 @@ exit except small fixed singletons (those are suppressed in
 - ✅ clean baseline: `array_pop`, `array_remove`, `map_overwrite`,
   `map_delete`, `nested_literal`, `spawn_join`.
 
-Current sweep: **9 pass, 1 leak** (`throw_indirect` only).
+Current sweep: **all pass** (`throw_indirect` fixed by the
+unwind-cleanup registry — see the CORRECTED DESIGN below, which is
+what shipped).
 
-The one remaining item — a real design effort, land it as its own
-deliberate, reviewed change, NOT rushed:
+(HISTORICAL design record for the fix that landed:)
 
 `throw_indirect` — intermediate-frame unwind leak. `hml_throw`
 longjmps straight to the nearest `try`'s setjmp, skipping every C
@@ -240,5 +249,5 @@ Two models:
      non-leak suite regresses.
 
 Shipped: `string_ops`, `try_unwind` (throwing-frame),
-`closure_capture`. Cut 2.5.0 once `throw_indirect` lands and a full
-`make stress-lsan` is green. Keep one-construct-per-commit.
+`closure_capture`, `throw_indirect` + `expr_temp_unwind` (the
+unwind-cleanup registry). Keep one-construct-per-commit.

@@ -80,6 +80,9 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
             }
             codegen_writeln(ctx, "HmlValue %s = %s;", pattern->as.binding.name, scrutinee);
             codegen_writeln(ctx, "hml_retain(&%s);", pattern->as.binding.name);
+            // Unwind registration: a throw while the binding is live (guard,
+            // arm body) releases it; arm-exit resets drop the entry.
+            codegen_writeln(ctx, "hml_uw_track(&%s);", pattern->as.binding.name);
             break;
         }
 
@@ -108,6 +111,7 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
                 }
                 codegen_writeln(ctx, "HmlValue %s = %s;", pattern->as.typed.name, scrutinee);
                 codegen_writeln(ctx, "hml_retain(&%s);", pattern->as.typed.name);
+                codegen_writeln(ctx, "hml_uw_track(&%s);", pattern->as.typed.name);
             }
             break;
         }
@@ -115,6 +119,13 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
         case PATTERN_OR: {
             // Try each alternative - if any matches, continue; if all fail, go to fail_label
             char *success_label = codegen_label(ctx);
+
+            // Alternative-level unwind-registry watermark: a failed
+            // alternative leaves entries pointing into its exited C block,
+            // which the next alternative's block may reuse - reset on entry
+            // to each alternative (same hazard as match arms).
+            int uw_alt_id = ctx->temp_counter++;
+            codegen_writeln(ctx, "size_t _uwo%d = hml_uw_mark();", uw_alt_id);
 
             for (int i = 0; i < pattern->as.or_pattern.num_alternatives; i++) {
                 char *next_alt_label = (i + 1 < pattern->as.or_pattern.num_alternatives) ?
@@ -124,6 +135,7 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
                 codegen_writeln(ctx, "// OR pattern alternative %d", i);
                 codegen_writeln(ctx, "{");
                 codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "hml_uw_reset(_uwo%d);", uw_alt_id);
 
                 // Try this alternative
                 codegen_pattern_match(ctx, pattern->as.or_pattern.alternatives[i], scrutinee, alt_fail);
@@ -173,6 +185,7 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
                     }
                     codegen_writeln(ctx, "HmlValue %s = %s;", field->name, field_val);
                     codegen_writeln(ctx, "hml_retain(&%s);", field->name);
+                    codegen_writeln(ctx, "hml_uw_track(&%s);", field->name);
                 }
 
                 // hml_object_get_field returns a retained (owned) value. Bindings
@@ -197,6 +210,7 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
 
                 // Create a new object with unmatched fields
                 codegen_writeln(ctx, "HmlValue %s = hml_val_object();", rest_name);
+                codegen_writeln(ctx, "hml_uw_track(&%s);", rest_name);
                 codegen_writeln(ctx, "{");
                 codegen_indent_inc(ctx);
                 codegen_writeln(ctx, "int _count = hml_object_num_fields(%s);", scrutinee);
@@ -286,6 +300,7 @@ void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *sc
 
                 // Create array with rest elements
                 codegen_writeln(ctx, "HmlValue %s = hml_val_array();", rest_name);
+                codegen_writeln(ctx, "hml_uw_track(&%s);", rest_name);
                 codegen_writeln(ctx, "{");
                 codegen_indent_inc(ctx);
                 codegen_writeln(ctx, "int _len = hml_array_length(%s).as.as_i32;", scrutinee);

@@ -293,6 +293,8 @@ void hml_runtime_cleanup(void) {
     while (g_exception_stack) {
         hml_exception_pop();
     }
+
+    hml_uw_thread_cleanup();
 }
 
 HmlValue hml_get_args(void) {

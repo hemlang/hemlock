@@ -523,6 +523,7 @@ typedef struct HmlExceptionContext {
     HmlValue exception_value;
     int is_active;
     struct HmlExceptionContext *prev;
+    size_t uw_mark;  // unwind-registry watermark at push (see hml_uw_* below)
 } HmlExceptionContext;
 
 // Exception stack management
@@ -530,6 +531,58 @@ HmlExceptionContext* hml_exception_push(void);
 void hml_exception_pop(void);
 __attribute__((noreturn)) void hml_throw(HmlValue exception_value);
 HmlValue hml_exception_get_value(void);
+
+// ---------- Unwind cleanup for expression temporaries ----------
+// A throw longjmps straight to the nearest handler, skipping the
+// hml_release calls that generated code emits after the throwing
+// operation - so owned expression temporaries (concat results, retained
+// operand copies, call arguments, ...) used to leak on every caught
+// runtime error. Generated code now registers the C slot of each owned
+// temporary in this thread-local registry; hml_throw releases every slot
+// registered after the target handler was installed before jumping.
+//
+// Safety of releasing eagerly-registered slots: hml_release NULLs the
+// payload pointer of whatever it releases, so a temp that was already
+// released on the normal path is a no-op here. Slots whose value was
+// MOVED (ownership transferred without a release) are discarded from the
+// registry by the mover before any throwing code can run: every
+// expression node pops its children's entries as soon as it completes
+// (hml_uw_pop_track), statements reset to their entry watermark, and
+// `throw expr;` consumes its operand's slot via hml_throw_temp.
+//
+// All registered slots are still-live C locals at throw time: the
+// registry is pruned whenever the C scope holding a slot can exit
+// (expression completion, statement end, function return), so the
+// release loop in hml_throw never reads a dead stack slot.
+extern _Thread_local HmlValue **hml_uw_slots;
+extern _Thread_local size_t hml_uw_sp;
+extern _Thread_local size_t hml_uw_cap;
+
+#define HML_UW_SLOTS_INITIAL_CAP 64
+
+void hml_uw_grow(void);            // slow path for hml_uw_track
+void hml_uw_thread_cleanup(void);  // free the registry at task/thread exit
+
+static inline size_t hml_uw_mark(void) { return hml_uw_sp; }
+static inline void hml_uw_reset(size_t mark) { hml_uw_sp = mark; }
+static inline void hml_uw_track(HmlValue *slot) {
+    // Registration happens after the expression completed, so the slot
+    // already holds its final value: primitives have nothing to release
+    // on unwind and can skip the registry entirely.
+    if (!hml_needs_refcount(*slot)) return;
+    if (hml_uw_sp == hml_uw_cap) hml_uw_grow();
+    hml_uw_slots[hml_uw_sp++] = slot;
+}
+// Discard entries registered since `mark` (all already released or moved),
+// then register `slot` - the completed expression's own result.
+static inline void hml_uw_pop_track(size_t mark, HmlValue *slot) {
+    hml_uw_sp = mark;
+    hml_uw_track(slot);
+}
+// `throw expr;` support: consume the operand's registered slot (so the
+// unwind loop cannot release the value now owned by the exception
+// context) and throw its value.
+__attribute__((noreturn)) void hml_throw_temp(HmlValue *slot);
 
 // Runtime error helper - throws catchable exception with formatted message
 // Note: This function may return (via longjmp) to an exception handler,

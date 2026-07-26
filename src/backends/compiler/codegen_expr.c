@@ -86,7 +86,50 @@ static void emit_capture(CodegenContext *ctx, const char *env_name,
     free(safe_cap);
 }
 
+static char* codegen_expr_dispatch(CodegenContext *ctx, Expr *expr);
+
+// Wrap every expression in unwind-registry bookkeeping (see the hml_uw_*
+// runtime API): take a watermark, generate the expression, then pop the
+// entries the sub-expressions left (each already released or moved by the
+// generated code) and register the expression's own owned result slot.
+// Registering at completion keeps the invariant that a finished expression
+// contributes exactly one live entry, so hml_throw can release everything a
+// mid-expression runtime error would otherwise leak, while entries never
+// point into a C scope that has already exited.
+//
+// Literal kinds that can't hold refcounted values skip the bookkeeping
+// entirely; results that aren't plain "_tmpN" lvalues (e.g. an inlined
+// "hml_val_null()") are popped but not registered.
 char* codegen_expr(CodegenContext *ctx, Expr *expr) {
+    switch (expr->type) {
+        case EXPR_NUMBER:
+        case EXPR_BOOL:
+        case EXPR_NULL:
+        case EXPR_RUNE:
+            return codegen_expr_dispatch(ctx, expr);
+        case EXPR_STRING: {
+            // Leaf with a refcounted result: track without a watermark.
+            char *result = codegen_expr_dispatch(ctx, expr);
+            if (strncmp(result, "_tmp", 4) == 0) {
+                codegen_writeln(ctx, "hml_uw_track(&%s);", result);
+            }
+            return result;
+        }
+        default:
+            break;
+    }
+    int uw_id = ctx->temp_counter++;
+    codegen_writeln(ctx, "size_t _uwm%d = hml_uw_mark();", uw_id);
+    char *result = codegen_expr_dispatch(ctx, expr);
+    if (strncmp(result, "_tmp", 4) == 0) {
+        codegen_writeln(ctx, "hml_uw_pop_track(_uwm%d, &%s);", uw_id, result);
+    } else {
+        codegen_writeln(ctx, "hml_uw_reset(_uwm%d);", uw_id);
+    }
+    return result;
+}
+
+static char* codegen_expr_dispatch(CodegenContext *ctx, Expr *expr) {
     char *result = codegen_temp(ctx);
 
     switch (expr->type) {
@@ -1634,6 +1677,15 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             char *scrutinee = codegen_expr(ctx, expr->as.match_expr.scrutinee);
             codegen_writeln(ctx, "HmlValue %s;", result);
 
+            // Arm-level unwind-registry watermark (taken after the scrutinee
+            // registered itself, so resets keep the scrutinee releasable on
+            // throw). Each arm resets to it on entry: a failed arm's entries
+            // point into that arm's exited C block, and the next arm's block
+            // may reuse those stack slots for non-HmlValue locals - a throw
+            // there must not reinterpret them as values.
+            int uw_arm_id = ctx->temp_counter++;
+            codegen_writeln(ctx, "size_t _uwa%d = hml_uw_mark();", uw_arm_id);
+
             // Generate labels for each arm and the end
             char **arm_labels = NULL;
             if (expr->as.match_expr.num_arms > 0) {
@@ -1659,6 +1711,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
 
                 codegen_writeln(ctx, "// Match arm %d", i);
                 codegen_writeln(ctx, "%s:;", arm_labels[i]);
+                codegen_writeln(ctx, "hml_uw_reset(_uwa%d);", uw_arm_id);
                 int arm_locals_start = ctx->num_locals;
                 codegen_push_scope(ctx);
                 codegen_writeln(ctx, "{");

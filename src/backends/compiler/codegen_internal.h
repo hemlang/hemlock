@@ -110,6 +110,10 @@ void funcgen_apply_defaults(CodegenContext *ctx, Expr *func);
 // codegen_emit_param_cleanup on every function exit path.
 void funcgen_retain_params(CodegenContext *ctx, Expr *func);
 
+// Register owned params/rest/captures in the unwind registry (emitted after
+// the prologue's hml_uw_reset(_uw_fnm); see codegen.c for the invariants).
+void funcgen_track_owned_params(CodegenContext *ctx);
+
 // Emit hml_release_if_needed() for every non-ref parameter (and the rest
 // parameter) - the counterpart of funcgen_retain_params. Called on function
 // exit paths AFTER codegen_emit_local_cleanup. Not called on the tail-call

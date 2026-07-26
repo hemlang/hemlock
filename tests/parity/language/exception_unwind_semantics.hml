@@ -1,0 +1,140 @@
+// Semantic guards for exception unwinding with live temporaries and
+// locals. The compiled backend releases registered slots in hml_throw
+// before the longjmp (unwind-cleanup registry); these cases pin down
+// that the cleanup never releases something still owned elsewhere:
+// values assigned mid-expression before a throw, catch params, match
+// scrutinees/bindings, saved return values under finally, and
+// tail-call parameters must all remain intact and correct.
+
+fn boom(): string {
+    throw "kaboom";
+}
+
+fn mk(tag: string): string {
+    return "made-" + tag;
+}
+
+fn use2(a: string, b: string): string {
+    return a + "|" + b;
+}
+
+// 1. Temp live across a throwing call; program continues correctly.
+let hello = "hello";
+try {
+    let s = hello.to_upper() + boom();
+    print(s);
+} catch (e) {
+    print("1: caught " + e);
+}
+print("1: hello still " + hello);
+
+// 2. Assignment inside a call's argument list, then a later argument
+// throws: the assigned variable must keep its (moved-in) value.
+let x = "initial";
+try {
+    let r = use2(x = mk("two"), boom());
+    print(r);
+} catch (e) {
+    print("2: caught " + e);
+}
+print("2: x = " + x);
+
+// 3. Runtime error (not user throw) mid-expression: catchable, and
+// operands stay usable.
+let arr = [10, 20, 30];
+try {
+    let t = hello.to_lower() + arr[99];
+    print(t);
+} catch (e) {
+    print("3: caught index error");
+}
+print("3: arr[1] = " + arr[1]);
+
+// 4. Match: guard throws; scrutinee and bindings behave.
+fn guardthrow(v: i32): i32 {
+    if (v == 1) { throw "guard-boom"; }
+    return v;
+}
+let subject = 1;
+try {
+    let m = match (subject) {
+        n if guardthrow(n) == 99 => "impossible",
+        n => "arm: " + n
+    };
+    print("4: " + m);
+} catch (e) {
+    print("4: caught " + e);
+}
+let m2 = match (subject) {
+    0 => "zero",
+    n => "4: matched " + n
+};
+print(m2);
+
+// 5. Intermediate frame with locals: throw propagates through it,
+// caller still works afterwards.
+fn middle(r: i32): string {
+    let held = ["h-" + r, "i-" + r];
+    let o = { tag: "m-" + r };
+    return o.tag + held[0] + boom();
+}
+let count = 0;
+let i = 0;
+while (i < 3) {
+    try {
+        print(middle(i));
+    } catch (e) {
+        count = count + 1;
+    }
+    i = i + 1;
+}
+print("5: caught " + count);
+
+// 6. try/finally: return value survives the finally; a throw in the
+// finally wins over the return.
+fn retfin(): string {
+    try {
+        return mk("six");
+    } finally {
+        print("6: finally ran");
+    }
+}
+print("6: " + retfin());
+
+fn retfin_throw(): string {
+    try {
+        return mk("never");
+    } finally {
+        throw "finally-boom";
+    }
+}
+try {
+    print(retfin_throw());
+} catch (e) {
+    print("6: caught " + e);
+}
+
+// 7. Rethrow from catch: catch param value survives into outer handler.
+try {
+    try {
+        throw "inner-" + mk("seven");
+    } catch (e) {
+        throw e;
+    }
+} catch (e) {
+    print("7: " + e);
+}
+
+// 8. Deep recursion with throw at depth (exercises many live frames).
+fn deep(n: i32): i32 {
+    let pad = "depth-" + n;
+    if (n == 0) { throw pad; }
+    return deep(n - 1);
+}
+try {
+    deep(50);
+} catch (e) {
+    print("8: " + e);
+}
+
+print("done");

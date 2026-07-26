@@ -206,6 +206,7 @@ static void* task_thread_wrapper(void* arg) {
         // Release the thread's reference to the task
         HmlValue task_val = { .type = HML_VAL_TASK, .as.as_task = task };
         hml_release(&task_val);
+        hml_uw_thread_cleanup();
         return NULL;
     }
 
@@ -219,6 +220,7 @@ static void* task_thread_wrapper(void* arg) {
     // Release the thread's reference to the task
     HmlValue task_val = { .type = HML_VAL_TASK, .as.as_task = task };
     hml_release(&task_val);
+    hml_uw_thread_cleanup();
     return NULL;
 }
 

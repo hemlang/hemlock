@@ -104,6 +104,11 @@ typedef struct {
     int func_counter;       // Counter for anonymous functions
     int in_function;        // Whether we're inside a function
     int inline_depth;       // Current inlining depth (0 = not inlining, max depth prevents code bloat)
+    char *uw_pending_local; // C name of a boxed local the current let-statement
+                            // declared; the codegen_stmt wrapper registers it in
+                            // the unwind registry AFTER the statement's reset so
+                            // the entry survives until the local's scope exits
+                            // (see hml_uw_* in the runtime)
     char **local_vars;      // Stack of local variable names
     const char **local_annots; // Declared primitive annotation per local ("HML_VAL_*" or NULL)
     char **main_annot_names;   // Annotated main-level variable names

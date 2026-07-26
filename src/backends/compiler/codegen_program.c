@@ -193,8 +193,15 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
 
     // Add parameters as locals, take ownership of them, and apply defaults
     funcgen_add_params(ctx, func);
+    // Unwind-registry watermark for this frame: return sites reset to it so
+    // the frame leaves no stale slot entries behind (see hml_uw_* runtime API).
+    codegen_writeln(ctx, "size_t _uw_fnm = hml_uw_mark();");
     funcgen_retain_params(ctx, func);
     funcgen_apply_defaults(ctx, func);
+    // Applied defaults moved their expression temp into the parameter; drop
+    // those registry entries so a later throw can't release the param's value.
+    codegen_writeln(ctx, "hml_uw_reset(_uw_fnm);");
+    funcgen_track_owned_params(ctx);
 
     // Body-locals start after params (for cleanup at function exit)
     ctx->locals_body_start = ctx->num_locals;
@@ -241,6 +248,7 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
     if (ctx->stack_check) {
         codegen_writeln(ctx, "HML_CALL_EXIT();");
     }
+    codegen_writeln(ctx, "hml_uw_reset(_uw_fnm);");
     codegen_writeln(ctx, "return hml_val_null();");
 
     codegen_indent_dec(ctx);
@@ -290,6 +298,8 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
 
     // Add parameters as locals and take ownership of them
     funcgen_add_params(ctx, func);
+    // Frame watermark for the unwind registry (see hml_uw_* runtime API)
+    codegen_writeln(ctx, "size_t _uw_fnm = hml_uw_mark();");
     funcgen_retain_params(ctx, func);
 
     // Extract captured variables from environment
@@ -359,6 +369,9 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
 
     // Apply defaults and track call depth
     funcgen_apply_defaults(ctx, func);
+    // Drop registry entries left by applied defaults (moved into params)
+    codegen_writeln(ctx, "hml_uw_reset(_uw_fnm);");
+    funcgen_track_owned_params(ctx);
 
     // Body-locals start after params + captures (for cleanup at function exit)
     ctx->locals_body_start = ctx->num_locals;
@@ -389,6 +402,7 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     if (ctx->stack_check) {
         codegen_writeln(ctx, "HML_CALL_EXIT();");
     }
+    codegen_writeln(ctx, "hml_uw_reset(_uw_fnm);");
     codegen_writeln(ctx, "return hml_val_null();");
 
     codegen_indent_dec(ctx);
@@ -457,6 +471,9 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
     codegen_indent_inc(ctx);
     codegen_writeln(ctx, "if (%s_hml_init_done) return;", module->module_prefix);
     codegen_writeln(ctx, "%s_hml_init_done = 1;", module->module_prefix);
+    // Frame watermark for the unwind registry; (void) because module init
+    // bodies usually have no return statement referencing it.
+    codegen_writeln(ctx, "size_t _uw_fnm = hml_uw_mark(); (void)_uw_fnm;");
     codegen_blank_line(ctx);
 
     // Save current module context
@@ -726,8 +743,13 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, MemBuffer
             // Add parameters (taking ownership), apply defaults, set up
             // shared env, and generate body
             funcgen_add_params(ctx, func);
+            // Frame watermark for the unwind registry (see hml_uw_* runtime API)
+            codegen_writeln(ctx, "size_t _uw_fnm = hml_uw_mark();");
             funcgen_retain_params(ctx, func);
             funcgen_apply_defaults(ctx, func);
+            // Drop registry entries left by applied defaults (moved into params)
+            codegen_writeln(ctx, "hml_uw_reset(_uw_fnm);");
+            funcgen_track_owned_params(ctx);
             ctx->locals_body_start = ctx->num_locals;
             codegen_emit_defer_prologue(ctx, func->as.function.body);
             funcgen_setup_shared_env(ctx, func, NULL);
@@ -738,6 +760,7 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, MemBuffer
             codegen_emit_defer_exit(ctx);
             codegen_emit_local_cleanup(ctx, NULL);
             codegen_emit_param_cleanup(ctx);
+            codegen_writeln(ctx, "hml_uw_reset(_uw_fnm);");
             codegen_writeln(ctx, "return hml_val_null();");
 
             // Restore state
@@ -1212,6 +1235,9 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     // args is a static global (_main_args) so it's accessible from all functions
     codegen_writeln(ctx, "_main_args = hml_get_args();");
     codegen_add_local(ctx, "args");
+    // Frame watermark for the unwind registry; (void) because main may have
+    // no return statement referencing it.
+    codegen_writeln(ctx, "size_t _uw_fnm = hml_uw_mark(); (void)_uw_fnm;");
     codegen_blank_line(ctx);
 
     // Initialize imported modules
