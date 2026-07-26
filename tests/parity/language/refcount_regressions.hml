@@ -1,0 +1,39 @@
+// Regression tests for reference-count audit fixes (interpreter side).
+
+// 1. Passing a heap temporary to a `ref` parameter must not double-release
+//    it (the interpreter used to over-decrement and crash on reuse).
+fn ref_noop(ref x) { }
+fn ref_spin(): i32 {
+    let s = "heap-string-payload-" + "tail";
+    ref_noop(s);
+    return s.length;
+}
+let acc = 0;
+for (let k = 0; k < 2000; k++) {
+    acc = acc + ref_spin();
+}
+print(acc);
+
+// ref parameter still writes through
+fn bump(ref n: i32) { n = n + 1; }
+let counter = 41;
+bump(counter);
+print(counter);
+
+// 2. reduce() on an empty array returns the initial value with its own
+//    reference (the interpreter used to return it borrowed - over-release).
+let red = [].reduce(fn(a, b) { return a; }, { x: 42 });
+print(red.x);
+let red2 = [1, 2, 3].reduce(fn(a, b) { return a + b; }, 10);
+print(red2);
+
+// 3. A deferred call to a value-returning function must not clobber the
+//    enclosing function's return value (its result is discarded).
+fn make_string(): string {
+    return "deferred result string value";
+}
+fn with_defer(): i32 {
+    defer make_string();
+    return 7;
+}
+print(with_defer());

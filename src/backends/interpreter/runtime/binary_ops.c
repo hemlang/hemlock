@@ -775,7 +775,9 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     }
                     default:
                         runtime_error(ctx, "Invalid integer type for arithmetic");
-                        return val_null();
+                        // Fall through to the shared cleanup so the promoted
+                        // operands are released (a bare return leaked them)
+                        goto binary_cleanup;
                 }
             }
 

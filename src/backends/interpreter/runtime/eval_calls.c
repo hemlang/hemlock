@@ -1057,6 +1057,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             arg_value = val_null();
                             VALUE_RELEASE(args[i]);
                         }
+                        // Null the slot: the post-call cleanup loop releases every
+                        // args[i], and releasing this one a second time
+                        // over-decremented heap arguments (use-after-free when
+                        // args[i] held the last reference, e.g. a temporary
+                        // passed to a ref parameter).
+                        args[i] = val_null();
                     } else if (has_arg) {
                         // Regular parameter - use provided argument
                         arg_value = args[i];

@@ -250,18 +250,23 @@ Value builtin_apply(Value *args, int num_args, ExecutionContext *ctx) {
         // Bind parameters
         for (int i = 0; i < fn->num_params; i++) {
             Value arg_value = {0};
+            int arg_owned = 0;  // 1 when arg_value holds a locally-created reference
 
             if (i < call_num_args && call_args != NULL) {
-                arg_value = call_args[i];
+                arg_value = call_args[i];  // borrowed from the args array
             } else if (fn->param_defaults && fn->param_defaults[i]) {
-                // Evaluate default expression in closure environment
+                // Evaluate default expression in closure environment (owned)
                 arg_value = eval_expr(fn->param_defaults[i], fn->closure_env, ctx);
+                arg_owned = 1;
             }
 
             // Type check if parameter has type annotation
             if (fn->param_types[i]) {
                 arg_value = convert_to_type(arg_value, fn->param_types[i], call_env, ctx);
                 if (ctx->exception_state.is_throwing) {
+                    if (arg_owned) {
+                        VALUE_RELEASE(arg_value);
+                    }
                     env_release(call_env);
                     if (call_args) free(call_args);
                     return val_null();
@@ -269,6 +274,12 @@ Value builtin_apply(Value *args, int num_args, ExecutionContext *ctx) {
             }
 
             env_set(call_env, fn->param_names[i], arg_value, ctx);
+            // env_set retained its own reference; drop ours for values we
+            // created here (default expressions), which used to leak once
+            // per apply() call that filled in a heap-typed default.
+            if (arg_owned) {
+                VALUE_RELEASE(arg_value);
+            }
         }
 
         // Bind rest parameter if present
