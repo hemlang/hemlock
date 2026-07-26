@@ -1,0 +1,33 @@
+// CONTRACT: `/` ALWAYS returns a float — for every operand combination and
+// in every syntactic position, including inside string concatenation and
+// division by 1. There is no hidden integer-division mode anywhere; integer
+// division is spelled divi() (@stdlib/math). f32/f32 keeps f32; every other
+// numeric combination yields f64. Integer division by zero throws a
+// catchable error; float division by zero follows IEEE 754.
+
+import { divi } from "@stdlib/math";
+
+let a = 7;
+let b = 2;
+print(a / b);              // 3.5
+print(typeof(a / b));      // f64
+print(7 / 2);              // 3.5
+print(a / 1);              // 7
+print(typeof(a / 1));      // f64
+print("x" + a / b);        // x3.5 (no integer-division mode in concat)
+print(`t: ${a / b}`);      // t: 3.5
+
+let f32a: f32 = 1.0;
+let f32b: f32 = 2.0;
+print(typeof(f32a / f32b)); // f32
+print(typeof(f32a / a));    // f32 (f32 wins over int)
+print(typeof(f32a / 2.0));  // f64 (float literal is f64; f32 -> f64)
+
+print(divi(7, 2));          // 3
+print(divi(-7, 2));         // -3 (truncates toward zero)
+
+try { print(a / 0); } catch (e) {
+    if (e.contains("Division by zero")) { print("int div by zero throws"); }
+}
+print(1.0 / 0.0);           // inf
+print(-1.0 / 0.0);          // -inf

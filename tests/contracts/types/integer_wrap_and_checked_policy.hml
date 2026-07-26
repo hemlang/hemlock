@@ -1,0 +1,85 @@
+// CONTRACT: Integer overflow policy (docs/language-guide/types.md)
+//
+// - i8/i16/u8/u16 same-type arithmetic wraps (two's complement)
+// - u32/u64 arithmetic wraps (well-defined unsigned behavior)
+// - i32/i64 add/sub/mul/negate throw a CATCHABLE "Integer overflow" error
+// - signed MIN % -1 is 0 (never a crash)
+// - ++/-- always wrap, preserving the operand's type (they are the
+//   explicit "I want wrapping" tool, like unsigned arithmetic)
+// - compound assignment behaves like the expanded binary operator
+
+fn expect_overflow(name: string, f) {
+    try {
+        f();
+        print(name + ": NO ERROR (contract breach)");
+    } catch (e) {
+        if (e.contains("Integer overflow")) {
+            print(name + ": overflow error");
+        } else {
+            print(name + ": wrong error");
+        }
+    }
+}
+
+// Narrow signed types wrap
+let a8: i8 = 127;
+let one8: i8 = 1;
+print(a8 + one8);           // -128
+let a16: i16 = 32767;
+let one16: i16 = 1;
+print(a16 + one16);         // -32768
+
+// Unsigned types wrap
+let b8: u8 = 255;
+let bone8: u8 = 1;
+print(b8 + bone8);          // 0
+let b16: u16 = 65535;
+let bone16: u16 = 1;
+print(b16 + bone16);        // 0
+let b32: u32 = 4294967295;
+print(b32 + 1);             // 0
+let b64: u64 = 18446744073709551615;
+print(b64 + 1);             // 0
+
+// i32/i64 checked arithmetic throws catchable errors
+let imax: i32 = 2147483647;
+let imin: i32 = -2147483648;
+expect_overflow("i32 add", fn() { return imax + 1; });
+expect_overflow("i32 sub", fn() { return imin - 1; });
+expect_overflow("i32 mul", fn() { return imax * 2; });
+expect_overflow("i32 neg", fn() { return -imin; });
+let lmax: i64 = 9223372036854775807;
+let lmin: i64 = -9223372036854775807 - 1;
+expect_overflow("i64 add", fn() { return lmax + 1; });
+expect_overflow("i64 sub", fn() { return lmin - 1; });
+expect_overflow("i64 mul", fn() { return lmax * 2; });
+expect_overflow("i64 neg", fn() { return -lmin; });
+
+// Signed MIN % -1 is 0 in every width (must never crash the process)
+let negone: i32 = -1;
+print(imin % negone);       // 0
+let negone64: i64 = -1;
+print(lmin % negone64);     // 0
+
+// Narrow-type negation wraps in-type; unsigned negation promotes
+let n8: i8 = -128;
+print(-n8);                 // -128 (wraps)
+print(typeof(-n8));         // i8
+let u8v: u8 = 200;
+print(-u8v);                // -200
+print(typeof(-u8v));        // i16
+
+// ++/-- wrap for every integer type (including i32/i64)
+let c32: i32 = 2147483647;
+c32++;
+print(c32);                 // -2147483648
+let c8: u8 = 255;
+c8++;
+print(c8);                  // 0
+let d32: i32 = -2147483648;
+d32--;
+print(d32);                 // 2147483647
+
+// Compound assignment expands to the checked operator
+let e32: i32 = 2147483647;
+expect_overflow("i32 +=", fn() { e32 += 1; });
