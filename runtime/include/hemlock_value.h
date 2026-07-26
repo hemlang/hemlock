@@ -180,6 +180,8 @@ struct HmlFunction {
     int num_required;       // Number of required parameters (for arity checking)
     int is_async;
     int has_rest_param;     // Has rest parameter (...args) - accepts unlimited extra args
+    int has_bound_self;     // 1 if this is a method extracted from an object (bound_self valid)
+    HmlValue bound_self;    // Object bound as 'self' for extracted methods
     _Atomic int ref_count;
 };
 

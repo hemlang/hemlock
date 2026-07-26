@@ -326,9 +326,12 @@ typedef HmlValue (*HmlFn6)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValu
 typedef HmlValue (*HmlFn7)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
 typedef HmlValue (*HmlFn8)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
 
-// Hot path: dispatch function call with optimized branching
+// Hot path: dispatch function call with optimized branching.
+// This is the raw dispatch that ignores any bound 'self' on the callee;
+// hml_call_method uses it directly after setting hml_self itself (an explicit
+// receiver always wins over a stored binding, matching the interpreter).
 __attribute__((hot))
-HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
+HmlValue hml_call_function_no_bind(HmlValue fn, HmlValue *args, int num_args) {
     // Validate args pointer if we have arguments
     if (__builtin_expect(num_args > 0 && args == NULL, 0)) {
         hml_runtime_error("Function called with NULL args array");
@@ -463,6 +466,26 @@ HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
     }
 
     hml_runtime_error("Cannot call non-function value (type: %s)", hml_typeof_str(fn));
+}
+
+// Public entry point: honors a bound 'self' on extracted methods.
+// When the callee was extracted from an object (let g = obj.method;), calling
+// it through this path runs with 'self' bound to that object.
+__attribute__((hot))
+HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
+    if (__builtin_expect(fn.type == HML_VAL_FUNCTION && fn.as.as_function != NULL &&
+                         fn.as.as_function->has_bound_self, 0)) {
+        HmlValue prev_self = hml_self;
+        hml_self = fn.as.as_function->bound_self;
+        hml_retain(&hml_self);
+
+        HmlValue result = hml_call_function_no_bind(fn, args, num_args);
+
+        hml_release(&hml_self);
+        hml_self = prev_self;
+        return result;
+    }
+    return hml_call_function_no_bind(fn, args, num_args);
 }
 
 // Call a function with named arguments - reorders args to match parameter names
@@ -827,8 +850,9 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
     hml_self = obj;
     hml_retain(&hml_self);
 
-    // Call the method
-    HmlValue result = hml_call_function(fn, args, num_args);
+    // Call the method. Use the no-bind dispatch: the explicit receiver set
+    // above must win even if the stored field is an extracted bound method.
+    HmlValue result = hml_call_function_no_bind(fn, args, num_args);
 
     // Restore previous self
     hml_release(&hml_self);

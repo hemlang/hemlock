@@ -232,6 +232,16 @@
 // Closures in hot loops benefit the most from pooled allocation
 #define HML_FUNCTION_POOL_SIZE 512
 
+// ========== CLOSURE ENVIRONMENTS ==========
+
+// Parent-slot index encoding for closure environments:
+//   index = depth * HML_CLOSURE_ENV_PARENT_STRIDE + slot
+// where depth is the number of parent links to follow and slot is the index
+// within that environment. Used so closures created inside other closures can
+// share (rather than copy) variables captured from an enclosing function.
+// Must match HML_CLOSURE_ENV_PARENT_STRIDE in runtime/include/hemlock_runtime.h
+#define HML_CLOSURE_ENV_PARENT_STRIDE 65536
+
 // ========== INLINE CACHE CONSTANTS ==========
 
 // Inline caching is used to speed up property access and method dispatch

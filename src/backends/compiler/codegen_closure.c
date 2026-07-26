@@ -80,11 +80,15 @@ int shared_env_add_var(CodegenContext *ctx, const char *var) {
     return idx;
 }
 
-// Get the index of a variable in the shared environment (-1 if not found)
+// Get the actual env slot index of a variable in the shared environment
+// (-1 if not found). When an index mapping is present (closure bodies whose
+// shared env aliases or chains to the enclosing closure's environment), the
+// returned index may use the parent-slot encoding
+// (see HML_CLOSURE_ENV_PARENT_STRIDE).
 int shared_env_get_index(CodegenContext *ctx, const char *var) {
     for (int i = 0; i < ctx->shared_env_num_vars; i++) {
         if (strcmp(ctx->shared_env_vars[i], var) == 0) {
-            return i;
+            return ctx->shared_env_indices ? ctx->shared_env_indices[i] : i;
         }
     }
     return -1;
@@ -101,10 +105,13 @@ void shared_env_clear(CodegenContext *ctx) {
     if (ctx->shared_env_name) {
         free(ctx->shared_env_name);
     }
+    free(ctx->shared_env_indices);
     ctx->shared_env_name = NULL;
     ctx->shared_env_vars = NULL;
     ctx->shared_env_num_vars = 0;
     ctx->shared_env_capacity = 0;
+    ctx->shared_env_indices = NULL;
+    ctx->shared_env_borrowed = 0;
 }
 
 // Helper to count required parameters (those without defaults)

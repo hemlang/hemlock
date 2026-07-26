@@ -419,7 +419,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"length\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"length\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             // Socket properties: fd, address, port, closed
@@ -431,7 +431,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"fd\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"fd\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else if (strcmp(expr->as.get_property.property, "address") == 0) {
@@ -442,7 +442,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"address\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"address\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else if (strcmp(expr->as.get_property.property, "port") == 0) {
@@ -453,7 +453,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"port\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"port\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else if (strcmp(expr->as.get_property.property, "closed") == 0) {
@@ -464,7 +464,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"closed\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"closed\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else if (strcmp(expr->as.get_property.property, "nonblocking") == 0) {
@@ -475,7 +475,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"nonblocking\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"nonblocking\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             // String byte_length property
@@ -487,7 +487,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"byte_length\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"byte_length\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             // Buffer capacity property
@@ -499,12 +499,12 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"capacity\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"capacity\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else {
                 // Regular property access - throws error if field not found (parity with interpreter)
-                codegen_writeln(ctx, "HmlValue %s = hml_object_get_field_required(%s, \"%s\");",
+                codegen_writeln(ctx, "HmlValue %s = hml_object_get_field_bound(%s, \"%s\");",
                               result, obj, expr->as.get_property.property);
             }
             codegen_writeln(ctx, "hml_release(&%s);", obj);
@@ -863,10 +863,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     }
                 }
 
-                // Update the shared environment with current values of captured variables
+                // Update the shared environment with current values of captured variables.
+                // Slots that resolve into an enclosing closure's environment (borrowed
+                // env or parent-encoded index) are NOT re-seeded: the enclosing
+                // environment already holds the authoritative, shared value, and
+                // overwriting it with this body's local copy could clobber updates
+                // made through previously created closures.
                 for (int i = 0; i < captured->num_vars; i++) {
                     int shared_idx = shared_env_get_index(ctx, captured->vars[i]);
-                    if (shared_idx >= 0) {
+                    if (shared_idx >= 0 && !ctx->shared_env_borrowed &&
+                        shared_idx < HML_CLOSURE_ENV_PARENT_STRIDE) {
                         emit_capture(ctx, ctx->shared_env_name, shared_idx, captured->vars[i]);
                     }
                 }

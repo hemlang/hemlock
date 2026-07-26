@@ -139,6 +139,11 @@ typedef struct {
     char **shared_env_vars;         // Variables in the shared environment
     int shared_env_num_vars;        // Number of variables in shared environment
     int shared_env_capacity;        // Capacity of shared_env_vars array
+    int *shared_env_indices;        // Per-var actual env slot index (may use parent-slot
+                                    // encoding, see HML_CLOSURE_ENV_PARENT_STRIDE);
+                                    // NULL means identity mapping (slot == position)
+    int shared_env_borrowed;        // 1 if shared_env_name aliases the enclosing closure's
+                                    // _closure_env instead of a freshly created env
 
     // Last created closure (for self-reference fixup in let statements)
     int last_closure_env_id;       // -1 if no closure, otherwise the env counter

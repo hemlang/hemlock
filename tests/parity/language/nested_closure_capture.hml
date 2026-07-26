@@ -1,0 +1,80 @@
+// Test closures created inside an intermediate nested function share the
+// enclosing function's variable (capture by reference through all levels)
+
+// Closure returned through an intermediate function mutates the outer variable
+fn outer() {
+    let count = 0;
+    fn mk() {
+        return fn() { count = count + 1; return count; };
+    }
+    let a = mk();
+    print(a());
+    print(a());
+    print(count);
+}
+outer();
+
+// Two closures from two calls of the intermediate function share ONE variable
+fn outer2() {
+    let count = 0;
+    fn mk() {
+        return fn() { count = count + 1; return count; };
+    }
+    let a = mk();
+    let b = mk();
+    print(a());
+    print(a());
+    print(b());
+    print(count);
+}
+outer2();
+
+// Three levels of nesting still share the outermost variable
+fn outer3() {
+    let n = 0;
+    fn mk1() {
+        fn mk2() {
+            return fn() { n = n + 10; return n; };
+        }
+        return mk2();
+    }
+    let f = mk1();
+    print(f());
+    print(f());
+    print(n);
+}
+outer3();
+
+// Intermediate function locals stay per-call while outer vars are shared
+fn mixed() {
+    let shared = 0;
+    fn mk() {
+        let local = 100;
+        return fn() {
+            shared = shared + 1;
+            local = local + 1;
+            return shared * 1000 + local;
+        };
+    }
+    let a = mk();
+    let b = mk();
+    print(a());
+    print(a());
+    print(b());
+    print(shared);
+}
+mixed();
+
+// Loop closures keep per-iteration capture semantics
+fn loops() {
+    let fns = [];
+    for (let i = 0; i < 3; i++) {
+        fns.push(fn() { return i; });
+    }
+    for (f in fns) {
+        print(f());
+    }
+}
+loops();
+
+print("done");

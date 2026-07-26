@@ -67,6 +67,8 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->shared_env_vars = NULL;
     ctx->shared_env_num_vars = 0;
     ctx->shared_env_capacity = 0;
+    ctx->shared_env_indices = NULL;
+    ctx->shared_env_borrowed = 0;
     ctx->last_closure_env_id = -1;
     ctx->last_closure_captured = NULL;
     ctx->last_closure_num_captured = 0;
@@ -1854,8 +1856,31 @@ void funcgen_apply_defaults(CodegenContext *ctx, Expr *func) {
     }
 }
 
+// If `var` is a captured variable of the enclosing closure (and not shadowed
+// by one of the closure function's own parameters), return its slot index in
+// that closure's _closure_env (may itself use the parent-slot encoding).
+// Returns -1 when the variable does not live in the enclosing environment.
+static int closure_capture_env_index(ClosureInfo *closure, Expr *func, const char *var) {
+    if (!closure) return -1;
+    // A parameter with the same name shadows the captured variable inside
+    // this function body (see codegen_closure_impl), so references resolve to
+    // the parameter, not the enclosing environment slot.
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        if (strcmp(func->as.function.param_names[i], var) == 0) return -1;
+    }
+    if (func->as.function.rest_param &&
+        strcmp(func->as.function.rest_param, var) == 0) {
+        return -1;
+    }
+    for (int j = 0; j < closure->num_captured; j++) {
+        if (strcmp(closure->captured_vars[j], var) == 0) {
+            return closure->shared_env_indices ? closure->shared_env_indices[j] : j;
+        }
+    }
+    return -1;
+}
+
 void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *closure) {
-    (void)closure;
     // Create an empty scope for scanning. We intentionally do NOT add the
     // enclosing function's params or captured vars here, because inner closures
     // need to detect ALL references to enclosing variables as free variables
@@ -1878,18 +1903,84 @@ void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *clos
 
     // Create shared environment if needed
     if (ctx->shared_env_num_vars > 0) {
+        // When generating a closure body, variables captured from the
+        // enclosing function already live in this closure's _closure_env.
+        // Inner closures must SHARE those slots (capture by reference), not
+        // copy them - otherwise mutations from an inner closure never reach
+        // the original variable (and each inner closure gets its own copy).
+        // Compute the slot index for each scanned variable:
+        //   - vars stored in the enclosing env: reference the enclosing slot
+        //     (through the parent link, see below)
+        //   - everything else: a fresh local slot in a new environment
+        int n = ctx->shared_env_num_vars;
+        int *idx_map = malloc(n * sizeof(int));
+        int *is_parent = malloc(n * sizeof(int));
+        if (!idx_map || !is_parent) {
+            fprintf(stderr, "error: Memory allocation failed for shared env mapping\n");
+            exit(1);
+        }
+        int num_local = 0;
+        int num_parent = 0;
+        for (int i = 0; i < n; i++) {
+            int parent_idx = closure_capture_env_index(closure, func, ctx->shared_env_vars[i]);
+            if (parent_idx >= 0) {
+                is_parent[i] = 1;
+                idx_map[i] = parent_idx;
+                num_parent++;
+            } else {
+                is_parent[i] = 0;
+                idx_map[i] = num_local++;
+            }
+        }
+
         char env_name[CODEGEN_ENV_NAME_SIZE];
+        if (num_parent > 0 && num_local == 0) {
+            // Every variable inner closures capture already lives in this
+            // closure's environment: reuse _closure_env directly as the
+            // shared environment. Slot indices are the enclosing indices
+            // unchanged. Take a reference so the release emitted by
+            // codegen_emit_local_cleanup stays balanced.
+            ctx->shared_env_name = strdup("_closure_env");
+            ctx->shared_env_indices = idx_map;
+            ctx->shared_env_borrowed = 1;
+            free(is_parent);
+            codegen_writeln(ctx, "hml_closure_env_retain(_closure_env);");
+            return;
+        }
+
         snprintf(env_name, sizeof(env_name), "_shared_env_%d", ctx->temp_counter++);
         ctx->shared_env_name = strdup(env_name);
-        codegen_writeln(ctx, "HmlClosureEnv *%s = hml_closure_env_new(%d);",
-                      env_name, ctx->shared_env_num_vars);
+        if (num_parent > 0) {
+            // Mixed case: chain a fresh environment (holding this body's own
+            // captured locals) to the enclosing environment. Enclosing slots
+            // are addressed through the parent link: one extra hop adds one
+            // stride to the encoded index (encoding is additive, so already
+            // encoded indices from deeper nesting compose correctly).
+            codegen_writeln(ctx, "HmlClosureEnv *%s = hml_closure_env_new_with_parent(%d, _closure_env);",
+                          env_name, num_local);
+            for (int i = 0; i < n; i++) {
+                if (is_parent[i]) {
+                    idx_map[i] += HML_CLOSURE_ENV_PARENT_STRIDE;
+                }
+            }
+            ctx->shared_env_indices = idx_map;
+        } else {
+            codegen_writeln(ctx, "HmlClosureEnv *%s = hml_closure_env_new(%d);",
+                          env_name, num_local);
+            // Identity mapping - keep the array for uniformity
+            ctx->shared_env_indices = idx_map;
+        }
 
         // Seed the environment with variables that are already declared at
         // this point (parameters, and for closure bodies the extracted
         // captures). The shared env is the source of truth for captured
         // locals, so it must hold their values before any read.
-        for (int i = 0; i < ctx->shared_env_num_vars; i++) {
+        // Parent-resolved slots are NOT seeded: the enclosing environment
+        // already holds the authoritative value.
+        for (int i = 0; i < n; i++) {
+            if (is_parent[i]) continue;
             const char *var = ctx->shared_env_vars[i];
+            int slot = idx_map[i];
             // Imported symbols have no in-scope C local to seed from in a nested
             // or inlined closure function: codegen_is_local can report true for
             // an enclosing scope's binding, but that binding is not a C variable
@@ -1903,15 +1994,16 @@ void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *clos
                 snprintf(prefixed, sizeof(prefixed), "%s%s",
                          imp->module_prefix, imp->original_name);
                 codegen_writeln(ctx, "hml_closure_env_set(%s, %d, %s);",
-                              env_name, i, prefixed);
+                              env_name, slot, prefixed);
             } else if (codegen_is_local(ctx, var) && !codegen_is_main_var(ctx, var) &&
                 !codegen_is_ref_param(ctx, var)) {
                 char *safe_var = codegen_sanitize_ident(var);
                 codegen_writeln(ctx, "hml_closure_env_set(%s, %d, %s);",
-                              env_name, i, safe_var);
+                              env_name, slot, safe_var);
                 free(safe_var);
             }
         }
+        free(is_parent);
     }
 }
 

@@ -144,6 +144,20 @@ HmlValue hml_object_get_field_required(HmlValue obj, const char *field) {
     return hml_val_null();  // Unreachable but needed for compiler
 }
 
+// Property access variant used by compiled `obj.prop` expressions: function
+// fields are returned as bound methods so that extracting a method
+// (let g = obj.method;) keeps 'self' referring to the source object, matching
+// the interpreter's property access semantics.
+HmlValue hml_object_get_field_bound(HmlValue obj, const char *field) {
+    HmlValue result = hml_object_get_field_required(obj, field);
+    if (result.type == HML_VAL_FUNCTION && result.as.as_function) {
+        HmlValue bound = hml_function_bind_self(result, obj);
+        hml_release(&result);
+        return bound;
+    }
+    return result;
+}
+
 void hml_object_set_field(HmlValue obj, const char *field, HmlValue val) {
     if (obj.type != HML_VAL_OBJECT || !obj.as.as_object) {
         hml_runtime_error("Property assignment requires object");
