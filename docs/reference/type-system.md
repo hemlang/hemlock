@@ -638,6 +638,15 @@ let value: i32 = 'Z';   // 90
 
 // Rune to string
 let s: string = 'H';    // "H"
+
+// Number/bool to string (value's string representation; both backends agree)
+let n: string = 42;     // "42"
+let b: string = true;   // "true"
+// let x: string = null; // ERROR - null does not convert to string
+
+// The reverse direction is NOT a conversion: a string never parses to a
+// number via annotation — use i32("42") / f64("3.14") instead.
+// let bad: i32 = "42"; // ERROR
 ```
 
 ---
