@@ -229,47 +229,41 @@ void lsp_document_parse(LSPServer *server, LSPDocument *doc) {
 
     Parser parser;
     parser_init(&parser, &lexer);
+    parser_enable_error_collection(&parser);
 
     // Parse the document
     int stmt_count = 0;
     Stmt **statements = parse_program(&parser, &stmt_count);
 
-    // Check for parse errors
-    if (parser.had_error) {
-        // The parser error occurred at parser.previous or parser.current
-        // Convert to LSP diagnostic
-
-        // Get line number (parser stores 1-based lines)
-        int line = parser.previous.line > 0 ? parser.previous.line - 1 : 0;
-
-        // Calculate character position in line
-        int character = 0;
-        const char *line_start = doc->content;
-        int current_line = 0;
-
-        // Find the start of the error line
-        for (const char *p = doc->content; *p && current_line < parser.previous.line - 1; p++) {
-            if (*p == '\n') {
-                current_line++;
-                line_start = p + 1;
-            }
-        }
-
-        // Calculate character offset
-        if (parser.previous.start) {
-            character = (int)(parser.previous.start - line_start);
-            if (character < 0) character = 0;
-        }
+    // Publish every collected parse error with the parser's real message.
+    // Panic-mode recovery in parse_program means a document can carry several
+    // independent syntax errors; each becomes its own diagnostic.
+    for (ParseError *pe = parser.errors; pe; pe = pe->next) {
+        int line = pe->line > 0 ? pe->line - 1 : 0;           // 1-based -> 0-based
+        int character = pe->column > 0 ? pe->column - 1 : 0;  // 1-based -> 0-based
+        int length = pe->length > 0 ? pe->length : 1;
 
         LSPRange range = {
             .start = { .line = line, .character = character },
-            .end = { .line = line, .character = character + parser.previous.length }
+            .end = { .line = line, .character = character + length }
         };
 
-        // Create generic error message if we don't have specifics
+        lsp_document_add_diagnostic(doc, range, LSP_SEVERITY_ERROR, pe->message);
+    }
+
+    // A few parser paths (annotation validation) set had_error without going
+    // through error_at, so nothing was collected — keep a generic fallback so
+    // the editor still shows that the document failed to parse.
+    if (parser.had_error && !parser.errors) {
+        int line = parser.previous.line > 0 ? parser.previous.line - 1 : 0;
+        LSPRange range = {
+            .start = { .line = line, .character = 0 },
+            .end = { .line = line, .character = 1 }
+        };
         lsp_document_add_diagnostic(doc, range, LSP_SEVERITY_ERROR,
                                     "Syntax error");
     }
+    parser_free_errors(&parser);
 
     // Store AST for later use (hover, goto definition, etc.)
     // AST is freed by lsp_document_free_ast() when document is updated or closed
