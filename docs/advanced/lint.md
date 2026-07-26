@@ -2,7 +2,7 @@
 
 The Hemlock compiler (`hemlockc`) ships a **static lint pass** — a small
 analysis that flags code which is well-typed and memory-safe but almost
-certainly a mistake. Where the [type checker](../language-guide/type-system.md)
+certainly a mistake. Where the [type checker](../reference/type-system.md)
 proves values fit their types and the [borrow checker](borrow-checker.md) tracks
 resource ownership, the linter catches the everyday slip-ups you want to find
 *before you ship a binary*: unreachable code, dead branches, self-assignment,

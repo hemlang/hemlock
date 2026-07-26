@@ -1,0 +1,3 @@
+let p = alloc(32);
+free(p);
+free(p);

@@ -1,0 +1,4 @@
+syntax_multi.hml:3:1: error: Expect ';' after variable declaration (at 'let') [parse]
+syntax_multi.hml:3:7: error: Expect expression (at '=') [parse]
+syntax_multi.hml:4:9: error: Expect parameter name (at '{') [parse]
+3 errors, 0 warnings (1 file checked)

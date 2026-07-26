@@ -405,6 +405,12 @@ make parity            # Run parity tests (both must match)
 make test-all          # Run all test suites
 ```
 
+**Static checking without execution:** `hemlock check [--json] file.hml` runs
+all static passes (syntax with multi-error recovery, lint, type check, borrow
+check) and reports every diagnostic. Use it to validate code you just wrote
+before running it; `--json` gives structured diagnostics
+(see `docs/advanced/static-checking.md`).
+
 **Important:** Always use a timeout when running tests (async tests may hang):
 ```bash
 timeout 60 make test
