@@ -188,6 +188,13 @@ typedef struct {
     int sender_waiting;         // Flag: sender is blocked waiting for receiver
     int receiver_waiting;       // Flag: receiver is blocked waiting for sender
     void *rendezvous;           // pthread_cond_t for rendezvous completion
+    // Count of completed rendezvous handoffs. A staged sender records the
+    // current value and waits until it changes: with multiple senders, a
+    // bare "sender_waiting == 0" check can't tell "my value was consumed"
+    // from "another sender has staged a new value", and a signal() wakeup
+    // can go to the wrong sender (lost wakeup -> deadlock). Consumers bump
+    // this and broadcast `rendezvous`.
+    unsigned long long rendezvous_gen;
 } Channel;
 
 // Reference types for pass-by-reference

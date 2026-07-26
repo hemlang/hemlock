@@ -1098,6 +1098,7 @@ Channel* channel_new(int capacity) {
     }
     ch->sender_waiting = 0;
     ch->receiver_waiting = 0;
+    ch->rendezvous_gen = 0;
 
     return ch;
 }
