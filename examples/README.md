@@ -78,6 +78,7 @@ comfortable with the basics.
 
 | File | What it is |
 |------|-----------|
+| `adventure_of_jimmy.hml` | A text-adventure RPG — match expressions, object methods, enums |
 | `snake.hml` | The classic Snake game (terminal) |
 | `tetris.hml` | Falling-blocks puzzle game (terminal) |
 | `ascii_aquarium.hml` | An animated ASCII fish tank |

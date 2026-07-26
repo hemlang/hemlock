@@ -1,0 +1,384 @@
+// The Adventure of Jimmy - a tiny text RPG
+// Demonstrates: define types, enums, match expressions, object methods with
+// `self`, template strings, null coalescing, and a read_line() command loop.
+//
+// Jimmy the apprentice must recover the stolen Amulet of Hemlock from the
+// dragon that lairs beneath the old watchtower.
+//
+// Commands: north/south/east/west (or n/s/e/w), look, take, fight, use,
+//           stats, inventory (i), help, quit
+//
+// The game reads from stdin, so it can also be played from a script:
+//   printf "take\neast\nfight\n..." | ./hemlock examples/04-projects/adventure_of_jimmy.hml
+
+import { rand } from "@stdlib/math";
+import { RED, GREEN, YELLOW, CYAN, MAGENTA, BOLD, RESET } from "@stdlib/terminal";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+define Monster {
+    name: string,
+    hp: i32,
+    attack: i32,
+    xp: i32,
+    boss?: false,
+}
+
+enum Outcome { WON, DIED, RAN }
+
+// Random integer in [lo, hi] inclusive
+fn roll(lo: i32, hi: i32): i32 {
+    let r: i32 = rand() * (hi - lo + 1);
+    return lo + r;
+}
+
+// ---------------------------------------------------------------------------
+// The hero
+// ---------------------------------------------------------------------------
+
+let jimmy = {
+    hp: 20,
+    max_hp: 20,
+    level: 1,
+    xp: 0,
+    potions: 1,
+    has_sword: false,
+    has_amulet: false,
+
+    fn attack_power(): i32 {
+        let base = 2 + self.level;
+        if (self.has_sword) {
+            return base + 4;
+        }
+        return base;
+    },
+
+    fn gain_xp(amount: i32) {
+        self.xp = self.xp + amount;
+        while (self.xp >= self.level * 10) {
+            self.xp = self.xp - self.level * 10;
+            self.level = self.level + 1;
+            self.max_hp = self.max_hp + 5;
+            self.hp = self.max_hp;
+            print(YELLOW + BOLD + `  * Jimmy reaches level ${self.level}! Fully healed (${self.max_hp} HP).` + RESET);
+        }
+    },
+
+    fn drink_potion(): bool {
+        if (self.potions == 0) {
+            return false;
+        }
+        self.potions = self.potions - 1;
+        let healed = roll(6, 10);
+        self.hp = self.hp + healed;
+        if (self.hp > self.max_hp) {
+            self.hp = self.max_hp;
+        }
+        print(GREEN + `  Jimmy drinks a potion and recovers ${healed} HP (${self.hp}/${self.max_hp}).` + RESET);
+        return true;
+    },
+};
+
+// ---------------------------------------------------------------------------
+// The world - rooms keyed by id, exits point at other room ids
+// ---------------------------------------------------------------------------
+
+let rooms = {
+    village: {
+        name: "Willowbrook Village",
+        desc: "Your sleepy home village. The baker waves. To the east, a dark forest looms.",
+        exits: { east: "forest" },
+        item: "potion",
+        monster: null,
+    },
+    forest: {
+        name: "Whispering Forest",
+        desc: "Gnarled trees crowd the path. Something skitters in the undergrowth.",
+        exits: { west: "village", east: "crossroads" },
+        item: null,
+        monster: { name: "Giant Spider", hp: 8, attack: 2, xp: 6 },
+    },
+    crossroads: {
+        name: "Old Crossroads",
+        desc: "A weathered signpost: village WEST, riverbank NORTH, watchtower EAST.",
+        exits: { west: "forest", north: "river", east: "tower" },
+        item: null,
+        monster: { name: "Goblin Scout", hp: 10, attack: 3, xp: 8 },
+    },
+    river: {
+        name: "Misty Riverbank",
+        desc: "Cold water rushes past. Something glints in the reeds.",
+        exits: { south: "crossroads" },
+        item: "sword",
+        monster: null,
+    },
+    tower: {
+        name: "Ruined Watchtower",
+        desc: "Crumbling stairs spiral down into darkness. Smoke curls from below.",
+        exits: { west: "crossroads", down: "lair" },
+        item: "potion",
+        monster: null,
+    },
+    lair: {
+        name: "The Dragon's Lair",
+        desc: "Heaps of scorched coins. Atop the hoard: the Amulet of Hemlock!",
+        exits: { up: "tower" },
+        item: null,
+        monster: { name: "Ember the Dragon", hp: 25, attack: 5, xp: 50, boss: true },
+    },
+};
+
+let here = "village";
+
+// ---------------------------------------------------------------------------
+// Presentation helpers
+// ---------------------------------------------------------------------------
+
+fn describe_item(item: string): string {
+    return match (item) {
+        "potion" => "a healing potion",
+        "sword" => "a rusty (but serviceable) sword",
+        i => `a mysterious ${i}`
+    };
+}
+
+fn look() {
+    let room = rooms[here];
+    print("");
+    print(CYAN + BOLD + "== " + room.name + " ==" + RESET);
+    print(room.desc);
+    let monster = room.monster;
+    if (monster != null) {
+        let color = RED;
+        if ((monster?.boss ?? false) == true) {
+            color = RED + BOLD;
+        }
+        print(color + `${monster.name} blocks your way! (${monster.hp} HP)` + RESET);
+    }
+    if (room.item != null) {
+        print(YELLOW + "You see " + describe_item(room.item) + " here." + RESET);
+    }
+    write("Exits:");
+    for (dir in room.exits.keys()) {
+        write(" " + dir);
+    }
+    print("");
+}
+
+fn stats() {
+    print(`Jimmy - level ${jimmy.level}  HP ${jimmy.hp}/${jimmy.max_hp}  XP ${jimmy.xp}/${jimmy.level * 10}  attack ${jimmy.attack_power()}`);
+}
+
+fn inventory() {
+    print(`Potions: ${jimmy.potions}`);
+    let weapon = "bare fists";
+    if (jimmy.has_sword) {
+        weapon = "rusty sword";
+    }
+    print("Weapon: " + weapon);
+    if (jimmy.has_amulet) {
+        print(MAGENTA + "The Amulet of Hemlock glows softly in your pack." + RESET);
+    }
+}
+
+fn help() {
+    print("Commands:");
+    print("  north/south/east/west/up/down (or n/s/e/w/u/d) - move");
+    print("  look      - describe your surroundings");
+    print("  take      - pick up an item");
+    print("  fight     - attack the monster here");
+    print("  use       - drink a healing potion");
+    print("  stats     - show Jimmy's stats");
+    print("  inventory - show what Jimmy carries (also: i)");
+    print("  quit      - give up the quest");
+}
+
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
+fn go(dir: string) {
+    let room = rooms[here];
+    if (!room.exits.has(dir)) {
+        print("You can't go " + dir + " from here.");
+        return;
+    }
+    here = room.exits[dir];
+    look();
+    // Wandering into a monster's room may cost you: it gets a free swipe
+    let lurker = rooms[here].monster;
+    if (lurker != null && rand() < 0.5) {
+        let dmg = roll(1, lurker.attack);
+        jimmy.hp = jimmy.hp - dmg;
+        print(RED + `${lurker.name} ambushes you for ${dmg} damage! (${jimmy.hp}/${jimmy.max_hp} HP)` + RESET);
+    }
+}
+
+fn take() {
+    let room = rooms[here];
+    let item = room.item;
+    if (item == null) {
+        print("There's nothing here to take.");
+        return;
+    }
+    if (room.monster != null) {
+        print(RED + "Not while " + room.monster.name + " is watching!" + RESET);
+        return;
+    }
+    if (item == "potion") {
+        jimmy.potions = jimmy.potions + 1;
+        print(GREEN + `Jimmy pockets a healing potion (now carrying ${jimmy.potions}).` + RESET);
+    } else if (item == "sword") {
+        jimmy.has_sword = true;
+        print(GREEN + "Jimmy pulls a rusty sword from the reeds. It'll do." + RESET);
+    } else {
+        print("Jimmy picks up " + describe_item(item) + ".");
+    }
+    room.item = null;
+}
+
+fn try_potion() {
+    if (!jimmy.drink_potion()) {
+        print("Jimmy rummages in his pack: no potions left.");
+    }
+}
+
+// One full battle. Returns an Outcome.
+fn battle(monster: Monster): i32 {
+    print(RED + BOLD + `--- ${monster.name} attacks! ---` + RESET);
+    loop {
+        // Jimmy's turn
+        let hit = roll(1, jimmy.attack_power());
+        monster.hp = monster.hp - hit;
+        print(`Jimmy strikes ${monster.name} for ${hit}! (${monster.hp} HP left)`);
+        if (monster.hp <= 0) {
+            print(GREEN + BOLD + `${monster.name} is defeated!` + RESET);
+            jimmy.gain_xp(monster.xp);
+            return Outcome.WON;
+        }
+
+        // Monster's turn
+        let dmg = roll(1, monster.attack);
+        jimmy.hp = jimmy.hp - dmg;
+        print(RED + `${monster.name} hits Jimmy for ${dmg}. (${jimmy.hp}/${jimmy.max_hp} HP)` + RESET);
+        if (jimmy.hp <= 0) {
+            return Outcome.DIED;
+        }
+
+        // Let the player choose each round
+        write("(a)ttack, (p)otion, or (r)un? ");
+        let choice = read_line();
+        if (choice == null) {
+            return Outcome.RAN;
+        }
+        let action = match (choice.trim().to_lower()) {
+            "p" | "potion" => "potion",
+            "r" | "run" => "run",
+            _ => "attack"
+        };
+        if (action == "run") {
+            print(YELLOW + "Jimmy retreats, heart pounding." + RESET);
+            return Outcome.RAN;
+        }
+        if (action == "potion") {
+            try_potion();
+        }
+    }
+}
+
+fn fight() {
+    let room = rooms[here];
+    let monster = room.monster;
+    if (monster == null) {
+        print("Jimmy swings at the air. Very heroic.");
+        return;
+    }
+    let result = battle(monster);
+    if (result == Outcome.WON) {
+        let was_boss = monster?.boss ?? false;
+        room.monster = null;
+        if (was_boss) {
+            jimmy.has_amulet = true;
+            print("");
+            print(MAGENTA + BOLD + "Jimmy lifts the Amulet of Hemlock from the hoard!" + RESET);
+            print(MAGENTA + "Bring it home: head up and make your way west to the village." + RESET);
+        }
+    } else if (result == Outcome.RAN) {
+        // Retreat to safety through the first exit
+        let exits = room.exits.keys();
+        here = room.exits[exits[0]];
+        look();
+    }
+    // DIED is handled by the main loop
+}
+
+// ---------------------------------------------------------------------------
+// Main loop
+// ---------------------------------------------------------------------------
+
+fn main() {
+    print(CYAN + BOLD + "=====================================" + RESET);
+    print(CYAN + BOLD + "      THE ADVENTURE OF JIMMY" + RESET);
+    print(CYAN + BOLD + "=====================================" + RESET);
+    print("");
+    print("The Amulet of Hemlock has been stolen by a dragon, and somehow");
+    print("Jimmy - apprentice baker, part-time daydreamer - is the only");
+    print("volunteer. Type 'help' for commands.");
+    look();
+
+    loop {
+        if (jimmy.hp <= 0) {
+            print("");
+            print(RED + BOLD + "Jimmy has fallen. The village bakes on without him..." + RESET);
+            print(RED + "GAME OVER" + RESET);
+            break;
+        }
+        if (jimmy.has_amulet && here == "village") {
+            print("");
+            print(GREEN + BOLD + "Jimmy returns the Amulet of Hemlock to the village elders!" + RESET);
+            print(GREEN + BOLD + `A hero at level ${jimmy.level}. Not bad for a baker.` + RESET);
+            print(GREEN + BOLD + "*** YOU WIN ***" + RESET);
+            break;
+        }
+
+        write("> ");
+        let line = read_line();
+        if (line == null) {
+            // EOF (piped input ran out) - end gracefully
+            print("");
+            print("Jimmy wanders off mid-quest. Farewell!");
+            break;
+        }
+        let cmd = line.trim().to_lower();
+        if (cmd == "") {
+            continue;
+        }
+
+        // Each arm is an expression; the sentinel "quit" ends the loop below
+        let verdict = match (cmd) {
+            "n" | "north" => go("north"),
+            "s" | "south" => go("south"),
+            "e" | "east" => go("east"),
+            "w" | "west" => go("west"),
+            "u" | "up" => go("up"),
+            "d" | "down" => go("down"),
+            "look" | "l" => look(),
+            "take" | "get" => take(),
+            "fight" | "attack" | "f" => fight(),
+            "use" | "potion" | "p" => try_potion(),
+            "stats" => stats(),
+            "inventory" | "i" => inventory(),
+            "help" | "h" | "?" => help(),
+            "quit" | "q" => "quit",
+            other => print(`Jimmy scratches his head. What does "${other}" mean? (try 'help')`)
+        };
+        if (verdict == "quit") {
+            print("Jimmy hangs up his (metaphorical) sword. The quest waits for another day.");
+            break;
+        }
+    }
+}
+
+main();
