@@ -1,3 +1,4 @@
+// @expect-compile-fail nested circular reference is rejected
 // Test: Complex nested circular references
 // Multiple objects and arrays with various circular paths
 

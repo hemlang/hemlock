@@ -49,13 +49,31 @@ Tests with certain keywords in their names are expected to fail (error tests):
 
 These tests verify that the interpreter correctly rejects invalid code.
 
+### Fixtures that should not compile
+
+The repo-wide compile sweep (`tests/run_repo_compile_check.sh`) requires every
+`.hml` file to compile. A fixture that is *supposed* to fail compilation says so
+itself, within the first 20 lines:
+
+```hemlock
+// @expect-compile-fail redeclaring in the same scope is a compile error
+```
+
+The sweep then asserts it fails, and reports an "Expected Mismatch" if it ever
+starts compiling. The marker lives next to the code that encodes the
+expectation, so adding a negative fixture needs no edit to the runner.
+
+Note this is about *compilation*, and is independent of the filename keywords
+above (which govern the interpreter runner).
+
 ## Writing New Tests
 
 To add a new test:
 
 1. Create a `.hml` file in the appropriate category directory
 2. For tests that should pass: use any descriptive name
-3. For tests that should fail: include `overflow`, `negative`, `invalid`, or `error` in the filename
+3. For tests that should fail at runtime: include `overflow`, `negative`, `invalid`, or `error` in the filename
+4. For tests that should fail to *compile*: add `// @expect-compile-fail <reason>` near the top
 4. Run `make test` (or `bash tests/run_tests.sh`) from the project root to verify your test
 
 ## Current Test Coverage

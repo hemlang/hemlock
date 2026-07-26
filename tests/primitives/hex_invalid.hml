@@ -1,3 +1,4 @@
+// @expect-compile-fail malformed hex literal
 // Test invalid hex literal - should fail to parse
 let x = 0x;
 print(x);

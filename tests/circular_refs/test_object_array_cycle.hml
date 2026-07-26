@@ -1,3 +1,4 @@
+// @expect-compile-fail object/array reference cycle is rejected
 // Test: Object and array circular reference
 // Object contains array, array contains object
 

@@ -1,3 +1,4 @@
+// @expect-compile-fail string cannot be assigned to bool
 // Test that string to bool conversion via type annotation fails
 // This should error because type annotations don't parse strings
 let s = "true";

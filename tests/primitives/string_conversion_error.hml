@@ -1,3 +1,4 @@
+// @expect-compile-fail invalid implicit string conversion
 // Test that invalid string to number conversion fails
 let s = "abc123";
 let n: i32 = s;  // Should error

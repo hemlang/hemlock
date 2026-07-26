@@ -1,3 +1,4 @@
+// @expect-compile-fail redeclaring in the same scope is a compile error
 // Test that redeclaring a variable in the same scope causes error
 const x = 10;
 const x = 20;  // Should error: Variable 'x' already defined in this scope
