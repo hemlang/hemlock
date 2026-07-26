@@ -35,9 +35,55 @@ static const char* get_source_line(const char *source, int line_num, int *line_l
     return line_start;
 }
 
+// Collect a parse error as a structured diagnostic instead of printing it.
+// The token context ("at 'foo'" / "at end") is folded into the message so
+// consumers get one self-contained string per diagnostic.
+static void collect_parse_error(Parser *p, Token *token, const char *message) {
+    ParseError *err = calloc(1, sizeof(ParseError));
+    if (!err) return;
+    err->line = token->line;
+    err->column = token->column;
+
+    if (token->type == TOK_EOF) {
+        size_t len = strlen(message) + sizeof(" (at end)");
+        err->message = malloc(len);
+        if (err->message) {
+            snprintf(err->message, len, "%s (at end)", message);
+        }
+    } else if (token->type == TOK_ERROR || !token->start || token->length <= 0) {
+        err->message = strdup(message);
+    } else {
+        err->length = token->length;
+        size_t len = strlen(message) + (size_t)token->length + sizeof(" (at '')");
+        err->message = malloc(len);
+        if (err->message) {
+            snprintf(err->message, len, "%s (at '%.*s')",
+                     message, token->length, token->start);
+        }
+    }
+    if (!err->message) {
+        free(err);
+        return;
+    }
+
+    if (p->errors_tail) {
+        p->errors_tail->next = err;
+        p->errors_tail = err;
+    } else {
+        p->errors = err;
+        p->errors_tail = err;
+    }
+}
+
 void error_at(Parser *p, Token *token, const char *message) {
     if (p->panic_mode) return;
     p->panic_mode = 1;
+
+    if (p->collect_errors) {
+        collect_parse_error(p, token, message);
+        p->had_error = 1;
+        return;
+    }
 
     fprintf(stderr, "[line %d:%d] Error", token->line, token->column);
 
@@ -253,6 +299,9 @@ void parser_init(Parser *parser, Lexer *lexer) {
     parser->source = lexer->source;  // Store source for error messages
     parser->type_params = NULL;      // No type parameters in scope initially
     parser->num_type_params = 0;
+    parser->collect_errors = 0;
+    parser->errors = NULL;
+    parser->errors_tail = NULL;
 
     // Prime the lookahead: get both current and next tokens
     // First, get the first token into 'next'
@@ -264,6 +313,22 @@ void parser_init(Parser *parser, Lexer *lexer) {
 
     // Now advance to set current = next and get the new next
     advance(parser);
+}
+
+void parser_enable_error_collection(Parser *parser) {
+    parser->collect_errors = 1;
+}
+
+void parser_free_errors(Parser *parser) {
+    ParseError *err = parser->errors;
+    while (err) {
+        ParseError *next = err->next;
+        free(err->message);
+        free(err);
+        err = next;
+    }
+    parser->errors = NULL;
+    parser->errors_tail = NULL;
 }
 
 Stmt** parse_program(Parser *parser, int *stmt_count) {

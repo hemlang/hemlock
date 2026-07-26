@@ -11,6 +11,9 @@
 #include "interpreter/internal.h"
 #include "tools/lsp/lsp.h"
 #include "tools/bundler/bundler.h"
+#include "tools/type_check.h"
+#include "tools/borrow_check.h"
+#include "tools/lint.h"
 #include "version.h"
 #include "profiler/profiler.h"
 #include "shared/file_io.h"
@@ -1010,12 +1013,16 @@ static void print_help(const char *program) {
     printf("    %s --compile FILE [-o OUTPUT] [--debug]\n", program);
     printf("    %s --bundle FILE [-o OUTPUT] [--compress] [--tree-shake] [--verbose]\n", program);
     printf("    %s --package FILE [-o OUTPUT] [--no-compress] [--tree-shake] [--verbose]\n", program);
+    printf("    %s check [--json] FILE...\n", program);
     printf("    %s format FILE [--check]\n", program);
     printf("    %s lsp [--stdio | --tcp PORT]\n\n", program);
     printf("ARGUMENTS:\n");
     printf("    <FILE>       Hemlock script file to execute (.hml, .hmlc, or .hmlb)\n");
     printf("    <ARGS>...    Arguments passed to the script (available in 'args' array)\n\n");
     printf("SUBCOMMANDS:\n");
+    printf("    check        Static analysis without execution (syntax, lint, types, borrow)\n");
+    printf("        --json       Output diagnostics as JSON (see 'check --help')\n");
+    printf("        --strict-types / --borrow-strict / --lint-strict / --no-lint\n");
     printf("    format       Format Hemlock source code\n");
     printf("        --check      Check if file is formatted (exit 1 if not)\n");
     printf("    lsp          Start Language Server Protocol server\n");
@@ -1064,6 +1071,8 @@ static void print_help(const char *program) {
     printf("    %s --package app.hml --no-compress -o myapp\n", program);
     printf("    %s --info app.hmlc         # Show compiled file info\n", program);
     printf("    %s --stack-depth 50000 script.hml  # Run with larger stack\n", program);
+    printf("    %s check script.hml    # Static analysis (no execution)\n", program);
+    printf("    %s check --json script.hml  # Machine-readable diagnostics\n", program);
     printf("    %s lsp                 # Start LSP server (stdio)\n", program);
     printf("    %s lsp --tcp 6969      # Start LSP server (TCP)\n", program);
     printf("    %s --sandbox script.hml    # Run in sandbox mode\n", program);
@@ -1386,6 +1395,333 @@ static int run_format(int argc, char **argv) {
     }
 }
 
+// ============================================================================
+// `hemlock check` — static analysis without execution
+//
+// Runs the same static passes as the compiler (syntax, lint, type check,
+// borrow check) but never executes or generates code, collects every
+// diagnostic instead of stopping at the first failing pass, and can emit
+// them as JSON for tools and agents.
+// ============================================================================
+
+// One collected diagnostic, normalized across all passes.
+typedef struct CheckDiag {
+    const char *file;       // borrowed (argv)
+    int line;               // 1-based
+    int column;             // 1-based when known, 0 = unknown
+    int end_column;
+    int is_warning;         // 0 = error, 1 = warning
+    const char *pass;       // "parse" | "lint" | "types" | "borrow"
+    char *message;          // owned
+    int seq;                // insertion order (stable sort tiebreaker)
+} CheckDiag;
+
+typedef struct CheckDiagList {
+    CheckDiag *items;
+    int count;
+    int capacity;
+    int errors;
+    int warnings;
+} CheckDiagList;
+
+typedef struct CheckOptions {
+    int json;
+    int lint;
+    int lint_strict;
+    int strict_types;
+    int borrow_strict;
+} CheckOptions;
+
+static void check_collect(CheckDiagList *list, const char *file, int line,
+                          int column, int end_column, int is_warning,
+                          const char *pass, const char *message) {
+    if (list->count >= list->capacity) {
+        int new_capacity = list->capacity == 0 ? 64 : list->capacity * 2;
+        CheckDiag *items = realloc(list->items, sizeof(CheckDiag) * new_capacity);
+        if (!items) return;
+        list->items = items;
+        list->capacity = new_capacity;
+    }
+
+    CheckDiag *d = &list->items[list->count];
+    d->file = file;
+    d->line = line;
+    d->column = column;
+    d->end_column = end_column;
+    d->is_warning = is_warning;
+    d->pass = pass;
+    d->message = strdup(message ? message : "");
+    d->seq = list->count;
+    if (!d->message) return;
+    list->count++;
+
+    if (is_warning) {
+        list->warnings++;
+    } else {
+        list->errors++;
+    }
+}
+
+// Order a file's diagnostics by source position (passes run whole-file, so
+// without this the output would be grouped by pass instead).
+static int check_diag_compare(const void *a, const void *b) {
+    const CheckDiag *da = a;
+    const CheckDiag *db = b;
+    if (da->line != db->line) return da->line - db->line;
+    if (da->column != db->column) return da->column - db->column;
+    return da->seq - db->seq;
+}
+
+// Check a single file: parse, then (if the AST is valid) run the compiler's
+// static passes in its order — resolve, lint on the source as written,
+// optimize, type check, borrow check. Returns -1 only on I/O failure.
+static int check_one_file(const char *path, const CheckOptions *opts,
+                          CheckDiagList *list) {
+    char *source = read_file(path);
+    if (!source) {
+        return -1;
+    }
+
+    int first = list->count;
+
+    Lexer lexer;
+    lexer_init(&lexer, source);
+
+    Parser parser;
+    parser_init(&parser, &lexer);
+    parser_enable_error_collection(&parser);
+
+    int stmt_count = 0;
+    Stmt **statements = parse_program(&parser, &stmt_count);
+
+    for (ParseError *pe = parser.errors; pe; pe = pe->next) {
+        int end_col = pe->length > 0 ? pe->column + pe->length : pe->column;
+        check_collect(list, path, pe->line, pe->column, end_col, 0,
+                      "parse", pe->message);
+    }
+    parser_free_errors(&parser);
+
+    // The later passes need a well-formed AST; after a syntax error the
+    // recovered tree contains error placeholders that would only produce
+    // misleading follow-on diagnostics.
+    if (!parser.had_error && statements) {
+        resolve_program(statements, stmt_count);
+
+        if (opts->lint) {
+            LintContext *lc = lint_new(path);
+            if (lc) {
+                lc->strict = opts->lint_strict;
+                lint_enable_collection(lc, source);
+                lint_program(lc, statements, stmt_count);
+                for (LintDiag *d = lc->diags; d; d = d->next) {
+                    check_collect(list, path, d->line, d->column, d->end_column,
+                                  !d->is_error, "lint", d->message);
+                }
+                lint_free(lc);
+            }
+        }
+
+        optimize_program(statements, stmt_count);
+
+        TypeCheckContext *tc = type_check_new(path);
+        if (tc) {
+            tc->warn_implicit_any = opts->strict_types;
+            type_check_enable_collection(tc, source);
+            type_check_program(tc, statements, stmt_count);
+            for (TypeCheckError *e = type_check_get_errors(tc); e; e = e->next) {
+                check_collect(list, path, e->line, e->column, e->end_column,
+                              e->is_warning, "types", e->message);
+            }
+            type_check_free(tc);
+        }
+
+        BorrowContext *bc = borrow_check_new(path);
+        if (bc) {
+            bc->strict = opts->borrow_strict;
+            borrow_check_enable_collection(bc, source);
+            borrow_check_program(bc, statements, stmt_count);
+            for (BorrowDiag *d = bc->diags; d; d = d->next) {
+                check_collect(list, path, d->line, d->column, d->end_column,
+                              !d->is_error, "borrow", d->message);
+            }
+            borrow_check_free(bc);
+        }
+    }
+
+    if (list->count > first) {
+        qsort(list->items + first, list->count - first, sizeof(CheckDiag),
+              check_diag_compare);
+    }
+
+    if (statements) {
+        for (int i = 0; i < stmt_count; i++) {
+            stmt_free(statements[i]);
+        }
+        free(statements);
+    }
+    free(source);
+    return 0;
+}
+
+static void check_print_json_string(const char *s) {
+    putchar('"');
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        switch (*p) {
+            case '"':  fputs("\\\"", stdout); break;
+            case '\\': fputs("\\\\", stdout); break;
+            case '\n': fputs("\\n", stdout); break;
+            case '\r': fputs("\\r", stdout); break;
+            case '\t': fputs("\\t", stdout); break;
+            default:
+                if (*p < 0x20) {
+                    printf("\\u%04x", *p);
+                } else {
+                    putchar(*p);
+                }
+        }
+    }
+    putchar('"');
+}
+
+static void check_print_json(const CheckDiagList *list, int files_checked) {
+    printf("{\n");
+    printf("  \"version\": 1,\n");
+    printf("  \"files\": %d,\n", files_checked);
+    printf("  \"errors\": %d,\n", list->errors);
+    printf("  \"warnings\": %d,\n", list->warnings);
+    printf("  \"diagnostics\": [");
+    for (int i = 0; i < list->count; i++) {
+        const CheckDiag *d = &list->items[i];
+        printf("%s\n    {\"file\": ", i == 0 ? "" : ",");
+        check_print_json_string(d->file);
+        printf(", \"line\": %d, \"column\": %d, \"end_column\": %d, "
+               "\"severity\": \"%s\", \"pass\": \"%s\", \"message\": ",
+               d->line, d->column, d->end_column,
+               d->is_warning ? "warning" : "error", d->pass);
+        check_print_json_string(d->message);
+        printf("}");
+    }
+    printf("%s  ]\n}\n", list->count > 0 ? "\n" : "");
+}
+
+static void check_print_text(const CheckDiagList *list, int files_checked) {
+    for (int i = 0; i < list->count; i++) {
+        const CheckDiag *d = &list->items[i];
+        const char *severity = d->is_warning ? "warning" : "error";
+        if (d->column > 0) {
+            printf("%s:%d:%d: %s: %s [%s]\n", d->file, d->line, d->column,
+                   severity, d->message, d->pass);
+        } else {
+            printf("%s:%d: %s: %s [%s]\n", d->file, d->line,
+                   severity, d->message, d->pass);
+        }
+    }
+    printf("%d error%s, %d warning%s (%d file%s checked)\n",
+           list->errors, list->errors == 1 ? "" : "s",
+           list->warnings, list->warnings == 1 ? "" : "s",
+           files_checked, files_checked == 1 ? "" : "s");
+}
+
+// Run static checks (parse + lint + type check + borrow check) subcommand
+static int run_check(int argc, char **argv) {
+    CheckOptions opts = {
+        .json = 0,
+        .lint = 1,
+        .lint_strict = 0,
+        .strict_types = 0,
+        .borrow_strict = 0,
+    };
+    const char **files = malloc(sizeof(char*) * (size_t)(argc > 2 ? argc : 2));
+    int num_files = 0;
+
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--json") == 0) {
+            opts.json = 1;
+        } else if (strcmp(argv[i], "--strict-types") == 0) {
+            opts.strict_types = 1;
+        } else if (strcmp(argv[i], "--borrow-strict") == 0) {
+            opts.borrow_strict = 1;
+        } else if (strcmp(argv[i], "--lint-strict") == 0) {
+            opts.lint_strict = 1;
+        } else if (strcmp(argv[i], "--no-lint") == 0) {
+            opts.lint = 0;
+        } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            printf("Hemlock Static Checker\n\n");
+            printf("Parses and analyzes source files without executing them, running the\n");
+            printf("same static passes as the compiler: syntax, lint, type check, borrow\n");
+            printf("check. Reports every diagnostic found instead of stopping at the first\n");
+            printf("failing pass.\n\n");
+            printf("USAGE:\n");
+            printf("    hemlock check [OPTIONS] <FILE>...\n\n");
+            printf("OPTIONS:\n");
+            printf("    --json           Output diagnostics as JSON (stable schema for tools)\n");
+            printf("    --strict-types   Strict type checking (warn on implicit any)\n");
+            printf("    --borrow-strict  Strict borrow checking (move tracking + leak detection)\n");
+            printf("    --lint-strict    Strict lint (also flag unused variables)\n");
+            printf("    --no-lint        Disable the lint pass\n");
+            printf("    -h, --help       Display this help message\n\n");
+            printf("EXIT CODE:\n");
+            printf("    0  no errors (warnings do not fail the check)\n");
+            printf("    1  one or more errors found\n");
+            printf("    2  usage or I/O error\n\n");
+            printf("OUTPUT:\n");
+            printf("    Text mode prints one diagnostic per line:\n");
+            printf("        <file>:<line>:<column>: <severity>: <message> [<pass>]\n");
+            printf("    JSON mode prints a single object:\n");
+            printf("        { \"version\": 1, \"files\": N, \"errors\": N, \"warnings\": N,\n");
+            printf("          \"diagnostics\": [ { \"file\", \"line\", \"column\", \"end_column\",\n");
+            printf("            \"severity\": \"error\"|\"warning\",\n");
+            printf("            \"pass\": \"parse\"|\"lint\"|\"types\"|\"borrow\", \"message\" } ] }\n");
+            printf("    Lines and columns are 1-based; column 0 means unknown.\n");
+            free(files);
+            return 0;
+        } else if (argv[i][0] == '-') {
+            fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
+            fprintf(stderr, "Try 'hemlock check --help' for more information.\n");
+            free(files);
+            return 2;
+        } else {
+            files[num_files++] = argv[i];
+        }
+    }
+
+    if (num_files == 0) {
+        fprintf(stderr, "Error: No input file specified\n");
+        fprintf(stderr, "Try 'hemlock check --help' for more information.\n");
+        free(files);
+        return 2;
+    }
+
+    CheckDiagList list = {0};
+    int io_error = 0;
+    int files_checked = 0;
+    for (int i = 0; i < num_files; i++) {
+        if (check_one_file(files[i], &opts, &list) != 0) {
+            io_error = 1;
+        } else {
+            files_checked++;
+        }
+    }
+
+    if (opts.json) {
+        check_print_json(&list, files_checked);
+    } else {
+        check_print_text(&list, files_checked);
+    }
+
+    int exit_code = io_error ? 2 : (list.errors > 0 ? 1 : 0);
+
+    for (int i = 0; i < list.count; i++) {
+        free(list.items[i].message);
+    }
+    free(list.items);
+    free(files);
+    cleanup_object_types();
+    cleanup_enum_types();
+
+    return exit_code;
+}
+
 int main(int argc, char **argv) {
     // Check for embedded payload FIRST (before any argument parsing)
     // This allows packaged executables to run their embedded code
@@ -1431,6 +1767,11 @@ int main(int argc, char **argv) {
     // Check for format subcommand
     if (argc >= 2 && strcmp(argv[1], "format") == 0) {
         return run_format(argc, argv);
+    }
+
+    // Check for check subcommand (static analysis without execution)
+    if (argc >= 2 && strcmp(argv[1], "check") == 0) {
+        return run_check(argc, argv);
     }
 
     // Parse command-line flags

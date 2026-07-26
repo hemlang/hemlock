@@ -161,10 +161,10 @@ TYPECHECK_SRCS = $(wildcard $(SRC_DIR)/backends/compiler/type_*.c)
 # Borrow/ownership checker — shared so the LSP can surface its diagnostics
 BORROWCHECK_SRCS = $(SRC_DIR)/backends/compiler/borrow_check.c
 
-# Static lint / diagnostics pass (compiler-only)
+# Static lint / diagnostics pass — shared so `hemlock check` can run it
 LINTCHECK_SRCS = $(SRC_DIR)/backends/compiler/lint.c
 
-COMMON_SRCS = $(FRONTEND_SRCS) $(MODULES_SRCS) $(TYPECHECK_SRCS) $(BORROWCHECK_SRCS) $(SHARED_SRCS)
+COMMON_SRCS = $(FRONTEND_SRCS) $(MODULES_SRCS) $(TYPECHECK_SRCS) $(BORROWCHECK_SRCS) $(LINTCHECK_SRCS) $(SHARED_SRCS)
 SRCS = $(COMMON_SRCS) $(TOOL_SRCS) $(INTERP_SRCS)
 
 COMMON_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(COMMON_SRCS))
@@ -247,6 +247,11 @@ test-formatter: $(TARGET)
 .PHONY: test-cli
 test-cli: $(TARGET)
 	@bash tests/cli/run_cli_tests.sh
+
+# Run `hemlock check` static-checker tests
+.PHONY: test-check
+test-check: $(TARGET)
+	@bash tests/check/run_check_tests.sh
 
 # ========== STDLIB C MODULES ==========
 
@@ -912,7 +917,7 @@ test-memory: compiler
 
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler test-borrow test-lint parity test-contracts test-bundler test-lsp test-memory test-formatter test-cli
+test-all: test test-compiler test-borrow test-lint parity test-contracts test-bundler test-lsp test-memory test-formatter test-cli test-check
 
 # ========== RELEASE BUILD ==========
 

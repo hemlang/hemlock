@@ -1,0 +1,4 @@
+all_passes.hml:4: warning: double free: 'p' was already freed (line 2) [borrow]
+all_passes.hml:5: error: cannot initialize 'bad' of type 'i32' with 'string' [types]
+all_passes.hml:6: warning: modulo by zero: this operation traps at runtime [lint]
+1 error, 2 warnings (1 file checked)
