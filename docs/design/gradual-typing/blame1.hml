@@ -1,0 +1,7 @@
+fn applyf(f: fn(i32): i32, x: i32): i32 {
+    return f(x) + 1;
+}
+let untyped = fn(x) { return "oops"; };
+let r = applyf(untyped, 5);
+print(r);
+print(typeof(r));

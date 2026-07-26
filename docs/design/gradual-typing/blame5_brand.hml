@@ -1,0 +1,5 @@
+fn setup(arr: array<i64>) { }
+let a = [1, 2];
+setup(a);
+a.push(3);
+print(a.length);
