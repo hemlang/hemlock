@@ -1,12 +1,22 @@
 // Regression coverage for numeric values inside string concatenation.
 
+import { divi } from "@stdlib/math";
+
 assert("" + 75.0 == "75.0", "f64 literals should keep an explicit decimal in concatenation");
 let f: f64 = 3.14;
 assert("" + f == "3.14", "f64 variables should keep their fractional component in concatenation");
 
 assert("a" + 0 + "b" == "a0b", "zero must not be optimized away inside string concatenation");
 
+// `/` always returns float — including inside string concatenation. There is
+// no hidden integer-division mode for concat operands (that would be exactly
+// the kind of implicit magic Hemlock forbids).
 let xi: i32 = 2575;
-assert("" + (xi/100) + "." + (xi - (xi/100)*100) == "25.75", "inline integer arithmetic in concatenation should not add a spurious .0");
+assert("" + (xi / 100) == "25.75", "division inside concatenation returns float like everywhere else");
+
+// Fixed-point formatting from integer arithmetic uses divi(), the explicit
+// integer-division tool.
+assert("" + divi(xi, 100) + "." + (xi - divi(xi, 100) * 100) == "25.75",
+       "divi() performs integer division for fixed-point formatting");
 
 print("string concat numeric regressions passed");

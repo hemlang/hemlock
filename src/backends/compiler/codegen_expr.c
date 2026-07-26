@@ -150,20 +150,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         codegen_writeln(ctx, "hml_release_if_needed(&%s);", inner_val);
                         free(inner_val);
                         break;
-                    } else if (expr->as.unary.op == UNARY_NEGATE) {
-                        // -(-x) -> x (identity)
-                        char *inner_val = codegen_expr(ctx, inner);
-                        codegen_writeln(ctx, "HmlValue %s = %s;", result, inner_val);
-                        free(inner_val);
-                        break;
                     }
+                    // NOTE: -(-x) -> x is NOT applied: negation of i32/i64
+                    // MIN throws an overflow error, so double negation is not
+                    // the identity for every value.
                 }
             }
 
             // OPTIMIZATION: Constant folding for unary operations on literals
             if (expr->as.unary.operand->type == EXPR_NUMBER &&
                 !expr->as.unary.operand->as.number.is_float &&
-                !expr->as.unary.operand->as.number.is_u64) {
+                !expr->as.unary.operand->as.number.is_u64 &&
+                expr->as.unary.operand->as.number.int_value != INT64_MIN) {
                 int64_t val = expr->as.unary.operand->as.number.int_value;
                 int can_fold = 1;
 

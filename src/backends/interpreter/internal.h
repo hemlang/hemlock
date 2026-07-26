@@ -76,7 +76,6 @@ struct ExecutionContext {
     // Current source location (for profiler allocation tracking)
     const char *current_source_file;
     int current_line;
-    int string_concat_context;  // Prefer integer division while evaluating string-concat operands
 };
 
 // ========== OBJECT TYPE REGISTRY ==========

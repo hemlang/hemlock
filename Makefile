@@ -47,11 +47,11 @@ ifeq ($(HEMLOCK_WINDOWS),1)
     # (GCC <= 13) catch what GCC 14+ on native Windows rejects by default.
     # src/shared/regex_win32 supplies <regex.h> (bundled musl/TRE engine —
     # MinGW has none), so the regex builtins use their POSIX code path.
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Werror=implicit-function-declaration -Werror=int-conversion -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared -Isrc/shared/regex_win32 $(EXTRA_CFLAGS)
+    CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -g -MMD -MP -Werror=implicit-function-declaration -Werror=int-conversion -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared -Isrc/shared/regex_win32 $(EXTRA_CFLAGS)
 else ifeq ($(shell uname),Darwin)
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
+    CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -g -MMD -MP -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
 else
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
+    CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -g -MMD -MP -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
 endif
 SRC_DIR = src
 BUILD_DIR = build
@@ -918,9 +918,9 @@ test-all: test test-compiler test-borrow test-lint parity test-contracts test-bu
 
 # Release flags: optimize for performance, no debug symbols
 ifeq ($(shell uname),Darwin)
-    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -O3 -MMD -MP -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared
+    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -MMD -MP -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared
 else
-    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -O3 -MMD -MP -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared
+    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -MMD -MP -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared
 endif
 
 # Add the same conditional flags as regular build

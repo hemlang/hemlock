@@ -48,7 +48,7 @@ static CheckedTypeKind tk_to_checked(HmlTypeKind tk) {
 }
 
 // Promote two CheckedTypeKinds using the shared type promotion rules
-static CheckedTypeKind checked_promote(CheckedTypeKind a, CheckedTypeKind b) {
+CheckedTypeKind checked_promote(CheckedTypeKind a, CheckedTypeKind b) {
     HmlTypeKind ta = checked_to_tk(a);
     HmlTypeKind tb = checked_to_tk(b);
     if (ta == HML_TK_OTHER || tb == HML_TK_OTHER) return CHECKED_UNKNOWN;

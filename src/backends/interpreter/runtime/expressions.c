@@ -115,14 +115,33 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                 case UNARY_NEGATE:
                     if (is_float(operand)) {
-                        unary_result = val_f64(-value_to_float(operand));
+                        // Preserve the float width when negating
+                        if (operand.type == VAL_F32) {
+                            unary_result = val_f32(-operand.as.as_f32);
+                        } else {
+                            unary_result = val_f64(-value_to_float(operand));
+                        }
                     } else if (is_integer(operand)) {
-                        // Preserve the original type when negating
+                        // Preserve the original type when negating.
+                        // Narrow types wrap; i32/i64 MIN negation overflows
+                        // and throws (consistent with checked +,-,*).
                         switch (operand.type) {
-                            case VAL_I8: unary_result = val_i8(-operand.as.as_i8); break;
-                            case VAL_I16: unary_result = val_i16(-operand.as.as_i16); break;
-                            case VAL_I32: unary_result = val_i32(-operand.as.as_i32); break;
-                            case VAL_I64: unary_result = val_i64(-operand.as.as_i64); break;
+                            case VAL_I8: unary_result = val_i8((int8_t)(-(int16_t)operand.as.as_i8)); break;
+                            case VAL_I16: unary_result = val_i16((int16_t)(-(int32_t)operand.as.as_i16)); break;
+                            case VAL_I32:
+                                if (operand.as.as_i32 == INT32_MIN) {
+                                    runtime_error(ctx, "Integer overflow: i32 negation");
+                                } else {
+                                    unary_result = val_i32(-operand.as.as_i32);
+                                }
+                                break;
+                            case VAL_I64:
+                                if (operand.as.as_i64 == INT64_MIN) {
+                                    runtime_error(ctx, "Integer overflow: i64 negation");
+                                } else {
+                                    unary_result = val_i64(-operand.as.as_i64);
+                                }
+                                break;
                             case VAL_U8: unary_result = val_i16(-(int16_t)operand.as.as_u8); break;  // promote to i16
                             case VAL_U16: unary_result = val_i32(-(int32_t)operand.as.as_u16); break; // promote to i32
                             case VAL_U32: unary_result = val_i64(-(int64_t)operand.as.as_u32); break; // promote to i64

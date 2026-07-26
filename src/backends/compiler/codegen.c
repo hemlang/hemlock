@@ -28,9 +28,8 @@ static int safe_double_capacity(int current, int min_default) {
 CodegenContext* codegen_new(FILE *output) {
     // calloc (not malloc): zero-initialise every field so any member not
     // explicitly set below defaults to 0/NULL. The fields are otherwise
-    // assigned by hand, and a missed one (e.g. string_concat_context) is read
-    // as heap garbage, making codegen non-deterministic — see the explicit
-    // initialiser for string_concat_context below.
+    // assigned by hand, and a missed one is read as heap garbage, making
+    // codegen non-deterministic.
     CodegenContext *ctx = calloc(1, sizeof(CodegenContext));
     if (!ctx) {
         fprintf(stderr, "error: Memory allocation failed for codegen context\n");
@@ -42,7 +41,6 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->label_counter = 0;
     ctx->func_counter = 0;
     ctx->in_function = 0;
-    ctx->string_concat_context = 0;  // prefer-integer-division flag, off by default
     ctx->inline_depth = 0;
     ctx->local_vars = NULL;
     ctx->local_needs_cleanup = NULL;

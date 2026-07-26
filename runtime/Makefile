@@ -31,10 +31,10 @@ ifeq ($(HEMLOCK_WINDOWS),1)
     # pthreads; ws2_32 supplies sockets; bcrypt supplies CNG hashing.
     # -I../include for hemlock_platform.h; ../src/shared/regex_win32
     # supplies <regex.h> (bundled musl/TRE engine — MinGW has none).
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -Iinclude -I../src/shared -I../src/shared/regex_win32 -I../include -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL
+    CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -g -MMD -MP -Iinclude -I../src/shared -I../src/shared/regex_win32 -I../include -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL
     LDFLAGS = -lm -lpthread $(WIN_FFI_LIB) -lws2_32 -lbcrypt
 else ifeq ($(shell uname),Darwin)
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -fPIC -Iinclude -I../src/shared -I../include -D_DARWIN_C_SOURCE
+    CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -g -MMD -MP -fPIC -Iinclude -I../src/shared -I../include -D_DARWIN_C_SOURCE
     # Detect libffi (Homebrew on macOS puts it in non-standard locations)
     BREW_LIBFFI := $(shell brew --prefix libffi 2>/dev/null)
     ifneq ($(BREW_LIBFFI),)
@@ -48,7 +48,7 @@ else ifeq ($(shell uname),Darwin)
         LDFLAGS += -L$(BREW_OPENSSL)/lib
     endif
 else
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -MMD -MP -fPIC -Iinclude -I../src/shared -I../include -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
+    CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -g -MMD -MP -fPIC -Iinclude -I../src/shared -I../include -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
     LIBFFI_CFLAGS := $(shell pkg-config --cflags libffi 2>/dev/null)
     LIBFFI_LIBS := $(shell pkg-config --libs libffi 2>/dev/null)
     ifneq ($(LIBFFI_CFLAGS),)

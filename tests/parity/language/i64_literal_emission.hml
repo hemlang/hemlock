@@ -19,7 +19,9 @@ print(imin);
 let sum = 5000000000 + 3000000000;
 print(sum);
 
-let prod = 100000 * 100000;   // 10_000_000_000, exceeds i32
+// An i64 operand keeps the product in i64. (Two i32 operands would throw
+// "Integer overflow: i32 multiplication" — the checked-arithmetic contract.)
+let prod = i64(100000) * 100000;   // 10_000_000_000
 print(prod);
 
 // u64 max still round-trips.
