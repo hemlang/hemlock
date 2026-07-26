@@ -1,0 +1,85 @@
+// Regression tests for statement codegen audit fixes:
+// - unlabeled break inside a loop nested in a switch case exits the LOOP,
+//   not the whole switch
+// - switch case values are evaluated lazily, in order, stopping at the match
+// - labeled break/continue with top-level unboxed accumulators write the
+//   native shadow back before jumping
+// - enums declared inside functions
+
+// break in a loop inside a switch case
+switch (1) {
+    case 1:
+        let i = 0;
+        while (true) {
+            i = i + 1;
+            if (i > 2) { break; }
+        }
+        print("after while " + i);
+        break;
+    default:
+        print("default");
+        break;
+}
+print("after switch");
+
+// Lazy switch case evaluation: cases after the match are never evaluated
+fn c1() { print("eval 1"); return 1; }
+fn c2() { print("eval 2"); return 2; }
+fn c3() { print("eval 3"); return 3; }
+switch (2) {
+    case c1(): print("one"); break;
+    case c2(): print("two"); break;
+    case c3(): print("three"); break;
+}
+
+// A throwing case expression after the matching case never runs
+fn boom() { throw "case3 evaluated"; }
+try {
+    switch (2) {
+        case 1: print("one"); break;
+        case 2: print("two"); break;
+        case boom(): print("three"); break;
+    }
+    print("no exception");
+} catch (e) {
+    print("caught: " + e);
+}
+
+// Labeled break from a top-level while with an unboxed accumulator
+let sum = 0;
+outer1: while (true) {
+    sum = sum + 1;
+    if (sum > 5) { break outer1; }
+}
+print(sum);
+
+// Labeled break from a nested loop crossing an inner unboxing region
+let total = 0;
+outer2: while (true) {
+    let j = 0;
+    while (true) {
+        total = total + 1;
+        j = j + 1;
+        if (total > 3) { break outer2; }
+        if (j > 10) { break; }
+    }
+}
+print(total);
+
+// Labeled continue in nested for-in keeps the outer iterable alive
+let arr1 = [1, 2, 3];
+let arr2 = [10, 20, 30];
+outer3: for (let x in arr1) {
+    for (let y in arr2) {
+        if (y == 20) { continue outer3; }
+        print(x * 100 + y);
+    }
+}
+print("after labeled continue");
+
+// Enum declared inside a function body
+fn enum_in_fn() {
+    enum Color { RED, GREEN, BLUE }
+    print(Color.GREEN);
+}
+enum_in_fn();

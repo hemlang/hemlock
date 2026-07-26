@@ -84,7 +84,12 @@ typedef struct {
     int num_func_params;      // Saved ctx->num_func_params
     int *func_param_is_ref;   // Saved ctx->func_param_is_ref
     const char *func_rest_param; // Saved ctx->func_rest_param
+    int function_has_try;     // Saved ctx->function_has_try
 } FuncGenState;
+
+// Recursively check whether a statement tree contains a try statement
+// (skips nested function bodies - they get their own scan).
+int codegen_body_has_try(Stmt *stmt);
 
 // Save function generation state before entering a function body
 void funcgen_save_state(CodegenContext *ctx, FuncGenState *state);
@@ -164,6 +169,8 @@ void codegen_pop_try_finally(CodegenContext *ctx);
 const char* codegen_get_finally_label(CodegenContext *ctx);
 const char* codegen_get_return_value_var(CodegenContext *ctx);
 const char* codegen_get_has_return_var(CodegenContext *ctx);
+int codegen_try_finally_pending_code(CodegenContext *ctx, int is_continue, const char *label);
+void codegen_try_finally_free_pending(TfPendingJump *pending, int num_pending);
 
 // Switch context tracking (for break -> goto)
 void codegen_push_switch(CodegenContext *ctx, const char *end_label);

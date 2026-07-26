@@ -1,0 +1,75 @@
+// Regression tests for call codegen audit fixes:
+// - named arguments bind by name through the inliner and method calls
+// - print/write evaluate ALL arguments before writing any output
+// - user bindings shadow same-named builtins
+// - reduce(f, null) treats null as a real initial accumulator
+// - channel() validates its capacity
+// - ref params work with unboxed vars, array elements, object properties
+
+// Named arguments with an inlinable function
+fn sub(a, b) { return a - b; }
+print(sub(b: 3, a: 10));
+
+fn mk(a, b, c?: "z") { return a + "-" + b + "-" + c; }
+print(mk("A", c: "C", b: "B"));
+
+// Named arguments on an object method
+let o = { fn greet(first, second) { return first + "|" + second; } };
+print(o.greet(second: "S", first: "F"));
+
+// print evaluates all args before writing
+fn w() { write("A"); return 1; }
+print(w(), w());
+
+// Local bindings shadow builtins
+fn shadow_test() {
+    let to_string = fn(x) { return "lambda!"; };
+    print(to_string(7));
+    let join = fn(x) { return "j:" + x; };
+    print(join("a"));
+    let channel = fn(x) { return "ch:" + x; };
+    print(channel(5));
+}
+shadow_test();
+
+// Top-level let shadows a builtin
+let to_string = fn(x) { return "top!"; };
+print(to_string(1));
+
+// Global fn shadows a builtin (to_string is not pre-defined)
+fn my_helper() {
+    return 9;
+}
+print(my_helper());
+
+// reduce with explicit null initial value
+let r = [1, 2, 3].reduce(fn(acc, x) {
+    if (acc == null) { return x * 10; }
+    return acc + x;
+}, null);
+print(r);
+
+// channel() rejects a non-integer capacity
+try {
+    let c = channel(2.5);
+    print("no error");
+} catch (e) {
+    print("caught channel error");
+}
+
+// ref params: unboxed local, array element, object property
+fn bump(ref v) { v = v + 1; }
+fn ref_unboxed() {
+    let x = 1;
+    bump(x);
+    print(x);
+}
+ref_unboxed();
+
+let arr = [10, 20];
+bump(arr[0]);
+print(arr[0]);
+
+let holder = { v: 5 };
+bump(holder.v);
+print(holder.v);

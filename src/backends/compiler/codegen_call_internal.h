@@ -20,7 +20,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr);
  * For other expressions: evaluates to temp and returns "&temp"
  * Returns allocated string that must be freed.
  */
-char* codegen_ref_arg(CodegenContext *ctx, Expr *arg);
+char* codegen_ref_arg(CodegenContext *ctx, Expr *arg, char **writeback);
 
 // ========== DISPATCH FUNCTIONS ==========
 // Each returns 1 if handled, 0 if not its responsibility.

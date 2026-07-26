@@ -186,6 +186,7 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
     // Save state and initialize for function body
     FuncGenState saved_state;
     funcgen_save_state(ctx, &saved_state);
+    ctx->function_has_try = codegen_body_has_try(func->as.function.body);
 
     // Note: Type inference scope management is disabled.
     // Type checking is done in a separate pass before codegen.
@@ -279,6 +280,7 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     // Save state and initialize for closure body
     FuncGenState saved_state;
     funcgen_save_state(ctx, &saved_state);
+    ctx->function_has_try = codegen_body_has_try(func->as.function.body);
     ctx->current_module = closure->source_module;
     ctx->current_closure = closure;
 
@@ -722,6 +724,7 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, MemBuffer
             // Save state and initialize for function body
             FuncGenState saved_state;
             funcgen_save_state(ctx, &saved_state);
+            ctx->function_has_try = codegen_body_has_try(func->as.function.body);
 
             // Add parameters (taking ownership), apply defaults, set up
             // shared env, and generate body

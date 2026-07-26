@@ -17,6 +17,146 @@ static char *codegen_emit_condition_bool(CodegenContext *ctx, Expr *condition) {
     return cond_bool;
 }
 
+// ========== JUMPS THROUGH TRY-FINALLY ==========
+
+// Determine whether the innermost try-finally context lies between the
+// current emission point and a break/continue target - i.e. the jump would
+// leave the try body, so the finally block must run first. Returns the
+// context index (always the innermost) or -1. Outer finally blocks are
+// handled recursively: the post-finally dispatch re-emits the jump, which
+// performs this check again against the then-innermost context.
+static int jump_crosses_finally(CodegenContext *ctx, int is_break, const char *label) {
+    int d = ctx->try_finally_depth - 1;
+    if (d < 0) return -1;
+    if (label) {
+        // Labeled jump: crossed iff the try-finally lives inside the target
+        // labeled loop's body.
+        for (int i = ctx->loop_label_depth - 1; i >= 0; i--) {
+            if (strcmp(ctx->loop_labels[i], label) == 0) {
+                return ctx->tf_loop_body[d] > ctx->loop_label_loop_body[i] ? d : -1;
+            }
+        }
+        return -1;
+    }
+    if (is_break) {
+        // If the break targets a switch, crossed iff the try-finally was
+        // entered inside that switch (and not inside a deeper loop).
+        if (codegen_get_switch_end_label(ctx)) {
+            return (ctx->tf_switch_depth[d] == ctx->switch_depth &&
+                    ctx->tf_loop_body[d] == ctx->loop_body_depth) ? d : -1;
+        }
+    }
+    // Loop-targeted break, or unlabeled continue: crossed iff the
+    // try-finally was entered inside the innermost loop's body.
+    return ctx->tf_loop_body[d] == ctx->loop_body_depth ? d : -1;
+}
+
+// Route a jump through the innermost finally block: release locals declared
+// inside the try body (the goto skips the block-exit releases), pop the
+// exception contexts between here and the finally's try, record the pending
+// action, and jump to the finally label. The post-finally dispatch re-emits
+// the jump.
+static void emit_jump_via_finally(CodegenContext *ctx, int tf_index, int action_code) {
+    codegen_release_locals_range(ctx, ctx->tf_num_locals[tf_index], ctx->num_locals);
+    codegen_emit_exception_pops(ctx, ctx->try_body_depth - ctx->tf_try_depth[tf_index]);
+    codegen_writeln(ctx, "%s = %d;", ctx->has_return_vars[tf_index], action_code);
+    codegen_writeln(ctx, "goto %s;", ctx->finally_labels[tf_index]);
+}
+
+// Emit a break statement (label may be NULL). Called from STMT_BREAK and
+// from the post-finally dispatch chain (re-emitting a pending break at the
+// try statement's lexical position).
+static void emit_break_stmt(CodegenContext *ctx, const char *label, int line) {
+    if (label) {
+        int tf = jump_crosses_finally(ctx, 1, label);
+        if (tf >= 0) {
+            emit_jump_via_finally(ctx, tf,
+                codegen_try_finally_pending_code(ctx, 0, label));
+            return;
+        }
+        // Labeled break: clean up all locals from here to the target loop
+        codegen_emit_labeled_break_cleanup(ctx, label);
+        // Pop exception contexts pushed by try-bodies nested inside
+        // the target labeled loop.
+        codegen_emit_labeled_break_try_pops(ctx, label);
+        // Write back any unboxed main-var shadows this goto exits.
+        codegen_emit_labeled_jump_shadow_writeback(ctx, label);
+        const char *target = codegen_get_labeled_break(ctx, label);
+        if (target) {
+            codegen_writeln(ctx, "goto %s;", target);
+        } else {
+            codegen_error(ctx, line, "Unknown loop label '%s'", label);
+        }
+    } else {
+        int tf = jump_crosses_finally(ctx, 1, NULL);
+        if (tf >= 0) {
+            emit_jump_via_finally(ctx, tf, 2);
+            return;
+        }
+        // Unlabeled break: clean up block-scoped locals in the loop body
+        const char *switch_end = codegen_get_switch_end_label(ctx);
+        if (!switch_end) {
+            codegen_emit_break_cleanup(ctx);
+            // Pop exception contexts pushed by try-bodies nested inside
+            // the innermost loop being broken out of.
+            codegen_emit_break_try_pops(ctx);
+        }
+        // If inside a switch, use goto to exit (so continue still works for loops)
+        if (switch_end) {
+            codegen_writeln(ctx, "goto %s;", switch_end);
+        } else {
+            codegen_writeln(ctx, "break;");
+        }
+    }
+}
+
+// Emit a continue statement (label may be NULL). Same dual use as
+// emit_break_stmt.
+static void emit_continue_stmt(CodegenContext *ctx, const char *label, int line) {
+    if (label) {
+        int tf = jump_crosses_finally(ctx, 0, label);
+        if (tf >= 0) {
+            emit_jump_via_finally(ctx, tf,
+                codegen_try_finally_pending_code(ctx, 1, label));
+            return;
+        }
+        // Labeled continue: clean up locals from here down to the
+        // target loop's BODY entry. Unlike a labeled break, the
+        // target loop keeps running, so its own state (for-in
+        // iterable temp, loop variables) must stay alive.
+        codegen_emit_labeled_continue_cleanup(ctx, label);
+        // Pop exception contexts pushed by try-bodies nested inside
+        // the target labeled loop.
+        codegen_emit_labeled_break_try_pops(ctx, label);
+        // Write back any unboxed main-var shadows this goto exits.
+        codegen_emit_labeled_jump_shadow_writeback(ctx, label);
+        const char *target = codegen_get_labeled_continue(ctx, label);
+        if (target) {
+            codegen_writeln(ctx, "goto %s;", target);
+        } else {
+            codegen_error(ctx, line, "Unknown loop label '%s'", label);
+        }
+    } else {
+        int tf = jump_crosses_finally(ctx, 0, NULL);
+        if (tf >= 0) {
+            emit_jump_via_finally(ctx, tf, 3);
+            return;
+        }
+        // Unlabeled continue: clean up block-scoped locals in the loop body
+        codegen_emit_break_cleanup(ctx);
+        // Pop exception contexts pushed by try-bodies nested inside
+        // the innermost loop being continued.
+        codegen_emit_break_try_pops(ctx);
+        // If inside a for loop, use goto to jump to before the increment
+        const char *for_continue = codegen_get_for_continue_label(ctx);
+        if (for_continue) {
+            codegen_writeln(ctx, "goto %s;", for_continue);
+        } else {
+            codegen_writeln(ctx, "continue;");
+        }
+    }
+}
+
 void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
     // Record the current source line so runtime errors can report it (and the
     // matching source snippet), mirroring the interpreter's per-statement
@@ -67,9 +207,14 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                         const char *c_type = checked_type_to_c_type(native_type);
                         const char *unbox_cast = checked_type_to_unbox_cast(native_type);
                         if (c_type && unbox_cast) {
-                            // Generate unboxed variable with native C type
+                            // Generate unboxed variable with native C type.
+                            // volatile when the function contains a try: the
+                            // value would otherwise be indeterminate after a
+                            // longjmp (setjmp clobbering) when read in catch.
                             char *value = codegen_expr(ctx, stmt->as.let.value);
-                            codegen_writeln(ctx, "%s %s = %s(%s);", c_type, safe_name, unbox_cast, value);
+                            codegen_writeln(ctx, "%s%s %s = %s(%s);",
+                                          ctx->function_has_try ? "volatile " : "",
+                                          c_type, safe_name, unbox_cast, value);
                             codegen_writeln(ctx, "hml_release(&%s);", value);
                             free(value);
                             free(safe_name);
@@ -90,9 +235,12 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     const char *c_type = checked_type_to_c_type(native_type);
                     const char *unbox_cast = checked_type_to_unbox_cast(native_type);
                     if (c_type && unbox_cast) {
-                        // Generate unboxed variable with inferred native C type
+                        // Generate unboxed variable with inferred native C
+                        // type (volatile under try - see above).
                         char *value = codegen_expr(ctx, stmt->as.let.value);
-                        codegen_writeln(ctx, "%s %s = %s(%s);", c_type, safe_name, unbox_cast, value);
+                        codegen_writeln(ctx, "%s%s %s = %s(%s);",
+                                      ctx->function_has_try ? "volatile " : "",
+                                      c_type, safe_name, unbox_cast, value);
                         codegen_writeln(ctx, "hml_release(&%s);", value);
                         free(value);
                         free(safe_name);
@@ -378,6 +526,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             // OPTIMIZATION: At top level, shadow main variables with native locals
             // for accumulators and counters detected by the type checker
             int num_unboxed_main = 0;
+            int num_shadows_pushed = 0;
             char **unboxed_main_names = NULL;
             CheckedTypeKind *unboxed_main_types = NULL;
 
@@ -406,19 +555,39 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 char **new_names = malloc((max_new > 0 ? max_new : 1) * sizeof(char*));
                 CheckedTypeKind *new_types = malloc((max_new > 0 ? max_new : 1) * sizeof(CheckedTypeKind));
 
+                // Names to un-mark: analysis marked them unboxable but a
+                // closure captures them, so shadowing them with a native
+                // local would make the closure read stale values and lose
+                // its writes. Cleared after the iteration (clearing during
+                // it would free list nodes under the cursor).
+                int num_rejected = 0;
+                char **rejected_names = malloc((max_new > 0 ? max_new : 1) * sizeof(char*));
+
                 for (UnboxableVar *u = ctx->type_ctx->unboxable_vars; u; u = u->next) {
                     if (!codegen_is_main_var(ctx, u->name) || u->native_type == CHECKED_UNKNOWN) continue;
                     int was_existing = 0;
                     for (int e = 0; e < num_existing; e++) {
                         if (strcmp(existing_names[e], u->name) == 0) { was_existing = 1; break; }
                     }
-                    if (!was_existing) {
-                        new_names[num_unboxed_main] = strdup(u->name);
-                        new_types[num_unboxed_main] = u->native_type;
-                        num_unboxed_main++;
+                    if (was_existing) continue;
+                    // A variable captured by ANY closure generated so far must
+                    // not be shadowed: the analysis only inspects the loop
+                    // body, but a closure created before the loop reads and
+                    // writes the boxed _main_ variable while the loop runs.
+                    if (codegen_var_captured_by_any_closure(ctx, u->name)) {
+                        if (rejected_names) rejected_names[num_rejected++] = strdup(u->name);
+                        continue;
                     }
+                    new_names[num_unboxed_main] = strdup(u->name);
+                    new_types[num_unboxed_main] = u->native_type;
+                    num_unboxed_main++;
                 }
                 free(existing_names);
+                for (int r = 0; r < num_rejected; r++) {
+                    type_check_clear_unboxable(ctx->type_ctx, rejected_names[r]);
+                    free(rejected_names[r]);
+                }
+                free(rejected_names);
 
                 if (num_unboxed_main > 0) {
                     unboxed_main_names = new_names;
@@ -437,6 +606,11 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                                           c_type, safe_name, unbox_cast, unboxed_main_names[i]);
                             codegen_add_local(ctx, unboxed_main_names[i]);
                             codegen_mark_local_no_cleanup(ctx, unboxed_main_names[i]);
+                            // Track the shadow so a labeled break/continue that
+                            // jumps out of this loop writes it back first.
+                            codegen_push_unboxed_shadow(ctx, unboxed_main_names[i],
+                                                        (int)unboxed_main_types[i]);
+                            num_shadows_pushed++;
                         }
                         free(safe_name);
                     }
@@ -463,8 +637,20 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
 
+            // The labeled-break target must precede the unboxed write-back:
+            // `break <label>` compiles to `goto break_label`, and with the
+            // label after the write-back the jump skipped it, losing every
+            // update made through the native shadows (e.g. `sum` staying 0).
+            if (loop_label) {
+                codegen_writeln(ctx, "%s:;", break_label);
+                codegen_pop_loop_label(ctx);
+                free(break_label);
+                free(continue_label);
+            }
+
             // Write back unboxed locals to main variables
             if (num_unboxed_main > 0) {
+                codegen_pop_unboxed_shadows(ctx, num_shadows_pushed);
                 for (int i = 0; i < num_unboxed_main; i++) {
                     const char *box_func = checked_type_to_box_func(unboxed_main_types[i]);
                     char *safe_name = codegen_sanitize_ident(unboxed_main_names[i]);
@@ -483,13 +669,6 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
                 codegen_pop_scope(ctx);
-            }
-
-            if (loop_label) {
-                codegen_writeln(ctx, "%s:;", break_label);
-                codegen_pop_loop_label(ctx);
-                free(break_label);
-                free(continue_label);
             }
 
             ctx->loop_depth--;
@@ -601,6 +780,11 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_mark_local_no_cleanup(ctx, counter_name);
                 if (ctx->current_scope) {
                     scope_add_var(ctx->current_scope, counter_name);
+                }
+                // The native counter is this loop's own state - labeled
+                // continues targeting this loop must not release it.
+                if (loop_label) {
+                    codegen_loop_label_set_continue_base(ctx);
                 }
 
                 // Create continue label (use loop_continue_label if this is a labeled loop)
@@ -719,10 +903,28 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                             binop->as.binary.right->type == EXPR_NUMBER &&
                             !binop->as.binary.right->as.number.is_float) {
                             int32_t step = (int32_t)binop->as.binary.right->as.number.int_value;
+                            // Unlike `i++` (which wraps by spec), `i = i + N` /
+                            // `i += N` is i32 addition and must throw a
+                            // catchable "Integer overflow" error. A raw C
+                            // `+=` silently wrapped where the interpreter
+                            // throws. Set the error line to the increment's
+                            // own line (the last body statement's line would
+                            // otherwise be reported).
+                            {
+                                int inc_line = inc->line > 0 ? inc->line
+                                             : binop->line > 0 ? binop->line
+                                             : stmt->line;
+                                if (inc_line > 0 &&
+                                    (binop->as.binary.op == OP_ADD || binop->as.binary.op == OP_SUB)) {
+                                    codegen_writeln(ctx, "hml_error_line = %d;", inc_line);
+                                }
+                            }
                             if (binop->as.binary.op == OP_ADD) {
-                                codegen_writeln(ctx, "%s += %d;", safe_name, step);
+                                codegen_writeln(ctx, "{ int32_t _ovt; if (__builtin_add_overflow(%s, %d, &_ovt)) hml_runtime_error_line(\"Integer overflow: i32 addition\"); %s = _ovt; }",
+                                              safe_name, step, safe_name);
                             } else if (binop->as.binary.op == OP_SUB) {
-                                codegen_writeln(ctx, "%s -= %d;", safe_name, step);
+                                codegen_writeln(ctx, "{ int32_t _ovt; if (__builtin_sub_overflow(%s, %d, &_ovt)) hml_runtime_error_line(\"Integer overflow: i32 subtraction\"); %s = _ovt; }",
+                                              safe_name, step, safe_name);
                             }
                         }
                     }
@@ -752,6 +954,12 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 if (stmt->as.for_loop.initializer) {
                     codegen_stmt(ctx, stmt->as.for_loop.initializer);
                 }
+                // The boxed counter is this loop's own state - labeled
+                // continues targeting this loop must not release it (the
+                // increment after the continue label still reads it).
+                if (loop_label) {
+                    codegen_loop_label_set_continue_base(ctx);
+                }
                 // Create continue label for this for loop (continue jumps here, before increment)
                 // Use loop_continue_label if this is a labeled loop
                 char *continue_label;
@@ -777,8 +985,15 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_pop_loop_body(ctx);
                 // Continue label - continue jumps here to execute increment
                 codegen_writeln(ctx, "%s:;", continue_label);
-                // Increment
+                // Increment. Set the error line to the increment's own line
+                // first: a throwing increment (e.g. i32 overflow) would
+                // otherwise report the line of the last body statement.
                 if (stmt->as.for_loop.increment) {
+                    int inc_line = stmt->as.for_loop.increment->line > 0
+                                 ? stmt->as.for_loop.increment->line : stmt->line;
+                    if (inc_line > 0) {
+                        codegen_writeln(ctx, "hml_error_line = %d;", inc_line);
+                    }
                     char *inc = codegen_expr(ctx, stmt->as.for_loop.increment);
                     codegen_writeln(ctx, "hml_release(&%s);", inc);
                     free(inc);
@@ -870,6 +1085,17 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             // case.
             char *iter_val = codegen_expr(ctx, stmt->as.for_in.iterable);
 
+            // Register the owned iterable temp as a cleanup-tracked local for
+            // the duration of the loop: a `return` (or labeled break to an
+            // outer loop) inside the body jumps past the release at loop end,
+            // and jump-site cleanup only releases registered locals. Without
+            // this every such jump leaked the entire iterable. (Same fix as
+            // the switch subject registration in STMT_SWITCH.) Registered
+            // before the loop body starts, so unlabeled break/continue
+            // cleanup - which only covers body-scoped locals - does not
+            // release it early.
+            codegen_add_local_raw(ctx, iter_val);
+
             // Check for valid iterable type (array, object, or string)
             codegen_writeln(ctx, "if (%s.type != HML_VAL_ARRAY && %s.type != HML_VAL_OBJECT && %s.type != HML_VAL_STRING) {",
                           iter_val, iter_val, iter_val);
@@ -909,19 +1135,33 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 type_check_clear_unboxable(ctx->type_ctx, stmt->as.for_in.value_var);
             }
 
+            // The key/value loop variables hold owned references and are
+            // cleanup-tracked: a break/return inside the body jumps past the
+            // releases at the continue label, which used to leak the current
+            // element on every such exit. The continue-label releases below
+            // may then run against an already-released slot on the normal
+            // path only after a jump released it first - which cannot happen
+            // (a jump leaves the loop entirely) - and hml_release nulls the
+            // payload, so the pairing stays balanced. Initialized to null so
+            // no path can release an indeterminate value.
             if (stmt->as.for_in.key_var) {
-                codegen_writeln(ctx, "HmlValue %s;", safe_key_var);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_null();", safe_key_var);
                 codegen_add_local(ctx, stmt->as.for_in.key_var);
-                codegen_mark_local_no_cleanup(ctx, stmt->as.for_in.key_var);
                 if (ctx->current_scope) {
                     scope_add_var(ctx->current_scope, stmt->as.for_in.key_var);
                 }
             }
-            codegen_writeln(ctx, "HmlValue %s;", safe_value_var);
+            codegen_writeln(ctx, "HmlValue %s = hml_val_null();", safe_value_var);
             codegen_add_local(ctx, stmt->as.for_in.value_var);
-            codegen_mark_local_no_cleanup(ctx, stmt->as.for_in.value_var);
             if (ctx->current_scope) {
                 scope_add_var(ctx->current_scope, stmt->as.for_in.value_var);
+            }
+
+            // Everything registered above (iterable temp, key/value vars) is
+            // this loop's own state: a labeled continue targeting this loop
+            // must not release it.
+            if (loop_label) {
+                codegen_loop_label_set_continue_base(ctx);
             }
 
             // Handle object iteration
@@ -993,6 +1233,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             // temporary the retain is skipped so this release consumes
             // the call's original +1 instead of leaking it.
             codegen_writeln(ctx, "hml_release(&%s);", iter_val);
+            codegen_remove_local(ctx, iter_val);
 
             codegen_indent_dec(ctx);
             codegen_writeln(ctx, "}");
@@ -1076,21 +1317,29 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 // the finally block still runs.
                 const char *ret_var = codegen_get_return_value_var(ctx);
                 const char *has_ret = codegen_get_has_return_var(ctx);
+                int tf = ctx->try_finally_depth - 1;
                 if (stmt->as.return_stmt.value) {
+                    // The return expression must be evaluated BEFORE popping
+                    // exception contexts: if it throws, the exception must
+                    // land in this try's handler so the finally still runs.
                     char *value = codegen_expr(ctx, stmt->as.return_stmt.value);
                     codegen_writeln(ctx, "%s = %s;", ret_var, value);
                     free(value);
                 } else {
                     codegen_writeln(ctx, "%s = hml_val_null();", ret_var);
                 }
-                // Pop every exception context pushed by enclosing try-bodies
-                // between this return and the target finally (the natural
-                // pops after the try-bodies are skipped by the goto). The
-                // count is exactly ctx->try_body_depth at this point: the
-                // target try-finally pushes its context BEFORE we increment
-                // try_body_depth for its try-body, so its own contribution
-                // is included.
-                codegen_emit_return_try_pops(ctx);
+                // Release locals declared inside the try body - the goto
+                // skips the block-exit releases. The return value took its
+                // own retain, so it survives this. (The pre-try locals are
+                // released by the dispatch chain's final return cleanup.)
+                codegen_release_locals_range(ctx, ctx->tf_num_locals[tf], ctx->num_locals);
+                // Pop only the exception contexts between this return and
+                // the target finally, INCLUSIVE of the target try's own
+                // context (its natural pop is skipped by the goto). Popping
+                // everything here (the old behavior) double-popped outer
+                // contexts when finallys were nested: the dispatch after
+                // each finally pops the next batch as it chains outward.
+                codegen_emit_exception_pops(ctx, ctx->try_body_depth - ctx->tf_try_depth[tf]);
                 codegen_writeln(ctx, "%s = 1;", has_ret);
                 codegen_writeln(ctx, "goto %s;", finally_label);
             } else if (ctx->defer_stack) {
@@ -1250,68 +1499,16 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
         }
 
         case STMT_BREAK: {
-            // Check for labeled break first
-            const char *label = stmt->as.break_stmt.label;
-            if (label) {
-                // Labeled break: clean up all locals from here to the target loop
-                codegen_emit_labeled_break_cleanup(ctx, label);
-                // Pop exception contexts pushed by try-bodies nested inside
-                // the target labeled loop.
-                codegen_emit_labeled_break_try_pops(ctx, label);
-                const char *target = codegen_get_labeled_break(ctx, label);
-                if (target) {
-                    codegen_writeln(ctx, "goto %s;", target);
-                } else {
-                    codegen_error(ctx, stmt->line, "Unknown loop label '%s'", label);
-                }
-            } else {
-                // Unlabeled break: clean up block-scoped locals in the loop body
-                const char *switch_end = codegen_get_switch_end_label(ctx);
-                if (!switch_end) {
-                    codegen_emit_break_cleanup(ctx);
-                    // Pop exception contexts pushed by try-bodies nested inside
-                    // the innermost loop being broken out of.
-                    codegen_emit_break_try_pops(ctx);
-                }
-                // If inside a switch, use goto to exit (so continue still works for loops)
-                if (switch_end) {
-                    codegen_writeln(ctx, "goto %s;", switch_end);
-                } else {
-                    codegen_writeln(ctx, "break;");
-                }
-            }
+            // A break that leaves a try body with a finally block routes
+            // through the finally first (see emit_break_stmt).
+            emit_break_stmt(ctx, stmt->as.break_stmt.label, stmt->line);
             break;
         }
 
         case STMT_CONTINUE: {
-            // Check for labeled continue first
-            const char *label = stmt->as.continue_stmt.label;
-            if (label) {
-                // Labeled continue: clean up all locals from here to the target loop
-                codegen_emit_labeled_break_cleanup(ctx, label);
-                // Pop exception contexts pushed by try-bodies nested inside
-                // the target labeled loop.
-                codegen_emit_labeled_break_try_pops(ctx, label);
-                const char *target = codegen_get_labeled_continue(ctx, label);
-                if (target) {
-                    codegen_writeln(ctx, "goto %s;", target);
-                } else {
-                    codegen_error(ctx, stmt->line, "Unknown loop label '%s'", label);
-                }
-            } else {
-                // Unlabeled continue: clean up block-scoped locals in the loop body
-                codegen_emit_break_cleanup(ctx);
-                // Pop exception contexts pushed by try-bodies nested inside
-                // the innermost loop being continued.
-                codegen_emit_break_try_pops(ctx);
-                // If inside a for loop, use goto to jump to before the increment
-                const char *for_continue = codegen_get_for_continue_label(ctx);
-                if (for_continue) {
-                    codegen_writeln(ctx, "goto %s;", for_continue);
-                } else {
-                    codegen_writeln(ctx, "continue;");
-                }
-            }
+            // A continue that leaves a try body with a finally block routes
+            // through the finally first (see emit_continue_stmt).
+            emit_continue_stmt(ctx, stmt->as.continue_stmt.label, stmt->line);
             break;
         }
 
@@ -1324,12 +1521,15 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             int has_finally = stmt->as.try_stmt.finally_block != NULL;
             int has_catch = stmt->as.try_stmt.catch_block != NULL;
 
-            // Generate unique names for try-finally support (for return to jump to finally)
-            // This is only needed when inside a function (at top-level, no return is possible)
+            // Generate unique names for try-finally support: return, break,
+            // and continue statements that leave the try body jump to the
+            // finally label with a pending-action code, and the dispatch
+            // chain after the finally re-emits the jump. Needed at top level
+            // too (break/continue in top-level loops cross finallys there).
             char *finally_label = NULL;
             char *return_value_var = NULL;
             char *has_return_var = NULL;
-            int needs_return_tracking = has_finally && ctx->in_function;
+            int needs_return_tracking = has_finally;
 
             if (needs_return_tracking) {
                 finally_label = codegen_label(ctx);
@@ -1471,11 +1671,22 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             // Finally block
             if (has_finally) {
                 // Pop try-finally context before generating finally
-                // (return statements in finally should not jump to itself)
+                // (return statements in finally should not jump to itself).
+                // Grab the pending-jump list from the popped slot right away:
+                // a nested try inside the finally block would reuse the slot.
+                TfPendingJump *pending = NULL;
+                int num_pending = 0;
                 if (needs_return_tracking) {
                     codegen_pop_try_finally(ctx);
+                    int slot = ctx->try_finally_depth;
+                    pending = ctx->tf_pending[slot];
+                    num_pending = ctx->tf_num_pending[slot];
+                    ctx->tf_pending[slot] = NULL;
+                    ctx->tf_num_pending[slot] = 0;
+                    ctx->tf_pending_cap[slot] = 0;
 
-                    // Generate the finally label (jumped to from return statements in try)
+                    // Generate the finally label (jumped to from return/break/
+                    // continue statements in the try body)
                     codegen_writeln(ctx, "%s:;", finally_label);
                 }
 
@@ -1489,26 +1700,79 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
 
-                // Check if we should return (from a return statement in the try block)
+                // Dispatch the pending action recorded before the jump to the
+                // finally label. Each branch re-emits the original jump at
+                // this lexical position; if it crosses ANOTHER finally, the
+                // emission routes to that one (transferring the pending
+                // state), chaining outward until the jump lands.
                 if (needs_return_tracking) {
-                    codegen_writeln(ctx, "if (%s) {", has_return_var);
-                    codegen_indent_inc(ctx);
-                    // Pop any exception contexts pushed by try-bodies that
-                    // still enclose this finally (this try's own context was
-                    // already popped at the return site before the goto).
-                    codegen_emit_return_try_pops(ctx);
-                    // Pop this function's defer unwind context and run its defers
-                    codegen_emit_defer_exit(ctx);
-                    // Release body-local variables, owned params, and captures
-                    codegen_emit_local_cleanup(ctx, NULL);
-                    codegen_emit_param_cleanup(ctx);
-                    codegen_emit_capture_cleanup(ctx);
-                    if (ctx->stack_check) {
-                        codegen_writeln(ctx, "HML_CALL_EXIT();");
+                    // action 1: return (only possible inside a function)
+                    if (ctx->in_function) {
+                        codegen_writeln(ctx, "if (%s == 1) {", has_return_var);
+                        codegen_indent_inc(ctx);
+                        const char *outer_label = codegen_get_finally_label(ctx);
+                        if (outer_label) {
+                            // A nested try-finally: transfer the pending
+                            // return to the outer context instead of
+                            // returning directly (which skipped every outer
+                            // finally block).
+                            int od = ctx->try_finally_depth - 1;
+                            codegen_emit_exception_pops(ctx,
+                                ctx->try_body_depth - ctx->tf_try_depth[od]);
+                            codegen_writeln(ctx, "%s = %s;",
+                                ctx->return_value_vars[od], return_value_var);
+                            codegen_writeln(ctx, "%s = 1;", ctx->has_return_vars[od]);
+                            codegen_writeln(ctx, "goto %s;", outer_label);
+                        } else {
+                            // Pop any exception contexts pushed by try-bodies
+                            // that still enclose this finally (contexts up to
+                            // here were popped at the jump site / by earlier
+                            // links of the chain).
+                            codegen_emit_return_try_pops(ctx);
+                            // Pop this function's defer unwind context and run its defers
+                            codegen_emit_defer_exit(ctx);
+                            // Release body-local variables, owned params, and captures
+                            codegen_emit_local_cleanup(ctx, NULL);
+                            codegen_emit_param_cleanup(ctx);
+                            codegen_emit_capture_cleanup(ctx);
+                            if (ctx->stack_check) {
+                                codegen_writeln(ctx, "HML_CALL_EXIT();");
+                            }
+                            codegen_writeln(ctx, "return %s;", return_value_var);
+                        }
+                        codegen_indent_dec(ctx);
+                        codegen_writeln(ctx, "}");
                     }
-                    codegen_writeln(ctx, "return %s;", return_value_var);
-                    codegen_indent_dec(ctx);
-                    codegen_writeln(ctx, "}");
+                    // action 2: unlabeled break (only reachable - and only
+                    // valid C - when the try sits inside a loop or switch)
+                    if (ctx->loop_body_depth > 0 || ctx->switch_depth > 0) {
+                        codegen_writeln(ctx, "if (%s == 2) {", has_return_var);
+                        codegen_indent_inc(ctx);
+                        emit_break_stmt(ctx, NULL, stmt->line);
+                        codegen_indent_dec(ctx);
+                        codegen_writeln(ctx, "}");
+                    }
+                    // action 3: unlabeled continue (only reachable inside a loop)
+                    if (ctx->loop_body_depth > 0) {
+                        codegen_writeln(ctx, "if (%s == 3) {", has_return_var);
+                        codegen_indent_inc(ctx);
+                        emit_continue_stmt(ctx, NULL, stmt->line);
+                        codegen_indent_dec(ctx);
+                        codegen_writeln(ctx, "}");
+                    }
+                    // actions 4+: labeled break/continue
+                    for (int p = 0; p < num_pending; p++) {
+                        codegen_writeln(ctx, "if (%s == %d) {", has_return_var, 4 + p);
+                        codegen_indent_inc(ctx);
+                        if (pending[p].is_continue) {
+                            emit_continue_stmt(ctx, pending[p].label, stmt->line);
+                        } else {
+                            emit_break_stmt(ctx, pending[p].label, stmt->line);
+                        }
+                        codegen_indent_dec(ctx);
+                        codegen_writeln(ctx, "}");
+                    }
+                    codegen_try_finally_free_pending(pending, num_pending);
 
                     free(finally_label);
                     free(return_value_var);
@@ -1572,49 +1836,34 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             codegen_writeln(ctx, "{");
             codegen_indent_inc(ctx);
 
-            // Pre-generate all case values to avoid scoping issues
-            char **case_vals = NULL;
-            if (num_cases > 0) {
-                case_vals = malloc(num_cases * sizeof(char*));
-                if (!case_vals) {
-                    codegen_error(ctx, 0, "Memory allocation failed for switch case values");
-                    for (int i = 0; i < num_cases; i++) {
-                        free(case_labels[i]);
-                    }
-                    free(case_labels);
-                    free(expr_val);
-                    break;
-                }
-            }
-            for (int i = 0; i < num_cases; i++) {
-                if (stmt->as.switch_stmt.case_values[i] == NULL) {
-                    case_vals[i] = NULL;
-                } else {
-                    case_vals[i] = codegen_expr(ctx, stmt->as.switch_stmt.case_values[i]);
-                }
-            }
-
-            // Register the subject and case-value temps as cleanup-tracked
-            // locals while the case bodies are generated: a return, continue,
-            // or labeled break inside a case jumps past the release block
-            // after end_label, and the jump-site cleanup only releases
-            // registered locals. Without this every such jump leaked the
-            // switch subject and case temporaries (e.g. a heap-string
-            // subject in a `while { switch(s) { default: continue; } }`
-            // loop leaked three blocks per iteration). Removed again after
-            // the end-label releases so nothing releases them twice.
+            // Register the subject temp as a cleanup-tracked local while the
+            // case bodies are generated: a return, continue, or labeled
+            // break inside a case jumps past the release block after
+            // end_label, and the jump-site cleanup only releases registered
+            // locals. Without this every such jump leaked the switch subject
+            // (e.g. a heap-string subject in a `while { switch(s) {
+            // default: continue; } }` loop leaked per iteration). Removed
+            // again after the end-label release so nothing releases it twice.
             codegen_add_local_raw(ctx, expr_val);
-            for (int i = 0; i < num_cases; i++) {
-                if (case_vals[i]) {
-                    codegen_add_local_raw(ctx, case_vals[i]);
-                }
-            }
 
-            // Generate case matching logic - jump to first matching case
+            // Generate case matching logic - jump to first matching case.
+            // Case values are evaluated LAZILY, in order, stopping at the
+            // first match (interpreter parity): pre-generating every case
+            // value ran their side effects even for cases after the match,
+            // and a throwing case expression after the matching one raised
+            // a phantom exception the interpreter never sees. Each value is
+            // released immediately after its comparison, so no case temp
+            // survives into the case bodies.
             for (int i = 0; i < num_cases; i++) {
-                if (case_vals[i] == NULL) continue;  // Skip default in matching
-                codegen_writeln(ctx, "if (hml_to_bool(hml_binary_op(HML_OP_EQUAL, %s, %s))) goto %s;",
-                              expr_val, case_vals[i], case_labels[i]);
+                if (stmt->as.switch_stmt.case_values[i] == NULL) continue;  // Skip default in matching
+                char *case_val = codegen_expr(ctx, stmt->as.switch_stmt.case_values[i]);
+                char *match_var = codegen_temp(ctx);
+                codegen_writeln(ctx, "int %s = hml_to_bool(hml_binary_op(HML_OP_EQUAL, %s, %s));",
+                              match_var, expr_val, case_val);
+                codegen_writeln(ctx, "hml_release_if_needed(&%s);", case_val);
+                codegen_writeln(ctx, "if (%s) goto %s;", match_var, case_labels[i]);
+                free(match_var);
+                free(case_val);
             }
 
             // If no case matched, jump to default or end
@@ -1633,16 +1882,6 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             // End label for cleanup
             codegen_writeln(ctx, "%s:;", end_label);
-
-            // Release case values (and unregister the temps - reverse order)
-            for (int i = num_cases - 1; i >= 0; i--) {
-                if (case_vals[i]) {
-                    codegen_writeln(ctx, "hml_release(&%s);", case_vals[i]);
-                    codegen_remove_local(ctx, case_vals[i]);
-                    free(case_vals[i]);
-                }
-            }
-            free(case_vals);
 
             codegen_writeln(ctx, "hml_release(&%s);", expr_val);
             codegen_remove_local(ctx, expr_val);
@@ -1708,7 +1947,9 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             // Determine the correct variable name with prefix
             char prefixed_name[CODEGEN_MANGLED_NAME_SIZE];
+            char *sanitized_local = NULL;
             const char *enum_name = raw_enum_name;
+            int is_function_local = 0;
             if (ctx->current_module && !codegen_is_local(ctx, raw_enum_name)) {
                 snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
                         ctx->current_module->module_prefix, raw_enum_name);
@@ -1716,9 +1957,24 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
             } else if (codegen_is_main_var(ctx, raw_enum_name)) {
                 snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", raw_enum_name);
                 enum_name = prefixed_name;
+            } else {
+                // Enum declared inside a function body: there is no
+                // pre-declared static for it, so a bare assignment produced
+                // `Color = hml_val_object();` with no declaration and the C
+                // build failed. Declare it as a fresh local instead.
+                is_function_local = 1;
+                sanitized_local = codegen_sanitize_ident(raw_enum_name);
+                enum_name = sanitized_local;
             }
 
-            codegen_writeln(ctx, "%s = hml_val_object();", enum_name);
+            if (is_function_local) {
+                if (ctx->type_ctx) {
+                    type_check_clear_unboxable(ctx->type_ctx, raw_enum_name);
+                }
+                codegen_writeln(ctx, "HmlValue %s = hml_val_object();", enum_name);
+            } else {
+                codegen_writeln(ctx, "%s = hml_val_object();", enum_name);
+            }
 
             // Track variant values for registration
             int *variant_values = NULL;
@@ -1783,6 +2039,10 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
 
             // Add enum as local variable (using raw name for lookup)
             codegen_add_local(ctx, raw_enum_name);
+            if (is_function_local && ctx->current_scope) {
+                scope_add_var(ctx->current_scope, raw_enum_name);
+            }
+            free(sanitized_local);
             break;
         }
 

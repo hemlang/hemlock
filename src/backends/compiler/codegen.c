@@ -103,6 +103,13 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->finally_labels = NULL;
     ctx->return_value_vars = NULL;
     ctx->has_return_vars = NULL;
+    ctx->tf_try_depth = NULL;
+    ctx->tf_loop_body = NULL;
+    ctx->tf_switch_depth = NULL;
+    ctx->tf_num_locals = NULL;
+    ctx->tf_pending = NULL;
+    ctx->tf_num_pending = NULL;
+    ctx->tf_pending_cap = NULL;
     ctx->try_finally_capacity = 0;
     ctx->try_body_depth = 0;
     ctx->loop_depth = 0;
@@ -112,6 +119,7 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->loop_body_capacity = 0;
     ctx->switch_depth = 0;
     ctx->switch_end_labels = NULL;
+    ctx->switch_loop_depths = NULL;
     ctx->switch_end_capacity = 0;
     ctx->for_continue_labels = NULL;
     ctx->for_continue_depth = 0;
@@ -120,12 +128,20 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->loop_break_labels = NULL;
     ctx->loop_continue_labels = NULL;
     ctx->loop_label_body_locals = NULL;
+    ctx->loop_label_continue_locals = NULL;
     ctx->loop_label_try_depth = NULL;
+    ctx->loop_label_loop_body = NULL;
     ctx->loop_label_depth = 0;
     ctx->loop_label_capacity = 0;
+    ctx->unboxed_shadow_names = NULL;
+    ctx->unboxed_shadow_types = NULL;
+    ctx->unboxed_shadow_body_depth = NULL;
+    ctx->num_unboxed_shadows = 0;
+    ctx->unboxed_shadow_capacity = 0;
     ctx->type_ctx = NULL;  // Set by caller (main.c) if type checking enabled
     ctx->optimize = 1;  // Enable optimization by default
     ctx->stack_check = 1;  // Enable stack checking by default (can be overridden by caller)
+    ctx->function_has_try = 0;
     ctx->has_defers = 0;  // Track if any defers exist in current function
     ctx->defer_unwind_active = 0;
     ctx->tail_call_func_name = NULL;  // Tail call optimization tracking
@@ -276,11 +292,19 @@ void codegen_free(CodegenContext *ctx) {
                 free(ctx->finally_labels[i]);
                 free(ctx->return_value_vars[i]);
                 free(ctx->has_return_vars[i]);
+                codegen_try_finally_free_pending(ctx->tf_pending[i], ctx->tf_num_pending[i]);
             }
             free(ctx->finally_labels);
             free(ctx->return_value_vars);
             free(ctx->has_return_vars);
         }
+        free(ctx->tf_try_depth);
+        free(ctx->tf_loop_body);
+        free(ctx->tf_switch_depth);
+        free(ctx->tf_num_locals);
+        free(ctx->tf_pending);
+        free(ctx->tf_num_pending);
+        free(ctx->tf_pending_cap);
 
         // Free switch end labels stack
         if (ctx->switch_end_labels) {
@@ -289,6 +313,7 @@ void codegen_free(CodegenContext *ctx) {
             }
             free(ctx->switch_end_labels);
         }
+        free(ctx->switch_loop_depths);
 
         // Free for-continue labels stack
         if (ctx->for_continue_labels) {
@@ -316,7 +341,17 @@ void codegen_free(CodegenContext *ctx) {
             free(ctx->loop_continue_labels);
         }
         free(ctx->loop_label_body_locals);
+        free(ctx->loop_label_continue_locals);
         free(ctx->loop_label_try_depth);
+        free(ctx->loop_label_loop_body);
+
+        // Free unboxed shadow tracking
+        for (int i = 0; i < ctx->num_unboxed_shadows; i++) {
+            free(ctx->unboxed_shadow_names[i]);
+        }
+        free(ctx->unboxed_shadow_names);
+        free(ctx->unboxed_shadow_types);
+        free(ctx->unboxed_shadow_body_depth);
 
         // Note: type_ctx is NOT freed here - it's owned by the caller (main.c)
 
@@ -710,7 +745,7 @@ void codegen_restore_consumed(CodegenContext *ctx, int checkpoint) {
     ctx->num_consumed_temps = checkpoint;
 }
 
-// Try-finally context tracking (for return/break to jump to finally first)
+// Try-finally context tracking (for return/break/continue to jump to finally first)
 void codegen_push_try_finally(CodegenContext *ctx, const char *finally_label,
                               const char *return_value_var, const char *has_return_var) {
     if (ctx->try_finally_depth >= ctx->try_finally_capacity) {
@@ -718,17 +753,40 @@ void codegen_push_try_finally(CodegenContext *ctx, const char *finally_label,
         char **new_labels = realloc(ctx->finally_labels, new_cap * sizeof(char*));
         char **new_return_vars = realloc(ctx->return_value_vars, new_cap * sizeof(char*));
         char **new_has_vars = realloc(ctx->has_return_vars, new_cap * sizeof(char*));
-        if (!new_labels || !new_return_vars || !new_has_vars) {
+        int *new_try_depth = realloc(ctx->tf_try_depth, new_cap * sizeof(int));
+        int *new_loop_body = realloc(ctx->tf_loop_body, new_cap * sizeof(int));
+        int *new_switch_depth = realloc(ctx->tf_switch_depth, new_cap * sizeof(int));
+        int *new_num_locals = realloc(ctx->tf_num_locals, new_cap * sizeof(int));
+        TfPendingJump **new_pending = realloc(ctx->tf_pending, new_cap * sizeof(TfPendingJump*));
+        int *new_num_pending = realloc(ctx->tf_num_pending, new_cap * sizeof(int));
+        int *new_pending_cap = realloc(ctx->tf_pending_cap, new_cap * sizeof(int));
+        if (!new_labels || !new_return_vars || !new_has_vars || !new_try_depth ||
+            !new_loop_body || !new_switch_depth || !new_num_locals ||
+            !new_pending || !new_num_pending || !new_pending_cap) {
             // Update pointers for any successful allocations to avoid losing memory
             if (new_labels) ctx->finally_labels = new_labels;
             if (new_return_vars) ctx->return_value_vars = new_return_vars;
             if (new_has_vars) ctx->has_return_vars = new_has_vars;
+            if (new_try_depth) ctx->tf_try_depth = new_try_depth;
+            if (new_loop_body) ctx->tf_loop_body = new_loop_body;
+            if (new_switch_depth) ctx->tf_switch_depth = new_switch_depth;
+            if (new_num_locals) ctx->tf_num_locals = new_num_locals;
+            if (new_pending) ctx->tf_pending = new_pending;
+            if (new_num_pending) ctx->tf_num_pending = new_num_pending;
+            if (new_pending_cap) ctx->tf_pending_cap = new_pending_cap;
             fprintf(stderr, "error: Failed to expand try-finally storage\n");
             exit(1);
         }
         ctx->finally_labels = new_labels;
         ctx->return_value_vars = new_return_vars;
         ctx->has_return_vars = new_has_vars;
+        ctx->tf_try_depth = new_try_depth;
+        ctx->tf_loop_body = new_loop_body;
+        ctx->tf_switch_depth = new_switch_depth;
+        ctx->tf_num_locals = new_num_locals;
+        ctx->tf_pending = new_pending;
+        ctx->tf_num_pending = new_num_pending;
+        ctx->tf_pending_cap = new_pending_cap;
         ctx->try_finally_capacity = new_cap;
     }
     char *dup_finally = strdup(finally_label);
@@ -743,19 +801,68 @@ void codegen_push_try_finally(CodegenContext *ctx, const char *finally_label,
         exit(1);
     }
 
-    ctx->finally_labels[ctx->try_finally_depth] = dup_finally;
-    ctx->return_value_vars[ctx->try_finally_depth] = dup_return;
-    ctx->has_return_vars[ctx->try_finally_depth] = dup_has;
+    int d = ctx->try_finally_depth;
+    ctx->finally_labels[d] = dup_finally;
+    ctx->return_value_vars[d] = dup_return;
+    ctx->has_return_vars[d] = dup_has;
+    ctx->tf_try_depth[d] = ctx->try_body_depth;
+    ctx->tf_loop_body[d] = ctx->loop_body_depth;
+    ctx->tf_switch_depth[d] = ctx->switch_depth;
+    ctx->tf_num_locals[d] = ctx->num_locals;
+    ctx->tf_pending[d] = NULL;
+    ctx->tf_num_pending[d] = 0;
+    ctx->tf_pending_cap[d] = 0;
     ctx->try_finally_depth++;
 }
 
+// Pop the innermost try-finally context. The pending-jump list is NOT freed:
+// STMT_TRY reads it (from slot [try_finally_depth] right after the pop) to
+// emit the post-finally dispatch, then frees it with
+// codegen_try_finally_free_pending().
 void codegen_pop_try_finally(CodegenContext *ctx) {
     if (ctx->try_finally_depth > 0) {
         ctx->try_finally_depth--;
         free(ctx->finally_labels[ctx->try_finally_depth]);
         free(ctx->return_value_vars[ctx->try_finally_depth]);
         free(ctx->has_return_vars[ctx->try_finally_depth]);
+        ctx->finally_labels[ctx->try_finally_depth] = NULL;
+        ctx->return_value_vars[ctx->try_finally_depth] = NULL;
+        ctx->has_return_vars[ctx->try_finally_depth] = NULL;
     }
+}
+
+void codegen_try_finally_free_pending(TfPendingJump *pending, int num_pending) {
+    for (int i = 0; i < num_pending; i++) {
+        free(pending[i].label);
+    }
+    free(pending);
+}
+
+// Register (or find) a labeled jump on the innermost try-finally context and
+// return its action code (4 + index).
+int codegen_try_finally_pending_code(CodegenContext *ctx, int is_continue, const char *label) {
+    int d = ctx->try_finally_depth - 1;
+    if (d < 0) return -1;
+    for (int i = 0; i < ctx->tf_num_pending[d]; i++) {
+        if (ctx->tf_pending[d][i].is_continue == is_continue &&
+            strcmp(ctx->tf_pending[d][i].label, label) == 0) {
+            return 4 + i;
+        }
+    }
+    if (ctx->tf_num_pending[d] >= ctx->tf_pending_cap[d]) {
+        int new_cap = ctx->tf_pending_cap[d] ? ctx->tf_pending_cap[d] * 2 : 4;
+        TfPendingJump *grown = realloc(ctx->tf_pending[d], new_cap * sizeof(TfPendingJump));
+        if (!grown) {
+            fprintf(stderr, "error: Failed to expand pending jump storage\n");
+            exit(1);
+        }
+        ctx->tf_pending[d] = grown;
+        ctx->tf_pending_cap[d] = new_cap;
+    }
+    int idx = ctx->tf_num_pending[d]++;
+    ctx->tf_pending[d][idx].is_continue = is_continue;
+    ctx->tf_pending[d][idx].label = strdup(label);
+    return 4 + idx;
 }
 
 // Get the current (innermost) try-finally context
@@ -786,14 +893,19 @@ void codegen_push_switch(CodegenContext *ctx, const char *end_label) {
     if (ctx->switch_depth >= ctx->switch_end_capacity) {
         int new_cap = (ctx->switch_end_capacity == 0) ? 4 : ctx->switch_end_capacity * 2;
         char **new_labels = realloc(ctx->switch_end_labels, new_cap * sizeof(char*));
-        if (!new_labels) {
+        int *new_depths = realloc(ctx->switch_loop_depths, new_cap * sizeof(int));
+        if (!new_labels || !new_depths) {
+            if (new_labels) ctx->switch_end_labels = new_labels;
+            if (new_depths) ctx->switch_loop_depths = new_depths;
             fprintf(stderr, "error: Failed to expand switch label storage\n");
             exit(1);
         }
         ctx->switch_end_labels = new_labels;
+        ctx->switch_loop_depths = new_depths;
         ctx->switch_end_capacity = new_cap;
     }
     ctx->switch_end_labels[ctx->switch_depth] = strdup(end_label);
+    ctx->switch_loop_depths[ctx->switch_depth] = ctx->loop_body_depth;
     ctx->switch_depth++;
 }
 
@@ -806,6 +918,15 @@ void codegen_pop_switch(CodegenContext *ctx) {
 
 const char* codegen_get_switch_end_label(CodegenContext *ctx) {
     if (ctx->switch_depth > 0) {
+        // An unlabeled break targets the switch only when the switch is the
+        // innermost breakable construct. If a loop body was entered after
+        // this switch was pushed (loop_body_depth grew), the break belongs
+        // to that loop, not the switch - the old behavior made a `break`
+        // inside `switch { case: while (...) { break; } }` exit the whole
+        // switch, silently skipping the rest of the case body.
+        if (ctx->loop_body_depth > ctx->switch_loop_depths[ctx->switch_depth - 1]) {
+            return NULL;
+        }
         return ctx->switch_end_labels[ctx->switch_depth - 1];
     }
     return NULL;
@@ -851,13 +972,17 @@ void codegen_push_loop_label(CodegenContext *ctx, const char *label, const char 
         char **new_break = realloc(ctx->loop_break_labels, new_cap * sizeof(char*));
         char **new_continue = realloc(ctx->loop_continue_labels, new_cap * sizeof(char*));
         int *new_body_locals = realloc(ctx->loop_label_body_locals, new_cap * sizeof(int));
+        int *new_continue_locals = realloc(ctx->loop_label_continue_locals, new_cap * sizeof(int));
         int *new_try_depth = realloc(ctx->loop_label_try_depth, new_cap * sizeof(int));
-        if (!new_labels || !new_break || !new_continue || !new_body_locals || !new_try_depth) {
+        int *new_loop_body = realloc(ctx->loop_label_loop_body, new_cap * sizeof(int));
+        if (!new_labels || !new_break || !new_continue || !new_body_locals || !new_continue_locals || !new_try_depth || !new_loop_body) {
             if (new_labels) ctx->loop_labels = new_labels;
             if (new_break) ctx->loop_break_labels = new_break;
             if (new_continue) ctx->loop_continue_labels = new_continue;
             if (new_body_locals) ctx->loop_label_body_locals = new_body_locals;
+            if (new_continue_locals) ctx->loop_label_continue_locals = new_continue_locals;
             if (new_try_depth) ctx->loop_label_try_depth = new_try_depth;
+            if (new_loop_body) ctx->loop_label_loop_body = new_loop_body;
             fprintf(stderr, "error: Failed to expand loop label storage\n");
             exit(1);
         }
@@ -865,15 +990,136 @@ void codegen_push_loop_label(CodegenContext *ctx, const char *label, const char 
         ctx->loop_break_labels = new_break;
         ctx->loop_continue_labels = new_continue;
         ctx->loop_label_body_locals = new_body_locals;
+        ctx->loop_label_continue_locals = new_continue_locals;
         ctx->loop_label_try_depth = new_try_depth;
+        ctx->loop_label_loop_body = new_loop_body;
         ctx->loop_label_capacity = new_cap;
     }
     ctx->loop_labels[ctx->loop_label_depth] = strdup(label);
     ctx->loop_break_labels[ctx->loop_label_depth] = strdup(break_label);
     ctx->loop_continue_labels[ctx->loop_label_depth] = strdup(continue_label);
     ctx->loop_label_body_locals[ctx->loop_label_depth] = ctx->num_locals;
+    ctx->loop_label_continue_locals[ctx->loop_label_depth] = ctx->num_locals;
     ctx->loop_label_try_depth[ctx->loop_label_depth] = ctx->try_body_depth;
+    ctx->loop_label_loop_body[ctx->loop_label_depth] = ctx->loop_body_depth;
     ctx->loop_label_depth++;
+}
+
+void codegen_loop_label_set_continue_base(CodegenContext *ctx) {
+    if (ctx->loop_label_depth > 0) {
+        ctx->loop_label_continue_locals[ctx->loop_label_depth - 1] = ctx->num_locals;
+    }
+}
+
+// Check whether a function expression's body references `name` as a free
+// variable (i.e. not shadowed by a parameter or local of that function).
+static int func_body_references_var(Expr *func, const char *name) {
+    if (!func || func->type != EXPR_FUNCTION || !func->as.function.body) return 0;
+    Scope *scope = scope_new(NULL);
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        scope_add_var(scope, func->as.function.param_names[i]);
+    }
+    if (func->as.function.rest_param) {
+        scope_add_var(scope, func->as.function.rest_param);
+    }
+    FreeVarSet *fv = free_var_set_new();
+    find_free_vars_stmt(func->as.function.body, scope, fv);
+    int found = 0;
+    for (int i = 0; i < fv->num_vars; i++) {
+        if (strcmp(fv->vars[i], name) == 0) { found = 1; break; }
+    }
+    free_var_set_free(fv);
+    scope_free(scope);
+    return found;
+}
+
+// Check whether any function generated (or known) so far can observe `name`
+// while a loop runs: a closure that captured it, a closure body that reads
+// the _main_ global directly (main-level vars are never in captured_vars -
+// closures address the global), or a named top-level function referencing
+// it. Used to veto while-loop unboxing of main variables: such functions
+// read and write the boxed variable while the loop would be using a native
+// shadow, desynchronizing the two.
+int codegen_var_captured_by_any_closure(CodegenContext *ctx, const char *name) {
+    for (ClosureInfo *c = ctx->closures; c; c = c->next) {
+        for (int i = 0; i < c->num_captured; i++) {
+            if (c->captured_vars[i] && strcmp(c->captured_vars[i], name) == 0) {
+                return 1;
+            }
+        }
+        if (func_body_references_var(c->func_expr, name)) {
+            return 1;
+        }
+    }
+    // Named top-level functions are all known up front (pre-pass), covering
+    // definitions both before and after the loop.
+    for (int i = 0; i < ctx->num_main_funcs; i++) {
+        if (func_body_references_var(ctx->main_func_ast[i], name)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// ========== UNBOXED MAIN-VAR SHADOW TRACKING ==========
+
+void codegen_push_unboxed_shadow(CodegenContext *ctx, const char *name, int checked_type) {
+    if (ctx->num_unboxed_shadows >= ctx->unboxed_shadow_capacity) {
+        int new_cap = ctx->unboxed_shadow_capacity ? ctx->unboxed_shadow_capacity * 2 : 4;
+        char **new_names = realloc(ctx->unboxed_shadow_names, new_cap * sizeof(char*));
+        int *new_types = realloc(ctx->unboxed_shadow_types, new_cap * sizeof(int));
+        int *new_depths = realloc(ctx->unboxed_shadow_body_depth, new_cap * sizeof(int));
+        if (!new_names || !new_types || !new_depths) {
+            if (new_names) ctx->unboxed_shadow_names = new_names;
+            if (new_types) ctx->unboxed_shadow_types = new_types;
+            if (new_depths) ctx->unboxed_shadow_body_depth = new_depths;
+            fprintf(stderr, "error: Failed to expand unboxed shadow storage\n");
+            exit(1);
+        }
+        ctx->unboxed_shadow_names = new_names;
+        ctx->unboxed_shadow_types = new_types;
+        ctx->unboxed_shadow_body_depth = new_depths;
+        ctx->unboxed_shadow_capacity = new_cap;
+    }
+    ctx->unboxed_shadow_names[ctx->num_unboxed_shadows] = strdup(name);
+    ctx->unboxed_shadow_types[ctx->num_unboxed_shadows] = checked_type;
+    ctx->unboxed_shadow_body_depth[ctx->num_unboxed_shadows] = ctx->loop_body_depth;
+    ctx->num_unboxed_shadows++;
+}
+
+void codegen_pop_unboxed_shadows(CodegenContext *ctx, int count) {
+    for (int i = 0; i < count && ctx->num_unboxed_shadows > 0; i++) {
+        ctx->num_unboxed_shadows--;
+        free(ctx->unboxed_shadow_names[ctx->num_unboxed_shadows]);
+    }
+}
+
+void codegen_emit_labeled_jump_shadow_writeback(CodegenContext *ctx, const char *label) {
+    // Find the target label's loop_body_depth
+    int target_depth = -1;
+    for (int i = ctx->loop_label_depth - 1; i >= 0; i--) {
+        if (strcmp(ctx->loop_labels[i], label) == 0) {
+            target_depth = ctx->loop_label_loop_body[i];
+            break;
+        }
+    }
+    if (target_depth < 0) return;  // Unknown label - error reported by caller
+
+    // Write back every shadow whose while loop lives at or inside the target
+    // loop's body depth: the goto exits those shadows' regions (or, for the
+    // target loop's own shadows, jumps to the break label placed just before
+    // the loop's natural write-back - re-running it there is harmless since
+    // the shadow variable stays in scope and holds the same value).
+    for (int i = 0; i < ctx->num_unboxed_shadows; i++) {
+        if (ctx->unboxed_shadow_body_depth[i] < target_depth) continue;
+        const char *box_func = checked_type_to_box_func(ctx->unboxed_shadow_types[i]);
+        if (!box_func) continue;
+        char *safe_name = codegen_sanitize_ident(ctx->unboxed_shadow_names[i]);
+        codegen_writeln(ctx, "hml_release(&_main_%s);", ctx->unboxed_shadow_names[i]);
+        codegen_writeln(ctx, "_main_%s = %s(%s);",
+                        ctx->unboxed_shadow_names[i], box_func, safe_name);
+        free(safe_name);
+    }
 }
 
 void codegen_pop_loop_label(CodegenContext *ctx) {
@@ -959,6 +1205,15 @@ void codegen_emit_labeled_break_cleanup(CodegenContext *ctx, const char *label) 
     for (int i = ctx->loop_label_depth - 1; i >= 0; i--) {
         if (strcmp(ctx->loop_labels[i], label) == 0) {
             codegen_emit_cleanup_range(ctx, ctx->loop_label_body_locals[i]);
+            return;
+        }
+    }
+}
+
+void codegen_emit_labeled_continue_cleanup(CodegenContext *ctx, const char *label) {
+    for (int i = ctx->loop_label_depth - 1; i >= 0; i--) {
+        if (strcmp(ctx->loop_labels[i], label) == 0) {
+            codegen_emit_cleanup_range(ctx, ctx->loop_label_continue_locals[i]);
             return;
         }
     }
@@ -1658,6 +1913,47 @@ int codegen_captured_var_env_index(CodegenContext *ctx, const char *hml_name) {
 // Pre-scan a statement tree for defer statements. Does NOT descend into
 // nested function expressions - their defers belong to that function's frame.
 // (defer can only appear as a statement, so scanning statements suffices.)
+// Recursively check whether a statement tree contains a try statement
+// (nested function bodies excluded - EXPR_FUNCTION bodies get their own
+// scan when their code is generated). Used to decide whether unboxed
+// native locals must be declared volatile (setjmp clobbering).
+int codegen_body_has_try(Stmt *stmt) {
+    if (!stmt) return 0;
+    switch (stmt->type) {
+        case STMT_TRY:
+            return 1;
+        case STMT_BLOCK:
+            for (int i = 0; i < stmt->as.block.count; i++) {
+                if (codegen_body_has_try(stmt->as.block.statements[i])) return 1;
+            }
+            return 0;
+        case STMT_IF:
+            return codegen_body_has_try(stmt->as.if_stmt.then_branch) ||
+                   codegen_body_has_try(stmt->as.if_stmt.else_branch);
+        case STMT_WHILE:
+            return codegen_body_has_try(stmt->as.while_stmt.body);
+        case STMT_LOOP:
+            return codegen_body_has_try(stmt->as.loop_stmt.body);
+        case STMT_FOR:
+            return codegen_body_has_try(stmt->as.for_loop.initializer) ||
+                   codegen_body_has_try(stmt->as.for_loop.body);
+        case STMT_FOR_IN:
+            return codegen_body_has_try(stmt->as.for_in.body);
+        case STMT_SWITCH:
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                if (codegen_body_has_try(stmt->as.switch_stmt.case_bodies[i])) return 1;
+            }
+            return 0;
+        case STMT_EXPORT:
+            if (stmt->as.export_stmt.is_declaration) {
+                return codegen_body_has_try(stmt->as.export_stmt.declaration);
+            }
+            return 0;
+        default:
+            return 0;
+    }
+}
+
 int codegen_body_has_defer(Stmt *stmt) {
     if (!stmt) return 0;
     switch (stmt->type) {
@@ -1759,6 +2055,7 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     state->num_func_params = ctx->num_func_params;
     state->func_param_is_ref = ctx->func_param_is_ref;
     state->func_rest_param = ctx->func_rest_param;
+    state->function_has_try = ctx->function_has_try;
 
     // Initialize for new function
     ctx->defer_stack = NULL;
@@ -1780,6 +2077,7 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->num_func_params = 0;
     ctx->func_param_is_ref = NULL;
     ctx->func_rest_param = NULL;
+    ctx->function_has_try = 0;  // Caller sets via codegen_body_has_try(body)
 }
 
 void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
@@ -1820,6 +2118,7 @@ void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->num_func_params = state->num_func_params;
     ctx->func_param_is_ref = state->func_param_is_ref;
     ctx->func_rest_param = state->func_rest_param;
+    ctx->function_has_try = state->function_has_try;
     shared_env_clear(ctx);
 }
 

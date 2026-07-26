@@ -353,7 +353,7 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     } else if (strcmp(expr->as.ident.name, "__exec") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec, 1, 2, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__exec_argv") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec_argv, 1, 1, 0);", result);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec_argv, 2, 1, 0);", result);
     // Handle process functions (builtins)
     } else if (strcmp(expr->as.ident.name, "__kill") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_kill, 2, 2, 0);", result);
@@ -531,7 +531,7 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hash_md5, 1, 1, 0);", result);
     // ECDSA signature builtins
     } else if (strcmp(expr->as.ident.name, "__ecdsa_generate_key") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ecdsa_generate_key, 0, 1, 0);", result);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ecdsa_generate_key, 1, 0, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__ecdsa_free_key") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ecdsa_free_key, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__ecdsa_sign") == 0) {
@@ -588,7 +588,10 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_get_stack_limit, 0, 0, 0);", result);
     // FFI builtins
     } else if (strcmp(expr->as.ident.name, "__callback") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_callback, 2, 2, 0);", result);
+        // 3 params (fn, param_types, optional return_type), 2 required -
+        // registering it as (2, 2) made a 3-argument call through the value
+        // (e.g. the @stdlib/ffi `callback` re-export) fail its arity check.
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_callback, 3, 2, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__callback_free") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_callback_free, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__ffi_sizeof") == 0) {
@@ -600,7 +603,7 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     } else if (strcmp(expr->as.ident.name, "__exec") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec, 1, 2, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__exec_argv") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec_argv, 1, 2, 0);", result);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec_argv, 2, 1, 0);", result);
     // Atomic operations (i32)
     } else if (strcmp(expr->as.ident.name, "atomic_load_i32") == 0 || strcmp(expr->as.ident.name, "__atomic_load_i32") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_load_i32, 1, 1, 0);", result);

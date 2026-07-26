@@ -51,46 +51,137 @@ static int codegen_inline_has_shadow_conflict(CodegenContext *ctx, Expr *expr) {
     }
 }
 
+// Small helper: allocate "&<name>" (sized to fit - a fixed buffer truncated
+// long identifiers into undefined C symbols).
+static char* ref_addr_of(const char *prefix, const char *name) {
+    size_t len = strlen(prefix) + strlen(name) + 2;
+    char *result = malloc(len);
+    if (!result) {
+        fprintf(stderr, "error: Out of memory in codegen_ref_arg\n");
+        exit(1);
+    }
+    snprintf(result, len, "&%s%s", prefix, name);
+    return result;
+}
+
 /*
  * Generate a pointer expression for ref parameter passing.
- * For EXPR_IDENT: returns "&_main_varname" or "&varname"
- * For other expressions: evaluates to temp and returns "&temp"
- * Returns allocated string that must be freed.
+ * For EXPR_IDENT (boxed): returns "&_main_varname" or "&varname".
+ * For unboxed idents, array elements, and object properties: boxes/reads the
+ * value into a temp, returns "&temp", and sets *writeback to a C statement
+ * string the CALLER MUST EMIT after the call (codegen_writeln(ctx, "%s",
+ * writeback)) to store the possibly-modified value back and release temps.
+ * For anything else: evaluates to a temp (mutations don't persist, matching
+ * the interpreter, which only supports variable/element/property refs).
+ * Returns allocated string that must be freed; *writeback is NULL or an
+ * allocated string the caller frees after emitting.
  */
-char* codegen_ref_arg(CodegenContext *ctx, Expr *arg) {
+char* codegen_ref_arg(CodegenContext *ctx, Expr *arg, char **writeback) {
+    *writeback = NULL;
     if (arg->type == EXPR_IDENT) {
         // Simple variable - return address of the actual variable
         const char *var_name = arg->as.ident.name;
-        char *result = malloc(CODEGEN_MANGLED_NAME_SIZE);
-        if (!result) {
-            fprintf(stderr, "error: Out of memory in codegen_ref_arg\n");
-            exit(1);
+
+        int is_truly_main = codegen_is_main_var(ctx, var_name) &&
+                            !codegen_is_local(ctx, var_name);
+
+        // An unboxed native local has no HmlValue to point at: taking its
+        // address passed an int32_t* where the callee expects HmlValue*,
+        // corrupting the callee's reads AND losing the mutation. Box a
+        // temporary, pass its address, and unbox it back after the call.
+        if (ctx->optimize && ctx->type_ctx && !is_truly_main &&
+            !codegen_is_func_param(ctx, var_name)) {
+            CheckedTypeKind kind = type_check_get_unboxable(ctx->type_ctx, var_name);
+            if (kind != CHECKED_UNKNOWN) {
+                const char *box_fn = checked_type_to_box_func(kind);
+                const char *unbox_cast = checked_type_to_unbox_cast(kind);
+                if (box_fn && unbox_cast) {
+                    char *safe_ident = codegen_sanitize_ident(var_name);
+                    char *tmp = codegen_temp(ctx);
+                    codegen_writeln(ctx, "HmlValue %s = %s(%s);", tmp, box_fn, safe_ident);
+                    size_t wlen = strlen(safe_ident) + strlen(unbox_cast) + 2 * strlen(tmp) + 48;
+                    *writeback = malloc(wlen);
+                    if (*writeback) {
+                        snprintf(*writeback, wlen, "%s = %s(%s); hml_release(&%s);",
+                                 safe_ident, unbox_cast, tmp, tmp);
+                    }
+                    char *result = ref_addr_of("", tmp);
+                    free(safe_ident);
+                    free(tmp);
+                    return result;
+                }
+            }
         }
 
         if (codegen_is_main_var(ctx, var_name)) {
-            snprintf(result, CODEGEN_MANGLED_NAME_SIZE, "&_main_%s", var_name);
+            return ref_addr_of("_main_", var_name);
         } else if (ctx->current_module && !codegen_is_local(ctx, var_name)) {
-            snprintf(result, CODEGEN_MANGLED_NAME_SIZE, "&%s%s",
-                    ctx->current_module->module_prefix, var_name);
+            return ref_addr_of(ctx->current_module->module_prefix, var_name);
         } else {
             char *safe_ident = codegen_sanitize_ident(var_name);
-            snprintf(result, CODEGEN_MANGLED_NAME_SIZE, "&%s", safe_ident);
+            char *result = ref_addr_of("", safe_ident);
             free(safe_ident);
+            return result;
         }
+    } else if (arg->type == EXPR_INDEX) {
+        // Array element / keyed object field by reference: copy-in/copy-out.
+        // The interpreter mutates the element in place; passing the address
+        // of a discarded temp silently lost the mutation.
+        char *obj = codegen_expr(ctx, arg->as.index.object);
+        char *idx = codegen_expr(ctx, arg->as.index.index);
+        char *tmp = codegen_temp(ctx);
+        codegen_writeln(ctx, "HmlValue %s;", tmp);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) { %s = hml_array_get(%s, %s); }",
+                        obj, tmp, obj, idx);
+        codegen_writeln(ctx, "else if (%s.type == HML_VAL_OBJECT) { %s = hml_object_get_field_coerce(%s, %s); }",
+                        obj, tmp, obj, idx);
+        codegen_writeln(ctx, "else { hml_runtime_error(\"Cannot pass this expression by reference\"); %s = hml_val_null(); }",
+                        tmp);
+        size_t wlen = 4 * strlen(obj) + 3 * strlen(idx) + 5 * strlen(tmp) + 256;
+        *writeback = malloc(wlen);
+        if (*writeback) {
+            snprintf(*writeback, wlen,
+                     "if (%s.type == HML_VAL_ARRAY) { hml_array_set(%s, %s, %s); } "
+                     "else { hml_object_set_field_coerce(%s, %s, %s); } "
+                     "hml_release(&%s); hml_release_if_needed(&%s); hml_release_if_needed(&%s);",
+                     obj, obj, idx, tmp, obj, idx, tmp, tmp, obj, idx);
+        }
+        char *result = ref_addr_of("", tmp);
+        free(obj);
+        free(idx);
+        free(tmp);
+        return result;
+    } else if (arg->type == EXPR_GET_PROPERTY) {
+        // Object property by reference: copy-in/copy-out (see above).
+        char *obj = codegen_expr(ctx, arg->as.get_property.object);
+        char *escaped_prop = codegen_escape_string(arg->as.get_property.property);
+        char *tmp = codegen_temp(ctx);
+        codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"%s\");",
+                        tmp, obj, escaped_prop);
+        size_t wlen = 2 * strlen(obj) + strlen(escaped_prop) + 3 * strlen(tmp) + 128;
+        *writeback = malloc(wlen);
+        if (*writeback) {
+            snprintf(*writeback, wlen,
+                     "hml_object_set_field(%s, \"%s\", %s); hml_release(&%s); hml_release(&%s);",
+                     obj, escaped_prop, tmp, tmp, obj);
+        }
+        char *result = ref_addr_of("", tmp);
+        free(obj);
+        free(escaped_prop);
+        free(tmp);
         return result;
     } else {
         // Complex expression - evaluate to temp and take address
         // This won't work for true pass-by-ref semantics (changes won't persist)
         // but it's the best we can do for non-lvalue expressions
         char *temp = codegen_expr(ctx, arg);
-        size_t len = strlen(temp) + 2;
-        char *result = malloc(len);
-        if (!result) {
-            fprintf(stderr, "error: Out of memory in codegen_ref_arg\n");
-            free(temp);
-            exit(1);
+        size_t wlen = strlen(temp) + 32;
+        *writeback = malloc(wlen);
+        if (*writeback) {
+            // The temp is owned; without this it leaked on every call.
+            snprintf(*writeback, wlen, "hml_release_if_needed(&%s);", temp);
         }
-        snprintf(result, len, "&%s", temp);
+        char *result = ref_addr_of("", temp);
         free(temp);
         return result;
     }
@@ -112,6 +203,28 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         const char *fn_name = expr->as.call.func->as.ident.name;
         Expr **call_args = expr->as.call.args;
         int num_args = expr->as.call.num_args;
+
+        // If the callee name is bound by the user at this point - a local
+        // variable/parameter, a top-level function, or a module
+        // import/export - that binding shadows any builtin of the same name
+        // (the interpreter resolves the environment before builtins for
+        // every name it allows to be rebound). Previously only `exec` had
+        // this check, so e.g. a local `let to_string = fn(x) {...}` was
+        // silently ignored and the builtin ran instead.
+        {
+            int user_shadows_builtin = codegen_is_local(ctx, fn_name) ||
+                                       codegen_is_main_func(ctx, fn_name);
+            if (!user_shadows_builtin) {
+                if (ctx->current_module) {
+                    user_shadows_builtin =
+                        module_find_import(ctx->current_module, fn_name) != NULL ||
+                        module_find_export(ctx->current_module, fn_name) != NULL;
+                } else {
+                    user_shadows_builtin = codegen_find_main_import(ctx, fn_name) != NULL;
+                }
+            }
+            if (user_shadows_builtin) goto user_call_path;
+        }
 
         // Dispatch to extracted builtin handlers
         if (codegen_call_io(ctx, expr, result, fn_name, call_args, num_args)) return result;
@@ -2974,6 +3087,8 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        user_call_path:;
+
         // Stabilize the callee identifier before generating argument code.
         // Argument codegen can traverse identifiers from the call-site context;
         // keeping an owned copy here prevents later code from accidentally
@@ -2998,11 +3113,53 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             import_binding = codegen_find_main_import(ctx, call_name);
         }
 
+        // A name declared as a genuine body-local (`let` in this
+        // function/block) shadows a same-named top-level function. The
+        // inline and direct-call fast paths must be skipped for it, or the
+        // top-level function's body gets called/inlined instead of the
+        // local binding. A name whose most recent locals entry sits below
+        // locals_body_start (parameters, captures, names leaked from the
+        // main scope) is NOT a genuine shadow and keeps the fast paths.
+        int shadowed_by_scope_local = 0;
+        {
+            // Only inside functions: at the top level every fn definition is
+            // pre-registered as a local pointing at the function itself, so
+            // the fast paths are always correct there (blocks are covered by
+            // the scope check).
+            if (ctx->in_function) {
+                int last = -1;
+                for (int li = 0; li < ctx->num_locals; li++) {
+                    if (ctx->local_vars[li] && strcmp(ctx->local_vars[li], call_name) == 0) {
+                        last = li;
+                    }
+                }
+                shadowed_by_scope_local = (last >= ctx->locals_body_start);
+            }
+            if (!shadowed_by_scope_local && ctx->current_scope &&
+                scope_is_defined(ctx->current_scope, call_name)) {
+                shadowed_by_scope_local = 1;
+            }
+        }
+
         // OPTIMIZATION: Function inlining for small pure functions
         // This eliminates function call overhead for simple helper functions
         // Multi-level inlining (up to HML_MAX_INLINE_DEPTH) allows nested helpers
         // like rotr() inside ep0() to be fully inlined in hot loops
+        // Named arguments bind by parameter name, not position; the inliner
+        // binds positionally, so `sub(b: 3, a: 10)` would silently swap the
+        // operands. Fall through to the generic named-call path instead.
+        int call_has_named_args = 0;
+        if (expr->as.call.arg_names) {
+            for (int i = 0; i < expr->as.call.num_args; i++) {
+                if (expr->as.call.arg_names[i]) {
+                    call_has_named_args = 1;
+                    break;
+                }
+            }
+        }
+
         if (ctx->optimize && ctx->inline_depth < HML_MAX_INLINE_DEPTH && !import_binding && !ctx->current_module &&
+            !call_has_named_args && !shadowed_by_scope_local &&
             codegen_is_main_func_inlinable(ctx, call_name) &&
             expr->as.call.num_args == codegen_get_main_func_params(ctx, call_name)) {
 
@@ -3124,6 +3281,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         skip_inline:
 
         if (codegen_is_main_func(ctx, call_name) && !import_binding && !ctx->current_module &&
+            !shadowed_by_scope_local &&
             expr->as.call.arg_names == NULL) {  // Skip direct call when named args are used
             // OPTIMIZATION: Main file function definition - call directly
             // This is safe because we know the function signature at compile time
@@ -3131,12 +3289,15 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             int has_rest = codegen_get_main_func_has_rest(ctx, call_name);
             int *param_is_ref = codegen_get_main_func_param_is_ref(ctx, call_name);
             char **arg_temps = NULL;
+            char **arg_writebacks = NULL;
             int *arg_is_ref = NULL;
             if (expr->as.call.num_args > 0) {
                 arg_temps = malloc(expr->as.call.num_args * sizeof(char*));
+                arg_writebacks = calloc(expr->as.call.num_args, sizeof(char*));
                 arg_is_ref = calloc(expr->as.call.num_args, sizeof(int));
-                if (!arg_temps || !arg_is_ref) {
+                if (!arg_temps || !arg_writebacks || !arg_is_ref) {
                     free(arg_temps);
+                    free(arg_writebacks);
                     free(arg_is_ref);
                     codegen_error(ctx, 0, "Memory allocation failed for function call arguments");
                     free(stable_call_name);
@@ -3147,7 +3308,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             for (int i = 0; i < expr->as.call.num_args; i++) {
                 // For ref params, use codegen_ref_arg to get address of actual variable
                 if (param_is_ref && i < expected_params && param_is_ref[i]) {
-                    arg_temps[i] = codegen_ref_arg(ctx, expr->as.call.args[i]);
+                    arg_temps[i] = codegen_ref_arg(ctx, expr->as.call.args[i], &arg_writebacks[i]);
                     arg_is_ref[i] = 1;
                 } else {
                     arg_temps[i] = codegen_expr(ctx, expr->as.call.args[i]);
@@ -3187,10 +3348,14 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             fprintf(ctx->output, ");\n");
 
             for (int i = 0; i < expr->as.call.num_args; i++) {
-                // Only release non-ref args (ref args are just addresses, nothing to release)
+                // Only release non-ref args; ref args emit their write-back
+                // (store modified value back / release copy-out temps).
                 if (!arg_is_ref[i]) {
                     codegen_writeln(ctx, "hml_release(&%s);", arg_temps[i]);
+                } else if (arg_writebacks[i]) {
+                    codegen_writeln(ctx, "%s", arg_writebacks[i]);
                 }
+                free(arg_writebacks[i]);
                 free(arg_temps[i]);
             }
             if (rest_array_temp) {
@@ -3198,6 +3363,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 free(rest_array_temp);
             }
             free(arg_temps);
+            free(arg_writebacks);
             free(arg_is_ref);
             free(stable_call_name);
             return result;
@@ -3209,17 +3375,21 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         } else if (codegen_is_local(ctx, call_name) && !import_binding &&
                    expr->as.call.arg_names == NULL) {  // Skip direct call when named args are used
             // Check if this local is actually a captured main file function - use direct call
-            if (codegen_is_main_func(ctx, call_name) && !ctx->current_module) {
+            if (codegen_is_main_func(ctx, call_name) && !ctx->current_module &&
+                !shadowed_by_scope_local) {
                 int expected_params = codegen_get_main_func_params(ctx, call_name);
                 int has_rest = codegen_get_main_func_has_rest(ctx, call_name);
                 int *param_is_ref = codegen_get_main_func_param_is_ref(ctx, call_name);
                 char **arg_temps = NULL;
+                char **arg_writebacks = NULL;
                 int *arg_is_ref = NULL;
                 if (expr->as.call.num_args > 0) {
                     arg_temps = malloc(expr->as.call.num_args * sizeof(char*));
+                    arg_writebacks = calloc(expr->as.call.num_args, sizeof(char*));
                     arg_is_ref = calloc(expr->as.call.num_args, sizeof(int));
-                    if (!arg_temps || !arg_is_ref) {
+                    if (!arg_temps || !arg_writebacks || !arg_is_ref) {
                         free(arg_temps);
+                        free(arg_writebacks);
                         free(arg_is_ref);
                         codegen_error(ctx, 0, "Memory allocation failed for function call arguments");
                         free(stable_call_name);
@@ -3230,7 +3400,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 for (int i = 0; i < expr->as.call.num_args; i++) {
                     // For ref params, use codegen_ref_arg to get address of actual variable
                     if (param_is_ref && i < expected_params && param_is_ref[i]) {
-                        arg_temps[i] = codegen_ref_arg(ctx, expr->as.call.args[i]);
+                        arg_temps[i] = codegen_ref_arg(ctx, expr->as.call.args[i], &arg_writebacks[i]);
                         arg_is_ref[i] = 1;
                     } else {
                         arg_temps[i] = codegen_expr(ctx, expr->as.call.args[i]);
@@ -3270,10 +3440,14 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 fprintf(ctx->output, ");\n");
 
                 for (int i = 0; i < expr->as.call.num_args; i++) {
-                    // Only release non-ref args (ref args are just addresses, nothing to release)
+                    // Only release non-ref args; ref args emit their
+                    // write-back (store modified value / release temps).
                     if (!arg_is_ref[i]) {
                         codegen_writeln(ctx, "hml_release(&%s);", arg_temps[i]);
+                    } else if (arg_writebacks[i]) {
+                        codegen_writeln(ctx, "%s", arg_writebacks[i]);
                     }
+                    free(arg_writebacks[i]);
                     free(arg_temps[i]);
                 }
                 if (rest_array_temp) {
@@ -3281,6 +3455,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                     free(rest_array_temp);
                 }
                 free(arg_temps);
+                free(arg_writebacks);
                 free(arg_is_ref);
                 free(stable_call_name);
                 return result;
