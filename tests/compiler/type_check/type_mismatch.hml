@@ -1,2 +1,3 @@
+// @expect-compile-fail type mismatch is a compile error
 // Type mismatch test - should fail type checking
 let x: i32 = "hello";

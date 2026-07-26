@@ -1,3 +1,4 @@
+// @expect-compile-fail map/filter/reduce misuse is a type error
 // Test edge cases for map, filter, reduce
 
 // Test 1: map with non-function argument
