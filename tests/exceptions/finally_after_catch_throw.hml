@@ -1,0 +1,52 @@
+// Test: finally must run when the catch block throws
+// Regression: the compiled backend used to skip the finally block when the
+// exception was raised inside catch (throw from the try body was fine).
+
+// Basic: throw from catch, finally runs before the outer catch sees it
+try {
+    try {
+        throw "x";
+    } catch (e) {
+        print("catch: " + e);
+        throw "y";
+    } finally {
+        print("finally");
+    }
+} catch (e) {
+    print("outer: " + e);
+}
+
+// Nested: both catches throw; every finally runs, innermost first
+try {
+    try {
+        try { throw "a"; }
+        catch (e) { throw "b"; }
+        finally { print("fin1"); }
+    } catch (e) {
+        print("mid: " + e);
+        throw "c";
+    } finally {
+        print("fin2");
+    }
+} catch (e) {
+    print("outer2: " + e);
+}
+
+// Finally throwing after catch threw: the finally's exception wins
+try {
+    try { throw "x"; }
+    catch (e) { throw "y"; }
+    finally { print("fin3"); throw "z"; }
+} catch (e) {
+    print("outer3: " + e);
+}
+
+// Throw from catch inside a function: finally runs during unwinding
+fn boom() {
+    try { throw "inner"; }
+    catch (e) { throw "re-" + e; }
+    finally { print("fn-finally"); }
+}
+try { boom(); } catch (e) { print("outer4: " + e); }
+
+print("done");

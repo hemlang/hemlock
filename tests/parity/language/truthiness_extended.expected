@@ -14,8 +14,8 @@ function: truthy
 0.1: truthy
 1.0: truthy
 === Logical operators with truthiness ===
-yes
-fallback
+true
+true
 default
 true
 true

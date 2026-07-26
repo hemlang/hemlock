@@ -71,6 +71,7 @@ static Environment* env_pool_alloc(void) {
         env->hash_table = env_pool.hash_table_storage[idx];
         env->capacity = ENV_DEFAULT_CAPACITY;
         env->hash_capacity = ENV_DEFAULT_CAPACITY * 2;
+        env->declared_types = NULL;
         return env;
     }
 
@@ -102,6 +103,9 @@ static void env_pool_free(Environment *env) {
         free(env->hash_table);
         env->hash_table = env_pool.hash_table_storage[idx];
     }
+    // Declared-type arrays are always heap-allocated (lazily); release them.
+    free(env->declared_types);
+    env->declared_types = NULL;
     // Reset capacities to match the pool storage the pointers now reference.
     // Leaving a grown capacity here would make the next user of this slot
     // write past the fixed-size pool arrays, corrupting neighboring
@@ -132,6 +136,7 @@ Environment* env_new(Environment *parent) {
         env->ref_count = 1;
         env->borrowed_flags = 0;  // Clear borrowed flags
         env->imports = NULL;
+        env->declared_types = NULL;
         // Clear hash table using memset (faster than loop)
         memset(env->hash_table, 0xFF, sizeof(int) * env->hash_capacity);
         // mutex is already set to pooled mutex in env_pool_alloc
@@ -151,6 +156,7 @@ Environment* env_new(Environment *parent) {
     env->capacity = 16;
     env->count = 0;
     env->ref_count = 1;  // Initialize reference count to 1
+    env->declared_types = NULL;
     env->names = malloc(sizeof(char*) * env->capacity);
     if (!env->names) {
         free(env);
@@ -360,6 +366,7 @@ void env_free(Environment *env) {
         free(env->names);
         free(env->values);
         free(env->is_const);
+        free(env->declared_types);
         free(env->hash_table);
         free(env);
     }
@@ -473,6 +480,19 @@ static void env_grow(Environment *env) {
         exit(1);
     }
     env->is_const = new_is_const;
+
+    // Declared-type array (lazily allocated, never pooled storage)
+    if (env->declared_types) {
+        struct Type **new_declared = realloc(env->declared_types,
+                                             sizeof(struct Type*) * env->capacity);
+        if (!new_declared) {
+            fprintf(stderr, "Runtime error: Memory allocation failed during environment growth\n");
+            exit(1);
+        }
+        memset(new_declared + old_capacity, 0,
+               sizeof(struct Type*) * (env->capacity - old_capacity));
+        env->declared_types = new_declared;
+    }
 
     // Grow hash table (keep it at 2x capacity for good load factor)
     int old_hash_capacity = env->hash_capacity;
@@ -992,4 +1012,67 @@ int env_set_resolved(Environment *env, int depth, int slot, Value value, Executi
 
     if (mutex) pthread_mutex_unlock(mutex);
     return 1;
+}
+
+// ========== DECLARED-TYPE TRACKING ==========
+// Annotated `let` bindings remember their annotation so reassignment can
+// enforce it with the same conversion the declaration used. The Type nodes
+// belong to the AST (which outlives execution) and are not owned here.
+
+void env_set_declared_type_last(Environment *env, struct Type *type) {
+    if (!env || !type || env->count == 0) return;
+
+    pthread_mutex_t *mutex = (pthread_mutex_t*)env->mutex;
+    if (mutex) pthread_mutex_lock(mutex);
+
+    if (!env->declared_types) {
+        env->declared_types = calloc(env->capacity, sizeof(struct Type*));
+        if (!env->declared_types) {
+            if (mutex) pthread_mutex_unlock(mutex);
+            return;  // Out of memory: fall back to unenforced (pre-existing behavior)
+        }
+    }
+    env->declared_types[env->count - 1] = type;
+
+    if (mutex) pthread_mutex_unlock(mutex);
+}
+
+struct Type *env_get_declared_type(Environment *env, const char *name) {
+    uint32_t hash = hash_string(name);
+
+    for (Environment *e = env; e != NULL; e = e->parent) {
+        pthread_mutex_t *mutex = (pthread_mutex_t*)e->mutex;
+        if (mutex) pthread_mutex_lock(mutex);
+
+        int idx = env_lookup(e, name, hash);
+        if (idx >= 0) {
+            // The name resolves here: an inner untyped binding shadows any
+            // outer annotated one, so stop at the first match either way.
+            struct Type *t = e->declared_types ? e->declared_types[idx] : NULL;
+            if (mutex) pthread_mutex_unlock(mutex);
+            return t;
+        }
+
+        if (mutex) pthread_mutex_unlock(mutex);
+    }
+    return NULL;
+}
+
+struct Type *env_get_declared_type_resolved(Environment *env, int depth, int slot) {
+    Environment *target = env;
+    for (int i = 0; i < depth; i++) {
+        target = target->parent;
+        if (!target) return NULL;
+    }
+
+    pthread_mutex_t *mutex = (pthread_mutex_t*)target->mutex;
+    if (mutex) pthread_mutex_lock(mutex);
+
+    struct Type *t = NULL;
+    if (target->declared_types && slot >= 0 && slot < target->count) {
+        t = target->declared_types[slot];
+    }
+
+    if (mutex) pthread_mutex_unlock(mutex);
+    return t;
 }

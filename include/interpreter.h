@@ -14,11 +14,18 @@ typedef struct EnvImport {
     struct EnvImport *next;
 } EnvImport;
 
+// Forward declaration: frontend AST type annotation node
+struct Type;
+
 // Environment (symbol table for variables)
 typedef struct Environment {
     char **names;
     Value *values;
     int *is_const;  // 1 if const, 0 if mutable (let)
+    // Declared type annotations for bindings (parallel to values).
+    // Lazily allocated: NULL until the first annotated binding is recorded.
+    // Entries point into the (longer-lived) AST and are not owned.
+    struct Type **declared_types;
     int count;
     int capacity;
     int ref_count;  // Reference count for memory management
@@ -50,6 +57,12 @@ Value env_get(Environment *env, const char *name, ExecutionContext *ctx);
 // Fast resolved variable access (using pre-computed depth/slot indices)
 Value env_get_resolved(Environment *env, int depth, int slot);
 int env_set_resolved(Environment *env, int depth, int slot, Value value, ExecutionContext *ctx);
+
+// Declared-type tracking: annotated `let` bindings remember their annotation
+// so reassignment enforces it (same conversion as the declaration).
+void env_set_declared_type_last(Environment *env, struct Type *type);
+struct Type *env_get_declared_type(Environment *env, const char *name);
+struct Type *env_get_declared_type_resolved(Environment *env, int depth, int slot);
 
 // Execution context management (opaque pointer pattern)
 ExecutionContext* exec_context_new(void);

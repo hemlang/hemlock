@@ -78,6 +78,12 @@ is_error_test() {
     if [[ "$test_file" =~ stdlib_ ]]; then
         return 1
     fi
+    # Explicit opt-out: regression tests that catch their errors via try/catch
+    # and must exit 0 can override the name-based heuristic below with a
+    # "// expect: pass" marker on the first line.
+    if head -n 1 "$test_file" | grep -q "expect: pass"; then
+        return 1
+    fi
     # Tests with these keywords in their name are expected to fail
     if [[ "$test_file" =~ (overflow|negative|invalid|error) ]]; then
         return 0

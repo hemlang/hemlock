@@ -551,8 +551,10 @@ static char* shell_quote(const char *s) {
 static int compile_c(const Options *opts, const char *c_file) {
     // Build command
     char cmd[4096];
-    char opt_flag[4];
-    snprintf(opt_flag, sizeof(opt_flag), "-O%d", opts->optimize);
+    // -fwrapv: generated C relies on two's-complement wrap for narrow-int
+    // and ++/-- semantics; make signed overflow defined instead of UB.
+    char opt_flag[16];
+    snprintf(opt_flag, sizeof(opt_flag), "-O%d -fwrapv", opts->optimize);
 
     // Determine runtime path
     // Priority: --runtime flag > auto-detect (self dir, install dir, cwd)

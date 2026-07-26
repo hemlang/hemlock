@@ -115,14 +115,33 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                 case UNARY_NEGATE:
                     if (is_float(operand)) {
-                        unary_result = val_f64(-value_to_float(operand));
+                        // Preserve the float width when negating
+                        if (operand.type == VAL_F32) {
+                            unary_result = val_f32(-operand.as.as_f32);
+                        } else {
+                            unary_result = val_f64(-value_to_float(operand));
+                        }
                     } else if (is_integer(operand)) {
-                        // Preserve the original type when negating
+                        // Preserve the original type when negating.
+                        // Narrow types wrap; i32/i64 MIN negation overflows
+                        // and throws (consistent with checked +,-,*).
                         switch (operand.type) {
-                            case VAL_I8: unary_result = val_i8(-operand.as.as_i8); break;
-                            case VAL_I16: unary_result = val_i16(-operand.as.as_i16); break;
-                            case VAL_I32: unary_result = val_i32(-operand.as.as_i32); break;
-                            case VAL_I64: unary_result = val_i64(-operand.as.as_i64); break;
+                            case VAL_I8: unary_result = val_i8((int8_t)(-(int16_t)operand.as.as_i8)); break;
+                            case VAL_I16: unary_result = val_i16((int16_t)(-(int32_t)operand.as.as_i16)); break;
+                            case VAL_I32:
+                                if (operand.as.as_i32 == INT32_MIN) {
+                                    runtime_error(ctx, "Integer overflow: i32 negation");
+                                } else {
+                                    unary_result = val_i32(-operand.as.as_i32);
+                                }
+                                break;
+                            case VAL_I64:
+                                if (operand.as.as_i64 == INT64_MIN) {
+                                    runtime_error(ctx, "Integer overflow: i64 negation");
+                                } else {
+                                    unary_result = val_i64(-operand.as.as_i64);
+                                }
+                                break;
                             case VAL_U8: unary_result = val_i16(-(int16_t)operand.as.as_u8); break;  // promote to i16
                             case VAL_U16: unary_result = val_i32(-(int32_t)operand.as.as_u16); break; // promote to i32
                             case VAL_U32: unary_result = val_i64(-(int64_t)operand.as.as_u32); break; // promote to i64
@@ -199,6 +218,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
         case EXPR_ASSIGN: {
             Value new_value = eval_expr(expr->as.assign.value, env, ctx);
+            if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(new_value);
+                return val_null();
+            }
             // Check if target is a reference (from ref parameter)
             Value target;
             if (expr->as.assign.resolved.is_resolved) {
@@ -213,6 +236,22 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 return new_value;
             }
             VALUE_RELEASE(target);
+            // Enforce the variable's declared type on reassignment using the
+            // same conversion as the declaration (annotations are enforced at
+            // runtime by the interpreter — CLAUDE.md/docs/language-guide/types.md)
+            {
+                Type *declared = expr->as.assign.resolved.is_resolved
+                    ? env_get_declared_type_resolved(env, expr->as.assign.resolved.depth,
+                                                     expr->as.assign.resolved.slot)
+                    : env_get_declared_type(env, expr->as.assign.name);
+                if (declared != NULL) {
+                    new_value = convert_to_type(new_value, declared, env, ctx);
+                    if (ctx->exception_state.is_throwing) {
+                        VALUE_RELEASE(new_value);
+                        return val_null();
+                    }
+                }
+            }
             // Regular assignment
             if (expr->as.assign.resolved.is_resolved) {
                 env_set_resolved(env, expr->as.assign.resolved.depth, expr->as.assign.resolved.slot, new_value, ctx);
@@ -487,7 +526,11 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             // For arrays, strings, and buffers, index must be an integer
             if (!is_integer(index_val)) {
+                // runtime_error does not unwind - return before using the bad index
                 runtime_error(ctx, "Index must be an integer");
+                VALUE_RELEASE(object);
+                VALUE_RELEASE(index_val);
+                return val_null();
             }
 
             int32_t index = value_to_int(index_val);
@@ -502,7 +545,11 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                 // Check bounds using character count (not byte count)
                 if (index < 0 || index >= str->char_length) {
+                    // runtime_error does not unwind - return before the OOB read
                     runtime_error(ctx, "String index %d out of bounds (length=%d)", index, str->char_length);
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    return val_null();
                 }
 
                 // Find byte offset of the i-th codepoint
@@ -516,7 +563,12 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 Buffer *buf = object.as.as_buffer;
 
                 if (index < 0 || index >= buf->length) {
+                    // runtime_error does not unwind - return before the OOB read
+                    // (a freed buffer has data == NULL and length == 0)
                     runtime_error(ctx, "Buffer index %d out of bounds (length %d)", index, buf->length);
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    return val_null();
                 }
 
                 // Return the byte as an integer (u8)
@@ -652,7 +704,12 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             // For arrays, strings, and buffers, index must be an integer
             if (!is_integer(index_val)) {
+                // runtime_error does not unwind - return before using the bad index
                 runtime_error(ctx, "Index must be an integer");
+                VALUE_RELEASE(object);
+                VALUE_RELEASE(index_val);
+                VALUE_RELEASE(value);
+                return val_null();
             }
 
             int32_t index = value_to_int(index_val);
@@ -667,14 +724,24 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             // For strings and buffers, value must be an integer (byte) or rune
             if (!is_integer(value) && value.type != VAL_RUNE) {
+                // runtime_error does not unwind - return before using the bad value
                 runtime_error(ctx, "Index value must be an integer (byte) or rune for strings/buffers");
+                VALUE_RELEASE(object);
+                VALUE_RELEASE(index_val);
+                VALUE_RELEASE(value);
+                return val_null();
             }
 
             if (object.type == VAL_STRING) {
                 String *str = object.as.as_string;
 
                 if (index < 0 || index >= str->length) {
+                    // runtime_error does not unwind - return before the OOB write
                     runtime_error(ctx, "String index %d out of bounds (length %d)", index, str->length);
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    VALUE_RELEASE(value);
+                    return val_null();
                 }
 
                 // Get the rune value (either from rune type or integer)
@@ -743,7 +810,14 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 Buffer *buf = object.as.as_buffer;
 
                 if (index < 0 || index >= buf->length) {
+                    // runtime_error does not unwind - return before the OOB write
+                    // (writing buf->data[-1] would corrupt the heap; a freed buffer
+                    // has data == NULL and length == 0)
                     runtime_error(ctx, "Buffer index %d out of bounds (length %d)", index, buf->length);
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    VALUE_RELEASE(value);
+                    return val_null();
                 }
 
                 // Buffers are mutable - set the byte

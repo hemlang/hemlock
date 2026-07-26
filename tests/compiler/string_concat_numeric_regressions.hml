@@ -1,6 +1,11 @@
+import { divi } from "@stdlib/math";
+
 print("" + 75.0);
 let f: f64 = 3.14;
 print("" + f);
 print("a" + 0 + "b");
 let xi: i32 = 2575;
-print("" + (xi/100) + "." + (xi - (xi/100)*100));
+// `/` always returns float, including inside string concatenation.
+print("" + (xi / 100));
+// divi() is the explicit integer-division tool for fixed-point formatting.
+print("" + divi(xi, 100) + "." + (xi - divi(xi, 100) * 100));

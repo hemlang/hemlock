@@ -394,6 +394,10 @@ void hml_array_fill(HmlValue arr, HmlValue value, HmlValue start, HmlValue end);
 
 HmlValue hml_object_get_field(HmlValue obj, const char *field);
 HmlValue hml_object_get_field_required(HmlValue obj, const char *field);  // Throws if field not found
+// Property access variant: like hml_object_get_field_required, but if the
+// field holds a function it returns a copy with 'self' bound to the object
+// (method extraction semantics, matching the interpreter).
+HmlValue hml_object_get_field_bound(HmlValue obj, const char *field);
 void hml_object_set_field(HmlValue obj, const char *field, HmlValue val);
 int hml_value_coerce_to_key(HmlValue val, char *buf, size_t buf_size);  // Convert value to string key
 HmlValue hml_object_get_field_coerce(HmlValue obj, HmlValue key);  // Non-string key auto-coerced to string
@@ -491,8 +495,15 @@ void hml_callback_free(HmlValue callback);
 // Global self reference for method calls (thread-local for safety)
 extern __thread HmlValue hml_self;
 
-// Call a function value with arguments
+// Call a function value with arguments (honors bound 'self' on extracted methods)
 HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args);
+
+// Raw dispatch that ignores any bound 'self' on the callee (used by
+// hml_call_method, which sets hml_self from the explicit receiver)
+HmlValue hml_call_function_no_bind(HmlValue fn, HmlValue *args, int num_args);
+
+// Copy a function value with 'self' bound to the given object (method extraction)
+HmlValue hml_function_bind_self(HmlValue fn, HmlValue self_obj);
 
 // Call a function with named arguments (reorders args to match parameter names)
 HmlValue hml_call_function_named(HmlValue fn, HmlValue *args, const char **arg_names, int num_args);
@@ -815,12 +826,28 @@ HmlValue hml_validate_enum_value(HmlValue val, const char *enum_name);
 typedef struct HmlClosureEnv {
     HmlValue *captured;     // Array of captured values
     int num_captured;       // Number of captured values
+    struct HmlClosureEnv *parent;  // Enclosing environment (NULL if none); enables
+                                   // shared (by-reference) capture across nested closures
     _Atomic int ref_count;  // Reference count (atomic for thread safety)
     pthread_mutex_t mutex;  // Protects concurrent access from spawned tasks
 } HmlClosureEnv;
 
+// Parent-slot index encoding for closure environments:
+//   index = depth * HML_CLOSURE_ENV_PARENT_STRIDE + slot
+// where depth is how many parent links to follow and slot is the index in
+// that environment. Must match HML_CLOSURE_ENV_PARENT_STRIDE in
+// include/hemlock_limits.h (compiler side).
+#ifndef HML_CLOSURE_ENV_PARENT_STRIDE
+#define HML_CLOSURE_ENV_PARENT_STRIDE 65536
+#endif
+
 // Create a new closure environment with given capacity
 HmlClosureEnv* hml_closure_env_new(int num_vars);
+
+// Create a new closure environment chained to a parent environment.
+// Retains the parent; slots indexed with the parent-slot encoding above
+// resolve through the parent chain.
+HmlClosureEnv* hml_closure_env_new_with_parent(int num_vars, HmlClosureEnv *parent);
 
 // Free a closure environment
 void hml_closure_env_free(HmlClosureEnv *env);

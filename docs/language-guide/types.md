@@ -173,6 +173,46 @@ let i: integer = 42;   // Alias for i32
 let b: byte = 255;     // Alias for u8
 ```
 
+### Integer Overflow Policy
+
+Hemlock's overflow behavior is explicit and depends on the (promoted)
+type of the operation:
+
+| Operation type | Behavior on overflow |
+|----------------|----------------------|
+| `i32`, `i64` — `+` `-` `*` and unary `-` | **Throws** a catchable `"Integer overflow: ..."` error |
+| `i8`, `i16` (same-type arithmetic) | Wraps (two's complement) |
+| `u8`, `u16`, `u32`, `u64` | Wraps (standard unsigned behavior) |
+| `++` / `--` (any integer type) | Always wraps, preserving the operand's type |
+
+```hemlock
+let max: i32 = 2147483647;
+try { let x = max + 1; } catch (e) { print(e); }  // Integer overflow: i32 addition
+
+let w: u8 = 255;
+print(w + w);        // 254 (u8 wraps)
+
+let c: i32 = 2147483647;
+c++;                 // ++/-- are the explicit wrapping tool
+print(c);            // -2147483648
+```
+
+Notes:
+
+- The policy follows the operation's *promoted* type: `i8 + 1` promotes to
+  `i32` (the literal's type) and is therefore checked, while `i8 + i8`
+  stays `i8` and wraps.
+- Compound assignment expands to the binary operator, so `x += 1` on an
+  `i32` throws on overflow exactly like `x = x + 1`.
+- Negating `i32`/`i64` MIN throws; negating narrow signed types wraps
+  in-type (`-(-128 as i8)` is `-128`); negating unsigned values promotes
+  to the next signed type wide enough for the result.
+- Signed `MIN % -1` is defined as `0` (the mathematical remainder). It is
+  never a crash.
+- Constant expressions follow the identical rules: `2147483647 + 1`
+  throws at runtime even though both operands are literals. There is no
+  separate compile-time arithmetic.
+
 ### Floating-Point Types
 
 ```hemlock

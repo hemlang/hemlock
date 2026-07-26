@@ -120,6 +120,11 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
         int either_float = (left.type == HML_VAL_F64 || left.type == HML_VAL_F32 ||
                             right.type == HML_VAL_F64 || right.type == HML_VAL_F32);
         if (r == 0.0 && !either_float) hml_runtime_error_line("Division by zero");
+        // When the promoted type is f32 the quotient stays f32 (mirrors the
+        // interpreter); everything else divides as f64.
+        if (promote_types(left.type, right.type) == HML_VAL_F32) {
+            return hml_val_f32((float)(l / r));
+        }
         return hml_val_f64(l / r);
     }
 
@@ -133,6 +138,7 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             case HML_OP_MUL: return hml_i32_mul(left, right);
             case HML_OP_MOD:
                 if (r == 0) hml_runtime_error_line("Division by zero");
+                if (r == -1) return hml_val_i32(0);  // Avoid INT32_MIN % -1 trap
                 return hml_val_i32(l % r);
             case HML_OP_LESS: return hml_val_bool(l < r);
             case HML_OP_LESS_EQUAL: return hml_val_bool(l <= r);
@@ -166,6 +172,7 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
                 return hml_val_i64(l / r);
             case HML_OP_MOD:
                 if (r == 0) hml_runtime_error_line("Division by zero");
+                if (r == -1) return hml_val_i64(0);  // Avoid INT64_MIN % -1 trap
                 return hml_val_i64(l % r);
             case HML_OP_LESS: return hml_val_bool(l < r);
             case HML_OP_LESS_EQUAL: return hml_val_bool(l <= r);
@@ -439,6 +446,9 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             if (is_unsigned) {
                 return make_int_result(result_type, (int64_t)(ul % ur));
             }
+            if (sr == -1) {
+                return make_int_result(result_type, 0);  // Avoid MIN % -1 trap
+            }
             return make_int_result(result_type, sl % sr);
         case HML_OP_EQUAL:
             return hml_val_bool(is_unsigned ? (ul == ur) : (sl == sr));
@@ -523,14 +533,35 @@ HmlValue hml_unary_op(HmlUnaryOp op, HmlValue operand) {
             if (!hml_is_numeric(operand)) {
                 hml_runtime_error("Cannot negate non-numeric type");
             }
-            if (operand.type == HML_VAL_F64) {
-                return hml_val_f64(-operand.as.as_f64);
-            } else if (operand.type == HML_VAL_F32) {
-                return hml_val_f32(-operand.as.as_f32);
-            } else if (operand.type == HML_VAL_I64) {
-                return hml_val_i64(-operand.as.as_i64);
-            } else {
-                return hml_val_i32(-hml_to_i32(operand));
+            // Mirrors the interpreter: floats keep their width; signed narrow
+            // types wrap in-type; i32/i64 MIN throws (checked arithmetic);
+            // unsigned types promote to the next signed type that can hold
+            // the negated value.
+            switch (operand.type) {
+                case HML_VAL_F64: return hml_val_f64(-operand.as.as_f64);
+                case HML_VAL_F32: return hml_val_f32(-operand.as.as_f32);
+                case HML_VAL_I8:  return hml_val_i8((int8_t)(-(int16_t)operand.as.as_i8));
+                case HML_VAL_I16: return hml_val_i16((int16_t)(-(int32_t)operand.as.as_i16));
+                case HML_VAL_I32:
+                    if (operand.as.as_i32 == INT32_MIN) {
+                        hml_runtime_error("Integer overflow: i32 negation");
+                    }
+                    return hml_val_i32(-operand.as.as_i32);
+                case HML_VAL_I64:
+                    if (operand.as.as_i64 == INT64_MIN) {
+                        hml_runtime_error("Integer overflow: i64 negation");
+                    }
+                    return hml_val_i64(-operand.as.as_i64);
+                case HML_VAL_U8:  return hml_val_i16((int16_t)-(int16_t)operand.as.as_u8);
+                case HML_VAL_U16: return hml_val_i32(-(int32_t)operand.as.as_u16);
+                case HML_VAL_U32: return hml_val_i64(-(int64_t)operand.as.as_u32);
+                case HML_VAL_U64:
+                    if (operand.as.as_u64 <= (uint64_t)INT64_MAX) {
+                        return hml_val_i64(-(int64_t)operand.as.as_u64);
+                    }
+                    hml_runtime_error("Cannot negate u64 value larger than INT64_MAX");
+                default:
+                    return hml_val_i32(-hml_to_i32(operand));
             }
 
         case HML_UNARY_BIT_NOT:

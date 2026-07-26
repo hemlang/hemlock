@@ -13,8 +13,8 @@ bash tests/contracts/run_contract_tests.sh promotion
 
 Layout:
 
-- `types/` — literal inference, the promotion lattice, conversion rules, `typeid`/`TYPEID_*` stability
-- `semantics/` — division-returns-float, codepoint string indexing, string/array mutation behavior, `defer` ordering, `switch` fall-through, null handling, object key coercion
+- `types/` — literal inference, the promotion lattice, conversion rules, `typeid`/`TYPEID_*` stability, the integer overflow policy (checked i32/i64, wrapping narrow/unsigned), mixed-signedness comparisons, literal-vs-variable consistency (constant folding must be invisible)
+- `semantics/` — division-returns-float (everywhere, including string concatenation), codepoint string indexing, string/array mutation behavior, `defer` ordering, `switch` fall-through, null handling, object key coercion, `&&`/`||` returning bool, shift and modulo semantics
 - `errors/` — error-message substrings and programs both backends must reject
 
 Test kinds:

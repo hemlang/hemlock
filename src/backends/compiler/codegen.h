@@ -105,6 +105,11 @@ typedef struct {
     int in_function;        // Whether we're inside a function
     int inline_depth;       // Current inlining depth (0 = not inlining, max depth prevents code bloat)
     char **local_vars;      // Stack of local variable names
+    const char **local_annots; // Declared primitive annotation per local ("HML_VAL_*" or NULL)
+    char **main_annot_names;   // Annotated main-level variable names
+    const char **main_annot_types; // Their HML_VAL_* enum names
+    int num_main_annots;
+    int main_annot_capacity;
     int *local_needs_cleanup; // Parallel array: 1 = needs hml_release at function exit
     int num_locals;         // Number of local variables
     int local_capacity;     // Capacity of local vars array
@@ -134,6 +139,11 @@ typedef struct {
     char **shared_env_vars;         // Variables in the shared environment
     int shared_env_num_vars;        // Number of variables in shared environment
     int shared_env_capacity;        // Capacity of shared_env_vars array
+    int *shared_env_indices;        // Per-var actual env slot index (may use parent-slot
+                                    // encoding, see HML_CLOSURE_ENV_PARENT_STRIDE);
+                                    // NULL means identity mapping (slot == position)
+    int shared_env_borrowed;        // 1 if shared_env_name aliases the enclosing closure's
+                                    // _closure_env instead of a freshly created env
 
     // Last created closure (for self-reference fixup in let statements)
     int last_closure_env_id;       // -1 if no closure, otherwise the env counter
@@ -244,7 +254,6 @@ typedef struct {
 
     // WASM target configuration
     int target_wasm;              // Targeting WebAssembly via Emscripten (0 = native, 1 = wasm)
-    int string_concat_context;     // Prefer integer division while emitting concat operands
 
     // Source location tracking (for runtime error messages with source context)
     const char *source_code;      // Full source text (for embedding; NULL = unavailable)
@@ -304,6 +313,11 @@ void codegen_warning(CodegenContext *ctx, int line, const char *fmt, ...);
 
 // Helper: Add a local variable to the tracking list
 void codegen_add_local(CodegenContext *ctx, const char *name);
+void codegen_set_local_annot(CodegenContext *ctx, const char *name, const char *hml_type);
+const char *codegen_get_local_annot(CodegenContext *ctx, const char *name);
+void codegen_set_main_annot(CodegenContext *ctx, const char *name, const char *hml_type);
+const char *codegen_get_main_annot(CodegenContext *ctx, const char *name);
+const char *codegen_annot_primitive_name(Type *annotation);
 
 // Helper: Check if a variable is local
 int codegen_is_local(CodegenContext *ctx, const char *name);

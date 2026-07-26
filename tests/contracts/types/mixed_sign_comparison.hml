@@ -1,0 +1,36 @@
+// CONTRACT: Comparisons and equality between mixed integer types are
+// performed in the promoted type (the C model, per the promotion lattice in
+// CLAUDE.md/docs). When a signed value meets an unsigned type of equal or
+// higher rank, the signed value converts to unsigned (wrapping), so
+// -1 == u32 max. When the signed type has higher rank (i64 vs u32), the
+// comparison is signed and behaves "mathematically".
+
+let n: i32 = -1;
+let u32max: u32 = 4294967295;
+print(n == u32max);        // true  (i32 vs u32 -> u32; -1 wraps)
+print(n < u32max);         // false
+let u32one: u32 = 1;
+print(n < u32one);         // false (-1 wraps to u32 max)
+
+let n64: i64 = -1;
+let u64max: u64 = 18446744073709551615;
+print(n64 == u64max);      // true  (i64 vs u64 -> u64)
+
+// Signed type with higher rank keeps the comparison signed
+let u32small: u32 = 1;
+let n64b: i64 = -1;
+print(n64b < u32small);    // true  (u32 promotes to i64)
+
+// Narrow types: promoted width and signedness
+let i8neg: i8 = -1;
+let u8max: u8 = 255;
+print(i8neg == u8max);     // true  (i8 vs u8 -> u8; -1 wraps to 255)
+
+// i32 vs i64: signed, exact
+print(n == 4294967295);    // false (4294967295 is an i64 literal)
+
+// Large 64-bit values compare exactly (no double rounding)
+let a: i64 = 9223372036854775807;
+let b: i64 = 9223372036854775806;
+print(a == b);             // false
+print(a > b);              // true

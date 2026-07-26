@@ -180,6 +180,8 @@ struct HmlFunction {
     int num_required;       // Number of required parameters (for arity checking)
     int is_async;
     int has_rest_param;     // Has rest parameter (...args) - accepts unlimited extra args
+    int has_bound_self;     // 1 if this is a method extracted from an object (bound_self valid)
+    HmlValue bound_self;    // Object bound as 'self' for extracted methods
     _Atomic int ref_count;
 };
 
@@ -404,20 +406,27 @@ static inline HmlValue hml_i32_mul(HmlValue left, HmlValue right) {
     return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = result };
 }
 
-// Fast path: i32 division (with zero check)
+// Fast path: i32 division (with zero and INT32_MIN / -1 checks)
 static inline HmlValue hml_i32_div(HmlValue left, HmlValue right) {
     if (right.as.as_i32 == 0) {
         extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
         hml_runtime_error_line("Division by zero");
     }
+    if (right.as.as_i32 == -1 && left.as.as_i32 == INT32_MIN) {
+        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
+        hml_runtime_error("Integer overflow: i32 division");
+    }
     return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 / right.as.as_i32 };
 }
 
-// Fast path: i32 modulo (with zero check)
+// Fast path: i32 modulo (with zero check; MIN % -1 is 0, not a trap)
 static inline HmlValue hml_i32_mod(HmlValue left, HmlValue right) {
     if (right.as.as_i32 == 0) {
         extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
         hml_runtime_error_line("Division by zero");
+    }
+    if (right.as.as_i32 == -1) {
+        return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = 0 };
     }
     return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 % right.as.as_i32 };
 }
@@ -521,6 +530,10 @@ static inline HmlValue hml_i64_div(HmlValue left, HmlValue right) {
         extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
         hml_runtime_error_line("Division by zero");
     }
+    if (right.as.as_i64 == -1 && left.as.as_i64 == INT64_MIN) {
+        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
+        hml_runtime_error("Integer overflow: i64 division");
+    }
     return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = left.as.as_i64 / right.as.as_i64 };
 }
 
@@ -528,6 +541,9 @@ static inline HmlValue hml_i64_mod(HmlValue left, HmlValue right) {
     if (right.as.as_i64 == 0) {
         extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
         hml_runtime_error_line("Division by zero");
+    }
+    if (right.as.as_i64 == -1) {
+        return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = 0 };
     }
     return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = left.as.as_i64 % right.as.as_i64 };
 }

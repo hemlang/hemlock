@@ -150,20 +150,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         codegen_writeln(ctx, "hml_release_if_needed(&%s);", inner_val);
                         free(inner_val);
                         break;
-                    } else if (expr->as.unary.op == UNARY_NEGATE) {
-                        // -(-x) -> x (identity)
-                        char *inner_val = codegen_expr(ctx, inner);
-                        codegen_writeln(ctx, "HmlValue %s = %s;", result, inner_val);
-                        free(inner_val);
-                        break;
                     }
+                    // NOTE: -(-x) -> x is NOT applied: negation of i32/i64
+                    // MIN throws an overflow error, so double negation is not
+                    // the identity for every value.
                 }
             }
 
             // OPTIMIZATION: Constant folding for unary operations on literals
             if (expr->as.unary.operand->type == EXPR_NUMBER &&
                 !expr->as.unary.operand->as.number.is_float &&
-                !expr->as.unary.operand->as.number.is_u64) {
+                !expr->as.unary.operand->as.number.is_u64 &&
+                expr->as.unary.operand->as.number.int_value != INT64_MIN) {
                 int64_t val = expr->as.unary.operand->as.number.int_value;
                 int can_fold = 1;
 
@@ -254,6 +252,15 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     if (unbox_cast && box_func) {
                         char *value = codegen_expr(ctx, expr->as.assign.value);
                         char *safe_var_name = codegen_sanitize_ident(expr->as.assign.name);
+                        // Annotated variables enforce their declared type on
+                        // reassignment (hml_convert_to_type errors on invalid
+                        // conversions like string -> i32, mirroring the
+                        // interpreter). Inference-unboxed variables skip this:
+                        // escape analysis already proved type-stable use.
+                        const char *annot = codegen_get_local_annot(ctx, expr->as.assign.name);
+                        if (annot && type_check_is_typed_var(ctx->type_ctx, expr->as.assign.name)) {
+                            codegen_writeln(ctx, "%s = hml_convert_to_type(%s, %s);", value, value, annot);
+                        }
                         // Unbox value and assign to native variable
                         codegen_writeln(ctx, "%s = %s(%s);", safe_var_name, unbox_cast, value);
                         codegen_writeln(ctx, "hml_release(&%s);", value);
@@ -316,6 +323,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             }
 
             char *value = codegen_expr(ctx, expr->as.assign.value);
+            // Enforce the variable's declared type annotation on reassignment
+            // (same conversion as the declaration; mirrors the interpreter).
+            {
+                const char *annot = codegen_get_local_annot(ctx, expr->as.assign.name);
+                if (!annot && codegen_is_main_var(ctx, expr->as.assign.name) &&
+                    !codegen_is_local(ctx, expr->as.assign.name)) {
+                    annot = codegen_get_main_annot(ctx, expr->as.assign.name);
+                }
+                if (annot) {
+                    codegen_writeln(ctx, "%s = hml_convert_to_type(%s, %s);", value, value, annot);
+                }
+            }
             // Determine the correct variable name with prefix
             // Note: safe_var_name is allocated when needed and must be freed
             char *safe_var_name = NULL;
@@ -400,7 +419,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"length\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"length\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             // Socket properties: fd, address, port, closed
@@ -412,7 +431,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"fd\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"fd\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else if (strcmp(expr->as.get_property.property, "address") == 0) {
@@ -423,7 +442,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"address\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"address\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else if (strcmp(expr->as.get_property.property, "port") == 0) {
@@ -434,7 +453,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"port\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"port\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else if (strcmp(expr->as.get_property.property, "closed") == 0) {
@@ -445,7 +464,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"closed\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"closed\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else if (strcmp(expr->as.get_property.property, "nonblocking") == 0) {
@@ -456,7 +475,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"nonblocking\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"nonblocking\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             // String byte_length property
@@ -468,7 +487,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"byte_length\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"byte_length\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             // Buffer capacity property
@@ -480,12 +499,12 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"capacity\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"capacity\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else {
                 // Regular property access - throws error if field not found (parity with interpreter)
-                codegen_writeln(ctx, "HmlValue %s = hml_object_get_field_required(%s, \"%s\");",
+                codegen_writeln(ctx, "HmlValue %s = hml_object_get_field_bound(%s, \"%s\");",
                               result, obj, expr->as.get_property.property);
             }
             codegen_writeln(ctx, "hml_release(&%s);", obj);
@@ -844,10 +863,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     }
                 }
 
-                // Update the shared environment with current values of captured variables
+                // Update the shared environment with current values of captured variables.
+                // Slots that resolve into an enclosing closure's environment (borrowed
+                // env or parent-encoded index) are NOT re-seeded: the enclosing
+                // environment already holds the authoritative, shared value, and
+                // overwriting it with this body's local copy could clobber updates
+                // made through previously created closures.
                 for (int i = 0; i < captured->num_vars; i++) {
                     int shared_idx = shared_env_get_index(ctx, captured->vars[i]);
-                    if (shared_idx >= 0) {
+                    if (shared_idx >= 0 && !ctx->shared_env_borrowed &&
+                        shared_idx < HML_CLOSURE_ENV_PARENT_STRIDE) {
                         emit_capture(ctx, ctx->shared_env_name, shared_idx, captured->vars[i]);
                     }
                 }

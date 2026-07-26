@@ -458,10 +458,13 @@ HmlValue hml_val_function_named(void *fn_ptr, int num_params, int num_required, 
     f->fn_ptr = fn_ptr;
     f->closure_env = NULL;
     f->name = name ? strdup(name) : NULL;
+    f->param_names = NULL;
     f->num_params = num_params;
     f->num_required = num_required;
     f->is_async = is_async;
     f->has_rest_param = 0;
+    f->has_bound_self = 0;
+    f->bound_self = hml_val_null();
     f->ref_count = 1;
 
     v.as.as_function = f;
@@ -485,6 +488,8 @@ HmlValue hml_val_function_rest_named(void *fn_ptr, int num_params, int num_requi
     f->num_required = num_required;
     f->is_async = is_async;
     f->has_rest_param = has_rest_param;
+    f->has_bound_self = 0;
+    f->bound_self = hml_val_null();
     f->ref_count = 1;
 
     v.as.as_function = f;
@@ -514,6 +519,8 @@ HmlValue hml_val_function_with_params(void *fn_ptr, int num_params, int num_requ
     f->num_required = num_required;
     f->is_async = is_async;
     f->has_rest_param = has_rest_param;
+    f->has_bound_self = 0;
+    f->bound_self = hml_val_null();
     f->ref_count = 1;
 
     v.as.as_function = f;
@@ -537,6 +544,8 @@ HmlValue hml_val_function_with_env_named(void *fn_ptr, void *env, int num_params
     f->num_required = num_required;
     f->is_async = is_async;
     f->has_rest_param = 0;
+    f->has_bound_self = 0;
+    f->bound_self = hml_val_null();
     f->ref_count = 1;
 
     v.as.as_function = f;
@@ -560,6 +569,48 @@ HmlValue hml_val_function_with_env_rest_named(void *fn_ptr, void *env, int num_p
     f->num_required = num_required;
     f->is_async = is_async;
     f->has_rest_param = has_rest_param;
+    f->has_bound_self = 0;
+    f->bound_self = hml_val_null();
+    f->ref_count = 1;
+
+    v.as.as_function = f;
+    return v;
+}
+
+// Create a copy of a function value with 'self' bound to the given object.
+// Used for method extraction (let g = obj.method;) so the extracted callable
+// keeps referring to the object it was taken from, matching the interpreter.
+HmlValue hml_function_bind_self(HmlValue fn, HmlValue self_obj) {
+    if (fn.type != HML_VAL_FUNCTION || fn.as.as_function == NULL) {
+        return fn;
+    }
+    HmlFunction *orig = fn.as.as_function;
+
+    HmlValue v;
+    v.type = HML_VAL_FUNCTION;
+
+    HmlFunction *f = fn_alloc();
+    f->fn_ptr = orig->fn_ptr;
+    f->closure_env = orig->closure_env;
+    if (f->closure_env) {
+        hml_closure_env_retain((HmlClosureEnv *)f->closure_env);
+    }
+    f->name = orig->name ? strdup(orig->name) : NULL;
+    if (orig->param_names && orig->num_params > 0) {
+        f->param_names = malloc(sizeof(char*) * orig->num_params);
+        for (int i = 0; i < orig->num_params; i++) {
+            f->param_names[i] = orig->param_names[i] ? strdup(orig->param_names[i]) : NULL;
+        }
+    } else {
+        f->param_names = NULL;
+    }
+    f->num_params = orig->num_params;
+    f->num_required = orig->num_required;
+    f->is_async = orig->is_async;
+    f->has_rest_param = orig->has_rest_param;
+    f->has_bound_self = 1;
+    f->bound_self = self_obj;
+    hml_retain(&f->bound_self);
     f->ref_count = 1;
 
     v.as.as_function = f;
@@ -734,6 +785,12 @@ static void function_free(HmlFunction *fn) {
             hml_closure_env_release(fn->closure_env);
             fn->closure_env = NULL;
         }
+        // Release bound 'self' object (extracted methods)
+        if (fn->has_bound_self) {
+            fn->has_bound_self = 0;
+            hml_release(&fn->bound_self);
+            fn->bound_self = hml_val_null();
+        }
         // Return to pool if pooled, otherwise free
         if (fn_is_pooled(fn)) {
             fn_pool_return(fn);
@@ -901,6 +958,13 @@ static void break_cycles_walk(HmlValue val, HmlCleanupVisited *visited) {
                 if (fn->closure_env) {
                     hml_closure_env_release((HmlClosureEnv *)fn->closure_env);
                     fn->closure_env = NULL;
+                }
+                if (fn->has_bound_self) {
+                    // Detach bound 'self' to break object<->method reference cycles
+                    HmlValue bound = fn->bound_self;
+                    fn->has_bound_self = 0;
+                    fn->bound_self = hml_val_null();
+                    hml_release(&bound);
                 }
             }
             break;
@@ -1389,6 +1453,7 @@ HmlClosureEnv* hml_closure_env_new(int num_vars) {
     HmlClosureEnv *env = malloc(sizeof(HmlClosureEnv));
     env->captured = calloc(num_vars, sizeof(HmlValue));
     env->num_captured = num_vars;
+    env->parent = NULL;
     atomic_store(&env->ref_count, 1);
     pthread_mutex_init(&env->mutex, NULL);
 
@@ -1400,16 +1465,38 @@ HmlClosureEnv* hml_closure_env_new(int num_vars) {
     return env;
 }
 
+HmlClosureEnv* hml_closure_env_new_with_parent(int num_vars, HmlClosureEnv *parent) {
+    HmlClosureEnv *env = hml_closure_env_new(num_vars);
+    env->parent = parent;
+    hml_closure_env_retain(parent);
+    return env;
+}
+
 void hml_closure_env_free(HmlClosureEnv *env) {
     if (env) {
         // Release all captured values
         for (int i = 0; i < env->num_captured; i++) {
             hml_release(&env->captured[i]);
         }
+        // Release the parent environment link (if any)
+        if (env->parent) {
+            hml_closure_env_release(env->parent);
+            env->parent = NULL;
+        }
         pthread_mutex_destroy(&env->mutex);
         free(env->captured);
         free(env);
     }
+}
+
+// Resolve a parent-encoded slot index (see HML_CLOSURE_ENV_PARENT_STRIDE) to
+// the environment that actually stores the slot.
+static HmlClosureEnv* closure_env_resolve(HmlClosureEnv *env, int *index) {
+    while (env && *index >= HML_CLOSURE_ENV_PARENT_STRIDE) {
+        *index -= HML_CLOSURE_ENV_PARENT_STRIDE;
+        env = env->parent;
+    }
+    return env;
 }
 
 void hml_closure_env_retain(HmlClosureEnv *env) {
@@ -1427,6 +1514,7 @@ void hml_closure_env_release(HmlClosureEnv *env) {
 }
 
 HmlValue hml_closure_env_get(HmlClosureEnv *env, int index) {
+    env = closure_env_resolve(env, &index);
     if (env && index >= 0 && index < env->num_captured) {
         pthread_mutex_lock(&env->mutex);
         HmlValue val = env->captured[index];
@@ -1438,6 +1526,7 @@ HmlValue hml_closure_env_get(HmlClosureEnv *env, int index) {
 }
 
 void hml_closure_env_set(HmlClosureEnv *env, int index, HmlValue val) {
+    env = closure_env_resolve(env, &index);
     if (env && index >= 0 && index < env->num_captured) {
         pthread_mutex_lock(&env->mutex);
         hml_release(&env->captured[index]);

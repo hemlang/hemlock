@@ -65,6 +65,8 @@ Aliases:  integer (i32), number (f64), byte (u8)
 
 **Type promotion:** i8 → u8 → i16 → u16 → i32 → u32 → i64 → u64 → f32 → f64 (floats always win, but i64/u64 + f32 → f64 to preserve precision)
 
+**Overflow policy:** i32/i64 `+` `-` `*` and unary `-` throw a catchable "Integer overflow" error; i8/i16 same-type arithmetic and all unsigned types wrap; `++`/`--` always wrap in-type; signed `MIN % -1` is 0. Constant expressions follow the same rules (no separate compile-time arithmetic). See docs/language-guide/types.md § Integer Overflow Policy.
+
 ### Literals
 ```hemlock
 let x = 42;              // i32
