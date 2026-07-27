@@ -136,11 +136,18 @@ b = "world";             // a still has "hello", b has "world"
 
 ```hemlock
 let ch = channel(10);
-ch.send("message");      // Value copied into channel buffer
-                         // Original still valid
+ch.send(msg);            // Reference transferred into the channel
+                         // (retained - NOT copied). For compound values
+                         // the sender now aliases the receiver: stop
+                         // touching msg's interior after sending it.
 
 let msg = ch.recv();     // Receives ownership from channel
 ```
+
+Primitives (integers, floats, bools, runes, null) are copied by value.
+Strings, arrays, objects, and buffers cross by reference - the sanctioned
+discipline is ownership transfer. See
+[The Hemlock Memory Model](memory-model.md).
 
 ### Task Spawning
 

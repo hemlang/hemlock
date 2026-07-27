@@ -265,7 +265,11 @@ select(channels: array, timeout_ms?: i32): object | null
 
 **Returns:**
 - `{ channel, value }` - Object with the channel that had data and the received value
-- `null` - On timeout (if timeout was specified)
+- `{ channel, value: null }` - Immediately, if any polled channel is closed
+  and empty (even while other channels in the set are open) - remove that
+  channel from the set instead of treating the result as data
+- `null` - On timeout (if timeout was specified), or when **all** channels
+  are closed
 
 **Example:**
 ```hemlock
@@ -310,14 +314,23 @@ if (result == null) {
 - Fan-in: merging multiple channels into one
 
 **Fan-in pattern:**
+
+Because `select()` reports a closed-and-empty channel immediately and
+repeatedly (see Returns above), producers feeding a fan-in should signal
+completion with a sentinel message instead of closing their channel:
+
 ```hemlock
+// Each producer sends its values, then sends null as a done marker
+// (and does NOT close its channel).
 fn fan_in(channels: array, output: channel) {
-    while (true) {
+    let done = 0;
+    while (done < channels.length) {
         let result = select(channels);
-        if (result == null) {
-            break;  // All channels closed
+        if (result.value == null) {
+            done = done + 1;      // One producer finished
+        } else {
+            output.send(result.value);
         }
-        output.send(result.value);
     }
     output.close();
 }
@@ -653,12 +666,18 @@ print(modified.length);  // 4 - has new element
 **What gets shared (reference retained):**
 - Channels (the communication mechanism - intentionally shared)
 - Task handles (for coordination)
-- Functions (code is immutable)
+- Functions (code is immutable; the captured environment is shared - see below)
 - File handles (OS manages concurrent access)
 - Socket handles (OS manages concurrent access)
+- Raw pointers (`ptr`) - shared by reference, uncopied and untracked.
+  Synchronization and lifetime are the programmer's responsibility
+  (`join()` before `free()`). This is the intended unsafe escape hatch.
 
-**What cannot be passed:**
-- Raw pointers (`ptr`) - use `buffer` instead
+**Note on channels:** unlike spawn arguments, values sent through a channel
+are **not** copied - `send()` transfers a reference. After sending an
+array/object/string/buffer, the sender aliases the same heap object as the
+receiver and must stop touching its interior (ownership transfer). See
+[The Hemlock Memory Model](memory-model.md) for the full rules.
 
 ### Why Message-Passing?
 
@@ -701,29 +720,27 @@ This ensures safe memory management even when values are shared across threads.
 Tasks have access to the closure environment for:
 - Built-in functions (`print`, `len`, etc.)
 - Global function definitions
-- Constants and variables
-
-The closure environment is protected by a per-environment mutex, making
-concurrent reads and writes thread-safe:
+- Constants and configuration written before the first `spawn`
 
 ```hemlock
-let x = 10;
+let x = 10;   // written before any spawn
 
 async fn read_closure(): i32 {
-    return x;  // OK: reading closure variable (thread-safe)
-}
-
-async fn modify_closure() {
-    x = 20;  // OK: writing closure variable (synchronized with mutex)
+    return x;  // OK: reading a binding nobody writes after spawn
 }
 ```
 
-**Note:** While concurrent access is synchronized, modifying shared state from
-multiple tasks can still lead to logical race conditions (non-deterministic
-ordering). For predictable behavior, use channels for task communication or
-return values from tasks.
-
-If you need to return data from a task, use the return value or channels.
+**Shared bindings are not a communication channel.** After the first
+`spawn`, treat any binding reachable from more than one live task as
+read-only. Cross-task *writes* to shared bindings — and interior mutation
+of shared arrays/objects/strings — are data races: the language does not
+synchronize them, and behavior differs by backend (the interpreter locks
+individual variable slots as defense-in-depth; the compiler emits module
+globals as plain unsynchronized C globals, so a concurrent write is
+undefined behavior). `counter = counter + 1` from two tasks loses updates
+even in the interpreter. Communicate through channels and task results
+instead. See [The Hemlock Memory Model](memory-model.md) for the precise
+rules and guarantees.
 
 ## Current Limitations
 
