@@ -3179,6 +3179,29 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
                 int has_shadow_conflict = codegen_inline_has_shadow_conflict(ctx, return_expr);
                 if (has_shadow_conflict) goto skip_inline;
 
+                // Safety check: don't inline if a parameter name collides with a
+                // variable that already exists in the caller (a main-level var or an
+                // in-scope local). The inlined parameter is declared as a fresh
+                // `HmlValue <param>`, but the type/unboxing decision for that
+                // identifier can still resolve to the caller's same-named variable,
+                // which may be an unboxed native. Codegen then emits native C
+                // arithmetic against our boxed shadow and gcc rejects it with
+                //   invalid operands to binary + (have 'HmlValue' and 'int')
+                // Repro: fn mix(s: i32): i32 { return s + 7; }
+                //        fn main() { let s: i32 = 100; let r: i32 = mix(s); ... }
+                // (renaming the caller's local to `q` compiles fine).
+                // The real fix is alpha-renaming inlined bodies to fresh names; until
+                // then, decline to inline rather than emit invalid C.
+                for (int pi = 0; pi < func_ast->as.function.num_params; pi++) {
+                    const char *pname = func_ast->as.function.param_names[pi];
+                    if (!pname) continue;
+                    if (codegen_is_local(ctx, pname) ||
+                        codegen_is_main_var(ctx, pname) ||
+                        (ctx->current_scope && scope_is_defined(ctx->current_scope, pname))) {
+                        goto skip_inline;
+                    }
+                }
+
                 // Declare result BEFORE the block so it remains in scope after
                 codegen_writeln(ctx, "HmlValue %s;", result);
 
