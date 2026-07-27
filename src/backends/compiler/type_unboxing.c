@@ -387,7 +387,10 @@ CheckedTypeKind infer_expr_native_type(TypeCheckContext *ctx, Expr *expr) {
             return CHECKED_BOOL;
 
         case EXPR_RUNE:
-            return CHECKED_I32;  // Runes are stored as i32 codepoints
+            // Runes must stay boxed: unboxing to a native i32 loses the rune
+            // type tag, so `let ch = 'A'; print(ch)` printed 65 instead of
+            // 'A' and typeof(ch) reported i32.
+            return CHECKED_UNKNOWN;
 
         case EXPR_IDENT: {
             // Check if this variable is already marked as unboxable
@@ -461,7 +464,11 @@ CheckedTypeKind infer_expr_native_type(TypeCheckContext *ctx, Expr *expr) {
             return infer_expr_native_type(ctx, expr->as.postfix_inc.operand);
 
         case EXPR_TERNARY: {
-            // Both branches must have compatible types
+            // Both branches must have the SAME type. A ternary does not
+            // promote: `c ? true : 5` yields a bool or an i32 depending on
+            // the branch taken at runtime, so collapsing mixed branch types
+            // to one native type broke dynamic typing (`typeof` reported
+            // i32 for a bool result, and `true` printed as 1).
             CheckedTypeKind true_type = infer_expr_native_type(ctx, expr->as.ternary.true_expr);
             CheckedTypeKind false_type = infer_expr_native_type(ctx, expr->as.ternary.false_expr);
             if (true_type == CHECKED_UNKNOWN || false_type == CHECKED_UNKNOWN) {
@@ -470,10 +477,6 @@ CheckedTypeKind infer_expr_native_type(TypeCheckContext *ctx, Expr *expr) {
             if (true_type == false_type) {
                 return true_type;
             }
-            // Use the same promotion rules as binary operators
-            if (true_type == CHECKED_F64 || false_type == CHECKED_F64) return CHECKED_F64;
-            if (true_type == CHECKED_I64 || false_type == CHECKED_I64) return CHECKED_I64;
-            if (true_type == CHECKED_I32 || false_type == CHECKED_I32) return CHECKED_I32;
             return CHECKED_UNKNOWN;
         }
 

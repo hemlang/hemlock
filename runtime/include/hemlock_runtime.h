@@ -385,6 +385,7 @@ HmlValue hml_validate_typed_array_object(HmlValue arr, const char *type_name);
 HmlValue hml_array_map(HmlValue arr, HmlValue callback);
 HmlValue hml_array_filter(HmlValue arr, HmlValue predicate);
 HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial);
+HmlValue hml_array_reduce_n(HmlValue arr, HmlValue reducer, HmlValue initial, int has_initial);
 HmlValue hml_array_every(HmlValue arr, HmlValue predicate);
 HmlValue hml_array_some(HmlValue arr, HmlValue predicate);
 HmlValue hml_array_index_of(HmlValue arr, HmlValue value);
@@ -443,6 +444,7 @@ void hml_buffer_set(HmlValue buf, HmlValue index, HmlValue val);
 HmlValue hml_buffer_length(HmlValue buf);
 HmlValue hml_buffer_capacity(HmlValue buf);
 HmlValue hml_buffer_slice(HmlValue buf, HmlValue start, HmlValue end);
+HmlValue hml_buffer_to_string(HmlValue buf);
 
 // Buffer typed write methods (bounds-checked, explicit endianness)
 void hml_buffer_write_u8(HmlValue buf, HmlValue offset, HmlValue value);

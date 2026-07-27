@@ -1,0 +1,57 @@
+// Regression tests for pattern-matching codegen audit fixes:
+// - OR-patterns containing bindings compile and bind correctly
+// - define-typed patterns only match objects tagged with that type
+// - object literal keys with escape characters
+// - failed sub-matches fall through to later arms correctly
+
+// OR-pattern with bindings
+let r1 = match ([1, 2]) {
+    [x, 9] | [1, x] => x,
+    _ => 0
+};
+print(r1);
+
+let r2 = match ([7, 9]) {
+    [x, 9] | [1, x] => x,
+    _ => 0
+};
+print(r2);
+
+// Define-typed pattern: untagged object with matching shape must NOT match
+define P2 { a: i32, b: i32 }
+let untagged = { a: 1 };
+print(match (untagged) {
+    p: P2 => "P2",
+    _ => "other"
+});
+
+let tagged: P2 = { a: 1, b: 2 };
+print(match (tagged) {
+    p: P2 => "P2:" + p.a,
+    _ => "other"
+});
+
+// Object keys with escapes
+let obj = { "a\"b": 1, "c\\d": 2 };
+print(obj["a\"b"]);
+print(obj["c\\d"]);
+
+// Failed object sub-matches fall through
+fn classify(v) {
+    return match (v) {
+        { kind: "circle", radius } => "circle:" + radius,
+        { kind: "rect", w } => "rect:" + w,
+        _ => "unknown"
+    };
+}
+print(classify({ kind: "rect", w: 3 }));
+print(classify({ kind: "circle", radius: 5 }));
+print(classify({ kind: "tri" }));
+
+// Nested array patterns with failures before success
+let r3 = match ([1, [2, 3]]) {
+    [1, [9, _]] => "first",
+    [1, [2, y]] => "second:" + y,
+    _ => "none"
+};
+print(r3);

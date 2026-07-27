@@ -600,7 +600,10 @@ HmlValue hml_array_filter(HmlValue arr, HmlValue predicate) {
     return result;
 }
 
-HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial) {
+// has_initial distinguishes an explicit initial value from an absent one:
+// `reduce(f, null)` passes null as a REAL initial accumulator (interpreter
+// parity) - inferring absence from initial's null-ness conflated the two.
+HmlValue hml_array_reduce_n(HmlValue arr, HmlValue reducer, HmlValue initial, int has_initial) {
     if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
         hml_runtime_error("reduce() requires array");
     }
@@ -609,8 +612,8 @@ HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial) {
 
     // Handle empty array
     if (a->length == 0) {
-        if (initial.type == HML_VAL_NULL) {
-            hml_runtime_error("reduce() of empty array with no initial value");
+        if (!has_initial) {
+            hml_runtime_error("reduce() on empty array with no initial value");
         }
         hml_retain(&initial);
         return initial;
@@ -619,7 +622,7 @@ HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial) {
     // Determine starting accumulator and index
     HmlValue acc;
     int start_idx;
-    if (initial.type == HML_VAL_NULL) {
+    if (!has_initial) {
         // No initial value - use first element
         acc = a->elements[0];
         hml_retain(&acc);
@@ -639,6 +642,10 @@ HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial) {
     }
 
     return acc;
+}
+
+HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial) {
+    return hml_array_reduce_n(arr, reducer, initial, initial.type != HML_VAL_NULL);
 }
 
 HmlValue hml_array_every(HmlValue arr, HmlValue predicate) {

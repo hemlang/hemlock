@@ -165,7 +165,7 @@ char* codegen_native_expr(CodegenContext *ctx, Expr *expr, CheckedTypeKind *out_
                 size_t clen = strlen(promoted_left) + strlen(promoted_right) + 192;
                 char *checked = malloc(clen);
                 snprintf(checked, clen,
-                         "({ %s _ovt; if (%s(%s, %s, &_ovt)) hml_runtime_error(\"Integer overflow: %s %s\"); _ovt; })",
+                         "({ %s _ovt; if (%s(%s, %s, &_ovt)) hml_runtime_error_line(\"Integer overflow: %s %s\"); _ovt; })",
                          cty, builtin, promoted_left, promoted_right, tyname, word);
                 *out_type = result_type;
                 free(promoted_left);
@@ -214,7 +214,7 @@ char* codegen_native_expr(CodegenContext *ctx, Expr *expr, CheckedTypeKind *out_
                         size_t clen = strlen(operand) + 160;
                         char *checked = malloc(clen);
                         snprintf(checked, clen,
-                                 "({ %s _ngt = %s; if (_ngt == %s) hml_runtime_error(\"Integer overflow: %s negation\"); -_ngt; })",
+                                 "({ %s _ngt = %s; if (_ngt == %s) hml_runtime_error_loc(\"Integer overflow: %s negation\"); -_ngt; })",
                                  cty, operand, minmac, tyname);
                         *out_type = operand_type;
                         free(operand);
@@ -325,16 +325,17 @@ static InferredNumericType infer_numeric_type(CodegenContext *ctx, Expr *expr) {
                 !codegen_is_shadow(ctx, expr->as.ident.name)) {
                 CheckedTypeKind native_type = type_check_get_unboxable(
                     ctx->type_ctx, expr->as.ident.name);
+                // Only exact i32/i64 may use the signed fast paths. Collapsing
+                // unsigned or narrow types here (u64→I64, u8/u16/u32→I32)
+                // routed them into hml_i32_*/hml_i64_* helpers that
+                // reinterpret the payload as signed and return a signed
+                // result — e.g. `u64 >> u64` came back negative and typed
+                // i64. Unsigned/narrow operands must take the generic
+                // runtime path, which promotes correctly.
                 switch (native_type) {
-                    case CHECKED_I8:
-                    case CHECKED_I16:
                     case CHECKED_I32:
-                    case CHECKED_U8:
-                    case CHECKED_U16:
-                    case CHECKED_U32:
                         return INFER_I32;
                     case CHECKED_I64:
-                    case CHECKED_U64:
                         return INFER_I64;
                     case CHECKED_F32:
                     case CHECKED_F64:
@@ -456,14 +457,15 @@ static int is_string_concat_chain(CodegenContext *ctx, Expr *expr, int *count) {
     Expr *elements[6];
     int n = count_string_concat_chain(expr, elements, 6);
 
-    // For it to be a string concat chain, at least one element should be a string
-    int has_string = 0;
-    for (int i = 0; i < n; i++) {
-        if (is_string_expr(ctx, elements[i])) {
-            has_string = 1;
-            break;
-        }
-    }
+    // The chain a + b + c + ... is left-associative: flattening it into a
+    // single concatN call (which stringifies every element) is only
+    // semantics-preserving when the FIRST addition already produces a
+    // string — i.e. one of the first two elements is definitely a string.
+    // A later string element does not qualify: in `1 + 2 + "x"` the `1 + 2`
+    // must be computed numerically first ("3x", not "12x").
+    int has_string = (n >= 2) &&
+                     (is_string_expr(ctx, elements[0]) ||
+                      is_string_expr(ctx, elements[1]));
 
     if (has_string && n >= 3 && n <= 5) {
         *count = n;
@@ -568,7 +570,7 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
                         case OP_ADD:
                             if (checked_signed) {
                                 codegen_writeln(ctx, "HmlValue %s;", result);
-                                codegen_writeln(ctx, "{ %s _ovt; if (__builtin_add_overflow(%s, %s, &_ovt)) hml_runtime_error(\"Integer overflow: %s addition\"); %s = %s(_ovt); }",
+                                codegen_writeln(ctx, "{ %s _ovt; if (__builtin_add_overflow(%s, %s, &_ovt)) hml_runtime_error_line(\"Integer overflow: %s addition\"); %s = %s(_ovt); }",
                                               ovf_cty, left_var, right_var, ovf_ty, result, box_func);
                             } else {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s + %s);", result, box_func, left_var, right_var);
@@ -577,7 +579,7 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
                         case OP_SUB:
                             if (checked_signed) {
                                 codegen_writeln(ctx, "HmlValue %s;", result);
-                                codegen_writeln(ctx, "{ %s _ovt; if (__builtin_sub_overflow(%s, %s, &_ovt)) hml_runtime_error(\"Integer overflow: %s subtraction\"); %s = %s(_ovt); }",
+                                codegen_writeln(ctx, "{ %s _ovt; if (__builtin_sub_overflow(%s, %s, &_ovt)) hml_runtime_error_line(\"Integer overflow: %s subtraction\"); %s = %s(_ovt); }",
                                               ovf_cty, left_var, right_var, ovf_ty, result, box_func);
                             } else {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s - %s);", result, box_func, left_var, right_var);
@@ -586,7 +588,7 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
                         case OP_MUL:
                             if (checked_signed) {
                                 codegen_writeln(ctx, "HmlValue %s;", result);
-                                codegen_writeln(ctx, "{ %s _ovt; if (__builtin_mul_overflow(%s, %s, &_ovt)) hml_runtime_error(\"Integer overflow: %s multiplication\"); %s = %s(_ovt); }",
+                                codegen_writeln(ctx, "{ %s _ovt; if (__builtin_mul_overflow(%s, %s, &_ovt)) hml_runtime_error_line(\"Integer overflow: %s multiplication\"); %s = %s(_ovt); }",
                                               ovf_cty, left_var, right_var, ovf_ty, result, box_func);
                             } else {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s * %s);", result, box_func, left_var, right_var);
@@ -754,7 +756,7 @@ char* codegen_expr_binary(CodegenContext *ctx, Expr *expr, char *result) {
                             }
                             if (left_native == CHECKED_I32 || left_native == CHECKED_I64) {
                                 codegen_writeln(ctx, "HmlValue %s;", result);
-                                codegen_writeln(ctx, "{ %s _ovt; if (%s(%s, %s, &_ovt)) hml_runtime_error(\"Integer overflow: %s %s\"); %s = %s(_ovt); }",
+                                codegen_writeln(ctx, "{ %s _ovt; if (%s(%s, %s, &_ovt)) hml_runtime_error_line(\"Integer overflow: %s %s\"); %s = %s(_ovt); }",
                                               ovf_cty, ovf_builtin, left_var, rhs, ovf_ty, ovf_word, result, box_func);
                             } else {
                                 codegen_writeln(ctx, "HmlValue %s = %s(%s %s %s);", result, box_func, left_var, c_op, rhs);

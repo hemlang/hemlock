@@ -1016,6 +1016,25 @@ HmlValue hml_buffer_slice(HmlValue buf, HmlValue start, HmlValue end) {
     return val;
 }
 
+// Convert buffer contents to a string (interpret as UTF-8), matching the
+// interpreter's buffer.to_string() method
+HmlValue hml_buffer_to_string(HmlValue buf) {
+    if (buf.type != HML_VAL_BUFFER || !buf.as.as_buffer) {
+        hml_runtime_error("to_string() requires buffer");
+    }
+
+    HmlBuffer *b = buf.as.as_buffer;
+    char *str_data = malloc(b->length + 1);
+    if (!str_data) {
+        hml_runtime_error("Failed to allocate string for buffer to_string");
+    }
+    memcpy(str_data, b->data, b->length);
+    str_data[b->length] = '\0';
+    HmlValue result = hml_val_string(str_data);
+    free(str_data);
+    return result;
+}
+
 // ========== Buffer Typed Read/Write Methods ==========
 //
 // These methods allow reading/writing typed values at arbitrary offsets

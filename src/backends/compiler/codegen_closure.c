@@ -244,6 +244,38 @@ void scan_closures_expr(CodegenContext *ctx, Expr *expr, Scope *local_scope) {
             scan_closures_expr(ctx, expr->as.await_expr.awaited_expr, local_scope);
             break;
 
+        case EXPR_NULL_COALESCE:
+            scan_closures_expr(ctx, expr->as.null_coalesce.left, local_scope);
+            scan_closures_expr(ctx, expr->as.null_coalesce.right, local_scope);
+            break;
+
+        case EXPR_OPTIONAL_CHAIN:
+            scan_closures_expr(ctx, expr->as.optional_chain.object, local_scope);
+            if (expr->as.optional_chain.index) {
+                scan_closures_expr(ctx, expr->as.optional_chain.index, local_scope);
+            }
+            if (expr->as.optional_chain.args) {
+                for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
+                    scan_closures_expr(ctx, expr->as.optional_chain.args[i], local_scope);
+                }
+            }
+            break;
+
+        case EXPR_MATCH:
+            // Match scrutinee, guards, and arm bodies can all contain
+            // closures. Pattern bindings are NOT added to the scope here -
+            // like catch params, they're C locals a nested closure must
+            // capture as free variables.
+            scan_closures_expr(ctx, expr->as.match_expr.scrutinee, local_scope);
+            for (int i = 0; i < expr->as.match_expr.num_arms; i++) {
+                MatchArm *arm = &expr->as.match_expr.arms[i];
+                if (arm->guard) {
+                    scan_closures_expr(ctx, arm->guard, local_scope);
+                }
+                scan_closures_expr(ctx, arm->body, local_scope);
+            }
+            break;
+
         case EXPR_PREFIX_INC:
             scan_closures_expr(ctx, expr->as.prefix_inc.operand, local_scope);
             break;
@@ -393,6 +425,56 @@ void scan_closures_stmt(CodegenContext *ctx, Stmt *stmt, Scope *local_scope) {
 // Forward declaration for mutual recursion
 void find_free_vars_stmt(Stmt *stmt, Scope *local_scope, FreeVarSet *free_vars);
 
+// Add every variable a match pattern binds to the scope (so arm bodies
+// referencing them don't report them as free), and collect free variables
+// referenced by literal sub-patterns (their expressions can read outer vars).
+static void find_free_vars_pattern(Pattern *p, Scope *scope, FreeVarSet *free_vars) {
+    if (!p) return;
+    switch (p->type) {
+        case PATTERN_LITERAL:
+            find_free_vars(p->as.literal, scope, free_vars);
+            break;
+        case PATTERN_BINDING:
+            scope_add_var(scope, p->as.binding.name);
+            break;
+        case PATTERN_TYPED:
+            if (p->as.typed.name) {
+                scope_add_var(scope, p->as.typed.name);
+            }
+            break;
+        case PATTERN_OR:
+            for (int i = 0; i < p->as.or_pattern.num_alternatives; i++) {
+                find_free_vars_pattern(p->as.or_pattern.alternatives[i], scope, free_vars);
+            }
+            break;
+        case PATTERN_OBJECT:
+            for (int i = 0; i < p->as.object.num_fields; i++) {
+                if (p->as.object.fields[i].pattern) {
+                    find_free_vars_pattern(p->as.object.fields[i].pattern, scope, free_vars);
+                } else {
+                    scope_add_var(scope, p->as.object.fields[i].name);
+                }
+            }
+            if (p->as.object.has_rest && p->as.object.rest_name) {
+                scope_add_var(scope, p->as.object.rest_name);
+            }
+            break;
+        case PATTERN_ARRAY:
+            for (int i = 0; i < p->as.array.num_elements; i++) {
+                if (p->as.array.elements[i].is_rest) {
+                    if (p->as.array.elements[i].rest_name) {
+                        scope_add_var(scope, p->as.array.elements[i].rest_name);
+                    }
+                } else {
+                    find_free_vars_pattern(p->as.array.elements[i].pattern, scope, free_vars);
+                }
+            }
+            break;
+        default:
+            break;
+    }
+}
+
 void find_free_vars(Expr *expr, Scope *local_scope, FreeVarSet *free_vars) {
     if (!expr) return;
 
@@ -498,6 +580,25 @@ void find_free_vars(Expr *expr, Scope *local_scope, FreeVarSet *free_vars) {
             find_free_vars(expr->as.null_coalesce.left, local_scope, free_vars);
             find_free_vars(expr->as.null_coalesce.right, local_scope, free_vars);
             break;
+
+        case EXPR_MATCH: {
+            // A captured variable referenced only inside a match expression
+            // was previously never seen (no EXPR_MATCH case), so the closure
+            // failed to capture it and codegen errored with "undefined
+            // variable". Pattern bindings are scoped to their arm.
+            find_free_vars(expr->as.match_expr.scrutinee, local_scope, free_vars);
+            for (int i = 0; i < expr->as.match_expr.num_arms; i++) {
+                MatchArm *arm = &expr->as.match_expr.arms[i];
+                Scope *arm_scope = scope_new(local_scope);
+                find_free_vars_pattern(arm->pattern, arm_scope, free_vars);
+                if (arm->guard) {
+                    find_free_vars(arm->guard, arm_scope, free_vars);
+                }
+                find_free_vars(arm->body, arm_scope, free_vars);
+                scope_free(arm_scope);
+            }
+            break;
+        }
 
         case EXPR_OPTIONAL_CHAIN:
             find_free_vars(expr->as.optional_chain.object, local_scope, free_vars);

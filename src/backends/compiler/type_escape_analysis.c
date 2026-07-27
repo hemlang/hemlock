@@ -97,6 +97,56 @@ int variable_escapes_in_expr_internal(Expr *expr, const char *var_name) {
             // Conservative: assume function captures variable
             return 1;
 
+        case EXPR_GET_PROPERTY:
+            return variable_escapes_in_expr_internal(expr->as.get_property.object, var_name);
+
+        case EXPR_SET_PROPERTY:
+            if (expr->as.set_property.value->type == EXPR_IDENT &&
+                strcmp(expr->as.set_property.value->as.ident.name, var_name) == 0) {
+                return 1;  // Storing variable in an object field - escapes
+            }
+            return variable_escapes_in_expr_internal(expr->as.set_property.object, var_name) ||
+                   variable_escapes_in_expr_internal(expr->as.set_property.value, var_name);
+
+        case EXPR_STRING_INTERPOLATION:
+            // A closure embedded in a template string (`${fn(){...}()}`)
+            // must be seen - falling through to "no escape" let mutations
+            // made through such closures be lost to unboxing.
+            for (int i = 0; i < expr->as.string_interpolation.num_parts; i++) {
+                if (variable_escapes_in_expr_internal(expr->as.string_interpolation.expr_parts[i], var_name)) {
+                    return 1;
+                }
+            }
+            return 0;
+
+        case EXPR_AWAIT:
+            return variable_escapes_in_expr_internal(expr->as.await_expr.awaited_expr, var_name);
+
+        case EXPR_NULL_COALESCE:
+            return variable_escapes_in_expr_internal(expr->as.null_coalesce.left, var_name) ||
+                   variable_escapes_in_expr_internal(expr->as.null_coalesce.right, var_name);
+
+        case EXPR_OPTIONAL_CHAIN:
+            if (variable_escapes_in_expr_internal(expr->as.optional_chain.object, var_name)) return 1;
+            if (expr->as.optional_chain.index &&
+                variable_escapes_in_expr_internal(expr->as.optional_chain.index, var_name)) return 1;
+            for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
+                if (expr->as.optional_chain.args &&
+                    variable_escapes_in_expr_internal(expr->as.optional_chain.args[i], var_name)) return 1;
+            }
+            return 0;
+
+        case EXPR_MATCH:
+            // Match arms can contain closures (and their bodies/guards any
+            // other escaping construct); treat like any compound expression.
+            if (variable_escapes_in_expr_internal(expr->as.match_expr.scrutinee, var_name)) return 1;
+            for (int i = 0; i < expr->as.match_expr.num_arms; i++) {
+                MatchArm *arm = &expr->as.match_expr.arms[i];
+                if (arm->guard && variable_escapes_in_expr_internal(arm->guard, var_name)) return 1;
+                if (variable_escapes_in_expr_internal(arm->body, var_name)) return 1;
+            }
+            return 0;
+
         default:
             return 0;
     }

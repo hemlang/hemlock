@@ -1,0 +1,106 @@
+// Regression tests for try/finally control-flow codegen fixes:
+// - break/continue leaving a try body run the finally block first
+// - nested try-finally: a return runs EVERY enclosing finally, inner first
+// - finally interactions with loops, switches, and labeled jumps
+
+// break through finally
+let i = 0;
+while (i < 5) {
+    i = i + 1;
+    try {
+        print("iter " + i);
+        if (i == 2) { break; }
+    } finally {
+        print("finally " + i);
+    }
+}
+print("done " + i);
+
+// continue through finally
+for (let j = 0; j < 3; j = j + 1) {
+    try {
+        if (j == 1) { continue; }
+        print("body " + j);
+    } finally {
+        print("finally " + j);
+    }
+}
+
+// return through nested try-finally runs both finallys
+fn nested_return() {
+    try {
+        try {
+            return 1;
+        } finally {
+            print("inner finally");
+        }
+    } finally {
+        print("outer finally");
+    }
+}
+print(nested_return());
+
+// return value evaluated before finally runs
+fn eval_order() {
+    let x = 10;
+    try {
+        return x + 1;
+    } finally {
+        x = 99;
+        print("finally saw x");
+    }
+}
+print(eval_order());
+
+// break through TWO finally blocks in the same loop
+let k = 0;
+while (k < 5) {
+    k = k + 1;
+    try {
+        try {
+            if (k == 2) { break; }
+            print("inner " + k);
+        } finally {
+            print("fin-a " + k);
+        }
+    } finally {
+        print("fin-b " + k);
+    }
+}
+print("after " + k);
+
+// labeled break through a finally to an outer loop
+outer: for (let a = 0; a < 3; a = a + 1) {
+    for (let b = 0; b < 3; b = b + 1) {
+        try {
+            if (a == 1 && b == 1) { break outer; }
+            print(a * 10 + b);
+        } finally {
+            print("fin " + (a * 10 + b));
+        }
+    }
+}
+print("after labeled");
+
+// finally does NOT run for a break whose loop is inside the try
+try {
+    let m = 0;
+    while (true) {
+        m = m + 1;
+        if (m > 1) { break; }
+    }
+    print("loop done " + m);
+} finally {
+    print("outer finally runs once");
+}
+
+// exception + finally (unchanged behavior check)
+try {
+    try {
+        throw "boom";
+    } finally {
+        print("finally before catch");
+    }
+} catch (e) {
+    print("caught " + e);
+}
