@@ -905,6 +905,10 @@ Value builtin_buffer_ptr(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
     Buffer *buf = args[0].as.as_buffer;
+    if (!buf || atomic_load(&buf->freed) || !buf->data) {
+        runtime_error(ctx, "buffer_ptr() cannot take the address of a freed buffer");
+        return val_null();
+    }
     return val_ptr(buf->data);
 }
 

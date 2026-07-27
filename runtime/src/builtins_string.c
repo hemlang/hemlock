@@ -1009,6 +1009,7 @@ HmlValue hml_buffer_slice(HmlValue buf, HmlValue start, HmlValue end) {
     atomic_store(&view->freed, 0);
     view->parent = root;
     atomic_fetch_add(&root->ref_count, 1);  // Keep root alive
+    atomic_fetch_add(&root->view_count, 1); // Block free() while view lives
 
     HmlValue val;
     val.type = HML_VAL_BUFFER;
@@ -1292,7 +1293,10 @@ void hml_buffer_write_bytes(HmlValue buf, HmlValue offset, HmlValue src, HmlValu
     if (n > s->length) {
         hml_runtime_error("write_bytes: source buffer length %d less than requested %d", s->length, n);
     }
-    memcpy((uint8_t *)b->data + off, s->data, n);
+    // memmove: dest and src may be overlapping views of one root
+    if (n > 0) {
+        memmove((uint8_t *)b->data + off, s->data, n);
+    }
 }
 
 // ========== Buffer Typed Read Methods ==========
@@ -1505,6 +1509,8 @@ HmlValue hml_buffer_read_bytes(HmlValue buf, HmlValue offset, HmlValue len) {
     }
     buffer_bounds_check(b, off, n, "read_bytes");
     HmlValue result = hml_val_buffer(n);
-    memcpy(result.as.as_buffer->data, (uint8_t *)b->data + off, n);
+    if (result.type == HML_VAL_BUFFER && n > 0) {
+        memcpy(result.as.as_buffer->data, (uint8_t *)b->data + off, n);
+    }
     return result;
 }

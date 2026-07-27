@@ -1,0 +1,13 @@
+zeroed 0
+view 4
+refused free with live view
+refused view free
+freed after view scope
+caught write after free
+caught read after free
+caught double free
+length 0
+caught zero size
+overlap memcpy 4 11
+overlap write_bytes 0 7
+done

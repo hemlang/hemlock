@@ -368,8 +368,11 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         // free() call. Raw pointers are a no-op release anyway.
         if (strcmp(fn_name, "free") == 0 && expr->as.call.num_args == 1) {
             char *ptr = codegen_expr(ctx, expr->as.call.args[0]);
-            codegen_writeln(ctx, "hml_free(%s);", ptr);
-            codegen_writeln(ctx, "hml_release_if_needed(&%s);", ptr);
+            // hml_free_owned releases the argument temporary even when the
+            // free is refused with a thrown error; a plain hml_free +
+            // hml_release_if_needed pair would leak the reference across the
+            // longjmp (keeping e.g. a slice view alive forever).
+            codegen_writeln(ctx, "hml_free_owned(&%s);", ptr);
             codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
             free(ptr);
             return result;
@@ -378,7 +381,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         // Handle buffer builtin
         if (strcmp(fn_name, "buffer") == 0 && expr->as.call.num_args == 1) {
             char *size = codegen_expr(ctx, expr->as.call.args[0]);
-            codegen_writeln(ctx, "HmlValue %s = hml_val_buffer(hml_to_i32(%s));", result, size);
+            codegen_writeln(ctx, "HmlValue %s = hml_buffer_new(hml_to_i32(%s));", result, size);
             codegen_writeln(ctx, "hml_release(&%s);", size);
             free(size);
             return result;

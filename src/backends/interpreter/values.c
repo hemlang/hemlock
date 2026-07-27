@@ -367,7 +367,9 @@ Value val_rune(uint32_t codepoint) {
 void buffer_free(Buffer *buf) {
     if (buf) {
         if (buf->parent) {
-            // Zero-copy view: release parent instead of freeing data
+            // Zero-copy view: the root becomes freeable again once its last
+            // view is gone, then release the parent instead of freeing data
+            atomic_fetch_sub(&buf->parent->view_count, 1);
             buffer_release(buf->parent);
         } else {
             free(buf->data);
@@ -391,7 +393,7 @@ void buffer_release(Buffer *buf) {
 }
 
 Value val_buffer(int size) {
-    if (size <= 0) {
+    if (size < 0) {
         fprintf(stderr, "Runtime error: buffer size must be positive\n");
         exit(1);
     }
@@ -400,7 +402,11 @@ Value val_buffer(int size) {
     if (!buf) {
         return val_null();
     }
-    buf->data = malloc(size);
+    // Zero-initialized for deterministic contents and parity with the
+    // compiled runtime. size == 0 (internal callers: empty reads,
+    // read_bytes(off, 0), deep copies of freed buffers) still gets a valid
+    // 1-byte allocation so data is never NULL.
+    buf->data = calloc(size > 0 ? size : 1, 1);
     if (buf->data == NULL) {
         free(buf);
         return val_null();
@@ -413,6 +419,7 @@ Value val_buffer(int size) {
     buf->ref_count = 1;  // Start with 1 - caller owns the first reference
     atomic_store(&buf->freed, 0);  // Not freed
     buf->parent = NULL;            // Not a view
+    atomic_store(&buf->view_count, 0);
     v.as.as_buffer = buf;
     return v;
 }
@@ -1913,8 +1920,12 @@ Value value_deep_copy(Value val) {
         case VAL_BUFFER:
             if (val.as.as_buffer) {
                 Buffer *src = val.as.as_buffer;
+                // A freed source has data == NULL and length == 0; the copy
+                // degenerates to a valid empty buffer without touching data.
                 result = val_buffer(src->length);
-                memcpy(result.as.as_buffer->data, src->data, src->length);
+                if (result.type == VAL_BUFFER && src->length > 0) {
+                    memcpy(result.as.as_buffer->data, src->data, src->length);
+                }
             } else {
                 result = val_null();
             }

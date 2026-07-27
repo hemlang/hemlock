@@ -138,6 +138,9 @@ struct HmlBuffer {
     _Atomic int ref_count;
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
     HmlBuffer *parent;   // Non-NULL for zero-copy slice views (keeps parent alive)
+    _Atomic int view_count; // Roots only: number of live slice views into this
+                            // buffer. free() refuses while > 0, so a view can
+                            // never dangle into a freed root allocation.
 };
 
 // Array struct (dynamic array)

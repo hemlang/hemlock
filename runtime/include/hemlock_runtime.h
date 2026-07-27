@@ -430,7 +430,9 @@ HmlValue hml_deserialize(HmlValue json_str);
 // ========== MEMORY OPERATIONS ==========
 
 HmlValue hml_alloc(int32_t size);
+HmlValue hml_buffer_new(int32_t size);
 void hml_free(HmlValue ptr_or_buffer);
+void hml_free_owned(HmlValue *ptr_or_buffer);
 HmlValue hml_realloc(HmlValue ptr, int32_t new_size);
 void hml_memset(HmlValue ptr, uint8_t byte_val, int32_t size);
 void hml_memcpy(HmlValue dest, HmlValue src, int32_t size);
