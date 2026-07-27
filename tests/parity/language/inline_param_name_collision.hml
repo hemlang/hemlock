@@ -1,0 +1,37 @@
+// Regression: hemlockc inlines small helpers by declaring the parameter as a
+// fresh `HmlValue <param>` in the emitted C. When the CALLER already has a local
+// with the same name that was unboxed to a native C type, the inlined declaration
+// shadows it and the native arithmetic is emitted against the boxed value:
+//   error: invalid operands to binary + (have 'HmlValue' and 'int')
+// Renaming the caller's local made it compile, which is what gave the bug away.
+// The compiler must decline to inline on a parameter-name collision.
+
+fn mix(s: i32): i32 { return s + 7; }
+fn scale(v: f64): f64 { return v * 2.5; }
+fn lcg(s: u64): u64 { return s * 6364136223846793005 + 1442695040888963407; }
+
+fn main() {
+    // caller local shares the parameter name -> the collision case
+    let s: i32 = 100;
+    let r: i32 = mix(s);
+    print(r);
+
+    // the value must still be correct: mix(q) must use q, not the caller's s
+    let q: i32 = 5;
+    print(mix(q));
+    print(s);
+
+    // float variant
+    let v: f64 = 1.5;
+    print(scale(v));
+
+    // u64 wrapping LCG - the shape every hash/noise function takes
+    let acc: u64 = 0;
+    let seed: u64 = 12345;
+    for (let i = 0; i < 4; i++) {
+        seed = lcg(seed);
+        acc = acc ^ ((seed >> 33) & 65535);
+    }
+    print(acc);
+}
+main();
