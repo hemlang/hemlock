@@ -42,6 +42,8 @@ ModuleCache* module_cache_new(const char *initial_dir) {
         exit(1);
     }
     module_cache_map_init(&cache->cache_map);
+    cache->entry_virtual_path = NULL;
+    cache->entry_source = NULL;
 
     if (!cache->resolver->stdlib_path) {
         fprintf(stderr, "warning: could not locate stdlib directory. @stdlib imports will not work.\n");
@@ -80,6 +82,7 @@ void module_cache_free(ModuleCache *cache) {
     free(cache->modules);
     module_cache_map_free(&cache->cache_map);
     module_resolution_free(cache->resolver);
+    free(cache->entry_virtual_path);
 
     free(cache);
 }
@@ -89,6 +92,26 @@ void module_cache_free(ModuleCache *cache) {
 static Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ctx) {
     (void)ctx;
     return parse_file_to_ast(path, stmt_count);
+}
+
+// Parse the entry-module source override (`hemlock -e` code). Mirrors
+// parse_file_to_ast, but from an in-memory string.
+static Stmt** parse_entry_source(const char *source, int *stmt_count) {
+    Lexer lexer;
+    lexer_init(&lexer, source);
+
+    Parser parser;
+    parser_init(&parser, &lexer);
+
+    Stmt **statements = parse_program(&parser, stmt_count);
+
+    if (parser.had_error) {
+        fprintf(stderr, "error: failed to parse command-line code\n");
+        *stmt_count = 0;
+        return NULL;
+    }
+
+    return statements;
 }
 
 Module* get_cached_module(ModuleCache *cache, const char *absolute_path) {
@@ -162,8 +185,13 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
         return NULL;
     }
 
-    // Parse the module file
-    module->statements = parse_module_file(absolute_path, &module->num_statements, ctx);
+    // Parse the module file (or the in-memory entry source for `hemlock -e`)
+    if (cache->entry_source && cache->entry_virtual_path &&
+        strcmp(absolute_path, cache->entry_virtual_path) == 0) {
+        module->statements = parse_entry_source(cache->entry_source, &module->num_statements);
+    } else {
+        module->statements = parse_module_file(absolute_path, &module->num_statements, ctx);
+    }
     if (!module->statements) {
         module->state = MODULE_UNLOADED;
         return NULL;
@@ -429,6 +457,43 @@ int execute_file_with_modules(const char *file_path, Environment *global_env, in
     module_cache_free(cache);
 
     // Suppress unused parameter warnings
+    (void)argc;
+    (void)argv;
+
+    return 0;
+}
+
+int execute_source_with_modules(const char *source, Environment *global_env, int argc, char **argv, ExecutionContext *ctx) {
+    char cwd[PATH_MAX];
+    if (!getcwd(cwd, sizeof(cwd))) {
+        fprintf(stderr, "Error: Could not get current directory\n");
+        return 1;
+    }
+
+    ModuleCache *cache = module_cache_new(cwd);
+
+    // A virtual path inside the working directory: relative imports in the
+    // command-line code resolve against cwd, and the name cannot collide
+    // with a real file. It carries the .hml extension so resolution keeps it
+    // verbatim (resolve_module_path appends .hml otherwise, and its realpath
+    // fallback passes nonexistent absolute paths through unchanged), so this
+    // flows through load_module like any other entry file.
+    char virtual_path[PATH_MAX + 32];
+    snprintf(virtual_path, sizeof(virtual_path), "%s/<command-line>.hml", cwd);
+    cache->entry_virtual_path = strdup(virtual_path);
+    cache->entry_source = source;
+
+    Module *main_module = load_module(cache, virtual_path, ctx);
+    if (!main_module) {
+        fprintf(stderr, "Error: Failed to load command-line code\n");
+        module_cache_free(cache);
+        return 1;
+    }
+
+    execute_module(main_module, cache, global_env, ctx);
+
+    module_cache_free(cache);
+
     (void)argc;
     (void)argv;
 

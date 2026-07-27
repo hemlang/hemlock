@@ -1,0 +1,4 @@
+import_eof.hml:3:1: error: Expect module path string (at 'export') [parse]
+import_eof.hml:4:1: error: Expect module path string (at 'import') [parse]
+import_eof.hml:5:1: error: Expect module path string (at end) [parse]
+3 errors, 0 warnings (1 file checked)

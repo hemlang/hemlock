@@ -326,6 +326,12 @@ Side-effect imports (no bindings, module top-level runs): `import "./suite.hml";
 
 See `stdlib/docs/` for detailed module documentation.
 
+**Complete API surface in one file:** `docs/reference/stdlib-api-index.md` is a
+generated one-line-per-symbol index of every stdlib export (signature +
+description). Consult it before calling a stdlib function you have not used in
+this session — do not guess API names. Regenerate with `make stdlib-api` after
+changing stdlib exports (`make docs-check` verifies freshness in CI).
+
 ---
 
 ## FFI (Foreign Function Interface)

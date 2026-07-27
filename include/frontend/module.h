@@ -36,6 +36,12 @@ typedef struct ModuleCache {
     int capacity;
     ModuleResolution *resolver;  // Shared module resolution context
     ModuleCacheMap cache_map;    // Shared module cache
+    // Entry-module source override (for `hemlock -e` code with imports):
+    // when load_module() reaches entry_virtual_path it parses entry_source
+    // instead of reading a file. Imports made by the entry resolve relative
+    // to the virtual path's directory (the working directory).
+    char *entry_virtual_path;    // owned; NULL when no override
+    const char *entry_source;    // borrowed; NULL when no override
 } ModuleCache;
 
 // Public interface
@@ -53,5 +59,10 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
 
 // High-level API
 int execute_file_with_modules(const char *file_path, Environment *global_env, int argc, char **argv, ExecutionContext *ctx);
+
+// Execute a source string (e.g. `hemlock -e '<code>'`) through the module
+// system so its import statements work. Relative imports resolve against the
+// current working directory.
+int execute_source_with_modules(const char *source, Environment *global_env, int argc, char **argv, ExecutionContext *ctx);
 
 #endif // HEMLOCK_MODULE_H

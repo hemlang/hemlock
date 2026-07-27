@@ -253,6 +253,17 @@ test-cli: $(TARGET)
 test-check: $(TARGET)
 	@bash tests/check/run_check_tests.sh
 
+# Regenerate the stdlib API index (docs/reference/stdlib-api-index.md)
+.PHONY: stdlib-api
+stdlib-api:
+	@python3 tests/gen_stdlib_api.py
+
+# Documentation audit: link/doc pairing checks + stdlib API index freshness
+.PHONY: docs-check
+docs-check:
+	@python3 tests/check_docs.py
+	@python3 tests/gen_stdlib_api.py --check
+
 # ========== STDLIB C MODULES ==========
 
 # Build stdlib C modules (lws_wrapper.so for HTTP/WebSocket, ffi_struct_test for tests)
@@ -917,7 +928,7 @@ test-memory: compiler
 
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler test-borrow test-lint parity test-contracts test-bundler test-lsp test-memory test-formatter test-cli test-check
+test-all: test test-compiler test-borrow test-lint parity test-contracts test-bundler test-lsp test-memory test-formatter test-cli test-check docs-check
 
 # ========== RELEASE BUILD ==========
 
