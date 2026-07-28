@@ -232,8 +232,22 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
         int left_numeric = hml_op_numeric(left);
         int right_numeric = hml_op_numeric(right);
 
-        if (left.type == HML_VAL_NULL || right.type == HML_VAL_NULL) {
-            int equal = (left.type == HML_VAL_NULL && right.type == HML_VAL_NULL);
+        // Pointer/pointer comparisons are by address, so a NULL ptr only
+        // equals another NULL ptr. Checked before the null-literal case below
+        // so that ptr operands never take the null path.
+        if (left.type == HML_VAL_PTR && right.type == HML_VAL_PTR) {
+            int equal = (left.as.as_ptr == right.as.as_ptr);
+            return hml_val_bool(op == HML_OP_EQUAL ? equal : !equal);
+        }
+        // A ptr holding NULL compares equal to the null literal: guards of the
+        // form `if (handle == null)` are the only way to check an FFI result
+        // that failed.
+        int left_null = (left.type == HML_VAL_NULL) ||
+                        (left.type == HML_VAL_PTR && left.as.as_ptr == NULL);
+        int right_null = (right.type == HML_VAL_NULL) ||
+                         (right.type == HML_VAL_PTR && right.as.as_ptr == NULL);
+        if (left_null || right_null) {
+            int equal = left_null && right_null;
             return hml_val_bool(op == HML_OP_EQUAL ? equal : !equal);
         }
         if (left.type == HML_VAL_BOOL && right.type == HML_VAL_BOOL) {
@@ -246,10 +260,6 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
         }
         if (left.type == HML_VAL_RUNE && right.type == HML_VAL_RUNE) {
             int equal = (left.as.as_rune == right.as.as_rune);
-            return hml_val_bool(op == HML_OP_EQUAL ? equal : !equal);
-        }
-        if (left.type == HML_VAL_PTR && right.type == HML_VAL_PTR) {
-            int equal = (left.as.as_ptr == right.as.as_ptr);
             return hml_val_bool(op == HML_OP_EQUAL ? equal : !equal);
         }
         if (left.type == HML_VAL_OBJECT && right.type == HML_VAL_OBJECT) {
