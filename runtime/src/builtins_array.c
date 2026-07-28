@@ -766,10 +766,12 @@ HmlValue hml_array_flat(HmlValue arr) {
     return result;
 }
 
-// Quicksort comparator context
+// Merge sort comparator context
 typedef struct {
     HmlValue comparator;
     int has_comparator;
+    HmlArray *array;       // array being sorted, for the mid-sort resize check
+    int expected_length;
 } SortContext;
 
 // Default comparison function for sorting
@@ -798,7 +800,11 @@ static int default_compare(HmlValue a, HmlValue b) {
     }
 }
 
-// Compare two values using either default or custom comparator
+// Compare two values using either default or custom comparator.
+//
+// A comparator that resizes the array mid-sort would invalidate the element
+// pointer the merge is walking, so that is rejected with a clear error rather
+// than left as a use-after-free.
 static int compare_values(HmlValue a, HmlValue b, SortContext *ctx) {
     if (!ctx->has_comparator) {
         return default_compare(a, b);
@@ -809,36 +815,71 @@ static int compare_values(HmlValue a, HmlValue b, SortContext *ctx) {
     HmlValue result = hml_call_function(ctx->comparator, args, 2);
     int cmp = hml_to_i32(result);
     hml_release(&result);
+
+    if (ctx->array->length != ctx->expected_length) {
+        hml_runtime_error("sort() comparator resized the array being sorted");
+    }
     return cmp;
 }
 
-// Quicksort partition
-static int partition(HmlValue *arr, int low, int high, SortContext *ctx) {
-    HmlValue pivot = arr[high];
-    int i = low - 1;
+// Merge the adjacent sorted runs arr[lo..mid) and arr[mid..hi).
+//
+// The merged output is built in scratch[lo..hi) and only copied back over the
+// array once the merge has completed. A comparator that throws longjmps out of
+// this function, so leaving `arr` untouched until the very end is what keeps
+// the array a valid permutation of its elements (no duplicated slots, so no
+// reference-count corruption) when a sort is abandoned mid-flight.
+static void merge_runs(HmlValue *arr, HmlValue *scratch, int lo, int mid, int hi,
+                       SortContext *ctx) {
+    // Fast path: the two runs are already in order, so nothing has to move.
+    // This is what keeps an already-sorted array at O(n) comparisons overall.
+    if (compare_values(arr[mid - 1], arr[mid], ctx) <= 0) {
+        return;
+    }
 
-    for (int j = low; j < high; j++) {
-        if (compare_values(arr[j], pivot, ctx) <= 0) {
-            i++;
-            HmlValue tmp = arr[i];
-            arr[i] = arr[j];
-            arr[j] = tmp;
+    int i = lo, j = mid, k = lo;
+    while (i < mid && j < hi) {
+        // `<= 0` takes from the left run on ties, which makes the sort stable.
+        if (compare_values(arr[i], arr[j], ctx) <= 0) {
+            scratch[k++] = arr[i++];
+        } else {
+            scratch[k++] = arr[j++];
+        }
+    }
+    while (i < mid) scratch[k++] = arr[i++];
+    while (j < hi)  scratch[k++] = arr[j++];
+
+    memcpy(arr + lo, scratch + lo, (size_t)(hi - lo) * sizeof(HmlValue));
+}
+
+// Bottom-up merge sort: stable, O(n log n) comparisons on every input, and
+// iterative so no input can blow the C stack. Replaces a Lomuto quicksort that
+// degraded to O(n^2) time and O(n) recursion depth on sorted input.
+//
+// Note: a comparator that throws longjmps straight past this frame, so the
+// scratch buffer is leaked on that path. hml_throw() does not unwind or run
+// defers, so there is no cleanup hook to hang the free() on; the same is true
+// of the result array in map()/filter(). The array itself stays intact, which
+// is the property that matters for reference counting.
+static void merge_sort(HmlValue *arr, int n, SortContext *ctx) {
+    if ((size_t)n > SIZE_MAX / sizeof(HmlValue)) {
+        hml_runtime_error("sort() array too large");
+    }
+    HmlValue *scratch = malloc((size_t)n * sizeof(HmlValue));
+    if (!scratch) {
+        hml_runtime_error("sort() failed to allocate scratch space for %d elements", n);
+    }
+
+    // `width` is 64-bit so the doubling cannot overflow for large `n`.
+    for (long long width = 1; width < n; width *= 2) {
+        for (long long lo = 0; lo + width < n; lo += 2 * width) {
+            long long end = lo + 2 * width;
+            merge_runs(arr, scratch, (int)lo, (int)(lo + width),
+                       end < n ? (int)end : n, ctx);
         }
     }
 
-    HmlValue tmp = arr[i + 1];
-    arr[i + 1] = arr[high];
-    arr[high] = tmp;
-    return i + 1;
-}
-
-// Quicksort implementation
-static void quicksort(HmlValue *arr, int low, int high, SortContext *ctx) {
-    if (low < high) {
-        int pi = partition(arr, low, high, ctx);
-        quicksort(arr, low, pi - 1, ctx);
-        quicksort(arr, pi + 1, high, ctx);
-    }
+    free(scratch);
 }
 
 void hml_array_sort(HmlValue arr, HmlValue comparator) {
@@ -854,8 +895,10 @@ void hml_array_sort(HmlValue arr, HmlValue comparator) {
     SortContext ctx;
     ctx.comparator = comparator;
     ctx.has_comparator = (comparator.type == HML_VAL_FUNCTION);
+    ctx.array = a;
+    ctx.expected_length = a->length;
 
-    quicksort(a->elements, 0, a->length - 1, &ctx);
+    merge_sort(a->elements, a->length, &ctx);
 }
 
 void hml_array_fill(HmlValue arr, HmlValue value, HmlValue start, HmlValue end) {

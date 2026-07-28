@@ -1,0 +1,94 @@
+// Regression test for H-2: array.sort() must be O(n log n) and stable on
+// every input. The compiled backend previously used a non-randomized Lomuto
+// quicksort that degraded to O(n^2) time and O(n) recursion depth on sorted
+// input, segfaulting on large presorted arrays; the interpreter used an
+// insertion sort that degraded to O(n^2) on shuffled input. Both now use the
+// same stable bottom-up merge sort.
+
+print("=== default ordering ===");
+let nums = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5];
+nums.sort();
+print(nums);
+
+let words = ["banana", "apple", "cherry", "apple"];
+words.sort();
+print(words);
+
+print("=== custom comparator ===");
+let desc = [3, 1, 4, 1, 5];
+desc.sort(fn(a, b) { return b - a; });
+print(desc);
+
+print("=== edge cases ===");
+let empty: array = [];
+empty.sort();
+print(empty);
+
+let one = [7];
+one.sort();
+print(one);
+
+let two = [2, 1];
+two.sort();
+print(two);
+
+let equal = [5, 5, 5, 5];
+equal.sort();
+print(equal);
+
+print("=== stability ===");
+// Equal-comparing elements must keep their original relative order. The array
+// is longer than one merge run so the result depends on the merge being stable.
+let recs = [
+    { k: 1, tag: "a" }, { k: 0, tag: "b" }, { k: 1, tag: "c" },
+    { k: 0, tag: "d" }, { k: 1, tag: "e" }, { k: 0, tag: "f" },
+    { k: 1, tag: "g" }, { k: 0, tag: "h" }, { k: 1, tag: "i" },
+    { k: 0, tag: "j" }, { k: 1, tag: "k" }, { k: 0, tag: "l" },
+    { k: 1, tag: "m" }, { k: 0, tag: "n" }, { k: 1, tag: "o" }
+];
+recs.sort(fn(a, b) { return a.k - b.k; });
+let order = "";
+for (r in recs) { order = order + r.tag; }
+print(order);
+
+print("=== presorted stays sorted ===");
+// The quicksort worst case: already-ascending input.
+let asc = [];
+for (let i = 0; i < 2000; i++) { asc.push(i); }
+asc.sort();
+print("first=" + asc[0] + " last=" + asc[1999] + " len=" + asc.length);
+
+print("=== reversed input ===");
+// The other quicksort worst case: strictly descending input.
+let desc2 = [];
+for (let i = 2000; i > 0; i--) { desc2.push(i); }
+desc2.sort();
+print("first=" + desc2[0] + " last=" + desc2[1999] + " len=" + desc2.length);
+
+print("=== shuffled input ===");
+// The insertion-sort worst case: pseudo-random input.
+let big = [];
+let seed: i64 = 12345;
+for (let i = 0; i < 2000; i++) {
+    seed = (seed * 1103515245 + 12345) % 2147483647;
+    big.push(i32(seed % 10000));
+}
+big.sort();
+let ordered = true;
+for (let i = 1; i < big.length; i++) {
+    if (big[i - 1] > big[i]) { ordered = false; }
+}
+print("ordered=" + ordered + " len=" + big.length);
+
+print("=== throwing comparator ===");
+// A comparator that throws aborts the sort, but the array must remain a valid
+// permutation of its elements - no slot duplicated, nothing lost.
+let partial = [5, 3, 8, 1, 9, 2, 7, 4, 6, 0];
+try {
+    partial.sort(fn(a, b) { throw "comparator failed"; });
+} catch (e) {
+    print("caught: " + e);
+}
+print("len=" + partial.length);
+partial.sort();
+print(partial);
