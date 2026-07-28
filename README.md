@@ -226,7 +226,7 @@ Hemlock is **NOT** memory-safe. Dangling pointers, use-after-free, and buffer ov
 
 MIT License. Copyright (c) 2025 Schneewolf Labs LLC.
 
-Hemlock is developed and maintained by [Schneewolf Labs](https://github.com/Yotis-Studios).
+Hemlock is developed and maintained by [Schneewolf Labs](https://schneewolflabs.com/).
 It is permissively licensed on purpose: everything built on Hemlock, including the
 [Wobbleweed](https://github.com/Yotis-Studios/Wobbleweed) retro-3D engine (also MIT),
 stays free for anyone to use commercially without inheriting a copyleft obligation.
