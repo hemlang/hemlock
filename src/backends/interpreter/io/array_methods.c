@@ -157,11 +157,20 @@ int values_equal(Value a, Value b) {
 
 // Loose value equality with `==` operator semantics: numeric values compare
 // across types (2 == 2.0), runes only equal runes, objects/arrays compare by
-// reference. Used by switch cases and match literal patterns, which the docs
-// define in terms of value (==) equality.
+// reference, and a ptr holding NULL equals the null literal. Used by switch
+// cases and match literal patterns, which the docs define in terms of value
+// (==) equality.
 int values_equal_loose(Value a, Value b) {
-    if (a.type == VAL_NULL || b.type == VAL_NULL) {
-        return a.type == VAL_NULL && b.type == VAL_NULL;
+    // Pointers compare by address, so a NULL ptr only equals another NULL ptr.
+    // Checked first so ptr operands never take the null path below.
+    if (a.type == VAL_PTR && b.type == VAL_PTR) {
+        return a.as.as_ptr == b.as.as_ptr;
+    }
+    // A ptr holding NULL equals the null literal, matching `==`.
+    int a_null = (a.type == VAL_NULL) || (a.type == VAL_PTR && a.as.as_ptr == NULL);
+    int b_null = (b.type == VAL_NULL) || (b.type == VAL_PTR && b.as.as_ptr == NULL);
+    if (a_null || b_null) {
+        return a_null && b_null;
     }
     if (is_numeric(a) && is_numeric(b)) {
         return value_to_float(a) == value_to_float(b);

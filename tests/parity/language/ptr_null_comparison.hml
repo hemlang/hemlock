@@ -1,0 +1,66 @@
+// Pointer vs null comparison
+// Tests: `ptr == null` / `ptr != null` for NULL and non-NULL pointers.
+//
+// A ptr holding NULL compares equal to the null literal. This is the only way
+// to check an FFI result that failed, so guards of the form
+// `if (handle == null) { ... }` must fire in both backends.
+
+let n = ptr_null();
+let p = alloc(8);
+
+// NULL ptr against the null literal, both operand orders
+print(n == null);       // true
+print(null == n);       // true
+print(n != null);       // false
+print(null != n);       // false
+
+// Non-NULL ptr against the null literal
+print(p == null);       // false
+print(null == p);       // false
+print(p != null);       // true
+print(null != p);       // true
+
+// ptr against ptr stays an address comparison
+print(n == ptr_null()); // true
+print(n != ptr_null()); // false
+print(p == n);          // false
+print(p != n);          // true
+print(p == p);          // true
+
+// null literal against itself is unaffected
+print(null == null);    // true
+print(null != null);    // false
+
+// A NULL ptr is not equal to non-null values of other types
+print(n == 0);          // false
+print(n == "");         // false
+print(n == false);      // false
+
+// Guard shape that motivated this test: a failed allocation carried through a
+// function boundary must still be caught.
+fn check(q: ptr): string {
+    if (q == null) {
+        return "null";
+    }
+    return "non-null";
+}
+print(check(n));        // null
+print(check(p));        // non-null
+
+// Offsetting a NULL ptr produces a non-NULL address, so the guard must not fire
+print(ptr_offset(n, 4, 1) == null);  // false
+
+// switch and match compare with the same equality as `==`
+switch (n) {
+    case null: print("switch: null"); break;
+    default: print("switch: default"); break;
+}
+switch (p) {
+    case null: print("switch: null"); break;
+    default: print("switch: default"); break;
+}
+print(match (n) { null => "match: null", _ => "match: other" });
+print(match (p) { null => "match: null", _ => "match: other" });
+
+// Freeing does not change the value held by the variable
+free(p);

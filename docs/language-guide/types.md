@@ -291,6 +291,19 @@ let p: ptr = alloc(64);
 free(p);
 ```
 
+A `ptr` holding the NULL address compares equal to `null`, which is how you
+check an FFI call that failed:
+
+```hemlock
+let win = SDL_CreateWindow(...);   // returns ptr
+if (win == null) { throw "window creation failed"; }
+```
+
+Two `ptr` values compare by address, so `ptr_null() == ptr_null()` is also
+true. Note that a NULL `ptr` is still *truthy* and is not treated as null by
+`??` or `?.` — only `==`/`!=` (and the `switch`/`match` cases built on them)
+recognize it.
+
 **Safe buffer:**
 ```hemlock
 let buf: buffer = buffer(64);

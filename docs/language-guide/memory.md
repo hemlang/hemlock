@@ -239,6 +239,23 @@ free(p);  // You must remember to free
 - Performance-critical code
 - When you need complete control
 
+**Checking for NULL:**
+
+A `ptr` holding the NULL address compares equal to `null`, so an FFI result
+that failed is caught with an ordinary equality guard:
+
+```hemlock
+let handle = SDL_CreateWindow(...);   // returns ptr
+if (handle == null) {
+    throw "SDL_CreateWindow failed";
+}
+```
+
+`ptr` against `ptr` is an address comparison, so `ptr_null() == ptr_null()` is
+true as well. Only `==` and `!=` (and the `switch`/`match` cases defined in
+terms of them) treat a NULL `ptr` as null — a NULL `ptr` is still truthy, and
+`??` and `?.` do not fire on it.
+
 **Dangers:**
 ```hemlock
 let p = alloc(10);
