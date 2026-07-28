@@ -88,6 +88,133 @@ static Value call_function_value(Value func, Value *args, int num_args, Executio
     return result;
 }
 
+// ========== ARRAY SORTING ==========
+
+// Default ordering used by sort() when no comparator is supplied: values are
+// ordered by type tag first, then by value within a type.
+static int sort_default_compare(Value a, Value b) {
+    if (a.type != b.type) {
+        return (int)a.type - (int)b.type;
+    }
+
+    switch (a.type) {
+        case VAL_I8:  return (a.as.as_i8 < b.as.as_i8) ? -1 : (a.as.as_i8 > b.as.as_i8) ? 1 : 0;
+        case VAL_I16: return (a.as.as_i16 < b.as.as_i16) ? -1 : (a.as.as_i16 > b.as.as_i16) ? 1 : 0;
+        case VAL_I32: return (a.as.as_i32 < b.as.as_i32) ? -1 : (a.as.as_i32 > b.as.as_i32) ? 1 : 0;
+        case VAL_I64: return (a.as.as_i64 < b.as.as_i64) ? -1 : (a.as.as_i64 > b.as.as_i64) ? 1 : 0;
+        case VAL_U8:  return (a.as.as_u8 < b.as.as_u8) ? -1 : (a.as.as_u8 > b.as.as_u8) ? 1 : 0;
+        case VAL_U16: return (a.as.as_u16 < b.as.as_u16) ? -1 : (a.as.as_u16 > b.as.as_u16) ? 1 : 0;
+        case VAL_U32: return (a.as.as_u32 < b.as.as_u32) ? -1 : (a.as.as_u32 > b.as.as_u32) ? 1 : 0;
+        case VAL_U64: return (a.as.as_u64 < b.as.as_u64) ? -1 : (a.as.as_u64 > b.as.as_u64) ? 1 : 0;
+        case VAL_F32: return (a.as.as_f32 < b.as.as_f32) ? -1 : (a.as.as_f32 > b.as.as_f32) ? 1 : 0;
+        case VAL_F64: return (a.as.as_f64 < b.as.as_f64) ? -1 : (a.as.as_f64 > b.as.as_f64) ? 1 : 0;
+        case VAL_BOOL: return (int)a.as.as_bool - (int)b.as.as_bool;
+        case VAL_STRING: return strcmp(a.as.as_string->data, b.as.as_string->data);
+        default: return 0;  // Objects, arrays, etc. - no default ordering
+    }
+}
+
+// Compare two values with either the default ordering or a user comparator.
+// Writes the result to *out and returns 1; returns 0 if the comparator threw.
+//
+// A comparator that resizes the array mid-sort would invalidate the element
+// pointer the merge is walking, so that is rejected with a clear error rather
+// than left as a use-after-free.
+static int sort_compare(Value a, Value b, Value comparator, int has_comparator,
+                        Array *arr, int expected_length, ExecutionContext *ctx, int *out) {
+    if (!has_comparator) {
+        *out = sort_default_compare(a, b);
+        return 1;
+    }
+
+    Value cmp_args[2] = { a, b };
+    Value cmp_result = call_function_value(comparator, cmp_args, 2, ctx);
+    if (ctx->exception_state.is_throwing) {
+        return 0;
+    }
+    *out = value_to_int(cmp_result);
+    value_release(cmp_result);
+
+    if (arr->length != expected_length) {
+        throw_runtime_error(ctx, "sort() comparator resized the array being sorted");
+        return 0;
+    }
+    return 1;
+}
+
+// Merge the adjacent sorted runs arr[lo..mid) and arr[mid..hi).
+//
+// The merged output is built in scratch[lo..hi) and only copied back over the
+// array once the merge has completed, so a comparator that throws part-way
+// through leaves the array as a valid permutation of its elements: no slot is
+// ever duplicated, so no element's reference count is corrupted.
+static int sort_merge_runs(Array *arr, Value *scratch, int lo, int mid, int hi,
+                           Value comparator, int has_comparator, int n,
+                           ExecutionContext *ctx) {
+    Value *elems = arr->elements;
+    int cmp;
+
+    // Fast path: the two runs are already in order, so nothing has to move.
+    // This is what keeps an already-sorted array at O(n) comparisons overall.
+    if (!sort_compare(elems[mid - 1], elems[mid], comparator, has_comparator, arr, n, ctx, &cmp)) {
+        return 0;
+    }
+    if (cmp <= 0) {
+        return 1;
+    }
+
+    int i = lo, j = mid, k = lo;
+    while (i < mid && j < hi) {
+        if (!sort_compare(elems[i], elems[j], comparator, has_comparator, arr, n, ctx, &cmp)) {
+            return 0;
+        }
+        // `<= 0` takes from the left run on ties, which makes the sort stable.
+        if (cmp <= 0) {
+            scratch[k++] = elems[i++];
+        } else {
+            scratch[k++] = elems[j++];
+        }
+    }
+    while (i < mid) scratch[k++] = elems[i++];
+    while (j < hi)  scratch[k++] = elems[j++];
+
+    memcpy(elems + lo, scratch + lo, (size_t)(hi - lo) * sizeof(Value));
+    return 1;
+}
+
+// Sort an array in place with a stable bottom-up merge sort: O(n log n)
+// comparisons on every input, and iterative so no input can exhaust the C
+// stack. Returns 0 if the sort was abandoned (comparator threw, or scratch
+// space could not be allocated), in which case ctx holds the exception.
+static int array_merge_sort(Array *arr, Value comparator, int has_comparator,
+                            ExecutionContext *ctx) {
+    int n = arr->length;
+    if ((size_t)n > SIZE_MAX / sizeof(Value)) {
+        throw_runtime_error(ctx, "sort() array too large");
+        return 0;
+    }
+    Value *scratch = malloc((size_t)n * sizeof(Value));
+    if (!scratch) {
+        throw_runtime_error(ctx, "sort() failed to allocate scratch space for %d elements", n);
+        return 0;
+    }
+
+    // `width` is 64-bit so the doubling cannot overflow for large `n`.
+    for (long long width = 1; width < n; width *= 2) {
+        for (long long lo = 0; lo + width < n; lo += 2 * width) {
+            long long end = lo + 2 * width;
+            if (!sort_merge_runs(arr, scratch, (int)lo, (int)(lo + width),
+                                 end < n ? (int)end : n, comparator, has_comparator, n, ctx)) {
+                free(scratch);
+                return 0;
+            }
+        }
+    }
+
+    free(scratch);
+    return 1;
+}
+
 // ========== ARRAY METHOD HANDLING ==========
 
 // Helper function to check if value matches array element type
@@ -248,58 +375,9 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
                 return val_null();  // Already sorted
             }
 
-            // Simple insertion sort (stable, good for small arrays)
-            int has_comparator = (num_args == 1);
-
-            for (int i = 1; i < arr->length; i++) {
-                Value key = arr->elements[i];
-                int j = i - 1;
-
-                while (j >= 0) {
-                    int cmp;
-                    if (has_comparator) {
-                        Value cmp_args[2];
-                        cmp_args[0] = arr->elements[j];
-                        cmp_args[1] = key;
-                        Value cmp_result = call_function_value(args[0], cmp_args, 2, ctx);
-                        if (ctx->exception_state.is_throwing) {
-                            return val_null();
-                        }
-                        cmp = value_to_int(cmp_result);
-                        value_release(cmp_result);
-                    } else {
-                        // Default comparison by value type
-                        Value a = arr->elements[j];
-                        Value b = key;
-
-                        // Compare by type first
-                        if (a.type != b.type) {
-                            cmp = (int)a.type - (int)b.type;
-                        } else {
-                            switch (a.type) {
-                                case VAL_I8:  cmp = (a.as.as_i8 < b.as.as_i8) ? -1 : (a.as.as_i8 > b.as.as_i8) ? 1 : 0; break;
-                                case VAL_I16: cmp = (a.as.as_i16 < b.as.as_i16) ? -1 : (a.as.as_i16 > b.as.as_i16) ? 1 : 0; break;
-                                case VAL_I32: cmp = (a.as.as_i32 < b.as.as_i32) ? -1 : (a.as.as_i32 > b.as.as_i32) ? 1 : 0; break;
-                                case VAL_I64: cmp = (a.as.as_i64 < b.as.as_i64) ? -1 : (a.as.as_i64 > b.as.as_i64) ? 1 : 0; break;
-                                case VAL_U8:  cmp = (a.as.as_u8 < b.as.as_u8) ? -1 : (a.as.as_u8 > b.as.as_u8) ? 1 : 0; break;
-                                case VAL_U16: cmp = (a.as.as_u16 < b.as.as_u16) ? -1 : (a.as.as_u16 > b.as.as_u16) ? 1 : 0; break;
-                                case VAL_U32: cmp = (a.as.as_u32 < b.as.as_u32) ? -1 : (a.as.as_u32 > b.as.as_u32) ? 1 : 0; break;
-                                case VAL_U64: cmp = (a.as.as_u64 < b.as.as_u64) ? -1 : (a.as.as_u64 > b.as.as_u64) ? 1 : 0; break;
-                                case VAL_F32: cmp = (a.as.as_f32 < b.as.as_f32) ? -1 : (a.as.as_f32 > b.as.as_f32) ? 1 : 0; break;
-                                case VAL_F64: cmp = (a.as.as_f64 < b.as.as_f64) ? -1 : (a.as.as_f64 > b.as.as_f64) ? 1 : 0; break;
-                                case VAL_BOOL: cmp = (int)a.as.as_bool - (int)b.as.as_bool; break;
-                                case VAL_STRING: cmp = strcmp(a.as.as_string->data, b.as.as_string->data); break;
-                                default: cmp = 0; break;  // Objects, arrays, etc. - no default ordering
-                            }
-                        }
-                    }
-
-                    if (cmp <= 0) break;
-
-                    arr->elements[j + 1] = arr->elements[j];
-                    j--;
-                }
-                arr->elements[j + 1] = key;
+            Value comparator = (num_args == 1) ? args[0] : val_null();
+            if (!array_merge_sort(arr, comparator, num_args == 1, ctx)) {
+                return val_null();  // Comparator threw, or scratch allocation failed
             }
             return val_null();
         }

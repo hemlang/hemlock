@@ -5,6 +5,30 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.1] - 2026-07-28
+
+Patch release. `array.sort()` was quadratic on inputs programs routinely
+produce, and crashed outright on large ones in compiled code.
+
+### Fixed
+
+- **`array.sort()` no longer degrades to quadratic time, and no longer segfaults on large sorted arrays.** The compiled runtime used a Lomuto-partition quicksort with a last-element pivot, no randomization, recursing on both halves — so sorted or reverse-sorted input hit the worst case in both dimensions at once: O(n²) comparisons *and* O(n) recursion depth. A presorted 200k-element array segfaulted from stack exhaustion, and 2000 elements took ~5 ms instead of ~0 ms. Sorted input is not an exotic case; it is what any incremental workload (re-sorting a mostly-ordered list each frame or each tick) produces by construction. The interpreter used an insertion sort — the mirror image: linear on presorted input, quadratic on shuffled.
+
+  Both backends now use the same **stable bottom-up merge sort**: O(n log n) comparisons on every input with no quadratic worst case, and iterative, so no array size can exhaust the C stack. Each merge first checks whether its two runs are already in order and skips the copy when they are, keeping fully sorted input at O(n) comparisons with no data movement.
+
+  Measured on the compiled backend: presorted 200k now sorts in 1 ms (previously segfaulted); presorted 2000 drops from ~5 ms to ~0 ms. Interpreter: 50k shuffled sorts in 7 ms.
+
+- **`sort()` is stable on both backends.** Quicksort is unstable and insertion sort is stable, so the two backends disagreed on the order of equal-comparing elements and `sort()` had no usable stability contract. Ties now keep their original relative order everywhere, and that is a documented guarantee rather than a backend-dependent accident.
+
+- **A comparator that throws leaves the array intact.** Each merge builds its output in scratch space and copies back only once complete, so an abandoned sort leaves the array a valid permutation of its elements — every element still present exactly once (the ordering is unspecified). The old interpreter path returned mid-shift, duplicating one slot and dropping an element, which corrupted reference counts.
+
+- **A comparator that resizes the array being sorted raises instead of corrupting memory.** Growing the array from inside a comparator reallocates the element storage out from under the in-progress merge. This now raises a catchable `sort() comparator resized the array being sorted` rather than being a use-after-free. Sorting a *different* array from inside a comparator is still fine.
+
+### Notes
+
+- Known limitation, unchanged in kind from `map()`/`filter()`: in compiled code a throwing comparator `longjmp`s past the sort and leaks the scratch buffer, since `hml_throw()` neither unwinds nor runs defers and there is no cleanup hook to attach the `free()` to. The array itself stays intact, which is the property that matters for reference counting.
+- New `tests/parity/methods/array_sort.hml` covers default and custom comparators, stability, presorted/reversed/shuffled input, edge cases, and the throwing-comparator path. Suites: 332/332 parity, 54 compiler; verified clean under valgrind on both backends.
+
 ## [2.9.0] - 2026-07-27
 
 Semantics-hardening release. The theme is making the documented contracts
