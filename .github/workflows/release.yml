@@ -209,6 +209,138 @@ jobs:
         name: hemlock-macos-arm64
         path: hemlock-macos-arm64.tar.gz
 
+  build-windows:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install MinGW-w64 toolchain and Wine
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-mingw-w64-x86-64 libz-mingw-w64-dev wine64 zip
+
+    - name: Cache MinGW libffi
+      id: cache-libffi
+      uses: actions/cache@v4
+      with:
+        path: ~/mingw-libffi
+        key: mingw-libffi-3.4.6-${{ runner.os }}
+
+    - name: Build libffi for MinGW (enables Hemlock FFI on Windows)
+      if: steps.cache-libffi.outputs.cache-hit != 'true'
+      run: |
+        # The release tarball ships a pre-generated configure (the git tag
+        # needs autogen.sh, which is fragile across autotools versions)
+        curl -fsSL -o /tmp/libffi.tar.gz \
+          https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz
+        tar -xzf /tmp/libffi.tar.gz -C /tmp
+        cd /tmp/libffi-3.4.6
+        ./configure --host=x86_64-w64-mingw32 --prefix=$HOME/mingw-libffi \
+          --disable-shared --enable-static --disable-docs \
+          CC=x86_64-w64-mingw32-gcc-posix
+        make -j4
+        make install
+
+    - name: Install MinGW libffi into the toolchain sysroot
+      run: |
+        sudo cp ~/mingw-libffi/lib/libffi.a /usr/x86_64-w64-mingw32/lib/
+        sudo cp ~/mingw-libffi/include/ffi*.h /usr/x86_64-w64-mingw32/include/
+
+    - name: Cross-compile hemlock.exe, hemlockc.exe, and runtime
+      run: make mingw
+
+    - name: Verify binaries are self-contained
+      run: |
+        echo "=== hemlock.exe DLL imports ==="
+        x86_64-w64-mingw32-objdump -p hemlock.exe | grep "DLL Name"
+        echo "=== hemlockc.exe DLL imports ==="
+        x86_64-w64-mingw32-objdump -p hemlockc.exe | grep "DLL Name"
+        # Only Windows system DLLs may be required — no toolchain runtime DLLs
+        ! x86_64-w64-mingw32-objdump -p hemlock.exe | grep -iE "libwinpthread|zlib1|libgcc"
+        ! x86_64-w64-mingw32-objdump -p hemlockc.exe | grep -iE "libwinpthread|zlib1|libgcc"
+
+    - name: Assemble package
+      run: |
+        mkdir -p hemlock-windows-x86_64
+        cp hemlock.exe hemlockc.exe hemlock-windows-x86_64/
+        # hemlockc.exe auto-detects libhemlock_runtime.a next to itself, so the
+        # cross-built archive ships at the package root (it lives in
+        # runtime/build-mingw/ in the build tree to avoid clobbering a native one)
+        cp runtime/build-mingw/libhemlock_runtime.a hemlock-windows-x86_64/
+        cp -r stdlib hemlock-windows-x86_64/
+        # Copy runtime headers for hemlockc users. hemlock_platform.h /
+        # hemlock_compat.h are Windows-only extras: generated C pulls
+        # hemlock_platform.h in under #ifdef _WIN32 for winsock/mmap/poll,
+        # and hemlockc only ever adds <pkg>/include to the compile line
+        mkdir -p hemlock-windows-x86_64/include
+        cp -r runtime/include/* hemlock-windows-x86_64/include/ 2>/dev/null || true
+        cp include/hemlock_platform.h include/hemlock_compat.h hemlock-windows-x86_64/include/
+        cp README.md LICENSE hemlock-windows-x86_64/ 2>/dev/null || cp README.md hemlock-windows-x86_64/
+
+    # The tests below run from inside the assembled package with scratch files
+    # in /tmp, so they exercise the shipped layout (stdlib next to the exe,
+    # libhemlock_runtime.a next to hemlockc.exe) without polluting the archive
+    - name: Smoke-test the packaged interpreter under Wine
+      run: |
+        export WINEDEBUG=-all
+        mkdir -p /tmp/wintest
+        cat > /tmp/wintest/smoke.hml << 'EOF'
+        import { platform } from "@stdlib/os";
+        import { stringify } from "@stdlib/json";
+        import { sha256 } from "@stdlib/hash";
+        async fn sq(n: i32): i32 { return n * n; }
+        let t = spawn(sq, 9);
+        print("async:", await t);
+        let ch = channel(1); ch.send(7); print("chan:", ch.recv());
+        let b = buffer(8); ptr_write_i32(b, 41); print("buf:", ptr_read_i32(b) + 1);
+        print("plat:", platform());
+        print("json:", stringify({ ok: true }));
+        print("sha256:", sha256("hello"));
+        EOF
+        cd hemlock-windows-x86_64
+        wine ./hemlock.exe /tmp/wintest/smoke.hml | tee /tmp/wintest/smoke.out
+        grep -q "async: 81" /tmp/wintest/smoke.out
+        grep -q "chan: 7" /tmp/wintest/smoke.out
+        grep -q "buf: 42" /tmp/wintest/smoke.out
+        grep -q "plat: windows" /tmp/wintest/smoke.out
+        grep -q "sha256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" /tmp/wintest/smoke.out
+
+    - name: Smoke-test the packaged compiler under Wine
+      run: |
+        export WINEDEBUG=-all
+        cat > /tmp/wintest/csm.hml << 'EOF'
+        import { sha256 } from "@stdlib/hash";
+        async fn work(n: i32): i32 { return n * 3; }
+        let t = spawn(work, 14);
+        print("compiled:", await t);
+        print("sha256:", sha256("hello"));
+        EOF
+        cd hemlock-windows-x86_64
+        # Wine has no gcc, so hemlockc stops at C generation here and the cross
+        # toolchain does the link, using only what the package ships (include/
+        # and libhemlock_runtime.a) — the same flags hemlockc.exe itself passes
+        wine ./hemlockc.exe -c --emit-c csm.c /tmp/wintest/csm.hml
+        x86_64-w64-mingw32-gcc-posix -O1 csm.c -Iinclude \
+          -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 \
+          libhemlock_runtime.a -static -lm -lffi -lws2_32 -lbcrypt -lz \
+          -o /tmp/wintest/csm.exe
+        rm -f csm.c
+        wine /tmp/wintest/csm.exe | tee /tmp/wintest/csm.out
+        grep -q "compiled: 42" /tmp/wintest/csm.out
+        grep -q "sha256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" /tmp/wintest/csm.out
+
+    - name: Create archive
+      run: |
+        zip -qr hemlock-windows-x86_64.zip hemlock-windows-x86_64
+        unzip -l hemlock-windows-x86_64.zip | head -20
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: hemlock-windows-x86_64
+        path: hemlock-windows-x86_64.zip
+
   build-wasm:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -255,7 +387,7 @@ jobs:
         path: hemlock-wasm.tar.gz
 
   release:
-    needs: [build-linux, build-macos-intel, build-macos-arm, build-wasm]
+    needs: [build-linux, build-macos-intel, build-macos-arm, build-windows, build-wasm]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -307,14 +439,25 @@ jobs:
           # Or open playground.html in a browser
           ```
 
+          ### Windows Quick Start
+          ```powershell
+          # Extract hemlock-windows-x86_64.zip, then from that folder:
+          .\hemlock.exe your_script.hml
+
+          # Compile to a native .exe (needs a MinGW-w64 gcc on PATH)
+          .\hemlockc.exe your_script.hml -o your_program.exe
+          ```
+
           ### Platform Notes
           - **Linux x86_64**: Both binaries work on any glibc-based distro (Ubuntu, Debian, Fedora, etc.)
           - **macOS x86_64/arm64**: Both binaries work out of the box
+          - **Windows x86_64**: MinGW-w64 cross build; the `.exe`s need only system DLLs (no MSYS2 runtime). `hemlockc.exe` shells out to `gcc` at compile time, so compiling programs additionally requires MinGW-w64 (e.g. via MSYS2). Keep `stdlib/`, `include/`, and `libhemlock_runtime.a` next to the binaries — that is how they are found. Some POSIX-only stdlib surface is unavailable; see `docs/advanced/windows.md`
           - **WASM**: Runs in any modern browser or Node.js environment
         files: |
           artifacts/hemlock-linux-x86_64/hemlock-linux-x86_64.tar.gz
           artifacts/hemlock-macos-x86_64/hemlock-macos-x86_64.tar.gz
           artifacts/hemlock-macos-arm64/hemlock-macos-arm64.tar.gz
+          artifacts/hemlock-windows-x86_64/hemlock-windows-x86_64.zip
           artifacts/hemlock-wasm/hemlock-wasm.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

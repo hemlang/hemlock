@@ -9,6 +9,15 @@ self-contained `hemlock.exe` (only system DLLs required).
 > the stdlib work; the POSIX process model and a few libraries are not
 > available (see [Limitations](#limitations)).
 
+## Prebuilt binaries
+
+Every tagged release ships `hemlock-windows-x86_64.zip` (MinGW-w64 cross
+build, FFI enabled) alongside the Linux/macOS tarballs. Extract it and run
+`hemlock.exe` from the extracted folder — `stdlib/`, `include/`, and
+`libhemlock_runtime.a` sit next to the binaries because that is where they
+are looked up. Compiling programs with `hemlockc.exe` additionally needs a
+MinGW-w64 `gcc` on `PATH` (see [MSYS2](#building-natively-on-windows-msys2)).
+
 ## Cross-compiling from Linux
 
 Install the toolchain (Debian/Ubuntu):
