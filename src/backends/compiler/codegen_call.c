@@ -1706,6 +1706,28 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
             return result;
         }
 
+        // main_loop(callback, fps) - frame loop that does not need sleep()
+        if (strcmp(fn_name, "__main_loop") == 0 &&
+            expr->as.call.num_args == 2) {
+            char *cb = codegen_expr(ctx, expr->as.call.args[0]);
+            char *fps = codegen_expr(ctx, expr->as.call.args[1]);
+            codegen_writeln(ctx, "hml_main_loop(%s, %s);", cb, fps);
+            codegen_writeln(ctx, "hml_release(&%s);", cb);
+            codegen_writeln(ctx, "hml_release(&%s);", fps);
+            codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+            free(cb);
+            free(fps);
+            return result;
+        }
+
+        // main_loop_stop()
+        if (strcmp(fn_name, "__main_loop_stop") == 0 &&
+            expr->as.call.num_args == 0) {
+            codegen_writeln(ctx, "hml_main_loop_stop();");
+            codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+            return result;
+        }
+
         // sleep(seconds) - but NOT if 'sleep' is a local/import
         if (strcmp(fn_name, "__sleep") == 0 &&
             expr->as.call.num_args == 1) {

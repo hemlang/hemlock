@@ -221,6 +221,17 @@ HmlValue hml_builtin_time_ms(HmlClosureEnv *env);
 HmlValue hml_builtin_clock(HmlClosureEnv *env);
 HmlValue hml_builtin_sleep(HmlClosureEnv *env, HmlValue seconds);
 
+// ========== FRAME LOOP ==========
+// Drives per-frame work without sleep(). Under WASM this hands the callback
+// to the host's frame scheduler, which is what lets a browser build link
+// without Asyncify (see runtime/src/builtins_mainloop.c).
+
+void hml_main_loop(HmlValue callback, HmlValue fps);
+void hml_main_loop_stop(void);
+
+HmlValue hml_builtin_main_loop(HmlClosureEnv *env, HmlValue callback, HmlValue fps);
+HmlValue hml_builtin_main_loop_stop(HmlClosureEnv *env);
+
 // ========== DATETIME OPERATIONS ==========
 
 HmlValue hml_localtime(HmlValue timestamp);

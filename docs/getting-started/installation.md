@@ -361,6 +361,9 @@ Some features are unavailable in the WASM environment:
 
 - **FFI** - No shared library loading (`dlopen`/`dlsym`)
 - **Crypto** - No OpenSSL (`sha256`, `md5`, etc. return errors)
+- **Raw pointers** - Available. `alloc`, `buffer`, `ptr_offset`, `ptr_read_*`,
+  `ptr_write_*` and `ptr_deref_*` all work: they are arithmetic and
+  loads/stores over the module's linear memory, not FFI
 - **File I/O** - No native filesystem access (Emscripten virtual FS only)
 - **Networking** - No raw sockets or HTTP client
 - **Signals** - No POSIX signal handling
@@ -382,6 +385,38 @@ make wasm-compile-threaded FILE=program.hml
 ```
 
 This uses `hemlockc` to generate C code, then Emscripten to compile it to WASM.
+
+Or call the compiler directly:
+
+```bash
+./hemlockc --target wasm -o game.js game.hml       # game.js + game.wasm
+./hemlockc --target wasm -o game.html game.hml     # also emits an HTML shell
+```
+
+#### Frame loops and Asyncify
+
+`--target wasm` links with Emscripten's `-sASYNCIFY` by default. `sleep()`
+compiles to `emscripten_sleep()`, which only exists when Asyncify is on;
+without it the program dies the first time it sleeps with:
+
+```
+Please compile your program with async support in order to use
+asynchronous operations like emscripten_sleep
+```
+
+Asyncify is not free — it instruments the module so it can unwind and rewind
+the WASM stack at any suspend point, which costs both speed and `.wasm` size.
+Programs that only need `sleep()` to pace a frame loop should use
+[`main_loop()`](../../stdlib/docs/time.md#main_loopcallback-fps) instead, which
+drives frames from the host's own scheduler (`requestAnimationFrame`), and then
+drop Asyncify entirely:
+
+```bash
+./hemlockc --target wasm --no-asyncify -o game.js game.hml
+```
+
+`--no-asyncify` is only valid with `--target wasm`, and it makes `sleep()`
+unusable in the resulting binary — that is the trade being made.
 
 ## Build Options
 
