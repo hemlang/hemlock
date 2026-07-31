@@ -163,8 +163,7 @@ void hml_runtime_error_loc(const char *format, ...) {
         if (formatted) {
             HmlValue error_msg = hml_val_string(formatted);
             free(formatted);
-            hml_throw(error_msg);
-            return;
+            hml_throw(error_msg);  // noreturn
         }
     }
     hml_throw(hml_val_string(buffer));
