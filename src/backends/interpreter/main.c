@@ -1430,6 +1430,7 @@ typedef struct CheckOptions {
     int lint_strict;
     int strict_types;
     int borrow_strict;
+    int deny_warnings;
 } CheckOptions;
 
 static void check_collect(CheckDiagList *list, const char *file, int line,
@@ -1630,6 +1631,7 @@ static int run_check(int argc, char **argv) {
         .lint_strict = 0,
         .strict_types = 0,
         .borrow_strict = 0,
+        .deny_warnings = 0,
     };
     const char **files = malloc(sizeof(char*) * (size_t)(argc > 2 ? argc : 2));
     int num_files = 0;
@@ -1645,6 +1647,8 @@ static int run_check(int argc, char **argv) {
             opts.lint_strict = 1;
         } else if (strcmp(argv[i], "--no-lint") == 0) {
             opts.lint = 0;
+        } else if (strcmp(argv[i], "--deny-warnings") == 0) {
+            opts.deny_warnings = 1;
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             printf("Hemlock Static Checker\n\n");
             printf("Parses and analyzes source files without executing them, running the\n");
@@ -1658,6 +1662,7 @@ static int run_check(int argc, char **argv) {
             printf("    --strict-types   Strict type checking (warn on implicit any)\n");
             printf("    --borrow-strict  Strict borrow checking (move tracking + leak detection)\n");
             printf("    --lint-strict    Strict lint (also flag unused variables)\n");
+            printf("    --deny-warnings  Exit 1 when any warning is reported (for CI)\n");
             printf("    --no-lint        Disable the lint pass\n");
             printf("    -h, --help       Display this help message\n\n");
             printf("EXIT CODE:\n");
@@ -1709,7 +1714,12 @@ static int run_check(int argc, char **argv) {
         check_print_text(&list, files_checked);
     }
 
-    int exit_code = io_error ? 2 : (list.errors > 0 ? 1 : 0);
+    // Warnings do not fail the check by default; `warnings_exit_zero` pins that.
+    // --deny-warnings is the opt-in for a caller that wants the borrow pass to
+    // gate something. Without it a proven double free exits 0, so the checker
+    // could diagnose a fault it could not stop.
+    int failing = list.errors > 0 || (opts.deny_warnings && list.warnings > 0);
+    int exit_code = io_error ? 2 : (failing ? 1 : 0);
 
     for (int i = 0; i < list.count; i++) {
         free(list.items[i].message);

@@ -5,6 +5,24 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `hemlock check --deny-warnings` exits 1 when any warning is reported. Warnings
+  still do not fail the check by default. Without this the borrow checker could
+  diagnose a fault it could not stop: a provable double free exits 0, so no CI
+  step, hook or build could gate on it.
+
+### Fixed
+
+- The borrow checker now reports a leak when a resource is released on some
+  branches but not all. The branch merge already recorded that state and used it
+  for `possible double free: 'p' may already be freed on some paths`, but the
+  scope-exit leak check only looked at resources freed on no path at all, so
+  `if (retry) { free(p); }` leaked on `!retry` in silence while the mirrored
+  double free had warned since the merge landed.
+
 ## [2.9.1] - 2026-07-28
 
 Patch release. `array.sort()` was quadratic on inputs programs routinely

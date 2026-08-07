@@ -1,0 +1,6 @@
+// Both arms free, so the merge is FREED, not MAYBE_FREED. The new some-paths
+// leak warning must not fire here.
+fn process(retry: bool) {
+    let p = alloc(64);
+    if (retry) { free(p); } else { free(p); }
+}

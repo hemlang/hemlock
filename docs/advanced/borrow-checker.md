@@ -35,6 +35,7 @@ Source (.hml)
 | **defer/explicit double-free** | a resource freed explicitly *and* via `defer free(x)` | on |
 | **use-after-move** | a binding is used after its resource was moved away | strict only |
 | **leaked resource** | an owned resource goes out of scope without being released, moved, or returned | strict only |
+| **leak on some paths** | a resource is released on some branches but not all, and goes out of scope on the rest | strict only |
 
 A *resource* is anything acquired through an explicit acquisition builtin. The
 checker knows each resource's correct release operation and tracks them all

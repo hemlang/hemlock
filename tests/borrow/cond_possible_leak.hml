@@ -1,0 +1,8 @@
+// The mirror of cond_possible_double: the free happens on one arm only, so the
+// resource survives the other. The merge already records MAYBE_FREED and a use
+// in that state is reported as a possible double free; the leak on the arm that
+// did not free must be reported too.
+fn process(retry: bool) {
+    let p = alloc(64);
+    if (retry) { free(p); }
+}

@@ -210,15 +210,29 @@ static void bc_pop_scope(BorrowContext *ctx) {
         // the path diverged via return: escape (return p) is tracked separately
         // by bc_mark_escape, so a returning function with an unreleased local
         // is still a leak.
+        //
+        // MAYBE_FREED is a leak too, on the paths that did not free. The merge
+        // already computes it, and a use in that state is reported as a possible
+        // double free; saying nothing about it here left the two halves of the
+        // same branch analysis disagreeing. `if (c) { free(p); }` leaked on !c
+        // and the checker was silent, while the mirrored `if (c) { free(p); }
+        // free(p);` has warned since cond_possible_double.
         if (ctx->strict && b->resource_id >= 0 && !b->moved) {
             BcResource *r = bc_res(ctx, b->resource_id);
             // Only complain once (about the originating binding) for live,
             // non-escaped, non-deferred resources.
-            if (r && r->state == BC_OWNED && !r->escaped && !r->deferred_free &&
+            if (r && !r->escaped && !r->deferred_free &&
                 strcmp(r->origin, b->name) == 0) {
-                bc_warn(ctx, r->acquire_line,
-                        "'%s' (%s) acquired here is never freed before it goes "
-                        "out of scope (possible leak)", b->name, r->kind);
+                if (r->state == BC_OWNED) {
+                    bc_warn(ctx, r->acquire_line,
+                            "'%s' (%s) acquired here is never freed before it goes "
+                            "out of scope (possible leak)", b->name, r->kind);
+                } else if (r->state == BC_MAYBE_FREED) {
+                    bc_warn(ctx, r->acquire_line,
+                            "'%s' (%s) acquired here is not freed on some paths "
+                            "before it goes out of scope (possible leak)",
+                            b->name, r->kind);
+                }
             }
         }
         BcBinding *next = b->next;
