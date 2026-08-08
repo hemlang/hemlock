@@ -27,6 +27,8 @@ jobs:
           mingw-w64-ucrt-x86_64-gcc
           mingw-w64-ucrt-x86_64-zlib
           mingw-w64-ucrt-x86_64-libffi
+          mingw-w64-ucrt-x86_64-libwebsockets
+          mingw-w64-ucrt-x86_64-pkgconf
 
     - name: Build hemlock.exe, hemlockc.exe, and runtime natively
       run: make -j4 all
@@ -268,6 +270,61 @@ jobs:
         grep -q "compiled: 42" csm.out
         grep -q "sorted: 1,2,3" csm.out
         grep -q "sha256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" csm.out
+
+    - name: WebSocket server + client round trip (interpreted and compiled)
+      run: |
+        # A missing pkgconf would make the Makefile probe report libwebsockets
+        # as absent and everything below would "pass" against the stubs.
+        ./hemlock.exe -e 'import { WebSocketServer } from "@stdlib/websocket"; let s = WebSocketServer("127.0.0.1", 19309); s.close(); print("lws: ok");' | grep -q "lws: ok"
+        gen_ws() {  # gen_ws <port> <file>
+          sed "s/PORTNUM/$1/g" > "$2" << 'EOF'
+        import { WebSocketServer, WebSocket } from "@stdlib/websocket";
+        async fn serve(srv) {
+            let c = srv.accept(5000);
+            if (c == null) { print("accept: timeout"); return 1; }
+            let m = c.recv(5000);
+            if (m == null) { print("server recv: timeout"); return 2; }
+            c.send_text("echo: " + m.data);
+            c.close();
+            return 0;
+        }
+        let srv = WebSocketServer("127.0.0.1", PORTNUM);
+        let t = spawn(serve, srv);
+        let ws = WebSocket("ws://127.0.0.1:PORTNUM");
+        ws.send_text("hello ws");
+        let r = ws.recv(5000);
+        print("got:", r.data);
+        ws.close();
+        await t;
+        srv.close();
+        EOF
+        }
+        gen_ws 19312 ws.hml
+        ./hemlock.exe ws.hml | tee ws.out
+        grep -q "got: echo: hello ws" ws.out
+        # The compiled path is the one that regressed: with the runtime built
+        # against lws, hemlockc must put libwebsockets on the link line, and
+        # must ask for it as -Wl,-Bdynamic (these commands pass -static, and
+        # MSYS2 ships no libwebsockets.a).
+        ./hemlockc.exe -o ws.exe ws.hml
+        ./ws.exe | tee wsc.out
+        grep -q "got: echo: hello ws" wsc.out
+        # The first connect in a process is the one that used to lose the race
+        # against a lws_service() loop that never actually waited. Each run
+        # needs its own port -- reusing one leaves the previous listener in
+        # TIME_WAIT and the next bind fails for reasons unrelated to this test.
+        for i in 1 2 3 4 5; do
+          gen_ws $((19320 + i)) "ws$i.hml"
+          ./hemlockc.exe -o "ws$i.exe" "ws$i.hml"
+          ./"ws$i.exe" | grep -q "got: echo: hello ws" || exit 1
+        done
+
+    - name: Standalone build (WIN_LWS_STATIC=1) runs without MSYS2 on PATH
+      run: |
+        make -j4 WIN_LWS_STATIC=1 hemlock.exe
+        objdump -p hemlock.exe | grep -i "DLL Name" > deps.txt
+        ! grep -iE "libwebsockets|libssl|libcrypto|libuv|libwinpthread|zlib1|libgcc" deps.txt
+        env -i PATH="/c/Windows/System32:/c/Windows" ./hemlock.exe ws.hml | grep -q "got: echo: hello ws"
 
     - name: FFI test (DLL loading, raylib-style bindings)
       run: |

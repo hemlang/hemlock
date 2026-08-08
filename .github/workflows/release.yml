@@ -229,6 +229,7 @@ jobs:
           mingw-w64-ucrt-x86_64-zlib
           mingw-w64-ucrt-x86_64-libffi
           mingw-w64-ucrt-x86_64-libwebsockets
+          mingw-w64-ucrt-x86_64-pkgconf
 
     # WIN_LWS_STATIC=1 is what makes the shipped .exe usable: a dynamic build
     # needs libwebsockets.dll, libssl-3-x64.dll and libuv-1.dll on PATH and
@@ -245,15 +246,25 @@ jobs:
         # And prove it: run with nothing from MSYS2 on PATH
         env -i PATH="/c/Windows/System32:/c/Windows" ./hemlock.exe --version
 
+    # Fail loudly and early if the build silently came out without lws: the
+    # Makefile probe uses pkg-config, so a missing pkgconf package makes
+    # HAS_LIBWEBSOCKETS 0 and everything still "succeeds" until a user
+    # discovers @stdlib/websocket throws in the shipped zip.
+    - name: Verify libwebsockets is actually compiled in
+      run: |
+        ./hemlock.exe -e 'import { WebSocketServer } from "@stdlib/websocket"; let s = WebSocketServer("127.0.0.1", 19309); s.close(); print("lws: ok");' | tee lws.out
+        grep -q "lws: ok" lws.out
+
     - name: Smoke test (WebSocket support is the point of this build)
       run: |
         cat > ws.hml << 'EOF'
         import { WebSocketServer, WebSocket } from "@stdlib/websocket";
-        import { from_bytes } from "@stdlib/strings";
         async fn serve(srv) {
             let c = srv.accept(5000);
             if (c == null) { print("accept: timeout"); return 1; }
-            c.send_text("echo: " + c.recv_text(5000));
+            let m = c.recv(5000);
+            if (m == null) { print("server recv: timeout"); return 2; }
+            c.send_text("echo: " + m.data);
             c.close();
             return 0;
         }
@@ -261,7 +272,8 @@ jobs:
         let t = spawn(serve, srv);
         let ws = WebSocket("ws://127.0.0.1:19311");
         ws.send_text("hello ws");
-        print("got:", ws.recv_text(5000));
+        let r = ws.recv(5000);
+        print("got:", r.data);
         ws.close();
         await t;
         srv.close();
