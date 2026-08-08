@@ -341,10 +341,22 @@ jobs:
 
     - name: Standalone build (WIN_LWS_STATIC=1) runs without MSYS2 on PATH
       run: |
+        # rm first: WIN_LWS_STATIC only changes LDFLAGS, and make judges
+        # hemlock.exe by timestamps against the objects, so without this it
+        # reports "up to date" and leaves the dynamic binary in place -- the
+        # checks below then measure the wrong file. Objects are unaffected by
+        # the flag, so this is a relink, not a rebuild.
+        rm -f hemlock.exe
         make -j4 WIN_LWS_STATIC=1 hemlock.exe
         objdump -p hemlock.exe | grep -i "DLL Name" > deps.txt
+        cat deps.txt
         ! grep -iE "libwebsockets|libssl|libcrypto|libuv|libwinpthread|zlib1|libgcc" deps.txt
-        env -i PATH="/c/Windows/System32:/c/Windows" ./hemlock.exe ws.hml | grep -q "got: echo: hello ws"
+        # ws.hml takes its port on the command line, and bounded for the same
+        # reason as the step above: correct output, then the process lingers.
+        timeout 30 env -i PATH="/c/Windows/System32:/c/Windows" \
+          ./hemlock.exe ws.hml $((20000 + RANDOM % 30000)) > standalone.out 2>&1 || true
+        cat standalone.out
+        grep -q "got: echo: hello ws" standalone.out
 
     - name: FFI test (DLL loading, raylib-style bindings)
       run: |
