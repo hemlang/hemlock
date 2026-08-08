@@ -41,7 +41,12 @@
 //
 // <setjmp.h> is include-guarded and already included above, so nothing can
 // redefine these back afterwards.
-#if defined(_WIN32) && defined(__x86_64__) && !defined(__EMSCRIPTEN__)
+// Define HEMLOCK_WIN32_CRT_SETJMP to opt back out to the CRT's setjmp/longjmp.
+// This exists to A/B the two mechanisms on a toolchain you have in front of
+// you (compile with `--cc "gcc -DHEMLOCK_WIN32_CRT_SETJMP"`), which is the
+// only way to tell an unwinder crash apart from one that merely looks like it.
+#if defined(_WIN32) && defined(__x86_64__) && !defined(__EMSCRIPTEN__) && \
+    !defined(HEMLOCK_WIN32_CRT_SETJMP)
 #undef setjmp
 #undef longjmp
 #define setjmp(BUF)       __builtin_setjmp((void **)(void *)(BUF))
