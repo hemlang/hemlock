@@ -21,13 +21,30 @@
 // inside an array.sort() comparator segfaulted before the catch block ran,
 // with the throw depth deciding whether it survived).
 //
-// Passing a NULL frame is the documented way to get the plain
-// restore-registers-and-jump behavior: the CRT skips the unwind when the
-// jmp_buf's Frame is 0. <setjmp.h> is include-guarded and already included
-// above, so nothing can redefine setjmp back afterwards.
+// The CRT's longjmp skips the unwind when the jmp_buf's Frame field is 0, so
+// zero it after setjmp has saved the registers. Passing a NULL frame instead
+// only works on the msvcrt spelling: against the UCRT, _setjmp is
+// #defined to GCC's __intrinsic_setjmpex builtin, which fills the buffer
+// itself and stores the real frame regardless of the argument (the crash
+// survived that first attempt on a UCRT64 runner while passing everywhere
+// msvcrt is used). Writing the field afterwards is independent of which
+// spelling the toolchain picked.
+//
+// Normalizing the longjmp return to 1 is safe here: hml_throw is the only
+// caller and always passes 1. Deliberately no temporary — a local modified
+// between setjmp and longjmp would need to be volatile.
+//
+// <setjmp.h> is include-guarded and already included above, so nothing can
+// redefine setjmp back afterwards.
 #if defined(_WIN32) && defined(__x86_64__) && !defined(__EMSCRIPTEN__)
+#include <stddef.h>
+_Static_assert(offsetof(_JUMP_BUFFER, Frame) == 0,
+               "jmp_buf layout changed: Frame must be the first field");
 #undef setjmp
-#define setjmp(BUF) _setjmp((BUF), NULL)
+#define setjmp(BUF) \
+    (_setjmp((BUF), __builtin_frame_address(0)) \
+        ? 1 \
+        : (((_JUMP_BUFFER *)(void *)(BUF))->Frame = 0, 0))
 #endif
 
 // Forward declarations
