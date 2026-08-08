@@ -21,30 +21,31 @@
 // inside an array.sort() comparator segfaulted before the catch block ran,
 // with the throw depth deciding whether it survived).
 //
-// The CRT's longjmp skips the unwind when the jmp_buf's Frame field is 0, so
-// zero it after setjmp has saved the registers. Passing a NULL frame instead
-// only works on the msvcrt spelling: against the UCRT, _setjmp is
-// #defined to GCC's __intrinsic_setjmpex builtin, which fills the buffer
-// itself and stores the real frame regardless of the argument (the crash
-// survived that first attempt on a UCRT64 runner while passing everywhere
-// msvcrt is used). Writing the field afterwards is independent of which
-// spelling the toolchain picked.
+// Two attempts to get the CRT to skip the unwind both failed against the
+// UCRT, so take the CRT out of the path entirely and use GCC's nonlocal-goto
+// builtins, which restore the frame pointer, stack pointer and program
+// counter and jump. No RtlUnwindEx, nothing to walk, so no toolchain or CRT
+// version can reintroduce the crash. (For the record: passing a NULL frame
+// works on msvcrt — verified that _setjmp(buf, NULL) leaves Frame at 0 —
+// but the UCRT #defines _setjmp to GCC's __intrinsic_setjmpex, which fills
+// the buffer itself; zeroing Frame afterwards did not help either, so the
+// UCRT's longjmp unwinds regardless of that field.)
 //
-// Normalizing the longjmp return to 1 is safe here: hml_throw is the only
-// caller and always passes 1. Deliberately no temporary — a local modified
-// between setjmp and longjmp would need to be volatile.
+// Preconditions, all satisfied here:
+//   - the buffer needs 5 words; x64 jmp_buf is 256 bytes,
+//   - __builtin_longjmp's value argument must be exactly 1, and hml_throw is
+//     the only longjmp caller and passes 1,
+//   - every setjmp site tests `== 0`, and the builtins return 0/1,
+//   - locals modified between the two must be volatile, which codegen
+//     already does for exactly this reason.
 //
 // <setjmp.h> is include-guarded and already included above, so nothing can
-// redefine setjmp back afterwards.
+// redefine these back afterwards.
 #if defined(_WIN32) && defined(__x86_64__) && !defined(__EMSCRIPTEN__)
-#include <stddef.h>
-_Static_assert(offsetof(_JUMP_BUFFER, Frame) == 0,
-               "jmp_buf layout changed: Frame must be the first field");
 #undef setjmp
-#define setjmp(BUF) \
-    (_setjmp((BUF), __builtin_frame_address(0)) \
-        ? 1 \
-        : (((_JUMP_BUFFER *)(void *)(BUF))->Frame = 0, 0))
+#undef longjmp
+#define setjmp(BUF)       __builtin_setjmp((void **)(void *)(BUF))
+#define longjmp(BUF, VAL) __builtin_longjmp((void **)(void *)(BUF), 1)
 #endif
 
 // Forward declarations
