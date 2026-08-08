@@ -114,7 +114,16 @@ ifeq ($(HEMLOCK_WINDOWS),1)
 # no -ldl/-lcrypto. winpthreads, zlib, and (when present) libffi are
 # linked statically so hemlock.exe is self-contained (ws2_32/bcrypt are
 # system DLLs present on every Windows install).
-LDFLAGS = -static-libgcc -Wl,-Bstatic -lpthread -lz $(WIN_FFI_LIB) -Wl,-Bdynamic -lm -lws2_32 -lbcrypt $(EXTRA_LDFLAGS)
+#
+# --stack raises the main thread's reserved stack from the PE default
+# (2 MB) so the tree-walking interpreter reaches its own
+# HML_DEFAULT_MAX_STACK_DEPTH (8000 frames) guard and throws a catchable
+# "Maximum call stack depth exceeded" instead of dying on a
+# STATUS_STACK_OVERFLOW with no output — the guard is what POSIX builds
+# hit first, and 8000 eval frames need well over 8 MB here. Reserve is
+# address space, not commit, so unused pages cost nothing.
+WIN_STACK_RESERVE = 67108864
+LDFLAGS = -static-libgcc -Wl,--stack,$(WIN_STACK_RESERVE) -Wl,-Bstatic -lpthread -lz $(WIN_FFI_LIB) -Wl,-Bdynamic -lm -lws2_32 -lbcrypt $(EXTRA_LDFLAGS)
 else
 LDFLAGS = $(LDFLAGS_LIBFFI) $(LDFLAGS_OPENSSL) -lm -lpthread -lffi -ldl -lz -lcrypto $(EXTRA_LDFLAGS)
 endif

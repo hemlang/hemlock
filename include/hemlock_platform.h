@@ -36,7 +36,29 @@
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <afunix.h>   // AF_UNIX (Windows 10 1803+)
+// AF_UNIX (Windows 10 1803+). <afunix.h> only shipped with mingw-w64 6.0+,
+// so declare the same three things ourselves on older toolchains (e.g. the
+// mingw-w64 headers bundled with Strawberry Perl's GCC) — the struct is ABI,
+// not implementation, so a local copy stays correct.
+#if defined(__has_include)
+#  if __has_include(<afunix.h>)
+#    define HML_HAVE_AFUNIX_H 1
+#  endif
+#endif
+#ifdef HML_HAVE_AFUNIX_H
+#include <afunix.h>
+#else
+#ifndef UNIX_PATH_MAX
+#define UNIX_PATH_MAX 108
+#endif
+struct sockaddr_un {
+    ADDRESS_FAMILY sun_family;
+    char sun_path[UNIX_PATH_MAX];
+};
+#ifndef AF_UNIX
+#define AF_UNIX 1
+#endif
+#endif
 #include <windows.h>
 #include <io.h>
 #include <direct.h>
@@ -56,6 +78,12 @@ char *dlerror(void);
 // ---- One-time platform initialization (WSAStartup) ----
 void hml_platform_init(void);
 
+// Put stdout/stderr in binary mode so "\n" stays one byte (see
+// src/shared/platform_win32.c). Runs from a constructor; also called
+// explicitly from the runtime's startup path so the object is guaranteed
+// to be pulled out of libhemlock_runtime.a.
+void hml_win32_set_binary_stdio(void);
+
 // ---- Process status macros used with system()/_cwait exit codes ----
 #ifndef WIFEXITED
 #define WIFEXITED(status)   (1)
@@ -67,6 +95,12 @@ void hml_platform_init(void);
 // ---- Misc POSIX spellings ----
 #ifndef PATH_MAX
 #define PATH_MAX MAX_PATH
+#endif
+
+// GetNativeSystemInfo()'s ARM64 value predates its appearance in some
+// mingw-w64 winnt.h versions; the numeric value is fixed by the Win32 ABI.
+#ifndef PROCESSOR_ARCHITECTURE_ARM64
+#define PROCESSOR_ARCHITECTURE_ARM64 12
 #endif
 
 // mkdir(path, mode): Windows _mkdir takes no mode argument

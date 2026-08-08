@@ -64,8 +64,20 @@ ifneq ($(HEMLOCK_WINDOWS),1)
 LDFLAGS += -lssl -lcrypto
 endif
 
-# Check if zlib is available (both header AND library must exist)
+# Check if zlib is available (both header AND library must exist).
+# On Windows the compile-and-link probe is unusable: MinGW gcc is a native
+# Windows program, so `-o /dev/null` names a nonexistent directory and the
+# probe fails even when zlib is installed (which silently compiled the
+# compression builtins as "zlib not installed" stubs). Ask the toolchain
+# where libz.a is instead — it echoes the bare name back when missing.
+ifeq ($(HEMLOCK_WINDOWS),1)
+MINGW_ZLIB_PATH := $(shell $(CC) --print-file-name=libz.a 2>/dev/null)
+ifneq ($(MINGW_ZLIB_PATH),libz.a)
+ZLIB_CHECK := yes
+endif
+else
 ZLIB_CHECK := $(shell echo 'int main(){return 0;}' | $(CC) -x c - -lz -o /dev/null 2>/dev/null && echo yes)
+endif
 ifeq ($(ZLIB_CHECK),yes)
     CFLAGS += -DHML_HAVE_ZLIB
     LDFLAGS += -lz

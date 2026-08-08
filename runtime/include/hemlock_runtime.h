@@ -11,6 +11,25 @@
 #include "hemlock_value.h"
 #include <setjmp.h>
 
+// ---- Non-unwinding setjmp on Windows/x64 ----
+// mingw-w64 defines setjmp(BUF) as _setjmp(BUF, __builtin_frame_address(0)),
+// which records a target frame; the CRT's longjmp then drives a full SEH
+// unwind (RtlUnwindEx) back to it. Hemlock's throw deliberately does not
+// unwind — hml_throw() runs no destructors and no defers, exactly like
+// longjmp on POSIX — and unwinding through the generated closure frames
+// crashed inside RtlVirtualUnwind on roughly one run in ten (a throw from
+// inside an array.sort() comparator segfaulted before the catch block ran,
+// with the throw depth deciding whether it survived).
+//
+// Passing a NULL frame is the documented way to get the plain
+// restore-registers-and-jump behavior: the CRT skips the unwind when the
+// jmp_buf's Frame is 0. <setjmp.h> is include-guarded and already included
+// above, so nothing can redefine setjmp back afterwards.
+#if defined(_WIN32) && defined(__x86_64__) && !defined(__EMSCRIPTEN__)
+#undef setjmp
+#define setjmp(BUF) _setjmp((BUF), NULL)
+#endif
+
 // Forward declarations
 typedef struct HmlClosureEnv HmlClosureEnv;
 

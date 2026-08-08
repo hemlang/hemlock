@@ -5,12 +5,18 @@
 
 // ========== EXPRESSION CONSTRUCTORS ==========
 
+// The three number constructors set every field, not just the one the flags
+// select: consumers that compare whole literals (the linter's duplicate-case
+// check) otherwise read whichever of int_value/uint_value/is_u64 this literal
+// left untouched, and malloc hands back different garbage per allocation.
 Expr* expr_number_int(int64_t value) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_NUMBER;
     expr->line = 0;
     expr->column = 0;
     expr->as.number.int_value = value;
+    expr->as.number.uint_value = 0;
+    expr->as.number.float_value = 0.0;
     expr->as.number.is_float = 0;
     expr->as.number.is_u64 = 0;
     return expr;
@@ -21,7 +27,9 @@ Expr* expr_number_u64(uint64_t value) {
     expr->type = EXPR_NUMBER;
     expr->line = 0;
     expr->column = 0;
+    expr->as.number.int_value = 0;
     expr->as.number.uint_value = value;
+    expr->as.number.float_value = 0.0;
     expr->as.number.is_float = 0;
     expr->as.number.is_u64 = 1;
     return expr;
@@ -32,8 +40,11 @@ Expr* expr_number_float(double value) {
     expr->type = EXPR_NUMBER;
     expr->line = 0;
     expr->column = 0;
+    expr->as.number.int_value = 0;
+    expr->as.number.uint_value = 0;
     expr->as.number.float_value = value;
     expr->as.number.is_float = 1;
+    expr->as.number.is_u64 = 0;
     return expr;
 }
 
