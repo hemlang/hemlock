@@ -11,7 +11,9 @@ jobs:
   # including the hemlockc -> gcc subprocess path that Wine can't exercise
   windows-native:
     runs-on: windows-latest
-    timeout-minutes: 40
+    # 40 was not enough once this job gained WebSocket coverage and a second
+    # (static) link of the interpreter: two runs were cancelled mid-step.
+    timeout-minutes: 55
     defaults:
       run:
         shell: msys2 {0}
@@ -277,9 +279,12 @@ jobs:
         # A missing pkgconf would make the Makefile probe report libwebsockets
         # as absent and everything below would "pass" against the stubs.
         ./hemlock.exe -e 'import { WebSocketServer } from "@stdlib/websocket"; let s = WebSocketServer("127.0.0.1", 19309); s.close(); print("lws: ok");' | grep -q "lws: ok"
-        gen_ws() {  # gen_ws <port> <file>
-          sed "s/PORTNUM/$1/g" > "$2" << 'EOF'
+        # The port comes from argv so one compile covers every run: a
+        # hemlockc invocation costs ~a minute on this runner, and five of them
+        # plus the rest of the job overran the 40-minute timeout.
+        cat > ws.hml << 'EOF'
         import { WebSocketServer, WebSocket } from "@stdlib/websocket";
+        let port = i32(args[1]);
         async fn serve(srv) {
             let c = srv.accept(5000);
             if (c == null) { print("accept: timeout"); return 1; }
@@ -289,9 +294,9 @@ jobs:
             c.close();
             return 0;
         }
-        let srv = WebSocketServer("127.0.0.1", PORTNUM);
+        let srv = WebSocketServer("127.0.0.1", port);
         let t = spawn(serve, srv);
-        let ws = WebSocket("ws://127.0.0.1:PORTNUM");
+        let ws = WebSocket("ws://127.0.0.1:" + port);
         ws.send_text("hello ws");
         let r = ws.recv(5000);
         print("got:", r.data);
@@ -299,25 +304,26 @@ jobs:
         await t;
         srv.close();
         EOF
-        }
-        gen_ws 19312 ws.hml
-        ./hemlock.exe ws.hml | tee ws.out
+        # Every run gets a port nothing else has used. A fixed number is a
+        # trap: a listener from an earlier run sits in TIME_WAIT and the next
+        # bind fails for reasons that have nothing to do with what is under
+        # test (which is exactly how this step first "failed" locally).
+        port=$((20000 + RANDOM % 30000))
+        next_port() { port=$((port + 1)); echo $port; }
+
+        ./hemlock.exe ws.hml "$(next_port)" | tee ws.out
         grep -q "got: echo: hello ws" ws.out
         # The compiled path is the one that regressed: with the runtime built
         # against lws, hemlockc must put libwebsockets on the link line, and
         # must ask for it as -Wl,-Bdynamic (these commands pass -static, and
         # MSYS2 ships no libwebsockets.a).
         ./hemlockc.exe -o ws.exe ws.hml
-        ./ws.exe | tee wsc.out
+        ./ws.exe "$(next_port)" | tee wsc.out
         grep -q "got: echo: hello ws" wsc.out
         # The first connect in a process is the one that used to lose the race
-        # against a lws_service() loop that never actually waited. Each run
-        # needs its own port -- reusing one leaves the previous listener in
-        # TIME_WAIT and the next bind fails for reasons unrelated to this test.
+        # against a lws_service() loop that never actually waited, so repeat it.
         for i in 1 2 3 4 5; do
-          gen_ws $((19320 + i)) "ws$i.hml"
-          ./hemlockc.exe -o "ws$i.exe" "ws$i.hml"
-          ./"ws$i.exe" | grep -q "got: echo: hello ws" || exit 1
+          ./ws.exe "$(next_port)" | grep -q "got: echo: hello ws" || exit 1
         done
 
     - name: Standalone build (WIN_LWS_STATIC=1) runs without MSYS2 on PATH

@@ -1,0 +1,20 @@
+import { WebSocketServer, WebSocket } from "@stdlib/websocket";
+let port = i32(args[1]);
+async fn serve(srv) {
+    let c = srv.accept(5000);
+    if (c == null) { print("accept: timeout"); return 1; }
+    let m = c.recv(5000);
+    if (m == null) { print("server recv: timeout"); return 2; }
+    c.send_text("echo: " + m.data);
+    c.close();
+    return 0;
+}
+let srv = WebSocketServer("127.0.0.1", port);
+let t = spawn(serve, srv);
+let ws = WebSocket("ws://127.0.0.1:" + port);
+ws.send_text("hello ws");
+let r = ws.recv(5000);
+print("got:", r.data);
+ws.close();
+await t;
+srv.close();
