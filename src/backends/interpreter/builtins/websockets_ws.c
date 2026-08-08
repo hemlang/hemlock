@@ -474,10 +474,20 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    // Wait for connection (timeout 10 seconds)
-    int timeout = 100;
-    while (timeout-- > 0 && !conn->closed && !conn->failed && !conn->established) {
-        lws_service(conn->context, 100);
+    // Wait for connection (timeout 10 seconds).
+    //
+    // Paced with usleep, like ws_server_accept below, rather than by counting
+    // lws_service() calls: lws_service()'s timeout argument has been ignored
+    // since lws 3.2, and under the libuv event loop (what MSYS2's lws 4.5 is
+    // built with) it can return immediately. Counting 100 iterations of it was
+    // therefore not a 10-second timeout but a busy-spin that could expire in
+    // microseconds — losing the race on the first, coldest connect in a
+    // process while every later one succeeded.
+    int wait_ms = HML_WS_CONNECT_TIMEOUT_MS;
+    while (wait_ms > 0 && !conn->closed && !conn->failed && !conn->established) {
+        lws_service(conn->context, 0);
+        usleep(HML_WS_CONNECT_POLL_US);
+        wait_ms -= HML_WS_CONNECT_POLL_US / 1000;
     }
 
     if (conn->failed || conn->closed || !conn->established) {

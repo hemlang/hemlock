@@ -11,6 +11,16 @@ ifneq (,$(findstring mingw,$(CC))$(findstring MINGW,$(shell uname))$(findstring 
     EXE = .exe
 endif
 
+# Building ON Windows, as opposed to cross-compiling for it from a POSIX host.
+# The difference matters wherever a probe asks the host about a library: a
+# cross build's pkg-config describes the Linux copy, which is worse than no
+# answer at all.
+ifeq ($(HEMLOCK_WINDOWS),1)
+ifneq (,$(findstring MINGW,$(shell uname))$(findstring MSYS,$(shell uname)))
+    HEMLOCK_WINDOWS_NATIVE = 1
+endif
+endif
+
 # -MMD -MP: emit a .d file alongside each .o that lists every (non-system)
 # header the .c file pulled in. Without these, `make` only rebuilds .o files
 # when their .c source changes — touching a header silently produces a
@@ -65,8 +75,19 @@ endif
 
 # Detect libffi, OpenSSL, and libwebsockets (Homebrew on macOS puts them in non-standard locations)
 ifeq ($(HEMLOCK_WINDOWS),1)
-    # No pkg-config probing for cross builds; FFI/OpenSSL are disabled above
-    HAS_LIBWEBSOCKETS := 0
+    # A native MSYS2 build can ask its own pkg-config, so @stdlib/websocket and
+    # @stdlib/http work on Windows when libwebsockets is installed
+    # (pacman -S mingw-w64-ucrt-x86_64-libwebsockets). Cross builds get no
+    # probe: the host's pkg-config would answer about the Linux copy.
+    ifeq ($(HEMLOCK_WINDOWS_NATIVE),1)
+        HAS_LIBWEBSOCKETS := $(shell pkg-config --exists libwebsockets 2>/dev/null && echo 1 || echo 0)
+        ifeq ($(HAS_LIBWEBSOCKETS),1)
+            CFLAGS += $(shell pkg-config --cflags libwebsockets)
+            LDFLAGS_LIBWEBSOCKETS := $(shell pkg-config --libs-only-L libwebsockets)
+        endif
+    else
+        HAS_LIBWEBSOCKETS := 0
+    endif
 else ifeq ($(shell uname),Darwin)
     # On macOS, prefer Homebrew's libffi (system pkg-config points to SDK without headers)
     BREW_LIBFFI := $(shell brew --prefix libffi 2>/dev/null)
@@ -124,14 +145,34 @@ ifeq ($(HEMLOCK_WINDOWS),1)
 # address space, not commit, so unused pages cost nothing.
 WIN_STACK_RESERVE = 67108864
 LDFLAGS = -static-libgcc -Wl,--stack,$(WIN_STACK_RESERVE) -Wl,-Bstatic -lpthread -lz $(WIN_FFI_LIB) -Wl,-Bdynamic -lm -lws2_32 -lbcrypt $(EXTRA_LDFLAGS)
+
+# make WIN_LWS_STATIC=1 links libwebsockets (and its TLS/event-loop deps) into
+# hemlock.exe and hemlockc.exe instead of leaning on the DLLs. Costs ~7.6 MB
+# (4.6 -> 12.2 MB measured on UCRT64) and buys binaries that run from cmd.exe
+# or PowerShell: a dynamic build needs libwebsockets.dll, libssl-3-x64.dll and
+# libuv-1.dll on PATH, so outside an MSYS2 shell it exits without a word.
+#
+# The winsock/system libraries have to come AFTER the archives that reference
+# them -- the -lws2_32 already in LDFLAGS above is long past by the time the
+# linker scans libwebsockets_static.a. MSYS2 names the static archive
+# libwebsockets_static.a, not libwebsockets.a, which is also why a plain
+# -static -lwebsockets fails with "have you installed the static version".
+WIN_LWS_STATIC_LIBS = -Wl,-Bstatic -lwebsockets_static -lssl -lcrypto -luv \
+                      -Wl,-Bdynamic -lws2_32 -lmswsock -liphlpapi -lcrypt32 \
+                      -lsecur32 -lbcrypt -ladvapi32 -luser32 -lgdi32 -lpsapi \
+                      -luserenv -ldbghelp -lole32 -lshell32
 else
 LDFLAGS = $(LDFLAGS_LIBFFI) $(LDFLAGS_OPENSSL) -lm -lpthread -lffi -ldl -lz -lcrypto $(EXTRA_LDFLAGS)
 endif
 
 # Conditionally add libwebsockets
 ifeq ($(HAS_LIBWEBSOCKETS),1)
-LDFLAGS += $(LDFLAGS_LIBWEBSOCKETS) -lwebsockets
 CFLAGS += -DHAVE_LIBWEBSOCKETS=1
+ifeq ($(WIN_LWS_STATIC),1)
+LDFLAGS += $(LDFLAGS_LIBWEBSOCKETS) $(WIN_LWS_STATIC_LIBS)
+else
+LDFLAGS += $(LDFLAGS_LIBWEBSOCKETS) -lwebsockets
+endif
 endif
 
 # ========== SOURCE FILES (New Structure) ==========

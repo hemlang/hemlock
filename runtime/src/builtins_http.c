@@ -116,6 +116,14 @@ static void hml_lws_init_logging(void) {
 #define HML_LWS_HTTP_DEFAULT_TIMEOUT_MS 5000
 #define HML_LWS_HTTP_SERVICE_POLL_MS 10
 
+// WebSocket client connect wait (must match HML_WS_CONNECT_TIMEOUT_MS /
+// HML_WS_CONNECT_POLL_US in include/hemlock_limits.h). The poll sleep is what
+// makes the timeout real: lws_service()'s own timeout argument has been
+// ignored since lws 3.2 and returns immediately under the libuv event loop, so
+// counting service calls is a busy-spin, not a wait.
+#define HML_WS_CONNECT_TIMEOUT_MS 10000
+#define HML_WS_CONNECT_POLL_US    10000
+
 static int hml_lws_timeout_iterations_from_ms(int timeout_ms) {
     int iterations = timeout_ms / HML_LWS_HTTP_SERVICE_POLL_MS;
     return iterations < 1 ? 1 : iterations;
@@ -2073,10 +2081,16 @@ HmlValue hml_lws_ws_connect(HmlValue url_val) {
         hml_runtime_error("Failed to connect WebSocket");
     }
 
-    // Wait for connection (timeout 10 seconds)
-    int timeout = 100;
-    while (timeout-- > 0 && !conn->closed && !conn->failed && !conn->established) {
-        lws_service(conn->context, 100);
+    // Wait for connection (timeout 10 seconds), paced with usleep so the
+    // timeout is enforced by the clock rather than by how fast lws_service()
+    // happens to return -- see HML_WS_CONNECT_TIMEOUT_MS above. Counting
+    // service calls made the first, coldest connect in a process fail
+    // intermittently while every later one succeeded.
+    int wait_ms = HML_WS_CONNECT_TIMEOUT_MS;
+    while (wait_ms > 0 && !conn->closed && !conn->failed && !conn->established) {
+        lws_service(conn->context, 0);
+        usleep(HML_WS_CONNECT_POLL_US);
+        wait_ms -= HML_WS_CONNECT_POLL_US / 1000;
     }
 
     if (conn->failed || conn->closed || !conn->established) {

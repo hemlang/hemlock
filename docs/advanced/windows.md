@@ -145,7 +145,7 @@ Calling any of these throws a runtime error on Windows:
 | FFI without libffi | FFI is **fully supported** when the MinGW toolchain has libffi (auto-detected, see below); only without it do `extern fn`, `ffi_open`, and callbacks throw (`HEMLOCK_NO_FFI`). |
 | Crypto (partial) | Only the ECDSA builtins and `@stdlib/crypto`'s OpenSSL-bound functions (AES, RSA — the module's `import "libcrypto.so.3"` cannot load) throw. **Not** affected: the hash builtins (`sha1`/`sha256`/`sha512`/`md5`, and `@stdlib/hash`), `__random_bytes` (and `@stdlib/uuid`) — all backed by Windows CNG (`bcrypt.dll`, a system DLL) in both backends. |
 | Signals | Only the signals the Windows CRT supports (`SIGINT`, `SIGTERM`, `SIGABRT`, `SIGSEGV`, `SIGFPE`, `SIGILL`) can be handled. Other constants exist but `signal()`/`raise()` on them fails. |
-| HTTP/WebSocket | libwebsockets is not probed for Windows builds; `@stdlib/http` and `@stdlib/websocket` are unavailable. |
+| HTTP/WebSocket | **Available on native builds** when libwebsockets is installed (`pacman -S mingw-w64-ucrt-x86_64-libwebsockets`), which the build probes for. Cross builds get no probe — a Linux host's pkg-config would answer about the wrong library — so `@stdlib/http` and `@stdlib/websocket` still throw there. See [WebSockets and HTTP](#websockets-and-http-on-windows). |
 | LSP | stdio transport works; `--lsp-tcp` mode is disabled. |
 
 Smaller quirks worth knowing:
@@ -172,6 +172,48 @@ works on Windows. Note that `@stdlib/shell`'s Unix-command
 conveniences (`ls()`, `which()`, `pwd()`, …) shell out to POSIX tools
 and stay Unix-only.
 
+## WebSockets and HTTP on Windows
+
+`@stdlib/websocket` (client *and* server) and `@stdlib/http` work on a
+native Windows build. Install libwebsockets and rebuild:
+
+```bash
+pacman -S mingw-w64-ucrt-x86_64-libwebsockets
+make
+```
+
+The build probes `pkg-config` and defines `HAVE_LIBWEBSOCKETS` /
+`HML_HAVE_LIBWEBSOCKETS` when it is found; without it those modules
+throw "not available (libwebsockets not installed)" exactly as before.
+No probe runs for cross builds, since the host's pkg-config describes
+the Linux copy.
+
+`hemlockc` links libwebsockets into compiled programs too. It has to ask
+for it as `-Wl,-Bdynamic -lwebsockets`: the link line passes `-static`,
+under which the linker looks for `libwebsockets.a` and fails with *"have
+you installed the static version of the websockets library ?"* — MSYS2
+ships an import library plus a differently named
+`libwebsockets_static.a`.
+
+### Standalone binaries: `WIN_LWS_STATIC=1`
+
+A dynamically linked build needs `libwebsockets.dll`, `libssl-3-x64.dll`
+and `libuv-1.dll` on `PATH`, so it runs **only inside an MSYS2 shell** —
+from `cmd.exe` it exits without printing anything. To link them in:
+
+```bash
+make WIN_LWS_STATIC=1
+```
+
+| | size | runs outside MSYS2 |
+|---|---|---|
+| default (dynamic) | 4.6 MB | no |
+| `WIN_LWS_STATIC=1` | 12.2 MB | yes |
+
+The released `hemlock-windows-x86_64.zip` is built this way, so the
+binaries in it need nothing but Windows system DLLs. Programs compiled
+by `hemlockc` still link libwebsockets dynamically.
+
 ## Known issue: throw from a native callback on UCRT
 
 A `throw` that crosses a native runtime frame — the clearest case is a
@@ -179,6 +221,15 @@ comparator passed to `array.sort()` — can segfault in **compiled**
 programs before the `catch` block runs. The interpreter is unaffected
 (it does not use `setjmp` at all), and so is any throw that does not
 cross a native frame.
+
+**How often:** frequently enough to matter. The rate depends on the
+shape of the code, not on luck alone: a sort-comparator throw fails
+about 1 run in 25, but exception-heavy code is far worse —
+`tests/parity/language/error_catchable.hml` segfaults in **8 of 15
+runs** on UCRT64 with GCC 16. Treat compiled exception-heavy code on
+UCRT as unreliable rather than occasionally unlucky. (An earlier
+revision of this page quoted only the 1-in-25 figure, which understated
+it badly.)
 
 The cause is the CRT's `longjmp` driving an SEH unwind (`RtlUnwindEx`)
 through the generated closure frames. Hemlock's `throw` has nothing to
@@ -193,6 +244,11 @@ runs per cell:
 | mingw default `setjmp` | ~1 in 8 crash | ~1 in 25 crash |
 | `Frame = 0` (**shipped**) | 0 in 60 | ~1 in 25 crash |
 | `__builtin_setjmp`/`longjmp` | 0 in 60 | **25 in 25** crash |
+
+Those UCRT rates are for the sort-comparator fixture. Exception-heavy
+code fails far more often on the same builds — `error_catchable` is 8/15
+on pristine `main` and 6/15 with the shipped mechanism, i.e. the
+mechanism does not move the needle on UCRT either way.
 
 That last row is why the nonlocal-goto builtins are not used even though
 they look like the ideal answer: GCC's `__builtin_setjmp`/

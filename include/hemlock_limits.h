@@ -73,6 +73,13 @@
 #define HML_WS_BODY_BUFFER_SIZE 4096
 #define HML_WS_MAX_HEADER_DATA 16384
 
+// How long a client connect waits for the handshake, and how often it polls
+// while waiting. The poll interval is what makes the timeout real: it must be
+// enforced with a sleep, because lws_service()'s own timeout argument has been
+// ignored since lws 3.2 and returns immediately under the libuv event loop.
+#define HML_WS_CONNECT_TIMEOUT_MS 10000
+#define HML_WS_CONNECT_POLL_US    10000
+
 // ========== I/O LIMITS ==========
 
 // File read chunk size

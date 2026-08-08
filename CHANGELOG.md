@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-08-08
+
+WebSockets and HTTP now work on Windows, and Windows binaries ship with the
+release alongside Linux, macOS and WASM.
+
 ### Added
+
+- **`@stdlib/websocket` and `@stdlib/http` work on native Windows builds.** The
+  WebSocket/HTTP builtins were never Windows-specific — they compile and run
+  there unchanged — but the top-level Makefile hardcoded
+  `HAS_LIBWEBSOCKETS := 0` for every Windows build, so `websockets_ws.c`
+  compiled its "not available" stubs and any program importing those modules
+  threw at runtime. A native MSYS2 build now probes its own pkg-config
+  (`pacman -S mingw-w64-ucrt-x86_64-libwebsockets`). Cross builds still skip the
+  probe: the host's pkg-config would answer about the Linux copy.
+
+- **`make WIN_LWS_STATIC=1`** links libwebsockets and its TLS/event-loop
+  dependencies into the binaries — 4.6 MB → 12.2 MB. Worth it for distribution:
+  a dynamically linked build needs `libwebsockets.dll`, `libssl-3-x64.dll` and
+  `libuv-1.dll` on `PATH` and exits without a word outside an MSYS2 shell.
+
+- **Windows binaries in the release.** The release workflow builds
+  `hemlock-windows-x86_64.zip` with `WIN_LWS_STATIC=1`, verifies the binaries
+  depend on nothing but Windows system DLLs, and round-trips a WebSocket echo on
+  a clean `PATH` before packaging.
+
 
 - `hemlock check --deny-warnings` exits 1 when any warning is reported. Warnings
   still do not fail the check by default. Without this the borrow checker could
@@ -15,6 +40,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   step, hook or build could gate on it.
 
 ### Fixed
+
+- **A WebSocket client's first connect in a process failed intermittently, on
+  every platform.** The connect wait counted iterations of
+  `lws_service(ctx, 100)` as though that argument were a 100 ms block, but it
+  has been ignored since libwebsockets 3.2 and returns immediately under the
+  libuv event loop — so a documented 10-second timeout could expire in
+  microseconds. The coldest connect lost the race while every warmed-up one won,
+  which is why the failure looked like a server-readiness problem and why
+  sleeping longer made it *worse*. Now paced with `usleep`, matching what
+  `ws_server_accept` in the same file already did correctly, in both backends.
+  Measured on a WebSocket test suite: ~50% of runs failing → 0 in 20. Not a
+  Windows bug — every lws ≥ 3.2, which is every current distro, has the same
+  busy-spin.
+
+- **`hemlockc` now links libwebsockets on Windows.** With the runtime built
+  against lws, any compiled program touching those modules died on
+  `undefined reference to lws_client_connect_via_info`. It is spelled
+  `-Wl,-Bdynamic -lwebsockets` because the link line passes `-static`, under
+  which the linker demands `libwebsockets.a` while MSYS2 ships an import library
+  plus a differently named `libwebsockets_static.a`.
+
 
 - **Windows: `print()` no longer emits CRLF.** `_fmode = _O_BINARY` only covers
   files opened after startup — stdout and stderr are already open in text mode by
@@ -96,6 +142,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scope-exit leak check only looked at resources freed on no path at all, so
   `if (retry) { free(p); }` leaked on `!retry` in silence while the mirrored
   double free had warned since the merge landed.
+
+### Changed
+
+- **Corrected the documented severity of the UCRT throw-from-native-callback
+  crash.** `docs/advanced/windows.md` described it as ~1 in 25, measured from a
+  single sort-comparator fixture. Exception-heavy compiled code fails far more
+  often — `error_catchable` segfaults in 8 of 15 runs on pristine `main` under
+  UCRT64/GCC 16 — so the page now reports the real rate and says plainly that
+  compiled exception-heavy code on UCRT should be treated as unreliable. The
+  crash itself is unchanged and predates this release.
 
 ## [2.9.1] - 2026-07-28
 
