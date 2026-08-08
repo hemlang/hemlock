@@ -279,7 +279,12 @@ jobs:
         await t;
         srv.close();
         EOF
-        env -i PATH="/c/Windows/System32:/c/Windows" ./hemlock.exe ws.hml | tee ws.out
+        # Bounded and judged on output, not on exit: a program that spawn()s a
+        # task holding a WebSocketServer does not terminate once it is done
+        # (see docs/advanced/windows.md). Without the bound this step would sit
+        # here until the job timeout rather than reporting anything.
+        timeout 60 env -i PATH="/c/Windows/System32:/c/Windows" ./hemlock.exe ws.hml > ws.out 2>&1 || true
+        cat ws.out
         grep -q "got: echo: hello ws" ws.out
 
     - name: Package

@@ -214,6 +214,39 @@ The released `hemlock-windows-x86_64.zip` is built this way, so the
 binaries in it need nothing but Windows system DLLs. Programs compiled
 by `hemlockc` still link libwebsockets dynamically.
 
+## Known issue: a WebSocket program may not exit
+
+A program that `spawn()`s a task holding a `WebSocketServer` produces
+correct results and then **does not terminate** — the process sits there
+after the last statement runs. It affects the interpreter and compiled
+binaries alike.
+
+Narrowed down by elimination:
+
+| program | exits? |
+|---------|--------|
+| `WebSocketServer(...)` then `close()`, no `spawn` | yes |
+| server + `spawn`, client round trip, `await`, `close()` | **no** |
+| server + `spawn`, **no client at all** (accept times out) | **no** |
+| server + `spawn`, no `await` | **no** |
+
+So the trigger is handing a server to `spawn()`, not the traffic and not
+the shutdown order: the spawned task gets a deep copy of the server
+object, and the copy's service thread outlives `close()` on the original
+(`stdlib/websocket.hml` already notes that a copy's `closed` flag does not
+track the original's). Nothing then stops the process from waiting on that
+thread at exit.
+
+Workarounds until it is fixed: run the server in its own process, or
+accept that the process needs killing — output written before the hang is
+complete and correct. `@stdlib/websocket`'s own `listen()` loop, which
+shuts down through a stop channel rather than relying on `close()` alone,
+is not affected; a program built on `Server.listen()` (as gn.hml is) exits
+normally.
+
+CI bounds every WebSocket invocation with `timeout` and asserts on output
+rather than exit status for this reason.
+
 ## Known issue: throw from a native callback on UCRT
 
 A `throw` that crosses a native runtime frame — the clearest case is a
