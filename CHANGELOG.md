@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A WebSocket program no longer hangs instead of exiting.** Handing a
+  `WebSocketServer` to `spawn()` produced correct output and then left the
+  process alive forever, in the interpreter and in compiled binaries alike. The
+  service thread loops `while (!shutdown) lws_service(ctx, 50)`, and that
+  timeout argument has been ignored since libwebsockets 3.2 — under the libuv
+  event loop it blocks until something happens, so setting `shutdown` was never
+  noticed and the `pthread_join()` in `close()` waited forever. It reproduced
+  with no client connected at all, which ruled out the traffic and the shutdown
+  ordering. Both close paths now call `lws_cancel_service()` before joining, the
+  documented way to interrupt a blocked `lws_service()` from another thread.
+
+  Same root cause as the connect timeout fixed in 2.10.0: that ignored argument
+  is worth suspecting whenever libwebsockets appears to ignore a deadline.
+
+### Notes
+
+- The UCRT throw-from-a-native-callback crash is **not** fixed. A third
+  mechanism was tried and rejected: calling the CRT's non-`ex` `_setjmp`
+  directly, which survives an isolated 400-frame test and then takes
+  `array_sort` from intermittent to 30-in-30 in the real runtime. The UCRT
+  backtrace (`RtlVirtualUnwind` ← `RtlUnwindEx` ← `ucrtbase!.intrinsic_setjmpex`
+  ← `hml_throw`) and the measurements for all four mechanisms are recorded in
+  `docs/advanced/windows.md`. The evidence points away from a `setjmp` spelling
+  and towards not longjmping out of native frames at all.
+
 ## [2.10.0] - 2026-08-08
 
 WebSockets and HTTP now work on Windows, and Windows binaries ship with the

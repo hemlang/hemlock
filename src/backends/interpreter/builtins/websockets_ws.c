@@ -105,6 +105,16 @@ static void ws_connection_close(ws_connection_t *conn) {
     conn->closed = 1;
     conn->shutdown = 1;
 
+    // Wake the service thread so it re-checks `shutdown`. Its loop is
+    // `while (!shutdown) lws_service(ctx, 50)`, and that timeout argument has
+    // been ignored since lws 3.2 -- under the libuv event loop lws_service()
+    // blocks until something happens, so setting the flag alone never gets
+    // noticed and the join below waits forever. lws_cancel_service() is the
+    // documented way to interrupt it from another thread.
+    if (conn->has_own_thread && conn->context) {
+        lws_cancel_service(conn->context);
+    }
+
     if (conn->has_own_thread) {
         pthread_join(conn->service_thread, NULL);
     }
@@ -145,6 +155,14 @@ static void ws_server_close_internal(ws_server_t *server) {
     // spawned recv tasks before reaching this point, but we keep a
     // safety sleep to guard against direct __lws_ws_server_close use.
     usleep(200000);
+
+    // Wake the service thread so it re-checks `shutdown` -- see the note in
+    // ws_connection_close. Without this the join below never returns and the
+    // whole process hangs after its last statement, which is what made a
+    // program that spawn()s a task holding a server fail to exit.
+    if (server->context) {
+        lws_cancel_service(server->context);
+    }
 
     pthread_join(server->service_thread, NULL);
     pthread_mutex_destroy(&server->pending_mutex);

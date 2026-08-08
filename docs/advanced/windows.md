@@ -214,38 +214,24 @@ The released `hemlock-windows-x86_64.zip` is built this way, so the
 binaries in it need nothing but Windows system DLLs. Programs compiled
 by `hemlockc` still link libwebsockets dynamically.
 
-## Known issue: a WebSocket program may not exit
+## Fixed: a WebSocket program that would not exit
 
-A program that `spawn()`s a task holding a `WebSocketServer` produces
-correct results and then **does not terminate** — the process sits there
-after the last statement runs. It affects the interpreter and compiled
-binaries alike.
+Until 2.10.x, a program that handed a `WebSocketServer` to `spawn()`
+produced correct results and then never terminated. The service thread
+loops `while (!shutdown) lws_service(ctx, 50)`, and that timeout argument
+has been ignored since libwebsockets 3.2 -- under the libuv event loop
+MSYS2 builds against, `lws_service()` blocks until something happens, so
+setting `shutdown` was never noticed and the `pthread_join()` in `close()`
+waited forever. It reproduced with no client connected at all, which is
+what ruled out the traffic and the shutdown ordering as causes.
 
-Narrowed down by elimination:
+Both close paths now call `lws_cancel_service()` before joining, the
+documented way to interrupt a blocked `lws_service()` from another thread.
 
-| program | exits? |
-|---------|--------|
-| `WebSocketServer(...)` then `close()`, no `spawn` | yes |
-| server + `spawn`, client round trip, `await`, `close()` | **no** |
-| server + `spawn`, **no client at all** (accept times out) | **no** |
-| server + `spawn`, no `await` | **no** |
+Same root cause as the client connect timeout fixed alongside it: that
+ignored argument is worth suspecting whenever libwebsockets appears to
+ignore a deadline.
 
-So the trigger is handing a server to `spawn()`, not the traffic and not
-the shutdown order: the spawned task gets a deep copy of the server
-object, and the copy's service thread outlives `close()` on the original
-(`stdlib/websocket.hml` already notes that a copy's `closed` flag does not
-track the original's). Nothing then stops the process from waiting on that
-thread at exit.
-
-Workarounds until it is fixed: run the server in its own process, or
-accept that the process needs killing — output written before the hang is
-complete and correct. `@stdlib/websocket`'s own `listen()` loop, which
-shuts down through a stop channel rather than relying on `close()` alone,
-is not affected; a program built on `Server.listen()` (as gn.hml is) exits
-normally.
-
-CI bounds every WebSocket invocation with `timeout` and asserts on output
-rather than exit status for this reason.
 
 ## Known issue: throw from a native callback on UCRT
 
@@ -274,9 +260,40 @@ runs per cell:
 
 | mechanism | msvcrt (cross builds, Wine, GCC 8.3) | UCRT64 + GCC 16 |
 |-----------|--------------------------------------|-----------------|
-| mingw default `setjmp` | ~1 in 8 crash | ~1 in 25 crash |
-| `Frame = 0` (**shipped**) | 0 in 60 | ~1 in 25 crash |
+| mingw default `setjmp` | ~1 in 8 crash | 8 in 15 crash |
+| `Frame = 0` (**shipped**) | 0 in 60 | 6-13 in 30 crash |
 | `__builtin_setjmp`/`longjmp` | 0 in 60 | **25 in 25** crash |
+| CRT's non-`ex` `_setjmp(buf, NULL)` | (works) | `array_sort` **30 in 30** |
+
+The UCRT backtrace names the culprit exactly:
+
+```
+#0 ntdll!RtlVirtualUnwind
+#2 ntdll!RtlUnwindEx
+#3 ucrtbase!.intrinsic_setjmpex
+#4 hml_throw (builtins_func.c:50)
+```
+
+so `longjmp` is unwinding and faulting partway through. Three attempts to
+stop it have failed, and the last two are worth recording so nobody spends
+the afternoon again:
+
+- **Zeroing `Frame`** works on msvcrt, whose non-`ex` `longjmp` reads it as
+  "do not unwind". Against `_setjmpex`, `Frame` is the target to unwind
+  *to*, so zero plausibly asks for an unwind all the way off the stack.
+- **Calling the CRT's non-`ex` `_setjmp` directly** (declared with an
+  `__asm__("_setjmp")` alias to bypass mingw's redirect to the intrinsic)
+  passes an isolated 400-frame test, and then makes things worse in the
+  real runtime: `array_sort` goes from intermittent to 30 in 30.
+- **`__builtin_setjmp`** does not work cross-function on x86_64 SEH targets
+  with a modern GCC at all.
+
+What this suggests is that the fix is not a `setjmp` spelling. Hemlock's
+`throw` longjmps out of native frames — a sort comparator, `map`, `filter`
+— and on this target that is what the unwinder cannot survive. A
+propagation convention where native callback sites check a pending-exception
+flag and return, rather than being jumped out of, would remove the
+unwinding entirely. That is a runtime design change, not a platform shim.
 
 Those UCRT rates are for the sort-comparator fixture. Exception-heavy
 code fails far more often on the same builds — `error_catchable` is 8/15

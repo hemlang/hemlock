@@ -279,10 +279,8 @@ jobs:
         await t;
         srv.close();
         EOF
-        # Bounded and judged on output, not on exit: a program that spawn()s a
-        # task holding a WebSocketServer does not terminate once it is done
-        # (see docs/advanced/windows.md). Without the bound this step would sit
-        # here until the job timeout rather than reporting anything.
+        # Bounded so a regression of the exit hang fixed in 2.10.x cannot sit
+        # here until the job timeout; the run is expected to exit 0.
         timeout 60 env -i PATH="/c/Windows/System32:/c/Windows" ./hemlock.exe ws.hml > ws.out 2>&1 || true
         cat ws.out
         grep -q "got: echo: hello ws" ws.out
