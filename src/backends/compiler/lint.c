@@ -107,9 +107,15 @@ static int lint_pure_equal(Expr *a, Expr *b) {
             if (a->as.number.is_float || b->as.number.is_float)
                 return a->as.number.is_float && b->as.number.is_float &&
                        a->as.number.float_value == b->as.number.float_value;
-            return a->as.number.is_u64 == b->as.number.is_u64 &&
-                   a->as.number.int_value == b->as.number.int_value &&
-                   a->as.number.uint_value == b->as.number.uint_value;
+            /* Compare only the field the flags select: a signed literal never
+             * sets uint_value (and vice versa), so comparing both read
+             * uninitialized memory and made `case 1:` twice look like two
+             * different values — the duplicate-case warning then silently
+             * depended on what the allocator happened to hand back. */
+            if (a->as.number.is_u64 != b->as.number.is_u64) return 0;
+            return a->as.number.is_u64
+                       ? a->as.number.uint_value == b->as.number.uint_value
+                       : a->as.number.int_value == b->as.number.int_value;
         case EXPR_STRING:
             return a->as.string && b->as.string &&
                    strcmp(a->as.string, b->as.string) == 0;

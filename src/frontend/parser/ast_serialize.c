@@ -325,14 +325,13 @@ static Type* deserialize_type_inner(DeserializeContext *ctx) {
         fprintf(stderr, "Error: Memory allocation failed in deserialize_type\n");
         return NULL;
     }
+    // Zero everything, like the Expr/Stmt deserializers below. Listing the
+    // fields by hand left the function-type members (fn_param_types,
+    // fn_param_names, fn_return_type, ...) holding whatever was on the heap,
+    // and type_free() then walked those as real pointers — running a bundled
+    // .hmlc corrupted the heap during teardown, after producing correct output.
+    memset(type, 0, sizeof(Type));
     type->kind = (TypeKind)kind_byte;
-    type->type_name = NULL;
-    type->element_type = NULL;
-    type->nullable = 0;
-    type->compound_types = NULL;
-    type->num_compound_types = 0;
-    type->type_args = NULL;
-    type->num_type_args = 0;
 
     if (type->kind == TYPE_CUSTOM_OBJECT || type->kind == TYPE_ENUM) {
         type->type_name = read_string_id(ctx);

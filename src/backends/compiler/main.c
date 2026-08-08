@@ -567,9 +567,23 @@ static int compile_c(const Options *opts, const char *c_file) {
     // Check if -lz is linkable (same check as runtime Makefile)
     char zlib_flag[8] = "";
 #ifdef _WIN32
-    // cmd.exe has no /dev/null or single-quote echo; MSYS2's gcc ships zlib
-    if (system("gcc --version >/dev/null 2>NUL") == 0) {
-        memcpy(zlib_flag, " -lz", 5);
+    // cmd.exe has no /dev/null or single-quote echo, and MinGW gcc cannot
+    // write to a POSIX null device either — so ask the toolchain where
+    // libz.a is (bare name echoed back when missing), the same probe the
+    // runtime Makefile uses. The old `>/dev/null` spelling made cmd.exe
+    // print "The system cannot find the path specified." on every compile
+    // and always report zlib as absent.
+    {
+        char zprobe_cmd[512];
+        snprintf(zprobe_cmd, sizeof(zprobe_cmd), "%s --print-file-name=libz.a", opts->cc);
+        FILE *zfp = popen(zprobe_cmd, "r");
+        if (zfp) {
+            char zprobe_buf[PATH_MAX];
+            if (fgets(zprobe_buf, sizeof(zprobe_buf), zfp) && strpbrk(zprobe_buf, "/\\")) {
+                memcpy(zlib_flag, " -lz", 5);
+            }
+            pclose(zfp);
+        }
     }
 #else
     if (system("echo 'int main(){return 0;}' | gcc -x c - -lz -o /dev/null 2>/dev/null") == 0) {

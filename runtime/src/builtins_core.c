@@ -212,7 +212,14 @@ static void hml_runtime_install_crash_handler(void) {
 // Windows: no fd-0 trap (no libwebsockets plugins close stdin there) and
 // no glibc backtrace machinery — both are POSIX-only concerns. Keep the
 // exported symbol so callers (builtins_http.c) link unchanged.
-void hml_runtime_pin_stdio(void) {}
+//
+// It does have one job here: force binary mode on stdout/stderr. The
+// constructor in src/shared/platform_win32.c does this too, but calling it
+// from the startup path is what guarantees the linker pulls that object out
+// of libhemlock_runtime.a for a program that references nothing else in it.
+void hml_runtime_pin_stdio(void) {
+    hml_win32_set_binary_stdio();
+}
 #endif
 
 void hml_runtime_init(int argc, char **argv) {

@@ -162,6 +162,64 @@ jobs:
         ./hemlock.exe bigexec.hml | tee big.out
         grep -q "big: true true 0" big.out
 
+    - name: Output is LF-only, not CRLF (byte-identical to POSIX)
+      run: |
+        printf 'print("ab");\nwrite("cd");\n' > lf.hml
+        # "ab\ncd" = 5 bytes; a text-mode stdout would make it 6
+        test "$(./hemlock.exe lf.hml | wc -c)" = "5"
+        ./hemlockc.exe -o lf.exe lf.hml
+        test "$(./lf.exe | wc -c)" = "5"
+
+    # continue-on-error: the Frame=0 fix this branch ships makes this reliable
+    # on msvcrt (0/60 there, and the cross job below asserts it hard), but has
+    # no effect on UCRT64, where the CRT unwinds regardless and this still
+    # fails roughly 1 run in 25. That residual crash predates this branch --
+    # a control build with the setjmp override disabled fails at the same rate
+    # -- so it is reported rather than gating. See the known issue in
+    # docs/advanced/windows.md; make this fatal when it is fixed.
+    - name: "Throw from a native callback (UCRT: known intermittent, see docs)"
+      continue-on-error: true
+      run: |
+        cat > thr.hml << 'EOF'
+        let a = [5, 3, 8, 1, 9, 2, 7, 4, 6, 0];
+        try { a.sort(fn(x, y) { throw "boom"; }); } catch (e) { print("caught: " + e); }
+        print("len=" + a.length);
+        EOF
+        ./hemlockc.exe -o thr.exe thr.hml
+        fails=0
+        for i in $(seq 1 25); do ./thr.exe > thr.out 2>/dev/null || fails=$((fails+1)); done
+        echo "crashed $fails/25 runs"
+        grep -q "caught: boom" thr.out
+        grep -q "len=10" thr.out
+        test "$fails" = "0"
+
+    - name: Runaway recursion throws instead of exhausting the PE stack
+      run: |
+        cat > rec.hml << 'EOF'
+        fn recurse(n: i32): i32 { return recurse(n + 1); }
+        try { recurse(0); } catch (e) { print(e); }
+        EOF
+        ./hemlock.exe rec.hml | grep -q "Maximum call stack depth exceeded"
+
+    - name: Compression works in compiled programs (zlib probe)
+      run: |
+        cat > gz.hml << 'EOF'
+        import { gzip, gunzip, deflate_compress, inflate_decompress } from "@stdlib/compression";
+        print("gzip:", gunzip(gzip("hello hello hello")));
+        print("deflate:", inflate_decompress(deflate_compress("hello hello hello")));
+        EOF
+        ./hemlock.exe gz.hml | grep -q "gzip: hello hello hello"
+        ./hemlockc.exe -o gz.exe gz.hml
+        ./gz.exe | tee gz.out
+        grep -q "gzip: hello hello hello" gz.out
+        grep -q "deflate: hello hello hello" gz.out
+
+    - name: Bundled .hmlc runs and exits cleanly
+      run: |
+        printf 'let x: i32 = 0b1010;\nprint(x);\n' > bun.hml
+        ./hemlock.exe --bundle bun.hml -o bun.hmlc
+        ./hemlock.exe bun.hmlc | grep -q "^10$"
+
     - name: Regex test (bundled musl/TRE engine)
       run: |
         cat > rx.hml << 'EOF'
@@ -422,3 +480,22 @@ jobs:
           -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 \
           runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lbcrypt -lz -o ffi.exe
         wine ./ffi.exe | grep -q "init 640x480 ffi"
+
+    - name: Throw from a native callback under Wine (non-unwinding longjmp)
+      run: |
+        export WINEDEBUG=-all
+        cat > thr.hml << 'HML'
+        let a = [5, 3, 8, 1, 9, 2, 7, 4, 6, 0];
+        try { a.sort(fn(x, y) { throw "boom"; }); } catch (e) { print("caught: " + e); }
+        print("len=" + a.length);
+        HML
+        wine ./hemlockc.exe -c thr.hml
+        x86_64-w64-mingw32-gcc-posix -O1 thr.c -Iruntime/include -Iinclude \
+          -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 \
+          runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lbcrypt -lz -o thr.exe
+        # This toolchain is msvcrt, where zeroing the jmp_buf Frame does stop
+        # the SEH unwind, so the guarantee is real here and asserted hard:
+        # before the fix this crashed ~1 run in 8.
+        for i in $(seq 1 25); do wine ./thr.exe > thr.out 2>/dev/null || exit 1; done
+        grep -q "caught: boom" thr.out
+        grep -q "len=10" thr.out

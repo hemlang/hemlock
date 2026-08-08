@@ -57,6 +57,33 @@ The Makefile detects MSYS2/MinGW via `uname` and configures itself the
 same way as a cross build. `make mingw-clean` removes only cross-build
 artifacts and never touches a native build in the same checkout.
 
+### Other native shells and toolchains
+
+MSYS2 is what CI uses, but nothing in the build requires it. Any
+POSIX-flavored shell whose `uname` reports `MINGW*`/`MSYS*` (Git Bash
+does) plus GNU make and a **POSIX-threads** mingw-w64 GCC on `PATH` is
+enough — for example the toolchain that ships with
+[Strawberry Perl](https://strawberryperl.com/) (`C:\Strawberry\c\bin`),
+which brings its own zlib and libffi, so FFI and compression are both
+enabled:
+
+```bash
+make -j8            # hemlock.exe, hemlockc.exe, libhemlock_runtime.a
+./hemlock.exe examples/hello.hml
+```
+
+Header sets older than mingw-w64 6.0 lack `<afunix.h>` and
+`PROCESSOR_ARCHITECTURE_ARM64`; `include/hemlock_platform.h` declares
+both itself when they are missing (the values are fixed by the Win32
+ABI), so an older GCC is not a blocker.
+
+One wrinkle worth knowing when driving a native build from a POSIX-ish
+shell: the shell rewrites POSIX paths in **command-line arguments** into
+Windows paths, so `./hemlock.exe /tmp/x.hml` works, but a `/tmp/...`
+string *inside* a Hemlock program is passed through untouched and
+resolves as `C:\tmp\...`, which normally does not exist. Use paths the
+Windows side understands (or read one from `TEMP`) in program source.
+
 ## How the port works
 
 - `include/hemlock_platform.h` is the platform compatibility layer:
@@ -90,7 +117,23 @@ artifacts and never touches a native build in the same checkout.
   exactly as they must be written for `/bin/sh` on POSIX.
 - AF_UNIX sockets use Windows 10's native support (`afunix.h`).
 - File I/O defaults to binary mode (no CRLF translation) to keep byte
-  counts and written data identical across platforms.
+  counts and written data identical across platforms. **stdout and stderr
+  are put in binary mode too**, so `print()` writes a single `\n` exactly
+  as it does on POSIX and a program's output is byte-identical across
+  platforms. stdin is left in text mode, where the CRT's CRLF→LF
+  translation is what makes `read_line()` return `abc` and not `abc\r`.
+- `setjmp` zeroes the `jmp_buf`'s `Frame` field so the CRT's `longjmp`
+  skips its SEH unwind. mingw-w64's default records a frame, and unwinding
+  through generated closure frames faults inside `RtlVirtualUnwind`;
+  Hemlock's `throw` runs no destructors and no defers, so there is nothing
+  for an unwind to do. This is effective on msvcrt and not on the UCRT —
+  see [Known issue: throw from a native callback](#known-issue-throw-from-a-native-callback-on-ucrt).
+- `hemlock.exe`/`hemlockc.exe` reserve a 64 MB stack
+  (`-Wl,--stack`). The PE default of 2 MB is exhausted long before the
+  tree-walking interpreter reaches its own 8000-frame recursion guard, so
+  runaway recursion died as a silent `STATUS_STACK_OVERFLOW` instead of
+  throwing a catchable error. Reserve is address space, not committed
+  memory.
 
 ## Limitations
 
@@ -128,6 +171,87 @@ including `@stdlib/uuid`), command execution and process management (`exec()`/`e
 works on Windows. Note that `@stdlib/shell`'s Unix-command
 conveniences (`ls()`, `which()`, `pwd()`, …) shell out to POSIX tools
 and stay Unix-only.
+
+## Known issue: throw from a native callback on UCRT
+
+A `throw` that crosses a native runtime frame — the clearest case is a
+comparator passed to `array.sort()` — can segfault in **compiled**
+programs before the `catch` block runs. The interpreter is unaffected
+(it does not use `setjmp` at all), and so is any throw that does not
+cross a native frame.
+
+The cause is the CRT's `longjmp` driving an SEH unwind (`RtlUnwindEx`)
+through the generated closure frames. Hemlock's `throw` has nothing to
+unwind, so the fix is to suppress it, and zeroing the `jmp_buf`'s
+`Frame` field does that on msvcrt. The UCRT unwinds regardless of that
+field, so the crash remains there. Measured with
+`try { a.sort(fn(x, y) { throw "boom"; }); } catch (e) { ... }`, 25-60
+runs per cell:
+
+| mechanism | msvcrt (cross builds, Wine, GCC 8.3) | UCRT64 + GCC 16 |
+|-----------|--------------------------------------|-----------------|
+| mingw default `setjmp` | ~1 in 8 crash | ~1 in 25 crash |
+| `Frame = 0` (**shipped**) | 0 in 60 | ~1 in 25 crash |
+| `__builtin_setjmp`/`longjmp` | 0 in 60 | **25 in 25** crash |
+
+That last row is why the nonlocal-goto builtins are not used even though
+they look like the ideal answer: GCC's `__builtin_setjmp`/
+`__builtin_longjmp` do not work cross-function on x86_64 SEH targets
+with a modern GCC — the jump lands on a garbage address (`rip` in no
+known function, every frame `??`), turning an intermittent failure into
+a deterministic one.
+
+To A/B this yourself, `HEMLOCK_WIN32_CRT_SETJMP` leaves `setjmp`
+untouched. Define it for **both** the runtime and the generated C:
+
+```bash
+make -C runtime clean
+make -C runtime static CC="gcc -DHEMLOCK_WIN32_CRT_SETJMP"
+cp runtime/build/libhemlock_runtime.a ./
+hemlockc.exe --cc "gcc -DHEMLOCK_WIN32_CRT_SETJMP" -o thr.exe thr.hml
+```
+
+Defining it on only one side makes `hml_throw` jump on a buffer the other
+mechanism filled, which crashes on every run — a result that looks
+alarming and means nothing.
+
+The `windows-native` CI job reports this case without gating on it; the
+Wine cross job asserts it hard, since the fix is real on msvcrt.
+
+## Running the test suites on Windows
+
+Where a native Windows build stands:
+
+```bash
+make test-borrow test-lint test-check test-cli        # fully green
+make test-contracts test-formatter test-bundler       # fully green
+
+make parity                                           # 306/320
+make test-compiler                                    # 48/54
+make test                                             # 678 pass, 39 fail
+```
+
+`make parity` reports no interpreter-only and no compiler-only failures —
+the two backends agree with each other on every fixture. What remains
+failing on both is a fixture that pins POSIX behavior, not a parity
+break:
+
+| Fixtures | Why they fail on Windows |
+|----------|--------------------------|
+| `file_io`, `filesystem`, `file_read_binary`, `file_stat_throws`, `fs_open_fd`, `write_file_buffer`, `stdlib_fs` | The test source hardcodes `/tmp/...`, which resolves to `C:\tmp` |
+| `signals`, `signals_zero_arg`, `signal_tty_constants` | `SIGUSR1`/`SIGHUP` etc. cannot be raised or handled |
+| `pipe`, `poll_constants` | `WSAPoll` only polls sockets |
+| `process`, `spawn` | `fork()` has no Windows equivalent |
+| `exec`, `exec_argv_quoting` | `cmd.exe`'s `echo` emits CRLF and quotes differently |
+| `sockets` | `.expected` pins Linux's `SOL_SOCKET`/`SO_REUSEADDR` (Windows uses `0xFFFF`/`4`) |
+
+The interpreter suite (`make test`) fails the same set plus the
+POSIX-only stdlib categories (`stdlib_process`, `stdlib_ipc`,
+`stdlib_unix_socket`, `stdlib_shell`'s Unix-command helpers,
+`stdlib_crypto`'s OpenSSL functions, and anything HTTP). Neither runner
+has a skip-on-Windows mechanism yet, so both exit non-zero; CI covers
+Windows with the curated smoke tests in
+`.github/workflows/windows-mingw.yml` instead.
 
 ## FFI on Windows (raylib games, native bindings)
 

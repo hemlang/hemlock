@@ -120,13 +120,28 @@ HmlValue hml_zlib_compress(HmlValue data, HmlValue level_val) {
     return buf;
 }
 
+// Read a decompression size limit out of a Hemlock value.
+//
+// These builtins document their limit as i64, but `zlib_decompress(buf, 1000)`
+// passes an i32 — and reading .as.as_i64 out of a value tagged i32 picks up
+// whatever the union's high half happened to hold, which is how a 1000-byte
+// limit turned into a multi-exabyte malloc ("gzip_decompress() memory
+// allocation failed"). hml_to_i64 goes through the type tag.
+static size_t hml_decompress_max_size(HmlValue val, const char *fn) {
+    int64_t max_size = hml_to_i64(val);
+    if (max_size <= 0) {
+        hml_runtime_error("%s() max_size must be positive, got %lld", fn, (long long)max_size);
+    }
+    return (size_t)max_size;
+}
+
 // zlib_decompress(data: buffer, max_size: i64) -> string
 HmlValue hml_zlib_decompress(HmlValue data, HmlValue max_size_val) {
     if (data.type != HML_VAL_BUFFER || !data.as.as_buffer) {
         hml_runtime_error("zlib_decompress() first argument must be buffer");
     }
 
-    size_t max_size = (size_t)max_size_val.as.as_i64;
+    size_t max_size = hml_decompress_max_size(max_size_val, "zlib_decompress");
     HmlBuffer *buf = data.as.as_buffer;
 
     // Handle empty input
@@ -236,7 +251,7 @@ HmlValue hml_gzip_decompress(HmlValue data, HmlValue max_size_val) {
         hml_runtime_error("gzip_decompress() first argument must be buffer");
     }
 
-    size_t max_size = (size_t)max_size_val.as.as_i64;
+    size_t max_size = hml_decompress_max_size(max_size_val, "gzip_decompress");
     HmlBuffer *buf = data.as.as_buffer;
 
     // Handle empty input
@@ -301,7 +316,14 @@ HmlValue hml_gzip_decompress(HmlValue data, HmlValue max_size_val) {
 
 // zlib_compress_bound(source_len: i64) -> i64
 HmlValue hml_zlib_compress_bound(HmlValue source_len_val) {
-    uLong source_len = (uLong)source_len_val.as.as_i64;
+    // hml_to_i64, not .as.as_i64: callers pass an i32 literal (see
+    // hml_decompress_max_size)
+    int64_t len = hml_to_i64(source_len_val);
+    if (len < 0) {
+        hml_runtime_error("zlib_compress_bound() source_len must not be negative, got %lld",
+                          (long long)len);
+    }
+    uLong source_len = (uLong)len;
     uLong bound = compressBound(source_len);
     return hml_val_i64((int64_t)bound);
 }

@@ -16,6 +16,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Windows: `print()` no longer emits CRLF.** `_fmode = _O_BINARY` only covers
+  files opened after startup — stdout and stderr are already open in text mode by
+  then, so every `\n` a Hemlock program wrote became `\r\n`. Byte counts, hashes
+  and diffs of a program's output all differed from the same program on POSIX,
+  which failed the entire parity suite on `\r` alone. Both are now `_setmode()`d
+  to binary; stdin stays in text mode so `read_line()` keeps returning `abc`
+  rather than `abc\r` for console and CRLF-file input.
+
+- **Windows (msvcrt): a `throw` from inside a native callback no longer
+  segfaults intermittently.** mingw-w64 defines `setjmp` so that the CRT's
+  `longjmp` drives a full SEH unwind, and unwinding through generated closure
+  frames crashed inside `RtlVirtualUnwind` on roughly one compiled run in
+  eight — a `throw` from an `array.sort()` comparator died before its `catch`
+  block ran. Hemlock's throw never unwinds (no destructors, no defers, same as
+  POSIX `longjmp`), so the `jmp_buf`'s `Frame` field is now zeroed, which is
+  what makes the CRT skip the unwind: 5/40 crashes becomes 0/60 on msvcrt,
+  covering cross builds and Wine.
+
+  The UCRT unwinds regardless of that field, so this case still fails there
+  about 1 run in 25. That is pre-existing rather than new, and it is now
+  documented with measurements, a repro, and an `HEMLOCK_WIN32_CRT_SETJMP`
+  escape hatch for A/B-ing the mechanisms — see "throw from a native callback
+  on UCRT" in `docs/advanced/windows.md`. Notably GCC's
+  `__builtin_setjmp`/`__builtin_longjmp`, which look like the obvious fix,
+  must not be used: they do not work cross-function on x86_64 SEH targets with
+  a modern GCC and turn the intermittent crash into a deterministic one.
+
+- **Windows: deep recursion in the interpreter throws instead of dying
+  silently.** The PE default 2 MB stack ran out well before the interpreter's
+  8000-frame guard, so infinite recursion exited with no output at all instead
+  of a catchable "Maximum call stack depth exceeded". `hemlock.exe` and
+  `hemlockc.exe` now reserve 64 MB of stack address space.
+
+- **Windows: compiled programs get zlib again.** Both zlib probes shelled out to
+  `gcc ... -o /dev/null`, which a native MinGW gcc cannot write, so the runtime
+  compiled `gzip`/`deflate`/`crc32` as "zlib not installed" stubs and
+  `hemlockc` left `-lz` off the link line. They now ask the toolchain for
+  `libz.a` instead. The old `system("gcc --version >/dev/null 2>NUL")` spelling
+  also made cmd.exe print "The system cannot find the path specified." on every
+  single compile.
+
+- **Windows: `eprint()` output no longer jumps ahead of `print()` output.** The
+  interpreter never flushed stdout before writing to stderr, so with output
+  piped, stderr lines landed out of order relative to the stdout lines around
+  them. The compiled runtime already flushed after every print.
+
+- **Windows: builds work on mingw-w64 header sets that predate `<afunix.h>` and
+  `PROCESSOR_ARCHITECTURE_ARM64`** (for example the toolchain shipped with
+  Strawberry Perl). Both are ABI-fixed values, declared locally when the
+  toolchain's headers lack them, so a native build no longer requires MSYS2
+  specifically.
+
+- **Running a bundled `.hmlc` corrupted the heap on exit.** The AST
+  deserializer initialized a `Type` field by field and never touched the
+  function-type members, so `type_free()` walked whatever the heap had left in
+  `fn_param_types`/`fn_param_names`/`fn_return_type` and freed it. The bundle
+  produced correct output first and then aborted during teardown. It now zeroes
+  the struct, as the `Expr` and `Stmt` deserializers next to it already did.
+
+- **`zlib_decompress()`/`gzip_decompress()`/`zlib_compress_bound()` read the
+  wrong half of their size argument in compiled code.** All three took the
+  documented `i64` straight out of the value union, but callers pass an i32
+  literal — so the limit picked up whatever the union's high half held, and
+  `gzip_decompress(buf, 1000)` failed with "memory allocation failed" from a
+  multi-exabyte `malloc`. They now convert through the type tag and reject
+  non-positive sizes with a clear message.
+
+- **The duplicate-case lint depended on uninitialized memory.** Comparing two
+  integer literals compared both `int_value` and `uint_value`, but a signed
+  literal never sets `uint_value`, so `case 1:` appearing twice could look like
+  two different values and the warning silently vanished. The comparison now
+  follows the type flags, and the number-literal constructors initialize every
+  field.
+
 - The borrow checker now reports a leak when a resource is released on some
   branches but not all. The branch merge already recorded that state and used it
   for `possible double free: 'p' may already be freed on some paths`, but the

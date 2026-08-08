@@ -11,6 +11,58 @@
 #include "hemlock_value.h"
 #include <setjmp.h>
 
+// ---- Non-unwinding setjmp on Windows/x64 ----
+// mingw-w64 defines setjmp(BUF) as _setjmp(BUF, __builtin_frame_address(0)),
+// which records a target frame; the CRT's longjmp then drives a full SEH
+// unwind (RtlUnwindEx) back to it. Hemlock's throw deliberately does not
+// unwind — hml_throw() runs no destructors and no defers, exactly like
+// longjmp on POSIX — and unwinding through the generated closure frames
+// crashed inside RtlVirtualUnwind on roughly one run in ten (a throw from
+// inside an array.sort() comparator segfaulted before the catch block ran,
+// with the throw depth deciding whether it survived).
+//
+// The CRT's longjmp skips the unwind when the jmp_buf's Frame field is 0, so
+// zero it after setjmp has saved the registers. Passing a NULL frame instead
+// only works on the msvcrt spelling: against the UCRT, _setjmp is #defined to
+// GCC's __intrinsic_setjmpex builtin, which fills the buffer itself and stores
+// the real frame regardless of the argument. Writing the field afterwards is
+// independent of which spelling the toolchain picked.
+//
+// What this does and does not fix, measured (table in
+// docs/advanced/windows.md):
+//   - msvcrt (cross builds, Wine, MinGW GCC 8.3): 5/40 crashes -> 0/60.
+//   - UCRT64 + GCC 16: no effect; the unwind still happens, ~1/25. That
+//     residual crash predates this change and is a documented known issue.
+//
+// Do NOT "fix" the UCRT case with __builtin_setjmp/__builtin_longjmp. It looks
+// ideal — no CRT, no unwinder, and it does give 0/60 on GCC 8.3 — but GCC's
+// nonlocal-goto builtins do not work cross-function on x86_64 SEH targets with
+// a modern GCC: on UCRT64/GCC 16 the jump lands on a garbage address and the
+// same test crashes 25/25, with rip in no known function and every frame `??`.
+// That trades an intermittent failure for a deterministic one. Define
+// HEMLOCK_WIN32_CRT_SETJMP to leave setjmp completely alone, which is how that
+// A/B was run (`--cc "gcc -DHEMLOCK_WIN32_CRT_SETJMP"`, and the same define on
+// the runtime — applying it to only one side makes hml_throw jump on a buffer
+// the other mechanism filled, which crashes every time and looks like a result).
+//
+// Normalizing the longjmp return to 1 is safe here: hml_throw is the only
+// caller and always passes 1. Deliberately no temporary — a local modified
+// between setjmp and longjmp would need to be volatile.
+//
+// <setjmp.h> is include-guarded and already included above, so nothing can
+// redefine setjmp back afterwards.
+#if defined(_WIN32) && defined(__x86_64__) && !defined(__EMSCRIPTEN__) && \
+    !defined(HEMLOCK_WIN32_CRT_SETJMP)
+#include <stddef.h>
+_Static_assert(offsetof(_JUMP_BUFFER, Frame) == 0,
+               "jmp_buf layout changed: Frame must be the first field");
+#undef setjmp
+#define setjmp(BUF) \
+    (_setjmp((BUF), __builtin_frame_address(0)) \
+        ? 1 \
+        : (((_JUMP_BUFFER *)(void *)(BUF))->Frame = 0, 0))
+#endif
+
 // Forward declarations
 typedef struct HmlClosureEnv HmlClosureEnv;
 
