@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <time.h>
 #include <zlib.h>
 #include "frontend.h"
 #include "hemlock_compat.h"
@@ -1733,6 +1734,28 @@ static int run_check(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+    // Seed the RNG backing rand()/randint()/etc. (@stdlib/random, @stdlib/math)
+    // before anything else runs. Without this, every process starts from the
+    // C standard's fixed default rand() state, so the first N random draws
+    // of every fresh Hemlock process are 100% deterministic and identical
+    // across processes -- e.g. two servers picking a "random" port on
+    // startup will always pick the exact same one. Prefer /dev/urandom for
+    // real entropy; fall back to time+pid if it's unavailable.
+    {
+        unsigned int seed_value = 0;
+        FILE *urandom = fopen("/dev/urandom", "rb");
+        if (urandom) {
+            if (fread(&seed_value, sizeof(seed_value), 1, urandom) != 1) {
+                seed_value = 0;
+            }
+            fclose(urandom);
+        }
+        if (seed_value == 0) {
+            seed_value = (unsigned int)time(NULL) ^ (unsigned int)getpid();
+        }
+        srand(seed_value);
+    }
+
     // Check for embedded payload FIRST (before any argument parsing)
     // This allows packaged executables to run their embedded code
     size_t payload_size;
