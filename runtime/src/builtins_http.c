@@ -2295,6 +2295,15 @@ HmlValue hml_lws_ws_close(HmlValue conn_val) {
         conn->closed = 1;
         conn->shutdown = 1;
 
+        // Wake the service thread so it re-checks `shutdown`: its loop is
+        // `while (!shutdown) lws_service(ctx, 50)`, and that timeout argument
+        // has been ignored since lws 3.2 -- under the libuv event loop
+        // lws_service() blocks until something happens, so the flag alone is
+        // never noticed and the join below waits forever.
+        if (conn->has_own_thread && conn->context) {
+            lws_cancel_service(conn->context);
+        }
+
         if (conn->has_own_thread) {
             pthread_join(conn->service_thread, NULL);
         }
@@ -2438,6 +2447,12 @@ HmlValue hml_lws_ws_server_close(HmlValue server_val) {
         // be in the middle of a 100ms timeout, so 200ms gives plenty of
         // margin.
         usleep(200000);
+        // Wake the service thread so it re-checks `shutdown` -- see the note
+        // in the connection close above. Without this the join never returns
+        // and the process hangs after its last statement.
+        if (server->context) {
+            lws_cancel_service(server->context);
+        }
         pthread_join(server->service_thread, NULL);
         pthread_mutex_destroy(&server->pending_mutex);
         if (server->context) {

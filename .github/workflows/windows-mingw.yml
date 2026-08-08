@@ -311,13 +311,12 @@ jobs:
         port=$((20000 + RANDOM % 30000))
         next_port() { port=$((port + 1)); echo $port; }
 
-        # Every invocation is bounded and judged on its output, not on its exit:
-        # a program that spawn()s a task holding a WebSocketServer does not
-        # terminate once it is done (see "WebSocket program does not exit" in
-        # docs/advanced/windows.md). Waiting on exit here is what burned two
-        # 55-minute jobs. Bounding each run keeps a hang to seconds, and the
-        # round trip itself -- which is what this step tests -- still has to
-        # produce the right answer.
+        # Bounded so that a regression of the exit hang fixed in 2.10.x (a
+        # spawned task holding a WebSocketServer used to keep the process
+        # alive forever, which burned two 55-minute jobs) costs seconds here
+        # instead of the whole budget. The runs are expected to exit 0 now;
+        # the assertion is on output so a hang still reports the real
+        # symptom rather than a bare timeout.
         run_ws() {  # run_ws <label> <command...>; the port is appended
           local label="$1"; shift
           local out="ws_$label.out"
