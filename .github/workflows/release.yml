@@ -209,6 +209,85 @@ jobs:
         name: hemlock-macos-arm64
         path: hemlock-macos-arm64.tar.gz
 
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: UCRT64
+        update: false
+        install: >-
+          make
+          zip
+          mingw-w64-ucrt-x86_64-gcc
+          mingw-w64-ucrt-x86_64-zlib
+          mingw-w64-ucrt-x86_64-libffi
+          mingw-w64-ucrt-x86_64-libwebsockets
+
+    # WIN_LWS_STATIC=1 is what makes the shipped .exe usable: a dynamic build
+    # needs libwebsockets.dll, libssl-3-x64.dll and libuv-1.dll on PATH and
+    # exits silently without them, i.e. it would only run inside MSYS2. Costs
+    # ~7.6 MB.
+    - name: Build release binaries (libwebsockets statically linked)
+      run: make -j4 WIN_LWS_STATIC=1 all
+
+    - name: Verify the binaries are self-contained
+      run: |
+        # Only Windows system DLLs may be required
+        objdump -p hemlock.exe | grep -i "DLL Name" | tee deps.txt
+        ! grep -iE "libwebsockets|libssl|libcrypto|libuv|libwinpthread|zlib1|libgcc" deps.txt
+        # And prove it: run with nothing from MSYS2 on PATH
+        env -i PATH="/c/Windows/System32:/c/Windows" ./hemlock.exe --version
+
+    - name: Smoke test (WebSocket support is the point of this build)
+      run: |
+        cat > ws.hml << 'EOF'
+        import { WebSocketServer, WebSocket } from "@stdlib/websocket";
+        import { from_bytes } from "@stdlib/strings";
+        async fn serve(srv) {
+            let c = srv.accept(5000);
+            if (c == null) { print("accept: timeout"); return 1; }
+            c.send_text("echo: " + c.recv_text(5000));
+            c.close();
+            return 0;
+        }
+        let srv = WebSocketServer("127.0.0.1", 19311);
+        let t = spawn(serve, srv);
+        let ws = WebSocket("ws://127.0.0.1:19311");
+        ws.send_text("hello ws");
+        print("got:", ws.recv_text(5000));
+        ws.close();
+        await t;
+        srv.close();
+        EOF
+        env -i PATH="/c/Windows/System32:/c/Windows" ./hemlock.exe ws.hml | tee ws.out
+        grep -q "got: echo: hello ws" ws.out
+
+    - name: Package
+      run: |
+        mkdir -p hemlock-windows-x86_64
+        cp hemlock.exe hemlock-windows-x86_64/
+        cp hemlockc.exe hemlock-windows-x86_64/
+        cp libhemlock_runtime.a hemlock-windows-x86_64/
+        cp -r stdlib hemlock-windows-x86_64/
+        mkdir -p hemlock-windows-x86_64/include
+        cp -r runtime/include/* hemlock-windows-x86_64/include/ 2>/dev/null || true
+        cp -r include/* hemlock-windows-x86_64/include/ 2>/dev/null || true
+        cp README.md LICENSE hemlock-windows-x86_64/ 2>/dev/null || cp README.md hemlock-windows-x86_64/
+        zip -r hemlock-windows-x86_64.zip hemlock-windows-x86_64
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: hemlock-windows-x86_64
+        path: hemlock-windows-x86_64.zip
+
   build-wasm:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -255,7 +334,7 @@ jobs:
         path: hemlock-wasm.tar.gz
 
   release:
-    needs: [build-linux, build-macos-intel, build-macos-arm, build-wasm]
+    needs: [build-linux, build-macos-intel, build-macos-arm, build-windows, build-wasm]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -274,6 +353,7 @@ jobs:
 
           - **hemlock** (interpreter): Third-party libs statically linked, only requires glibc
           - **hemlockc** (compiler): Fully statically linked for maximum portability
+          - **hemlock-windows-x86_64.zip**: Standalone hemlock.exe / hemlockc.exe - no MSYS2 or DLLs needed
           - **hemlock-wasm** (WASM interpreter): Run Hemlock in the browser or Node.js
 
           The interpreter supports all features including runtime FFI (`ffi_open`, `ffi_bind`).
@@ -310,11 +390,13 @@ jobs:
           ### Platform Notes
           - **Linux x86_64**: Both binaries work on any glibc-based distro (Ubuntu, Debian, Fedora, etc.)
           - **macOS x86_64/arm64**: Both binaries work out of the box
+          - **Windows x86_64**: Self-contained; only system DLLs required. Includes @stdlib/websocket and @stdlib/http (libwebsockets is linked in). hemlockc.exe needs a MinGW-w64 GCC on PATH to compile programs, since it shells out to gcc.
           - **WASM**: Runs in any modern browser or Node.js environment
         files: |
           artifacts/hemlock-linux-x86_64/hemlock-linux-x86_64.tar.gz
           artifacts/hemlock-macos-x86_64/hemlock-macos-x86_64.tar.gz
           artifacts/hemlock-macos-arm64/hemlock-macos-arm64.tar.gz
+          artifacts/hemlock-windows-x86_64/hemlock-windows-x86_64.zip
           artifacts/hemlock-wasm/hemlock-wasm.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

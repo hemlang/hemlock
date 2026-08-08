@@ -8,6 +8,13 @@ ifneq (,$(findstring mingw,$(CC))$(findstring MINGW,$(shell uname))$(findstring 
     HEMLOCK_WINDOWS = 1
 endif
 
+# Building ON Windows vs cross-compiling for it -- see the top-level Makefile
+ifeq ($(HEMLOCK_WINDOWS),1)
+ifneq (,$(findstring MINGW,$(shell uname))$(findstring MSYS,$(shell uname)))
+    HEMLOCK_WINDOWS_NATIVE = 1
+endif
+endif
+
 # Platform-specific settings
 ifeq ($(HEMLOCK_WINDOWS),1)
     # FFI enabled when the toolchain can link libffi (mirrors the top-level
@@ -83,10 +90,15 @@ ifeq ($(ZLIB_CHECK),yes)
     LDFLAGS += -lz
 endif
 
-# Check if libwebsockets is available (host pkg-config is meaningless when
-# cross-compiling for Windows, so skip the probe there)
+# Check if libwebsockets is available. A native MSYS2 build can ask its own
+# pkg-config; a cross build's host pkg-config would answer about the Linux
+# copy, so it gets no probe (mirrors the top-level Makefile).
 ifeq ($(HEMLOCK_WINDOWS),1)
+ifeq ($(HEMLOCK_WINDOWS_NATIVE),1)
+LWS_CHECK := $(shell pkg-config --exists libwebsockets 2>/dev/null && echo yes)
+else
 LWS_CHECK :=
+endif
 else
 LWS_CHECK := $(shell pkg-config --exists libwebsockets 2>/dev/null && echo yes)
 endif

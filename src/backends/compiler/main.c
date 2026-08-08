@@ -662,9 +662,9 @@ static int compile_c(const Options *opts, const char *c_file) {
     }
 #endif
 
-    // Check if -lwebsockets is linkable (with extra paths)
-    char websockets_flag[16] = "";
-    (void)websockets_flag;  // only read in the POSIX link commands below
+    // Check if -lwebsockets is linkable (with extra paths).
+    // Sized for the Windows spelling, which needs an explicit -Bdynamic.
+    char websockets_flag[48] = "";
 #ifndef _WIN32
     char ws_test_cmd[1024];
     snprintf(ws_test_cmd, sizeof(ws_test_cmd),
@@ -672,6 +672,36 @@ static int compile_c(const Options *opts, const char *c_file) {
         extra_lib_paths);
     if (system(ws_test_cmd) == 0) {
         memcpy(websockets_flag, " -lwebsockets", 14);  // Safe: 14 bytes including null, fits in 16-byte buffer
+    }
+#else
+    // A native MSYS2 runtime is built with libwebsockets when pkg-config finds
+    // it, and then every compiled program that touches @stdlib/http or
+    // @stdlib/websocket needs it on the link line too — without this the
+    // runtime's lws objects get pulled in and the link dies on
+    // "undefined reference to lws_client_connect_via_info". Probed the same
+    // way as zlib/libffi above, since cmd.exe cannot run the compile-and-link
+    // test the POSIX branch uses.
+    //
+    // -Wl,-Bdynamic is required, not cosmetic: these link commands pass
+    // -static, under which the linker looks for libwebsockets.a and fails
+    // ("have you installed the static version of the websockets library ?").
+    // MSYS2 ships an import library (libwebsockets.dll.a) plus a differently
+    // named libwebsockets_static.a, so ask for the shared one explicitly --
+    // exactly what the interpreter's own LDFLAGS do by putting -lwebsockets
+    // after -Wl,-Bdynamic. Nothing follows it on the command line.
+    {
+        char wsprobe_cmd[512];
+        snprintf(wsprobe_cmd, sizeof(wsprobe_cmd),
+                 "%s --print-file-name=libwebsockets.dll.a", opts->cc);
+        FILE *wfp = popen(wsprobe_cmd, "r");
+        if (wfp) {
+            char wsprobe_buf[PATH_MAX];
+            if (fgets(wsprobe_buf, sizeof(wsprobe_buf), wfp) && strpbrk(wsprobe_buf, "/\\")) {
+                snprintf(websockets_flag, sizeof(websockets_flag),
+                         " -Wl,-Bdynamic -lwebsockets");
+            }
+            pclose(wfp);
+        }
     }
 #endif
 
@@ -822,9 +852,10 @@ static int compile_c(const Options *opts, const char *c_file) {
         q_out = shell_quote(opts->output_file);
         char *q_runtime_path_s = shell_quote(runtime_path);
         n = (q_out && q_runtime_path_s) ? snprintf(cmd, sizeof(cmd),
-            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32 -lbcrypt%s",
+            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32 -lbcrypt%s%s",
             opts->cc, opt_flag, q_out, q_c,
-            q_inc, q_runtime_path_s, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag)
+            q_inc, q_runtime_path_s, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag,
+            websockets_flag)
             : (int)sizeof(cmd);
         free(q_runtime_path_s);
 #elif defined(__APPLE__)
@@ -872,9 +903,10 @@ static int compile_c(const Options *opts, const char *c_file) {
         // <repo>/include.
         char *q_runtime_path = shell_quote(runtime_path);
         n = (q_out && q_runtime_path) ? snprintf(cmd, sizeof(cmd),
-            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32 -lbcrypt%s",
+            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32 -lbcrypt%s%s",
             opts->cc, opt_flag, q_out, q_c,
-            q_inc, q_runtime_path, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag)
+            q_inc, q_runtime_path, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag,
+            websockets_flag)
             : (int)sizeof(cmd);
         free(q_runtime_path);
 #else
