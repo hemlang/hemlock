@@ -170,13 +170,14 @@ jobs:
         ./hemlockc.exe -o lf.exe lf.hml
         test "$(./lf.exe | wc -c)" = "5"
 
-    # TEMPORARY continue-on-error: this step fails on UCRT64 for a cause that
-    # is NOT the SEH unwinder (it still crashes with GCC's nonlocal-goto
-    # builtins, which have no unwinder to invoke), and it is not reproducible
-    # on a msvcrt toolchain. Left non-fatal so the diagnostic step below and
-    # the remaining steps report instead of being skipped. Revert to a hard
-    # failure once the UCRT cause is understood.
-    - name: Throw from a native callback (non-unwinding longjmp)
+    # continue-on-error: the Frame=0 fix this branch ships makes this reliable
+    # on msvcrt (0/60 there, and the cross job below asserts it hard), but has
+    # no effect on UCRT64, where the CRT unwinds regardless and this still
+    # fails roughly 1 run in 25. That residual crash predates this branch --
+    # a control build with the setjmp override disabled fails at the same rate
+    # -- so it is reported rather than gating. See the known issue in
+    # docs/advanced/windows.md; make this fatal when it is fixed.
+    - name: "Throw from a native callback (UCRT: known intermittent, see docs)"
       continue-on-error: true
       run: |
         cat > thr.hml << 'EOF'
@@ -185,10 +186,12 @@ jobs:
         print("len=" + a.length);
         EOF
         ./hemlockc.exe -o thr.exe thr.hml
-        # SEH-unwinding longjmp crashed here about one run in ten on msvcrt
-        for i in $(seq 1 25); do ./thr.exe > thr.out || exit 1; done
+        fails=0
+        for i in $(seq 1 25); do ./thr.exe > thr.out 2>/dev/null || fails=$((fails+1)); done
+        echo "crashed $fails/25 runs"
         grep -q "caught: boom" thr.out
         grep -q "len=10" thr.out
+        test "$fails" = "0"
 
     - name: Runaway recursion throws instead of exhausting the PE stack
       run: |
@@ -288,82 +291,6 @@ jobs:
         grep -q "dt: 0.016" ffi.out
         ./hemlockc.exe -o ffi.exe ffi.hml
         ./ffi.exe | grep -q "init 640x480 ffi"
-
-    # TEMPORARY diagnostic: collects the facts needed to identify the UCRT-only
-    # crash, none of which are obtainable on a msvcrt toolchain. Remove once
-    # the cause is found. Never fails the job -- its output IS the result.
-    # Runs last because the control build below replaces libhemlock_runtime.a.
-    - name: Diagnose the UCRT throw crash (temporary)
-      continue-on-error: true
-      run: |
-        set +e
-        echo "===== toolchain"
-        gcc --version | head -1
-        echo "MSYSTEM=$MSYSTEM"
-        pacman -S --noconfirm --needed mingw-w64-ucrt-x86_64-gdb >/dev/null 2>&1
-
-        cat > thr.hml << 'EOF'
-        let a = [5, 3, 8, 1, 9, 2, 7, 4, 6, 0];
-        try { a.sort(fn(x, y) { throw "boom"; }); } catch (e) { print("caught: " + e); }
-        print("len=" + a.length);
-        EOF
-        # Same throw, but the caught value is never concatenated. On msvcrt only
-        # the concatenating form crashed, which is what first suggested the
-        # exception value's lifetime rather than the jump mechanism.
-        cat > thr_noconcat.hml << 'EOF'
-        let a = [5, 3, 8, 1, 9, 2, 7, 4, 6, 0];
-        try { a.sort(fn(x, y) { throw "boom"; }); } catch (e) { print(e); }
-        print("done");
-        EOF
-
-        run25() {  # run25 <label> <exe> <note>
-          local f=0 i
-          for i in $(seq 1 25); do "$2" >/dev/null 2>&1 || f=$((f+1)); done
-          echo "$1 crashed: $f/25   $3"
-        }
-
-        # The interpreter never uses setjmp at all. If it crashes too, the bug
-        # is in shared runtime code (sort / refcounting), not the jump.
-        echo "===== interpreter (no setjmp anywhere on this path)"
-        f=0; for i in $(seq 1 25); do ./hemlock.exe thr.hml >/dev/null 2>&1 || f=$((f+1)); done
-        echo "interpreter crashed: $f/25   <- if >0, this is not about exceptions at all"
-
-        echo "===== compiled A: nonlocal-goto builtins (branch default)"
-        ./hemlockc.exe -o thrA.exe thr.hml
-        run25 "build A" ./thrA.exe
-
-        echo "===== compiled C: caught value never concatenated"
-        ./hemlockc.exe -o thrC.exe thr_noconcat.hml
-        run25 "build C" ./thrC.exe "<- if 0, it is the caught value's lifetime"
-
-        echo "===== gdb backtrace, build A"
-        for i in $(seq 1 15); do
-          gdb -batch -ex run -ex bt -ex "info registers rip rsp rbp" \
-              --args ./thrA.exe > gdbA.log 2>&1
-          if grep -qE "SIGSEGV|Segmentation|Critical error|SIGTRAP" gdbA.log; then
-            echo "--- crashed under gdb on attempt $i"; cat gdbA.log; break
-          fi
-        done
-
-        # Control: the CRT mechanism instead of the builtins. The define has to
-        # reach the runtime AND the generated C -- applying it to only one side
-        # makes hml_throw longjmp on a buffer the other mechanism filled, which
-        # crashes 100% of the time and would look like a damning result.
-        # Done last: it overwrites libhemlock_runtime.a.
-        echo "===== compiled B: control, CRT setjmp on both sides"
-        make -C runtime clean >/dev/null 2>&1
-        make -C runtime static CC="gcc -DHEMLOCK_WIN32_CRT_SETJMP" >/dev/null 2>&1
-        cp runtime/build/libhemlock_runtime.a ./
-        ./hemlockc.exe --cc "gcc -DHEMLOCK_WIN32_CRT_SETJMP" -o thrB.exe thr.hml
-        run25 "build B" ./thrB.exe "<- 0 here means the builtins INTRODUCED this"
-        for i in $(seq 1 15); do
-          gdb -batch -ex run -ex bt --args ./thrB.exe > gdbB.log 2>&1
-          if grep -qE "SIGSEGV|Segmentation|Critical error|SIGTRAP" gdbB.log; then
-            echo "--- control crashed under gdb on attempt $i"; cat gdbB.log; break
-          fi
-        done
-        echo "===== end diagnostic"
-
 
   mingw-cross:
     runs-on: ubuntu-latest
@@ -553,3 +480,22 @@ jobs:
           -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 \
           runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lbcrypt -lz -o ffi.exe
         wine ./ffi.exe | grep -q "init 640x480 ffi"
+
+    - name: Throw from a native callback under Wine (non-unwinding longjmp)
+      run: |
+        export WINEDEBUG=-all
+        cat > thr.hml << 'HML'
+        let a = [5, 3, 8, 1, 9, 2, 7, 4, 6, 0];
+        try { a.sort(fn(x, y) { throw "boom"; }); } catch (e) { print("caught: " + e); }
+        print("len=" + a.length);
+        HML
+        wine ./hemlockc.exe -c thr.hml
+        x86_64-w64-mingw32-gcc-posix -O1 thr.c -Iruntime/include -Iinclude \
+          -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 \
+          runtime/build-mingw/libhemlock_runtime.a -static -lm -lffi -lws2_32 -lbcrypt -lz -o thr.exe
+        # This toolchain is msvcrt, where zeroing the jmp_buf Frame does stop
+        # the SEH unwind, so the guarantee is real here and asserted hard:
+        # before the fix this crashed ~1 run in 8.
+        for i in $(seq 1 25); do wine ./thr.exe > thr.out 2>/dev/null || exit 1; done
+        grep -q "caught: boom" thr.out
+        grep -q "len=10" thr.out

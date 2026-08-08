@@ -122,11 +122,12 @@ Windows side understands (or read one from `TEMP`) in program source.
   as it does on POSIX and a program's output is byte-identical across
   platforms. stdin is left in text mode, where the CRT's CRLF→LF
   translation is what makes `read_line()` return `abc` and not `abc\r`.
-- `setjmp` is used in its non-unwinding form (`_setjmp(buf, NULL)`).
-  mingw-w64's default makes the CRT's `longjmp` run a full SEH unwind,
-  which faults inside `RtlVirtualUnwind` when it walks generated closure
-  frames; Hemlock's `throw` runs no destructors and no defers, so there
-  is nothing for an unwind to do.
+- `setjmp` zeroes the `jmp_buf`'s `Frame` field so the CRT's `longjmp`
+  skips its SEH unwind. mingw-w64's default records a frame, and unwinding
+  through generated closure frames faults inside `RtlVirtualUnwind`;
+  Hemlock's `throw` runs no destructors and no defers, so there is nothing
+  for an unwind to do. This is effective on msvcrt and not on the UCRT —
+  see [Known issue: throw from a native callback](#known-issue-throw-from-a-native-callback-on-ucrt).
 - `hemlock.exe`/`hemlockc.exe` reserve a 64 MB stack
   (`-Wl,--stack`). The PE default of 2 MB is exhausted long before the
   tree-walking interpreter reaches its own 8000-frame recursion guard, so
@@ -170,6 +171,52 @@ including `@stdlib/uuid`), command execution and process management (`exec()`/`e
 works on Windows. Note that `@stdlib/shell`'s Unix-command
 conveniences (`ls()`, `which()`, `pwd()`, …) shell out to POSIX tools
 and stay Unix-only.
+
+## Known issue: throw from a native callback on UCRT
+
+A `throw` that crosses a native runtime frame — the clearest case is a
+comparator passed to `array.sort()` — can segfault in **compiled**
+programs before the `catch` block runs. The interpreter is unaffected
+(it does not use `setjmp` at all), and so is any throw that does not
+cross a native frame.
+
+The cause is the CRT's `longjmp` driving an SEH unwind (`RtlUnwindEx`)
+through the generated closure frames. Hemlock's `throw` has nothing to
+unwind, so the fix is to suppress it, and zeroing the `jmp_buf`'s
+`Frame` field does that on msvcrt. The UCRT unwinds regardless of that
+field, so the crash remains there. Measured with
+`try { a.sort(fn(x, y) { throw "boom"; }); } catch (e) { ... }`, 25-60
+runs per cell:
+
+| mechanism | msvcrt (cross builds, Wine, GCC 8.3) | UCRT64 + GCC 16 |
+|-----------|--------------------------------------|-----------------|
+| mingw default `setjmp` | ~1 in 8 crash | ~1 in 25 crash |
+| `Frame = 0` (**shipped**) | 0 in 60 | ~1 in 25 crash |
+| `__builtin_setjmp`/`longjmp` | 0 in 60 | **25 in 25** crash |
+
+That last row is why the nonlocal-goto builtins are not used even though
+they look like the ideal answer: GCC's `__builtin_setjmp`/
+`__builtin_longjmp` do not work cross-function on x86_64 SEH targets
+with a modern GCC — the jump lands on a garbage address (`rip` in no
+known function, every frame `??`), turning an intermittent failure into
+a deterministic one.
+
+To A/B this yourself, `HEMLOCK_WIN32_CRT_SETJMP` leaves `setjmp`
+untouched. Define it for **both** the runtime and the generated C:
+
+```bash
+make -C runtime clean
+make -C runtime static CC="gcc -DHEMLOCK_WIN32_CRT_SETJMP"
+cp runtime/build/libhemlock_runtime.a ./
+hemlockc.exe --cc "gcc -DHEMLOCK_WIN32_CRT_SETJMP" -o thr.exe thr.hml
+```
+
+Defining it on only one side makes `hml_throw` jump on a buffer the other
+mechanism filled, which crashes on every run — a result that looks
+alarming and means nothing.
+
+The `windows-native` CI job reports this case without gating on it; the
+Wine cross job asserts it hard, since the fix is real on msvcrt.
 
 ## Running the test suites on Windows
 

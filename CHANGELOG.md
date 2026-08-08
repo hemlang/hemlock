@@ -24,14 +24,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to binary; stdin stays in text mode so `read_line()` keeps returning `abc`
   rather than `abc\r` for console and CRLF-file input.
 
-- **Windows: a `throw` from inside a native callback no longer segfaults
-  intermittently.** mingw-w64 defines `setjmp` so that the CRT's `longjmp`
-  drives a full SEH unwind, and unwinding through generated closure frames
-  crashed inside `RtlVirtualUnwind` on roughly one compiled run in ten — a
-  `throw` from an `array.sort()` comparator died before its `catch` block ran.
-  Hemlock's throw never unwinds (no destructors, no defers, same as POSIX
-  `longjmp`), so compiled programs and the runtime now use the non-unwinding
-  form.
+- **Windows (msvcrt): a `throw` from inside a native callback no longer
+  segfaults intermittently.** mingw-w64 defines `setjmp` so that the CRT's
+  `longjmp` drives a full SEH unwind, and unwinding through generated closure
+  frames crashed inside `RtlVirtualUnwind` on roughly one compiled run in
+  eight — a `throw` from an `array.sort()` comparator died before its `catch`
+  block ran. Hemlock's throw never unwinds (no destructors, no defers, same as
+  POSIX `longjmp`), so the `jmp_buf`'s `Frame` field is now zeroed, which is
+  what makes the CRT skip the unwind: 5/40 crashes becomes 0/60 on msvcrt,
+  covering cross builds and Wine.
+
+  The UCRT unwinds regardless of that field, so this case still fails there
+  about 1 run in 25. That is pre-existing rather than new, and it is now
+  documented with measurements, a repro, and an `HEMLOCK_WIN32_CRT_SETJMP`
+  escape hatch for A/B-ing the mechanisms — see "throw from a native callback
+  on UCRT" in `docs/advanced/windows.md`. Notably GCC's
+  `__builtin_setjmp`/`__builtin_longjmp`, which look like the obvious fix,
+  must not be used: they do not work cross-function on x86_64 SEH targets with
+  a modern GCC and turn the intermittent crash into a deterministic one.
 
 - **Windows: deep recursion in the interpreter throws instead of dying
   silently.** The PE default 2 MB stack ran out well before the interpreter's
