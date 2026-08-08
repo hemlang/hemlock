@@ -29,6 +29,7 @@ jobs:
           mingw-w64-ucrt-x86_64-libffi
           mingw-w64-ucrt-x86_64-libwebsockets
           mingw-w64-ucrt-x86_64-pkgconf
+          mingw-w64-ucrt-x86_64-libuv
 
     - name: Build hemlock.exe, hemlockc.exe, and runtime natively
       run: make -j4 all

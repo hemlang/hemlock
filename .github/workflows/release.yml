@@ -230,6 +230,7 @@ jobs:
           mingw-w64-ucrt-x86_64-libffi
           mingw-w64-ucrt-x86_64-libwebsockets
           mingw-w64-ucrt-x86_64-pkgconf
+          mingw-w64-ucrt-x86_64-libuv
 
     # WIN_LWS_STATIC=1 is what makes the shipped .exe usable: a dynamic build
     # needs libwebsockets.dll, libssl-3-x64.dll and libuv-1.dll on PATH and

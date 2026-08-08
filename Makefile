@@ -157,7 +157,21 @@ LDFLAGS = -static-libgcc -Wl,--stack,$(WIN_STACK_RESERVE) -Wl,-Bstatic -lpthread
 # linker scans libwebsockets_static.a. MSYS2 names the static archive
 # libwebsockets_static.a, not libwebsockets.a, which is also why a plain
 # -static -lwebsockets fails with "have you installed the static version".
-WIN_LWS_STATIC_LIBS = -Wl,-Bstatic -lwebsockets_static -lssl -lcrypto -luv \
+# Ask only for the archives that are actually present. Which ones libwebsockets
+# needs depends on how the local package was built -- an MSYS2 libwebsockets is
+# not always linked against libuv or OpenSSL -- and naming a -l for a static
+# archive that does not exist fails the whole link ("cannot find -luv: have you
+# installed the static version of the uv library ?") rather than being ignored.
+# --print-file-name echoes a full path when found and the bare name when not.
+win_static_lib = $(if $(findstring /,$(shell $(CC) --print-file-name=lib$(1).a)),-l$(1),)
+ifeq ($(WIN_LWS_STATIC),1)
+ifeq (,$(findstring /,$(shell $(CC) --print-file-name=libwebsockets_static.a)))
+$(error WIN_LWS_STATIC=1 needs libwebsockets_static.a, which this toolchain does not have. On MSYS2: pacman -S mingw-w64-ucrt-x86_64-libwebsockets)
+endif
+endif
+WIN_LWS_STATIC_LIBS = -Wl,-Bstatic -lwebsockets_static \
+                      $(call win_static_lib,ssl) $(call win_static_lib,crypto) \
+                      $(call win_static_lib,uv) $(call win_static_lib,ev) \
                       -Wl,-Bdynamic -lws2_32 -lmswsock -liphlpapi -lcrypt32 \
                       -lsecur32 -lbcrypt -ladvapi32 -luser32 -lgdi32 -lpsapi \
                       -luserenv -ldbghelp -lole32 -lshell32
