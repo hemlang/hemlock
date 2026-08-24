@@ -1,0 +1,14 @@
+let top = 1;
+
+fn work(n: i32): i32 {
+    let acc: i32 = 0;
+    let ch = 'x';
+    let dyn = n;
+    for (let i = 0; i < 10; i++) {
+        acc = acc + i;
+    }
+    let out = acc * 2;
+    return out;
+}
+
+print(work(3));

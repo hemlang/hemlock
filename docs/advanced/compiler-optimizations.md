@@ -63,6 +63,10 @@ fn dot(a: i32, b: i32, c: i32, d: i32): i32 {
 }
 ```
 
+To see exactly which variables the compiler unboxes and why the rest stay
+boxed, run `hemlockc --coverage file.hml` — see
+[Specialization Coverage](specialization-coverage.md).
+
 ---
 
 ## Multi-Level Function Inlining

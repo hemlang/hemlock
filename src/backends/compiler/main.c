@@ -27,6 +27,7 @@
 #include "../../include/hemlock_limits.h"
 #include "codegen.h"
 #include "compiler/type_check.h"
+#include "compiler/type_coverage.h"
 #include "compiler/borrow_check.h"
 #include "compiler/lint.h"
 
@@ -252,6 +253,8 @@ typedef struct {
     int lint_strict;             // Strict lint (also flag unused variables)
     int lint_error;              // Treat lint findings as errors (fail the build)
     int check_only;              // Only type check, don't compile
+    int coverage;                // Print specialization coverage report, don't compile
+    int json;                    // Emit the coverage report as JSON
     int static_link;             // Static link all libraries for standalone binary
     int stack_check;             // Enable stack overflow checking (default: on)
     int sandbox;                 // Enable sandbox mode (restrict FFI, network, process, file writes)
@@ -276,6 +279,9 @@ static void print_usage(const char *progname) {
 #endif
     fprintf(stderr, "  --runtime <p>   Path to runtime library\n");
     fprintf(stderr, "  --check         Static analysis only (type + borrow check), don't compile\n");
+    fprintf(stderr, "  --coverage      Print the specialization coverage report (which numeric\n");
+    fprintf(stderr, "                  sites get native C types vs stay boxed), don't compile\n");
+    fprintf(stderr, "  --json          With --coverage: emit the report as JSON\n");
     fprintf(stderr, "  --no-type-check Disable type checking (less safe, fewer optimizations)\n");
     fprintf(stderr, "  --strict-types  Strict type checking (warn on implicit any)\n");
     fprintf(stderr, "  --no-borrow-check  Disable Rust-like ownership/borrow checking\n");
@@ -321,6 +327,8 @@ static Options parse_args(int argc, char **argv) {
         .lint_strict = 0,
         .lint_error = 0,
         .check_only = 0,
+        .coverage = 0,
+        .json = 0,
         .static_link = 0,
         .stack_check = 1,        // Stack overflow checking ON by default
         .sandbox = 0,
@@ -370,6 +378,11 @@ static Options parse_args(int argc, char **argv) {
         } else if (strcmp(argv[i], "--check") == 0) {
             opts.check_only = 1;
             opts.type_check = 1;  // --check implies type checking
+        } else if (strcmp(argv[i], "--coverage") == 0) {
+            opts.coverage = 1;
+            opts.type_check = 1;  // coverage analysis runs on the checked AST
+        } else if (strcmp(argv[i], "--json") == 0) {
+            opts.json = 1;
         } else if (strcmp(argv[i], "--no-type-check") == 0) {
             opts.type_check = 0;
         } else if (strcmp(argv[i], "--strict-types") == 0) {
@@ -440,6 +453,12 @@ static Options parse_args(int argc, char **argv) {
         fprintf(stderr, "No input file specified\n");
         print_usage(argv[0]);
         exit(1);
+    }
+
+    // Coverage analysis needs the type checker regardless of flag order
+    // (--coverage --no-type-check would otherwise disable it).
+    if (opts.coverage) {
+        opts.type_check = 1;
     }
 
     // Validate --threads requires --target wasm
@@ -1054,6 +1073,33 @@ int main(int argc, char **argv) {
         // Note: for --check we do NOT exit here — the borrow checker below
         // also runs so that `--check` is a complete static-analysis pass.
         // type_ctx is kept alive for codegen optimization hints / borrow check.
+    }
+
+    // Specialization coverage report (--coverage): analyze which numeric
+    // sites the unboxing optimization specializes, print, and stop —
+    // like --check, this is a static-analysis-only run.
+    if (opts.coverage) {
+        CoverageReport *report = type_coverage_analyze(type_ctx, statements, stmt_count);
+        int coverage_ok = report != NULL;
+        if (!report) {
+            fprintf(stderr, "error: coverage analysis failed\n");
+        } else {
+            char *rendered = opts.json
+                ? coverage_report_render_json(report, opts.input_file, 0)
+                : coverage_report_render_text(report, opts.input_file);
+            if (rendered) {
+                printf("%s\n", rendered);
+                free(rendered);
+            }
+            coverage_report_free(report);
+        }
+        if (type_ctx) type_check_free(type_ctx);
+        for (int i = 0; i < stmt_count; i++) {
+            stmt_free(statements[i]);
+        }
+        free(statements);
+        free(source);
+        return coverage_ok ? 0 : 1;
     }
 
     // Borrow / ownership checking (Rust-like, advisory by default).

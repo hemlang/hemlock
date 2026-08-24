@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "files": 1,
+  "errors": 0,
+  "warnings": 0,
+  "diagnostics": [  ],
+  "coverage": [
+    {
+      "version": 1,
+      "file": "coverage_json.hml",
+      "summary": {"sites": 1, "unboxed": 1, "boxed": 0, "ratio": 1.0000},
+      "sites": [
+        {"name": "x", "line": 2, "column": 5, "kind": "typed_var", "decision": "unboxed", "native_type": "i32"}
+      ]
+    }
+  ]
+}

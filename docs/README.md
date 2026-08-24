@@ -41,6 +41,7 @@ Welcome to the Hemlock programming language documentation!
 - [Borrow Checker](advanced/borrow-checker.md) - Rust-like ownership analysis (use-after-free, double-free, leaks)
 - [Static Lint](advanced/lint.md) - Catch unreachable code, dead branches, self-assignment, and more before shipping
 - [Static Checking](advanced/static-checking.md) - `hemlock check`: all static passes without execution, with `--json` diagnostics
+- [Specialization Coverage](advanced/specialization-coverage.md) - `--coverage`: which numeric sites get native C types vs stay boxed, with HC21xx reason codes
 - [Signal Handling](advanced/signals.md) - POSIX signal handling
 - [Command-Line Arguments](advanced/command-line-args.md) - Access program arguments
 - [Command Execution](advanced/command-execution.md) - Execute shell commands

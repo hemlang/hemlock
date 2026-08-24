@@ -13,6 +13,7 @@
 #include "tools/lsp/lsp.h"
 #include "tools/bundler/bundler.h"
 #include "tools/type_check.h"
+#include "tools/type_coverage.h"
 #include "tools/borrow_check.h"
 #include "tools/lint.h"
 #include "version.h"
@@ -1432,6 +1433,7 @@ typedef struct CheckOptions {
     int strict_types;
     int borrow_strict;
     int deny_warnings;
+    int coverage;
 } CheckOptions;
 
 static void check_collect(CheckDiagList *list, const char *file, int line,
@@ -1478,7 +1480,7 @@ static int check_diag_compare(const void *a, const void *b) {
 // static passes in its order — resolve, lint on the source as written,
 // optimize, type check, borrow check. Returns -1 only on I/O failure.
 static int check_one_file(const char *path, const CheckOptions *opts,
-                          CheckDiagList *list) {
+                          CheckDiagList *list, char **coverage_out) {
     char *source = read_file(path);
     if (!source) {
         return -1;
@@ -1534,6 +1536,16 @@ static int check_one_file(const char *path, const CheckOptions *opts,
                 check_collect(list, path, e->line, e->column, e->end_column,
                               e->is_warning, "types", e->message);
             }
+            if (opts->coverage && coverage_out) {
+                CoverageReport *report =
+                    type_coverage_analyze(tc, statements, stmt_count);
+                if (report) {
+                    *coverage_out = opts->json
+                        ? coverage_report_render_json(report, path, 4)
+                        : coverage_report_render_text(report, path);
+                    coverage_report_free(report);
+                }
+            }
             type_check_free(tc);
         }
 
@@ -1585,7 +1597,8 @@ static void check_print_json_string(const char *s) {
     putchar('"');
 }
 
-static void check_print_json(const CheckDiagList *list, int files_checked) {
+static void check_print_json(const CheckDiagList *list, int files_checked,
+                             char **coverage, int num_coverage) {
     printf("{\n");
     printf("  \"version\": 1,\n");
     printf("  \"files\": %d,\n", files_checked);
@@ -1603,7 +1616,19 @@ static void check_print_json(const CheckDiagList *list, int files_checked) {
         check_print_json_string(d->message);
         printf("}");
     }
-    printf("%s  ]\n}\n", list->count > 0 ? "\n" : "");
+    printf("%s  ]", list->count > 0 ? "\n" : "");
+    if (coverage) {
+        // One specialization-coverage object per checked file (--coverage)
+        printf(",\n  \"coverage\": [");
+        int first = 1;
+        for (int i = 0; i < num_coverage; i++) {
+            if (!coverage[i]) continue;
+            printf("%s\n%s", first ? "" : ",", coverage[i]);
+            first = 0;
+        }
+        printf("%s  ]", first ? "" : "\n");
+    }
+    printf("\n}\n");
 }
 
 static void check_print_text(const CheckDiagList *list, int files_checked) {
@@ -1650,6 +1675,8 @@ static int run_check(int argc, char **argv) {
             opts.lint = 0;
         } else if (strcmp(argv[i], "--deny-warnings") == 0) {
             opts.deny_warnings = 1;
+        } else if (strcmp(argv[i], "--coverage") == 0) {
+            opts.coverage = 1;
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             printf("Hemlock Static Checker\n\n");
             printf("Parses and analyzes source files without executing them, running the\n");
@@ -1665,6 +1692,8 @@ static int run_check(int argc, char **argv) {
             printf("    --lint-strict    Strict lint (also flag unused variables)\n");
             printf("    --deny-warnings  Exit 1 when any warning is reported (for CI)\n");
             printf("    --no-lint        Disable the lint pass\n");
+            printf("    --coverage       Also report specialization coverage: which numeric\n");
+            printf("                     sites the compiler gives native C types vs keeps boxed\n");
             printf("    -h, --help       Display this help message\n\n");
             printf("EXIT CODE:\n");
             printf("    0  no errors (warnings do not fail the check)\n");
@@ -1679,6 +1708,9 @@ static int run_check(int argc, char **argv) {
             printf("            \"severity\": \"error\"|\"warning\",\n");
             printf("            \"pass\": \"parse\"|\"lint\"|\"types\"|\"borrow\", \"message\" } ] }\n");
             printf("    Lines and columns are 1-based; column 0 means unknown.\n");
+            printf("    With --coverage, JSON mode adds \"coverage\": one object per file with\n");
+            printf("    \"summary\" and \"sites\" (each site: name, line, column, kind, decision,\n");
+            printf("    and for boxed sites a stable HC21xx reason code, message, and hint).\n");
             free(files);
             return 0;
         } else if (argv[i][0] == '-') {
@@ -1699,10 +1731,15 @@ static int run_check(int argc, char **argv) {
     }
 
     CheckDiagList list = {0};
+    char **coverage_frags = NULL;
+    if (opts.coverage) {
+        coverage_frags = calloc((size_t)num_files, sizeof(char *));
+    }
     int io_error = 0;
     int files_checked = 0;
     for (int i = 0; i < num_files; i++) {
-        if (check_one_file(files[i], &opts, &list) != 0) {
+        if (check_one_file(files[i], &opts, &list,
+                           coverage_frags ? &coverage_frags[i] : NULL) != 0) {
             io_error = 1;
         } else {
             files_checked++;
@@ -1710,9 +1747,23 @@ static int run_check(int argc, char **argv) {
     }
 
     if (opts.json) {
-        check_print_json(&list, files_checked);
+        check_print_json(&list, files_checked, coverage_frags, num_files);
     } else {
         check_print_text(&list, files_checked);
+        if (coverage_frags) {
+            for (int i = 0; i < num_files; i++) {
+                if (coverage_frags[i]) {
+                    printf("\n%s", coverage_frags[i]);
+                }
+            }
+        }
+    }
+
+    if (coverage_frags) {
+        for (int i = 0; i < num_files; i++) {
+            free(coverage_frags[i]);
+        }
+        free(coverage_frags);
     }
 
     // Warnings do not fail the check by default; `warnings_exit_zero` pins that.

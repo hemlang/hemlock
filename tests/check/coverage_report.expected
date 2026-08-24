@@ -1,0 +1,16 @@
+0 errors, 0 warnings (1 file checked)
+
+Specialization coverage: coverage_report.hml
+  7 numeric sites: 2 unboxed (28%), 5 boxed
+
+  coverage_report.hml:1  boxed    top — top-level variables stay boxed [HC2103]
+                                 hint: move hot code into a function
+  coverage_report.hml:3  boxed    n — parameters are always boxed [HC2104]
+                                 hint: copy the parameter into an annotated local at function entry
+  coverage_report.hml:4  unboxed  acc: i32 (typed_var)
+  coverage_report.hml:5  boxed    ch — runes keep their type tag [HC2109]
+  coverage_report.hml:6  boxed    dyn — no static numeric type could be inferred [HC2102]
+                                 hint: add a numeric type annotation (e.g. `: i32`)
+  coverage_report.hml:7  unboxed  i: i32 (loop_counter)
+  coverage_report.hml:10  boxed    out — escapes its scope (captured, stored, returned, or indexed) [HC2105]
+                                 hint: keep hot arithmetic in a local that is not captured, stored, or returned

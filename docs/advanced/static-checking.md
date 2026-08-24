@@ -119,6 +119,8 @@ hemlock check --json src/main.hml
 
 ## See Also
 
+- [Specialization Coverage](specialization-coverage.md) — `--coverage`: which
+  numeric sites the compiler unboxes vs keeps boxed, and why
 - [Static Lint](lint.md) — the lint pass in detail
 - [Borrow Checker](borrow-checker.md) — the ownership analysis in detail
 - [Type System](../reference/type-system.md) — what the type checker enforces

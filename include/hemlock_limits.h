@@ -180,6 +180,10 @@
 // Buffer size for type name formatting (type_to_string, etc.)
 #define HML_TYPE_NAME_BUFSIZE 256
 
+// Stack buffer for one formatted line of the specialization coverage
+// report (longer lines fall back to the heap)
+#define HML_COVERAGE_LINE_BUFSIZE 512
+
 // ========== SERIALIZATION LIMITS ==========
 
 // Initial buffer size for AST serialization
