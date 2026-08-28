@@ -258,6 +258,7 @@ typedef struct {
     const char *sandbox_root;    // Optional sandbox root directory for file access
     int target_wasm;             // Target WebAssembly via Emscripten (--target wasm)
     int wasm_threads;            // Enable pthreads in WASM (Web Workers + SharedArrayBuffer)
+    int wasm_asyncify;           // Link WASM with -sASYNCIFY (needed by sleep(); default: on)
 } Options;
 
 static void print_usage(const char *progname) {
@@ -292,6 +293,8 @@ static void print_usage(const char *progname) {
     fprintf(stderr, "  --target wasm   Compile for WebAssembly via Emscripten (emcc)\n");
     fprintf(stderr, "  --threads       Enable threading in WASM (Web Workers + SharedArrayBuffer)\n");
     fprintf(stderr, "                  Requires: --target wasm, browser COOP/COEP headers\n");
+    fprintf(stderr, "  --no-asyncify   Link WASM without -sASYNCIFY (smaller/faster, but sleep()\n");
+    fprintf(stderr, "                  stops working: drive frames with main_loop() instead)\n");
     fprintf(stderr, "  -v, --verbose   Verbose output\n");
     fprintf(stderr, "  -h, --help      Show this help message\n");
     fprintf(stderr, "  --version       Show version\n");
@@ -326,7 +329,8 @@ static Options parse_args(int argc, char **argv) {
         .sandbox = 0,
         .sandbox_root = NULL,
         .target_wasm = 0,
-        .wasm_threads = 0
+        .wasm_threads = 0,
+        .wasm_asyncify = 1       // Asyncify ON by default so sleep() works in WASM
     };
 
     // Static-by-default on Linux (since 2.6.0): the host's shared libraries —
@@ -424,6 +428,8 @@ static Options parse_args(int argc, char **argv) {
             }
         } else if (strcmp(argv[i], "--threads") == 0) {
             opts.wasm_threads = 1;
+        } else if (strcmp(argv[i], "--no-asyncify") == 0) {
+            opts.wasm_asyncify = 0;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             exit(1);
@@ -445,6 +451,12 @@ static Options parse_args(int argc, char **argv) {
     // Validate --threads requires --target wasm
     if (opts.wasm_threads && !opts.target_wasm) {
         fprintf(stderr, "Error: --threads requires --target wasm\n");
+        exit(1);
+    }
+
+    // Validate --no-asyncify requires --target wasm
+    if (!opts.wasm_asyncify && !opts.target_wasm) {
+        fprintf(stderr, "Error: --no-asyncify requires --target wasm\n");
         exit(1);
     }
 
@@ -803,12 +815,19 @@ static int compile_c(const Options *opts, const char *c_file) {
             return 1;
         }
 
+        // -sASYNCIFY: hml_sleep() calls emscripten_sleep(), which only exists
+        // when Asyncify is on. Without the flag Emscripten links a stub that
+        // throws "Please compile your program with async support..." the first
+        // time sleep() runs, so every timed/animated program dies on frame one
+        // in the browser. Asyncify is not free (it instruments the whole
+        // module); --no-asyncify drops it for programs that drive their
+        // frames with main_loop() instead of sleep().
+        const char *asyncify_flag = opts->wasm_asyncify ? "-sASYNCIFY " : "";
         if (opts->wasm_threads) {
             // Threaded WASM: pthreads mapped to Web Workers via SharedArrayBuffer
             // -pthread: enable pthreads support (Web Workers)
             // -sPROXY_TO_PTHREAD: run main() in a worker so it can block
             // -sPTHREAD_POOL_SIZE=4: pre-create worker pool for faster spawn
-            // -sASYNCIFY: enable async unwinding for sleep() on main thread
             n = snprintf(cmd, sizeof(cmd),
                 "emcc %s -o %s %s -I%s %s "
                 "-pthread "
@@ -818,9 +837,10 @@ static int compile_c(const Options *opts, const char *c_file) {
                 "-sSTACK_SIZE=1048576 "
                 "-sPTHREAD_POOL_SIZE=4 "
                 "-sPROXY_TO_PTHREAD "
+                "%s"
                 "-D__HEMLOCK_WASM__=1",
                 opt_flag, q_out, q_c,
-                q_inc, q_wasm_runtime);
+                q_inc, q_wasm_runtime, asyncify_flag);
         } else {
             n = snprintf(cmd, sizeof(cmd),
                 "emcc %s -o %s %s -I%s %s "
@@ -828,9 +848,10 @@ static int compile_c(const Options *opts, const char *c_file) {
                 "-sEXPORTED_RUNTIME_METHODS=\"['ccall','cwrap']\" "
                 "-sALLOW_MEMORY_GROWTH=1 "
                 "-sSTACK_SIZE=1048576 "
+                "%s"
                 "-D__HEMLOCK_WASM__=1",
                 opt_flag, q_out, q_c,
-                q_inc, q_wasm_runtime);
+                q_inc, q_wasm_runtime, asyncify_flag);
         }
     } else if (opts->static_link) {
         // Hybrid static/dynamic linking:

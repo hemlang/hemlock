@@ -8,7 +8,7 @@ complete importable API surface, generated from `stdlib/*.hml` by
 are verbatim from source; `[native]` marks re-exported native builtins
 whose parameter list comes from the module's documentation.
 
-53 modules, 1050 exported symbols. Import with
+53 modules, 1052 exported symbols. Import with
 `import { name } from "@stdlib/<module>";` — see
 [Standard Library Overview](stdlib-overview.md) and `stdlib/docs/` for
 full documentation.
@@ -1183,6 +1183,8 @@ fn now()  [native]  // Current Unix timestamp (seconds since epoch) as i64
 fn time_ms()  [native]  // Current time in milliseconds as i64
 fn clock()  [native]  // CPU time used by process in seconds as f64
 fn sleep(seconds)  [native]  // Sleep for specified seconds (accepts f64 for sub-second precision)
+fn main_loop(callback, fps)  [native]  // Run callback each frame: main_loop(fn, fps)
+fn main_loop_stop()  [native]  // Stop the running main_loop()
 ```
 
 ## @stdlib/toml

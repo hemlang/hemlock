@@ -1,0 +1,59 @@
+// main_loop(callback, fps) / main_loop_stop()
+//
+// Note: this exercises the native semantics, where main_loop() returns once
+// the loop is stopped. Under `hemlockc --target wasm` the browser takes over
+// the event loop and main_loop() does not return -- see stdlib/docs/time.md.
+
+import { main_loop, main_loop_stop, time_ms } from "@stdlib/time";
+
+// Frames run in order until stopped
+let frames = 0;
+main_loop(fn() {
+    frames = frames + 1;
+    print("frame " + frames);
+    if (frames == 3) { main_loop_stop(); }
+}, 0);
+print("after loop: " + frames);
+
+// The loop can be restarted after it stops
+main_loop(fn() {
+    frames = frames + 1;
+    if (frames == 5) { main_loop_stop(); }
+}, 0);
+print("restarted: " + frames);
+
+// fps caps the rate: 10 frames at 50 fps takes at least ~180ms
+let n = 0;
+let start = time_ms();
+main_loop(fn() {
+    n = n + 1;
+    if (n == 10) { main_loop_stop(); }
+}, 50);
+print("paced: " + (time_ms() - start >= 150));
+
+// Closures capture normally
+fn counter_loop(limit: i32): i32 {
+    let count = 0;
+    main_loop(fn() {
+        count = count + 1;
+        if (count == limit) { main_loop_stop(); }
+    }, 0);
+    return count;
+}
+print("closure: " + counter_loop(7));
+
+// Errors
+try { main_loop(fn() {}, -1); } catch (e) { print("negative fps rejected"); }
+try { main_loop("not a function", 60); } catch (e) { print("non-function rejected"); }
+
+let reentered = 0;
+main_loop(fn() {
+    reentered = reentered + 1;
+    try { main_loop(fn() {}, 60); } catch (e) { print("reentry rejected"); }
+    main_loop_stop();
+}, 0);
+print("reentered: " + reentered);
+
+// Stopping when nothing is running is a no-op
+main_loop_stop();
+print("idle stop ok");

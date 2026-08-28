@@ -9,6 +9,7 @@ The time module provides essential time-related operations:
 - **Time measurement** - Get current time in seconds or milliseconds
 - **CPU time tracking** - Measure CPU time used by process
 - **Delays** - Sleep for specified duration with sub-second precision
+- **Frame loop** - Run a callback once per frame without `sleep()`
 
 ## Usage
 
@@ -113,6 +114,70 @@ sleep(0.01);
 ```
 
 **Implementation note:** Uses `nanosleep()` internally for precise sub-second delays.
+
+### main_loop(callback, fps)
+Runs `callback` once per frame until `main_loop_stop()` is called.
+
+**Parameters:**
+- `callback: function` - Zero-argument function to run each frame
+- `fps: i32` - Target frames per second; `0` means "let the host pick the rate"
+  (`requestAnimationFrame` in the browser, uncapped natively)
+
+**Returns:** `null` (natively; see the WASM note below)
+
+**Use cases:**
+- Game loops, animation, simulation ticks
+- Anything that draws, especially when the program is compiled to WebAssembly
+
+```hemlock
+import { main_loop, main_loop_stop } from "@stdlib/time";
+
+let frame = 0;
+
+main_loop(fn() {
+    frame = frame + 1;
+    update();
+    render();
+
+    if (frame == 600) {
+        main_loop_stop();
+    }
+}, 60);
+```
+
+**Why not `while (true) { render(); sleep(1.0 / 60.0); }`?**
+
+Natively the two are equivalent. In a browser they are not: a Hemlock program
+owns no event loop there, so `sleep()` has to be built on Emscripten's
+Asyncify, which rewrites the module so it can unwind and rewind the WASM stack
+at any suspend point. That instrumentation is applied across the program, not
+just to the sleeping call, and it also inflates the `.wasm`. `main_loop()`
+hands the callback to the host's own frame scheduler instead, so no unwinding
+is involved and the program can be linked with `hemlockc --target wasm
+--no-asyncify` — no Asyncify at all.
+
+It also gets the frame timing right: with `fps` of `0` the browser drives the
+callback from `requestAnimationFrame`, i.e. locked to the display's refresh
+rate and throttled in background tabs. A `sleep()` loop is not frame-locked at
+all; it runs as fast as the host's timer will let it.
+
+**WASM note:** under `hemlockc --target wasm`, `main_loop()` **does not
+return** — the host owns the event loop from that point on, and statements
+after the call never run. Put shutdown work at the end of the callback. The
+interpreter (`hemlock` and the `make wasm-interpreter` playground build) and
+native compiled programs return normally once the loop stops.
+
+**Errors:** calling `main_loop()` while a loop is already running is an error;
+so is a negative `fps` or a non-function callback. The callback must take no
+arguments.
+
+### main_loop_stop()
+Stops the loop started by `main_loop()`. Safe to call when no loop is running
+(no-op). Natively the current frame finishes first, then `main_loop()` returns.
+
+**Parameters:** None
+
+**Returns:** `null`
 
 ### clock()
 Returns the CPU time used by the current process in seconds.

@@ -86,6 +86,8 @@ static BuiltinInfo builtins[] = {
     {"__time_ms", builtin_time_ms},
     {"__sleep", builtin_sleep},
     {"__clock", builtin_clock},
+    {"__main_loop", builtin_main_loop},
+    {"__main_loop_stop", builtin_main_loop_stop},
     {"__localtime", builtin_localtime},
     {"__gmtime", builtin_gmtime},
     {"__mktime", builtin_mktime},
