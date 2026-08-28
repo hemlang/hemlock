@@ -1,0 +1,5 @@
+let b = 3.99;
+let c = 3;
+let s = 42;
+print(b); print(c); print(s);
+print(typeof(b)); print(typeof(c)); print(typeof(s));
