@@ -36,6 +36,8 @@ Source (.hml)
 | **use-after-move** | a binding is used after its resource was moved away | strict only |
 | **leaked resource** | an owned resource goes out of scope without being released, moved, or returned | strict only |
 | **leak on some paths** | a resource is released on some branches but not all, and goes out of scope on the rest | strict only |
+| **reassignment leak** | the last binding still owning a live resource is overwritten (`p = alloc(...)` while the old `p` was never freed) | strict only |
+| **discarded acquisition** | an acquisition's result is dropped at statement level (`alloc(64);`), so it can never be released | strict only |
 
 A *resource* is anything acquired through an explicit acquisition builtin. The
 checker knows each resource's correct release operation and tracks them all
@@ -106,6 +108,26 @@ fn cleanup(c: bool) {
 }
 ```
 
+Expression-level branches are treated the same way: `match` arms, the arms of a
+ternary, and the short-circuited right operand of `&&`, `||` and `??` are
+alternatives, not a sequence. Releasing a resource in two different `match`
+arms is fine (only one runs), while releasing it in just one arm leaves it
+*maybe freed*, so an unconditional release afterwards is flagged as a possible
+double free:
+
+```hemlock
+let r = match (mode) {
+    0 => free(p),
+    _ => free(p)        // fine: a different arm of the same match
+};
+
+let s = match (mode) {
+    0 => free(q),
+    _ => 0
+};
+free(q);                // warning: possible double free on some paths
+```
+
 Because Hemlock values are **shared** (reference-counted), aliasing is legal and
 the checker does not complain about it in the default mode:
 
@@ -140,6 +162,24 @@ defaults:
       let p = alloc(64);
       memset(p, 0, 64);
   }                     // warning: 'p' (memory) is never freed (possible leak)
+  ```
+
+- **Reassignment leaks** — overwriting the last binding that still owns a live
+  resource drops the only way to free it. Pointer arithmetic on the binding
+  itself (`p = p + 4;`) derives from the same allocation and is not a drop, and
+  reassigning after a free is the normal reacquire pattern and stays clean:
+
+  ```hemlock
+  let p = alloc(64);
+  p = alloc(128);       // warning: reassigning 'p' drops the last reference
+  free(p);
+  ```
+
+- **Discarded acquisitions** — an acquisition used as a bare statement has no
+  binding, so its resource can never be released:
+
+  ```hemlock
+  alloc(64);            // warning: the memory returned by 'alloc' is discarded
   ```
 
 ---
@@ -179,9 +219,63 @@ fn main() {
 
 Summaries are order-independent (a function may be defined after its callers) and
 conservative: a parameter freed only on *some* paths makes the call a *possible*
-consume, and calls using named arguments are left untouched. The analysis is
-one level deep — it does not yet follow a parameter that is forwarded into a
-*second* consuming function.
+consume, and calls using named arguments are left untouched.
+
+Summaries are computed to a **fixpoint**, so consumption is followed through
+wrappers of any depth — a function that forwards its parameter into a consuming
+function is itself consuming:
+
+```hemlock
+fn release(p: ptr) { free(p); }
+fn shutdown(p: ptr) { release(p); }   // consuming, via release()
+
+fn main() {
+    let p = alloc(64);
+    shutdown(p);
+    free(p);            // warning: double free
+}
+```
+
+Ownership also transfers in the other direction. A **factory** — a function
+whose every return path yields a fresh owned resource of one kind — acts as an
+acquisition at its call sites, so its result is tracked like a direct
+`alloc()`/`open()` (including the correct release operation and, in strict
+mode, leak detection):
+
+```hemlock
+fn make_block(): ptr {
+    return alloc(64);
+}
+
+fn main() {
+    let p = make_block();
+    free(p);
+    free(p);            // warning: double free
+}
+```
+
+Factory recognition is conservative: a function that returns a resource on only
+*some* paths (say, `null` on failure), returns resources of different kinds, or
+returns one of its own parameters is not treated as a factory, and its result
+stays untracked.
+
+Closure bodies are analysed where they are defined, but a closure runs at an
+unknown time — perhaps never, perhaps repeatedly — so its effect on *captured*
+resources is kept out of the surrounding sequential analysis. A `destroy`-style
+closure that releases a captured buffer does not make a sibling closure's use
+of that buffer a use-after-free, and a resource whose release is delegated to
+a closure is treated as escaped rather than leaked. Diagnostics wholly inside
+one closure body still fire as usual:
+
+```hemlock
+fn make_arena() {
+    let memory = alloc(64);
+    return {
+        destroy: fn() { free(memory); },   // release delegated to the closure
+        base:    fn() { return memory; }   // fine: not a use-after-free
+    };
+}
+```
 
 Storing a resource into a container (object literal, array, field, or index
 assignment) hands ownership to that container, so it is treated as an escape and
@@ -230,16 +324,16 @@ exit code stays 0. Add `--borrow-error` to make a finding fail the check
 ## Scope and limitations
 
 The analysis is flow-sensitive, tracks the built-in acquisition functions, and
-carries a one-level interprocedural summary (consuming functions + container
-escape). The following are intentionally out of scope for now and may be layered
-on later without changing the surface:
+carries interprocedural summaries computed to a fixpoint (consuming functions
+through arbitrary wrapper depth, factory functions, container escape). The
+following are intentionally out of scope for now and may be layered on later
+without changing the surface:
 
 - **Lifetimes** — no `'a`-style lifetime parameters or borrow regions.
-- **Transitive consumption** — a function that forwards its parameter into a
-  *second* consuming function is not yet recognised as consuming; only a
-  parameter released directly in the body is summarised.
 - **Borrow-conflict checking** — simultaneous mutable/immutable borrows are not
   yet modeled (Hemlock has no borrow syntax beyond `ref`/`const` parameters).
+- **Cross-module summaries** — summaries cover the file under analysis;
+  functions imported from other modules are treated as borrowing.
 - **Custom allocators** — only the built-in acquisitions (`alloc`, `buffer`,
   `open`, `channel`, `spawn`, `ffi_open`, `mmap_open`) are recognized; arena and
   other stdlib allocators are not yet tracked.
@@ -270,12 +364,14 @@ into CI (the `borrow-checker` job in `.github/workflows/tests.yml`) and into
 `make test-all`. The suite covers every diagnostic class plus precision cases:
 
 - **Positive** fixtures (e.g. `use_after_free`, `double_free_buffer`,
-  `free_in_while`, `defer_twice`, `strict_double_after_move`, `leak_file`)
-  assert the exact expected diagnostic.
+  `free_in_while`, `defer_twice`, `strict_double_after_move`, `leak_file`,
+  `ip_transitive_consume`, `ip_factory_double_free`, `match_possible_double`,
+  `strict_reassign_leak`) assert the exact expected diagnostic.
 - **Negative** fixtures (prefixed `neg_`, e.g. `neg_borrow_then_free`,
   `neg_free_both_branches`, `neg_alloc_free_per_iter`, `neg_switch_free_each`,
-  `neg_return_resource`) assert that no diagnostic is produced — these guard
-  against false positives.
+  `neg_return_resource`, `neg_match_free_arms`, `neg_ip_factory_mixed`,
+  `neg_ptr_arith_reassign`) assert that no diagnostic is produced — these
+  guard against false positives.
 
 Each `tests/borrow/<name>.hml` has a `<name>.expected` file with the exact
 diagnostics (empty for negative cases), and an optional `<name>.flags` file for

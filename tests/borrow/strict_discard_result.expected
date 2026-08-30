@@ -1,0 +1,2 @@
+strict_discard_result.hml:7: warning: the memory returned by 'alloc' is discarded without being released (possible leak)
+strict_discard_result.hml:8: warning: the memory returned by 'make_block' is discarded without being released (possible leak)
