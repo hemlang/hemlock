@@ -1,0 +1,9 @@
+// Isolating a closure's effects from the code around it must not stop
+// diagnostics *inside* the closure body itself.
+fn main() {
+    let f = fn() {
+        let p = alloc(64);
+        free(p);
+        memset(p, 0, 64);
+    };
+}

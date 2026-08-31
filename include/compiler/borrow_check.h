@@ -22,18 +22,22 @@
  *   - free-inside-loop      (a resource acquired outside a loop freed in its body)
  *   - defer/explicit double  (free() of a resource already scheduled via defer)
  *   - leaked resource        (strict mode: owner dropped without release/move/return)
+ *   - reassignment leak      (strict mode: overwriting the last live reference)
+ *   - discarded acquisition  (strict mode: acquisition result dropped unbound)
  *
  * In keeping with Hemlock's "unsafe is a feature" philosophy these are
  * reported as warnings by default and never fail the build. They are
  * advisory: the programmer keeps explicit control.
  *
  * The analysis is flow-sensitive (branches/loops are merged conservatively,
- * diverging paths via return/break/throw are excluded from merges). A
- * lightweight interprocedural layer summarises which parameters each named
- * function releases, so passing a resource to a consuming function transfers
- * ownership at the call site. Resources stored into objects/arrays escape.
- * Full lifetime/region analysis remains out of scope (see
- * docs/advanced/borrow-checker.md).
+ * diverging paths via return/break/throw are excluded from merges; ternary
+ * and match arms and short-circuited operands are treated as branches too).
+ * A lightweight interprocedural layer summarises, to a fixpoint, which
+ * parameters each named function releases — directly or through any chain of
+ * wrappers — and which functions return a fresh owned resource ("factories"),
+ * so ownership transfers correctly at call sites in both directions.
+ * Resources stored into objects/arrays escape. Full lifetime/region analysis
+ * remains out of scope (see docs/advanced/borrow-checker.md).
  */
 
 #ifndef HEMLOCK_BORROW_CHECK_H
@@ -71,11 +75,14 @@ typedef struct BorrowContext {
     int exit_kind;          // how the path left: see BC_EXIT_* in borrow_check.c
     int cur_line;           // line of the statement under analysis (fallback)
 
-    // Interprocedural summaries: which parameters each named function releases.
+    // Interprocedural summaries: which parameters each named function releases
+    // and whether it returns a fresh owned resource ("factory" functions).
     void *summaries;        // BcFnSummary dynamic array
     int num_summaries;
     int cap_summaries;
-    int summary_mode;       // building a summary: suppress diagnostics + interproc
+    int summary_mode;       // building a summary: suppress diagnostics
+    const char *sum_ret_kind; // summary mode: kind every return yields so far
+    int sum_ret_state;      // 0 = no return seen, 1 = consistent kind, 2 = mixed
 
     // Results
     int warning_count;

@@ -308,4 +308,10 @@
 #define HML_TYPEID_CHANNEL  20
 #define HML_TYPEID_NULL     21
 
+// ========== STATIC ANALYSIS ==========
+
+// Borrow checker: cap on interprocedural summary fixpoint passes. Summaries
+// are monotone so they converge quickly; the cap bounds pathological inputs.
+#define HML_BORROW_SUMMARY_MAX_PASSES 8
+
 #endif // HEMLOCK_LIMITS_H
