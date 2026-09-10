@@ -1,0 +1,12 @@
+// A function that returns a fresh resource on only some paths is NOT treated
+// as a factory: its result stays untracked, so nothing is reported.
+fn maybe_make(ok: bool) {
+    if (ok) {
+        return alloc(64);
+    }
+    return null;
+}
+fn main() {
+    let p = maybe_make(true);
+    free(p);
+}

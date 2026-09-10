@@ -1,0 +1,11 @@
+// A resource freed in only one match arm is MAYBE_FREED afterwards, so an
+// unconditional free after the match is a possible double free.
+fn main() {
+    let p = alloc(64);
+    let mode = 1;
+    let r = match (mode) {
+        0 => free(p),
+        _ => 0
+    };
+    free(p);
+}

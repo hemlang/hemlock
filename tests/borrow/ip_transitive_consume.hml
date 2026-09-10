@@ -1,0 +1,14 @@
+// Transitive consumption: shutdown() does not free its parameter directly, it
+// forwards it into release(), which does. The summary fixpoint must mark
+// shutdown() as consuming, so the free in main is a double free.
+fn release(p: ptr) {
+    free(p);
+}
+fn shutdown(p: ptr) {
+    release(p);
+}
+fn main() {
+    let p = alloc(64);
+    shutdown(p);
+    free(p);
+}

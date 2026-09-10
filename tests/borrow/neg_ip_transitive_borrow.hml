@@ -1,0 +1,13 @@
+// A wrapper that forwards its parameter into a *borrowing* callee must not be
+// summarised as consuming: the caller still owns the resource.
+fn peek(p: ptr) {
+    memset(p, 0, 8);
+}
+fn inspect(p: ptr) {
+    peek(p);
+}
+fn main() {
+    let p = alloc(64);
+    inspect(p);
+    free(p);
+}

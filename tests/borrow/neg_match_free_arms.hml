@@ -1,0 +1,11 @@
+// Match arms are alternatives: releasing the same resource in two different
+// arms is fine — only one arm ever runs. (This used to be walked as a
+// sequence and reported a bogus double free.)
+fn main() {
+    let p = alloc(64);
+    let mode = 1;
+    let r = match (mode) {
+        0 => free(p),
+        _ => free(p)
+    };
+}

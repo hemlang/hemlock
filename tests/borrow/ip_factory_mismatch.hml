@@ -1,0 +1,10 @@
+// The kind of resource a factory returns is tracked, so releasing it with the
+// wrong operation is reported just like a direct acquisition.
+fn open_log() {
+    return open("log.txt", "r");
+}
+fn main() {
+    let f = open_log();
+    free(f);
+    f.close();
+}

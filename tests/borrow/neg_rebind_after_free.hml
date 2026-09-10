@@ -1,0 +1,11 @@
+// Assigning a different value to a binding detaches it from its old resource:
+// after `p = q;`, uses of p refer to q's allocation, not the freed one.
+// (This used to report a bogus use-after-free on the memset.)
+fn main() {
+    let p = alloc(64);
+    let q = alloc(64);
+    free(p);
+    p = q;
+    memset(p, 0, 64);
+    free(p);
+}

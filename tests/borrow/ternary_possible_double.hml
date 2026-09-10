@@ -1,0 +1,12 @@
+// Only one ternary arm runs: consuming the resource in the true arm makes a
+// later unconditional free a possible double free (not a certain one).
+fn cleanup(p: ptr): i32 {
+    free(p);
+    return 1;
+}
+fn main() {
+    let early = true;
+    let p = alloc(64);
+    let n = early ? cleanup(p) : 0;
+    free(p);
+}

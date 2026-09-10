@@ -1,0 +1,9 @@
+// Strict mode: an acquisition whose result is discarded at statement level can
+// never be released — for builtins and factory functions alike.
+fn make_block(): ptr {
+    return alloc(64);
+}
+fn main() {
+    alloc(64);
+    make_block();
+}

@@ -86,7 +86,9 @@ typedef struct {
 typedef struct {
     char *name;              // owned — function name
     int num_params;
-    unsigned char *consumed; // owned — BC_PARAM_* per parameter
+    unsigned char *consumed; // owned — BC_PARAM_* per parameter (NULL if none)
+    char *returns_kind;      // owned — resource kind every return path yields
+                             // fresh ("factory"), or NULL
 } BcFnSummary;
 
 // ========== ACCESSORS ==========
@@ -183,6 +185,19 @@ static BcBinding *bc_lookup(BorrowContext *ctx, const char *name) {
         }
     }
     return NULL;
+}
+
+// Number of live (non-moved) bindings that refer to resource `rid` anywhere in
+// the scope chain. Used to tell "reassigning the last reference" apart from
+// reassigning one of several aliases.
+static int bc_alias_count(BorrowContext *ctx, int rid) {
+    int count = 0;
+    for (BcScope *s = (BcScope *)ctx->scope; s; s = s->parent) {
+        for (BcBinding *b = s->bindings; b; b = b->next) {
+            if (b->resource_id == rid && !b->moved) count++;
+        }
+    }
+    return count;
 }
 
 // Define a binding in the innermost scope (shadows outer ones).
@@ -314,6 +329,7 @@ static void bc_analyze_function(BorrowContext *ctx, Expr *fn);
 static const BcFnSummary *bc_find_summary(BorrowContext *ctx, const char *name);
 static void bc_apply_call_consumption(BorrowContext *ctx, Expr *call);
 static void bc_mark_escape(BorrowContext *ctx, Expr *value);
+static const char *bc_value_acquire_kind(BorrowContext *ctx, Expr *e);
 
 // ========== ACQUISITION / RELEASE RECOGNITION ==========
 
@@ -352,6 +368,19 @@ static const char *bc_acquire_kind(Expr *e) {
     for (size_t i = 0; i < sizeof(BC_ACQUIRE) / sizeof(BC_ACQUIRE[0]); i++)
         if (strcmp(name, BC_ACQUIRE[i].name) == 0) return BC_ACQUIRE[i].kind;
     return NULL;
+}
+
+// Like bc_acquire_kind, but also recognises calls to user functions whose
+// summary says every return path yields a fresh owned resource ("factories"),
+// so `let p = make();` is tracked just like `let p = alloc(...);`.
+static const char *bc_value_acquire_kind(BorrowContext *ctx, Expr *e) {
+    const char *kind = bc_acquire_kind(e);
+    if (kind) return kind;
+    if (!e || e->type != EXPR_CALL) return NULL;
+    Expr *f = e->as.call.func;
+    if (!f || f->type != EXPR_IDENT || !f->as.ident.name) return NULL;
+    const BcFnSummary *sum = bc_find_summary(ctx, f->as.ident.name);
+    return sum ? sum->returns_kind : NULL;
 }
 
 // Is `op` the correct release operation for a resource of `kind`?
@@ -497,6 +526,60 @@ static void bc_release(BorrowContext *ctx, const char *name, const char *op, int
 
 // ========== EXPRESSION WALK ==========
 
+// Walk one conditionally-evaluated sub-expression (a ternary/match arm, or the
+// short-circuited side of &&, ||, ??) as its own path, the expression-level
+// analogue of bc_branch. Returns how the arm exited (BC_EXIT_NONE unless a
+// diverging call such as panic()/exit() ended it).
+static int bc_expr_arm(BorrowContext *ctx, Expr *e) {
+    int saved_div = ctx->diverged;
+    int saved_kind = ctx->exit_kind;
+    ctx->diverged = 0;
+    ctx->exit_kind = BC_EXIT_NONE;
+    bc_expr_use(ctx, e);
+    int kind = ctx->diverged ? ctx->exit_kind : BC_EXIT_NONE;
+    ctx->diverged = saved_div;
+    ctx->exit_kind = saved_kind;
+    return kind;
+}
+
+// Does `e` mention identifier `name` anywhere? Used to keep a binding attached
+// to its resource across self-referential reassignment (`p = p + 8;` derives a
+// new pointer from the same allocation, it does not drop it).
+static int bc_expr_mentions(Expr *e, const char *name) {
+    if (!e || !name) return 0;
+    switch (e->type) {
+        case EXPR_IDENT:
+            return e->as.ident.name && strcmp(e->as.ident.name, name) == 0;
+        case EXPR_BINARY:
+            return bc_expr_mentions(e->as.binary.left, name) ||
+                   bc_expr_mentions(e->as.binary.right, name);
+        case EXPR_UNARY:
+            return bc_expr_mentions(e->as.unary.operand, name);
+        case EXPR_TERNARY:
+            return bc_expr_mentions(e->as.ternary.condition, name) ||
+                   bc_expr_mentions(e->as.ternary.true_expr, name) ||
+                   bc_expr_mentions(e->as.ternary.false_expr, name);
+        case EXPR_CALL: {
+            if (bc_expr_mentions(e->as.call.func, name)) return 1;
+            for (int i = 0; i < e->as.call.num_args; i++)
+                if (bc_expr_mentions(e->as.call.args[i], name)) return 1;
+            return 0;
+        }
+        case EXPR_ASSIGN:
+            return bc_expr_mentions(e->as.assign.value, name);
+        case EXPR_GET_PROPERTY:
+            return bc_expr_mentions(e->as.get_property.object, name);
+        case EXPR_INDEX:
+            return bc_expr_mentions(e->as.index.object, name) ||
+                   bc_expr_mentions(e->as.index.index, name);
+        case EXPR_NULL_COALESCE:
+            return bc_expr_mentions(e->as.null_coalesce.left, name) ||
+                   bc_expr_mentions(e->as.null_coalesce.right, name);
+        default:
+            return 0;
+    }
+}
+
 // Walk an expression treating every identifier reference as a *use*. Special
 // forms (acquisition, release, assignment) are handled by callers before they
 // reach here, but nested calls are still walked so uses inside arguments count.
@@ -508,16 +591,41 @@ static void bc_expr_use(BorrowContext *ctx, Expr *expr) {
             break;
         case EXPR_BINARY:
             bc_expr_use(ctx, expr->as.binary.left);
-            bc_expr_use(ctx, expr->as.binary.right);
+            if (expr->as.binary.op == OP_AND || expr->as.binary.op == OP_OR) {
+                // Short-circuit: the right operand may not run. Merge the
+                // skipped path (pre-state) with the evaluated one.
+                int n; BcSnap *snap = bc_snapshot(ctx, &n);
+                bc_expr_arm(ctx, expr->as.binary.right);
+                int cn; BcSnap *cur = bc_snapshot(ctx, &cn);
+                bc_merge_two(ctx, snap, n, cur, cn);
+                free(snap); free(cur);
+            } else {
+                bc_expr_use(ctx, expr->as.binary.right);
+            }
             break;
         case EXPR_UNARY:
             bc_expr_use(ctx, expr->as.unary.operand);
             break;
-        case EXPR_TERNARY:
+        case EXPR_TERNARY: {
+            // Exactly one arm runs: analyse each from the same entry state and
+            // merge, exactly like an if/else statement.
             bc_expr_use(ctx, expr->as.ternary.condition);
-            bc_expr_use(ctx, expr->as.ternary.true_expr);
-            bc_expr_use(ctx, expr->as.ternary.false_expr);
+            int n; BcSnap *snap = bc_snapshot(ctx, &n);
+            int tdiv = bc_expr_arm(ctx, expr->as.ternary.true_expr);
+            int tn; BcSnap *tstate = bc_snapshot(ctx, &tn);
+            bc_restore(ctx, snap, n);
+            int fdiv = bc_expr_arm(ctx, expr->as.ternary.false_expr);
+            int en; BcSnap *fstate = bc_snapshot(ctx, &en);
+            bc_merge_two(ctx, tdiv ? NULL : tstate, tn,
+                              fdiv ? NULL : fstate, en);
+            if (tdiv && fdiv) {
+                ctx->diverged = 1;
+                ctx->exit_kind = (tdiv == BC_EXIT_RETURN || fdiv == BC_EXIT_RETURN)
+                                 ? BC_EXIT_RETURN : BC_EXIT_BREAK;
+            }
+            free(snap); free(tstate); free(fstate);
             break;
+        }
         case EXPR_CALL: {
             // Release forms consume rather than use their target.
             const char *rname = NULL, *rop = NULL;
@@ -614,18 +722,40 @@ static void bc_expr_use(BorrowContext *ctx, Expr *expr) {
             for (int i = 0; i < expr->as.optional_chain.num_args; i++)
                 bc_expr_use(ctx, expr->as.optional_chain.args[i]);
             break;
-        case EXPR_NULL_COALESCE:
+        case EXPR_NULL_COALESCE: {
+            // The right operand only runs when the left is null: merge the
+            // skipped path with the evaluated one.
             bc_expr_use(ctx, expr->as.null_coalesce.left);
-            bc_expr_use(ctx, expr->as.null_coalesce.right);
+            int n; BcSnap *snap = bc_snapshot(ctx, &n);
+            bc_expr_arm(ctx, expr->as.null_coalesce.right);
+            int cn; BcSnap *cur = bc_snapshot(ctx, &cn);
+            bc_merge_two(ctx, snap, n, cur, cn);
+            free(snap); free(cur);
             break;
-        case EXPR_MATCH:
+        }
+        case EXPR_MATCH: {
+            // Arms are alternatives, not a sequence: analyse each from the
+            // entry state and merge the survivors, like switch cases. The
+            // entry state stays in the merge (a match need not be exhaustive).
             bc_expr_use(ctx, expr->as.match_expr.scrutinee);
+            int n; BcSnap *snap = bc_snapshot(ctx, &n);
+            BcSnap *acc = NULL; int accn = 0; int have_acc = 0;
             for (int i = 0; i < expr->as.match_expr.num_arms; i++) {
+                bc_restore(ctx, snap, n);
                 MatchArm *arm = &expr->as.match_expr.arms[i];
                 if (arm->guard) bc_expr_use(ctx, arm->guard);
-                if (arm->body) bc_expr_use(ctx, arm->body);
+                int kind = arm->body ? bc_expr_arm(ctx, arm->body) : BC_EXIT_NONE;
+                if (kind != BC_EXIT_NONE) continue;  // arm diverged (panic/exit)
+                int cn; BcSnap *cs = bc_snapshot(ctx, &cn);
+                if (!have_acc) { acc = cs; accn = cn; have_acc = 1; }
+                else { bc_merge_two(ctx, acc, accn, cs, cn);
+                       free(cs); free(acc); acc = bc_snapshot(ctx, &accn); }
             }
+            bc_restore(ctx, snap, n);
+            if (have_acc) { bc_merge_two(ctx, acc, accn, snap, n); free(acc); }
+            free(snap);
             break;
+        }
         default:
             break;  // literals, etc.
     }
@@ -642,13 +772,15 @@ static void bc_mark_escape(BorrowContext *ctx, Expr *value) {
 
 // Bind `name` to whatever ownership `value` implies.
 static void bc_bind_value(BorrowContext *ctx, const char *name, Expr *value) {
-    const char *kind = bc_acquire_kind(value);
+    const char *kind = bc_value_acquire_kind(ctx, value);
     if (kind) {
-        // Fresh acquisition: walk the call's argument expressions for uses
-        // (but the call itself is the acquisition, not a use).
+        // Fresh acquisition (builtin or factory function): walk the call's
+        // argument expressions for uses (the call itself is the acquisition,
+        // not a use), then apply any consumption the callee's summary implies.
         if (value->type == EXPR_CALL) {
             for (int i = 0; i < value->as.call.num_args; i++)
                 bc_expr_use(ctx, value->as.call.args[i]);
+            bc_apply_call_consumption(ctx, value);
         }
         int id = bc_new_resource(ctx, kind, name, value ? value->line : 0);
         bc_define(ctx, name, id);
@@ -667,6 +799,31 @@ static void bc_bind_value(BorrowContext *ctx, const char *name, Expr *value) {
     // Non-owning initializer: walk it for uses, bind as untracked.
     bc_expr_use(ctx, value);
     bc_define(ctx, name, -1);
+}
+
+// While summarising a function, record what a `return` yields. If every path
+// returns a fresh owned resource of one kind, the function acts as an
+// acquisition ("factory") at its call sites. Returning a parameter is
+// excluded — the caller owns that value already.
+static void bc_note_summary_return(BorrowContext *ctx, Expr *v) {
+    const char *k = NULL;
+    if (v) {
+        k = bc_value_acquire_kind(ctx, v);
+        if (!k && v->type == EXPR_IDENT && v->as.ident.name) {
+            BcBinding *b = bc_lookup(ctx, v->as.ident.name);
+            BcResource *r = b && !b->moved ? bc_res(ctx, b->resource_id) : NULL;
+            if (r && r->state == BC_OWNED && strcmp(r->kind, "param") != 0)
+                k = r->kind;
+        }
+    }
+    if (k && (ctx->sum_ret_state == 0 ||
+              (ctx->sum_ret_state == 1 &&
+               strcmp(ctx->sum_ret_kind, k) == 0))) {
+        ctx->sum_ret_kind = k;
+        ctx->sum_ret_state = 1;
+    } else {
+        ctx->sum_ret_state = 2;
+    }
 }
 
 // ========== STATEMENT WALK ==========
@@ -717,24 +874,86 @@ static void bc_stmt(BorrowContext *ctx, Stmt *stmt) {
             Expr *e = stmt->as.expr;
             // Simple reassignment `x = value` at statement level.
             if (e && e->type == EXPR_ASSIGN) {
-                const char *kind = bc_acquire_kind(e->as.assign.value);
                 BcBinding *b = bc_lookup(ctx, e->as.assign.name);
-                if (kind && b) {
-                    // Re-acquire: revive binding to a fresh OWNED resource.
-                    if (e->as.assign.value->type == EXPR_CALL) {
-                        for (int i = 0; i < e->as.assign.value->as.call.num_args; i++)
-                            bc_expr_use(ctx, e->as.assign.value->as.call.args[i]);
+                Expr *v = e->as.assign.value;
+                if (b) {
+                    int line = e->line > 0 ? e->line : ctx->cur_line;
+                    const char *kind = bc_value_acquire_kind(ctx, v);
+                    // A value derived from the binding itself (`p = p + 8;`)
+                    // keeps referring to the same resource: no drop, no rebind.
+                    int self_ref = !kind && v &&
+                                   bc_expr_mentions(v, e->as.assign.name);
+                    // Strict: overwriting the last live reference to a
+                    // still-owned resource loses it for good.
+                    if (ctx->strict && !self_ref &&
+                        b->resource_id >= 0 && !b->moved) {
+                        BcResource *old = bc_res(ctx, b->resource_id);
+                        if (old && old->state == BC_OWNED && !old->escaped &&
+                            !old->deferred_free &&
+                            bc_alias_count(ctx, b->resource_id) == 1) {
+                            bc_warn(ctx, line,
+                                    "reassigning '%s' drops the last reference "
+                                    "to the %s acquired at line %d (possible "
+                                    "leak)", e->as.assign.name, old->kind,
+                                    old->acquire_line);
+                        }
                     }
-                    int id = bc_new_resource(ctx, kind, e->as.assign.name, e->line);
-                    b->resource_id = id;
+                    if (kind) {
+                        // Re-acquire: revive binding to a fresh OWNED resource.
+                        if (v->type == EXPR_CALL) {
+                            for (int i = 0; i < v->as.call.num_args; i++)
+                                bc_expr_use(ctx, v->as.call.args[i]);
+                            bc_apply_call_consumption(ctx, v);
+                        }
+                        int id = bc_new_resource(ctx, kind, e->as.assign.name,
+                                                 line);
+                        b->resource_id = id;
+                        b->moved = 0;
+                        break;
+                    }
+                    if (self_ref) {
+                        bc_expr_use(ctx, v);
+                        break;
+                    }
+                    // `x = y` where y owns a resource: x now aliases (or, in
+                    // strict mode, takes over) that resource.
+                    if (v && v->type == EXPR_IDENT) {
+                        bc_check_use(ctx, v->as.ident.name, v->line);
+                        BcBinding *src = bc_lookup(ctx, v->as.ident.name);
+                        if (src && src->resource_id >= 0 && !src->moved) {
+                            b->resource_id = src->resource_id;
+                            b->moved = 0;
+                            if (ctx->strict && src != b) src->moved = 1;
+                            break;
+                        }
+                    } else {
+                        bc_expr_use(ctx, v);
+                    }
+                    // The binding now holds an untracked value; detach it from
+                    // the old resource so later uses of the name are not
+                    // misattributed to it.
+                    b->resource_id = -1;
                     b->moved = 0;
                     break;
+                }
+            }
+            // Strict: an acquisition whose result is discarded at statement
+            // level can never be released.
+            if (ctx->strict && e && e->type == EXPR_CALL) {
+                const char *k = bc_value_acquire_kind(ctx, e);
+                if (k && e->as.call.func && e->as.call.func->type == EXPR_IDENT) {
+                    bc_warn(ctx, e->line,
+                            "the %s returned by '%s' is discarded without being "
+                            "released (possible leak)", k,
+                            e->as.call.func->as.ident.name);
                 }
             }
             bc_expr_use(ctx, e);
             break;
         }
         case STMT_RETURN:
+            if (ctx->summary_mode)
+                bc_note_summary_return(ctx, stmt->as.return_stmt.value);
             if (stmt->as.return_stmt.value) {
                 bc_mark_escape(ctx, stmt->as.return_stmt.value);
                 bc_expr_use(ctx, stmt->as.return_stmt.value);
@@ -961,8 +1180,12 @@ static void bc_analyze_function(BorrowContext *ctx, Expr *fn) {
     if (!fn || fn->type != EXPR_FUNCTION || !fn->as.function.body) return;
     int saved_div = ctx->diverged;
     int saved_kind = ctx->exit_kind;
+    // Shield any in-progress summary's return tracking from this nested body.
+    const char *saved_rk = ctx->sum_ret_kind;
+    int saved_rs = ctx->sum_ret_state;
     ctx->diverged = 0;
     ctx->exit_kind = BC_EXIT_NONE;
+    int n; BcSnap *snap = bc_snapshot(ctx, &n);
     bc_push_scope(ctx);
     // Parameters are borrows from the caller; bind them as untracked so uses
     // inside the body don't trip ownership rules.
@@ -972,8 +1195,31 @@ static void bc_analyze_function(BorrowContext *ctx, Expr *fn) {
     }
     bc_block(ctx, fn->as.function.body);
     bc_pop_scope(ctx);
+    // This body runs at an unknown time — perhaps never, perhaps repeatedly —
+    // so its effect on *captured* outer resources must not bleed into the
+    // sequential analysis of the code that merely defines it (a `destroy`
+    // closure releasing a captured buffer must not make a sibling closure's
+    // use of it a "use after free"). Restore the outer resources' state, with
+    // two exceptions: escapes stay (a closure returning or storing a captured
+    // resource still counts), and a resource the body released is marked
+    // escaped — its lifecycle now belongs to the closure, so it is not a leak
+    // when the defining scope ends. Resources created inside the body (locals)
+    // sit beyond the snapshot and keep their final state.
+    if (snap) {
+        BcResource *res = bc_resources(ctx);
+        for (int i = 0; i < n && i < ctx->num_resources; i++) {
+            int released_here = bc_state_dead(res[i].state) &&
+                                !bc_state_dead(snap[i].state);
+            res[i].escaped = res[i].escaped || snap[i].escaped || released_here;
+            res[i].state = snap[i].state;
+            res[i].deferred_free = snap[i].deferred_free;
+        }
+        free(snap);
+    }
     ctx->diverged = saved_div;
     ctx->exit_kind = saved_kind;
+    ctx->sum_ret_kind = saved_rk;
+    ctx->sum_ret_state = saved_rs;
 }
 
 // ========== INTERPROCEDURAL SUMMARIES ==========
@@ -991,8 +1237,10 @@ static const BcFnSummary *bc_find_summary(BorrowContext *ctx, const char *name) 
 }
 
 // At a call site, transition resources passed to parameters the callee releases.
+// Also active while building summaries: a wrapper that forwards its parameter
+// into a consuming callee is then summarised as consuming too, and the fixpoint
+// in bc_register_summaries propagates chains of any depth.
 static void bc_apply_call_consumption(BorrowContext *ctx, Expr *call) {
-    if (ctx->summary_mode) return;  // summaries are local-only (no transitivity)
     if (!call || call->type != EXPR_CALL) return;
     Expr *f = call->as.call.func;
     if (!f || f->type != EXPR_IDENT || !f->as.ident.name) return;
@@ -1019,22 +1267,28 @@ static void bc_apply_call_consumption(BorrowContext *ctx, Expr *call) {
 }
 
 // Walk one function body with its parameters modelled as resources, then read
-// back how each was left to derive a consumption summary. Registered only if
-// the function releases at least one parameter.
-static void bc_register_summary(BorrowContext *ctx, const char *name, Expr *fn) {
-    if (!name || !fn || fn->type != EXPR_FUNCTION || !fn->as.function.body) return;
+// back how each was left to derive a consumption summary, plus whether every
+// return path yields a fresh owned resource (a "factory"). A summary is kept
+// only if it says something (consumes a parameter or returns a resource).
+// Returns 1 if the recorded summary is new or changed since the last pass —
+// this drives the fixpoint loop in bc_register_summaries.
+static int bc_register_summary(BorrowContext *ctx, const char *name, Expr *fn) {
+    if (!name || !fn || fn->type != EXPR_FUNCTION || !fn->as.function.body)
+        return 0;
     int np = fn->as.function.num_params;
-    if (np <= 0) return;
 
     int base = ctx->num_resources;
     int saved_strict = ctx->strict;
     int saved_div = ctx->diverged, saved_kind = ctx->exit_kind;
+    const char *saved_rk = ctx->sum_ret_kind;
+    int saved_rs = ctx->sum_ret_state;
     ctx->summary_mode = 1;
     ctx->strict = 0;  // move/leak rules are irrelevant to consumption
     ctx->diverged = 0; ctx->exit_kind = BC_EXIT_NONE;
+    ctx->sum_ret_kind = NULL; ctx->sum_ret_state = 0;
 
     bc_push_scope(ctx);
-    int *ids = calloc((size_t)np, sizeof(int));
+    int *ids = np > 0 ? calloc((size_t)np, sizeof(int)) : NULL;
     for (int i = 0; i < np; i++) {
         const char *pn = fn->as.function.param_names[i];
         if (!pn) { if (ids) ids[i] = -1; continue; }
@@ -1044,7 +1298,8 @@ static void bc_register_summary(BorrowContext *ctx, const char *name, Expr *fn) 
     }
     bc_block(ctx, fn->as.function.body);
 
-    unsigned char *consumed = calloc((size_t)np, sizeof(unsigned char));
+    unsigned char *consumed = np > 0 ? calloc((size_t)np, sizeof(unsigned char))
+                                     : NULL;
     int any = 0;
     for (int i = 0; consumed && ids && i < np; i++) {
         BcResource *r = bc_res(ctx, ids[i]);
@@ -1052,10 +1307,18 @@ static void bc_register_summary(BorrowContext *ctx, const char *name, Expr *fn) 
         if (r->state == BC_FREED)       { consumed[i] = BC_PARAM_CONSUMED; any = 1; }
         else if (r->state == BC_MAYBE_FREED) { consumed[i] = BC_PARAM_MAYBE; any = 1; }
     }
+    // Factory: every path must end in a return (ctx->diverged) that yields a
+    // fresh owned resource of one consistent kind. Copy the kind now — it may
+    // point into a temporary resource about to be discarded.
+    char *ret_kind = NULL;
+    if (ctx->sum_ret_state == 1 && ctx->diverged && ctx->sum_ret_kind &&
+        strcmp(ctx->sum_ret_kind, "param") != 0)
+        ret_kind = strdup(ctx->sum_ret_kind);
+
     bc_pop_scope(ctx);
     free(ids);
 
-    // Discard the throwaway parameter resources.
+    // Discard the throwaway parameter/local resources.
     BcResource *res = bc_resources(ctx);
     for (int i = base; i < ctx->num_resources; i++) {
         free(res[i].kind);
@@ -1066,13 +1329,36 @@ static void bc_register_summary(BorrowContext *ctx, const char *name, Expr *fn) 
     ctx->summary_mode = 0;
     ctx->strict = saved_strict;
     ctx->diverged = saved_div; ctx->exit_kind = saved_kind;
+    ctx->sum_ret_kind = saved_rk; ctx->sum_ret_state = saved_rs;
 
-    if (!consumed || !any) { free(consumed); return; }
+    if (!any && !ret_kind) { free(consumed); return 0; }
+
+    // Later fixpoint pass: update the existing summary in place if it changed.
+    BcFnSummary *existing = (BcFnSummary *)bc_find_summary(ctx, name);
+    if (existing) {
+        int changed = existing->num_params != np ||
+                      (np > 0 && existing->consumed && consumed &&
+                       memcmp(existing->consumed, consumed, (size_t)np) != 0) ||
+                      (existing->returns_kind == NULL) != (ret_kind == NULL) ||
+                      (ret_kind && existing->returns_kind &&
+                       strcmp(ret_kind, existing->returns_kind) != 0);
+        if (changed) {
+            free(existing->consumed);
+            free(existing->returns_kind);
+            existing->num_params = np;
+            existing->consumed = consumed;
+            existing->returns_kind = ret_kind;
+        } else {
+            free(consumed);
+            free(ret_kind);
+        }
+        return changed;
+    }
 
     if (ctx->num_summaries >= ctx->cap_summaries) {
         int ncap = ctx->cap_summaries ? ctx->cap_summaries * 2 : 8;
         BcFnSummary *ns = realloc(ctx->summaries, (size_t)ncap * sizeof(BcFnSummary));
-        if (!ns) { free(consumed); return; }
+        if (!ns) { free(consumed); free(ret_kind); return 0; }
         ctx->summaries = ns;
         ctx->cap_summaries = ncap;
     }
@@ -1080,23 +1366,34 @@ static void bc_register_summary(BorrowContext *ctx, const char *name, Expr *fn) 
     s->name = strdup(name);
     s->num_params = np;
     s->consumed = consumed;
+    s->returns_kind = ret_kind;
+    return 1;
 }
 
 // Pre-pass: register summaries for every top-level named function so that call
-// sites can be checked regardless of declaration order.
+// sites can be checked regardless of declaration order. Iterated to a fixpoint
+// so knowledge propagates through wrappers: a function that forwards its
+// parameter into a consuming callee, or returns another factory's fresh
+// resource, is only seen once its callee's summary exists. Summaries grow
+// monotonically, so the loop converges; the pass cap bounds pathological input.
 static void bc_register_summaries(BorrowContext *ctx, Stmt **stmts, int count) {
-    for (int i = 0; i < count; i++) {
-        Stmt *s = stmts[i];
-        if (!s) continue;
-        if (s->type == STMT_EXPORT && s->as.export_stmt.declaration)
-            s = s->as.export_stmt.declaration;
-        if (!s) continue;
-        if (s->type == STMT_LET && s->as.let.value &&
-            s->as.let.value->type == EXPR_FUNCTION)
-            bc_register_summary(ctx, s->as.let.name, s->as.let.value);
-        else if (s->type == STMT_CONST && s->as.const_stmt.value &&
-                 s->as.const_stmt.value->type == EXPR_FUNCTION)
-            bc_register_summary(ctx, s->as.const_stmt.name, s->as.const_stmt.value);
+    for (int pass = 0; pass < HML_BORROW_SUMMARY_MAX_PASSES; pass++) {
+        int changed = 0;
+        for (int i = 0; i < count; i++) {
+            Stmt *s = stmts[i];
+            if (!s) continue;
+            if (s->type == STMT_EXPORT && s->as.export_stmt.declaration)
+                s = s->as.export_stmt.declaration;
+            if (!s) continue;
+            if (s->type == STMT_LET && s->as.let.value &&
+                s->as.let.value->type == EXPR_FUNCTION)
+                changed |= bc_register_summary(ctx, s->as.let.name, s->as.let.value);
+            else if (s->type == STMT_CONST && s->as.const_stmt.value &&
+                     s->as.const_stmt.value->type == EXPR_FUNCTION)
+                changed |= bc_register_summary(ctx, s->as.const_stmt.name,
+                                               s->as.const_stmt.value);
+        }
+        if (!changed) break;
     }
 }
 
@@ -1148,6 +1445,7 @@ void borrow_check_free(BorrowContext *ctx) {
     for (int i = 0; i < ctx->num_summaries; i++) {
         free(sums[i].name);
         free(sums[i].consumed);
+        free(sums[i].returns_kind);
     }
     free(ctx->summaries);
     BorrowDiag *d = ctx->diags;
