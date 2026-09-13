@@ -238,10 +238,10 @@ int hml_ffi_callback_free_by_ptr(void *ptr) { (void)ptr; return 0; }
 
 HmlValue hml_builtin_callback(HmlClosureEnv *env, HmlValue fn, HmlValue pt, HmlValue rt) { (void)env;(void)fn;(void)pt;(void)rt; WASM_STUB_PANIC_RETURN("callback"); }
 HmlValue hml_builtin_callback_free(HmlClosureEnv *env, HmlValue ptr) { (void)env;(void)ptr; WASM_STUB_PANIC_RETURN("callback_free"); }
-HmlValue hml_builtin_ptr_deref_i32(HmlClosureEnv *env, HmlValue ptr) { (void)env;(void)ptr; WASM_STUB_PANIC_RETURN("ptr_deref_i32"); }
-HmlValue hml_builtin_ptr_write_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue val) { (void)env;(void)ptr;(void)val; WASM_STUB_PANIC_RETURN("ptr_write_i32"); }
-HmlValue hml_builtin_ptr_offset(HmlClosureEnv *env, HmlValue ptr, HmlValue off, HmlValue sz) { (void)env;(void)ptr;(void)off;(void)sz; WASM_STUB_PANIC_RETURN("ptr_offset"); }
-HmlValue hml_builtin_ptr_read_i32(HmlClosureEnv *env, HmlValue ptr) { (void)env;(void)ptr; WASM_STUB_PANIC_RETURN("ptr_read_i32"); }
+
+// NOTE: ptr_offset / ptr_deref_* / ptr_read_* / ptr_write_* are deliberately
+// NOT stubbed here. They are pure pointer arithmetic over linear memory and
+// are compiled for WASM from builtins_ffi.c like every other target.
 
 // ========== ASYNC BUILTINS (builtins_async.c) ==========
 // When compiled with -pthread (__EMSCRIPTEN_PTHREADS__), builtins_async.c provides

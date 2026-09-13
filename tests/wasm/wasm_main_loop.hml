@@ -1,0 +1,30 @@
+// main_loop(callback, fps) under WASM.
+//
+// The frame callback is handed to the host's frame scheduler
+// (emscripten_set_main_loop_arg), so a frame loop needs no sleep() and
+// therefore no Asyncify. main_loop() does not return here -- the host owns
+// the event loop from that point on -- so everything the program still has
+// to do goes inside the callback.
+
+import { main_loop, main_loop_stop } from "@stdlib/time";
+
+let frames = 0;
+let total = 0;
+
+fn work(n: i32): i32 {
+    let sum = 0;
+    for (let i = 0; i < n; i++) { sum = sum + i; }
+    return sum;
+}
+
+main_loop(fn() {
+    frames = frames + 1;
+    total = total + work(frames * 10);
+    print("frame " + frames + " total " + total);
+
+    if (frames == 4) {
+        print("stopping after " + frames + " frames");
+        main_loop_stop();
+        print("Done!");
+    }
+}, 0);

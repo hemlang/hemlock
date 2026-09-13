@@ -1,0 +1,12 @@
+frame 1
+frame 2
+frame 3
+after loop: 3
+restarted: 5
+paced: true
+closure: 7
+negative fps rejected
+non-function rejected
+reentry rejected
+reentered: 1
+idle stop ok
