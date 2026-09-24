@@ -77,6 +77,14 @@ static int obj_is_pooled(HmlObject *obj) {
     return obj >= &obj_pool.objects[0] && obj < &obj_pool.objects[OBJ_POOL_SIZE];
 }
 
+// True while a pooled object's fields still live in the pool's inline
+// storage (i.e. they have never been grown onto the heap).
+int hml_obj_fields_in_pool_storage(HmlObject *obj) {
+    if (!obj_is_pooled(obj)) return 0;
+    int idx = (int)(obj - &obj_pool.objects[0]);
+    return obj->fields == obj_pool.fields_storage[idx];
+}
+
 static void obj_pool_free(HmlObject *obj) {
     if (!obj_is_pooled(obj)) return;
     int idx = (int)(obj - &obj_pool.objects[0]);

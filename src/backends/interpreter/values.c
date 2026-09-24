@@ -506,9 +506,9 @@ static void array_grow(Array *arr) {
 }
 
 // Helper function to check if value matches array element type
-static void check_array_element_type(Array *arr, Value val) {
+static int array_element_type_matches(Array *arr, Value val) {
     if (!arr->element_type) {
-        return;  // Untyped array, allow any value
+        return 1;  // Untyped array, allow any value
     }
 
     TypeKind expected = arr->element_type->kind;
@@ -535,7 +535,11 @@ static void check_array_element_type(Array *arr, Value val) {
             exit(1);
     }
 
-    if (!type_matches) {
+    return type_matches;
+}
+
+static void check_array_element_type(Array *arr, Value val) {
+    if (!array_element_type_matches(arr, val)) {
         fprintf(stderr, "Runtime error: Type mismatch in typed array - expected element of specific type\n");
         exit(1);
     }
@@ -589,12 +593,19 @@ void array_set(Array *arr, int index, Value val, ExecutionContext *ctx) {
         return;
     }
 
-    // Check type constraint for typed arrays
-    check_array_element_type(arr, val);
+    // Check type constraint for typed arrays (catchable)
+    if (!array_element_type_matches(arr, val)) {
+        runtime_error(ctx, "Type mismatch in typed array - expected element of specific type");
+        return;
+    }
 
-    // Extend array if needed, filling with nulls
+    // Extend array if needed, filling with nulls (the gap is untyped
+    // padding, as in the compiled runtime - don't type-check it)
     while (index >= arr->length) {
-        array_push(arr, val_null());
+        if (arr->length >= arr->capacity) {
+            array_grow(arr);
+        }
+        arr->elements[arr->length++] = val_null();
     }
 
     // Release old value, retain new value (reference counting)
@@ -1286,6 +1297,24 @@ Value val_null(void) {
     return v;
 }
 
+// Arrays currently being printed/stringified on this thread, as a linked
+// list of frames on the C stack. A self-referential array (`a.push(a)`)
+// would otherwise recurse until the stack overflows; a back-reference
+// prints as "[...]" instead.
+typedef struct ArrayPrintFrame {
+    const void *arr;
+    const struct ArrayPrintFrame *prev;
+} ArrayPrintFrame;
+
+static __thread const ArrayPrintFrame *g_array_print_frames = NULL;
+
+static int array_print_in_progress(const void *arr) {
+    for (const ArrayPrintFrame *f = g_array_print_frames; f; f = f->prev) {
+        if (f->arr == arr) return 1;
+    }
+    return 0;
+}
+
 void fprint_value(FILE *out, Value val) {
     switch (val.type) {
         case VAL_I8:
@@ -1345,12 +1374,19 @@ void fprint_value(FILE *out, Value val) {
             break;
         case VAL_ARRAY: {
             Array *arr = val.as.as_array;
+            if (array_print_in_progress(arr)) {
+                fprintf(out, "[...]");
+                break;
+            }
+            ArrayPrintFrame frame = { arr, g_array_print_frames };
+            g_array_print_frames = &frame;
             fprintf(out, "[");
             for (int i = 0; i < arr->length; i++) {
                 if (i > 0) fprintf(out, ", ");
                 fprint_value(out, arr->elements[i]);
             }
             fprintf(out, "]");
+            g_array_print_frames = frame.prev;
             break;
         }
         case VAL_FILE: {
@@ -1516,6 +1552,11 @@ char* value_to_string(Value val) {
         case VAL_ARRAY: {
             // Simple array representation
             Array *arr = val.as.as_array;
+            if (array_print_in_progress(arr)) {
+                return strdup("[...]");
+            }
+            ArrayPrintFrame frame = { arr, g_array_print_frames };
+            g_array_print_frames = &frame;
             size_t total_len = 2;  // [ and ]
             char **parts = malloc(sizeof(char*) * (arr->length > 0 ? arr->length : 1));
             size_t *part_lens = malloc(sizeof(size_t) * (arr->length > 0 ? arr->length : 1));
@@ -1525,6 +1566,7 @@ char* value_to_string(Value val) {
                 total_len += part_lens[i];
                 if (i > 0) total_len += 2;  // ", "
             }
+            g_array_print_frames = frame.prev;
 
             // SECURITY: Use memcpy with explicit position tracking instead of strcat
             char *result = malloc(total_len + 1);

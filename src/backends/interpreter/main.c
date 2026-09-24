@@ -919,7 +919,15 @@ static int is_compiled_file(const char *path) {
     return magic == HMLC_MAGIC || magic == HMLB_MAGIC;
 }
 
+typedef struct {
+    Stmt **statements;
+    int count;
+} ReplHistoryEntry;
+
 static void run_repl(int stack_depth) {
+    ReplHistoryEntry *history = NULL;
+    int history_count = 0;
+    int history_capacity = 0;
     char line[1024];
     char input_buffer[2048];  // Buffer for input with optional semicolon
     Environment *env = env_new(NULL);
@@ -979,19 +987,46 @@ static void run_repl(int stack_depth) {
         Stmt **statements = parse_program(&parser, &stmt_count);
 
         if (parser.had_error) {
+            for (int i = 0; i < stmt_count; i++) {
+                stmt_free(statements[i]);
+            }
+            free(statements);
             continue;
         }
 
         // Execute
         for (int i = 0; i < stmt_count; i++) {
             eval_stmt(statements[i], env, ctx);
+
+            // Report an uncaught exception and reset, so later lines still
+            // run (previously the pending exception silenced the REPL).
+            if (ctx->exception_state.is_throwing) {
+                char *error_msg = value_to_string(ctx->exception_state.exception_value);
+                fprintf(stderr, "Uncaught exception: %s\n", error_msg ? error_msg : "");
+                free(error_msg);
+                VALUE_RELEASE(ctx->exception_state.exception_value);
+                ctx->exception_state.exception_value = val_null();
+                ctx->exception_state.is_throwing = 0;
+                ctx->call_stack.count = 0;
+                break;
+            }
         }
 
-        // Cleanup
-        for (int i = 0; i < stmt_count; i++) {
-            stmt_free(statements[i]);
+        // Keep this line's AST alive for the rest of the session: functions
+        // and closures defined on it point into the AST (their bodies).
+        if (history_count >= history_capacity) {
+            int new_capacity = history_capacity ? history_capacity * 2 : 16;
+            ReplHistoryEntry *grown = realloc(history, sizeof(ReplHistoryEntry) * (size_t)new_capacity);
+            if (!grown) {
+                fprintf(stderr, "Error: out of memory in REPL\n");
+                break;
+            }
+            history = grown;
+            history_capacity = new_capacity;
         }
-        free(statements);
+        history[history_count].statements = statements;
+        history[history_count].count = stmt_count;
+        history_count++;
     }
 
     // Cleanup FFI
@@ -1000,6 +1035,14 @@ static void run_repl(int stack_depth) {
     exec_context_free(ctx);
     env_break_cycles(env);  // Break circular references before release
     env_release(env);
+
+    for (int h = 0; h < history_count; h++) {
+        for (int i = 0; i < history[h].count; i++) {
+            stmt_free(history[h].statements[i]);
+        }
+        free(history[h].statements);
+    }
+    free(history);
 }
 
 static void print_version(void) {

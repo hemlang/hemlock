@@ -170,9 +170,8 @@ HmlValue hml_string_concat(HmlValue a, HmlValue b) {
         a.as.as_string && b.as.as_string) {
         HmlString *sa = a.as.as_string;
         HmlString *sb = b.as.as_string;
-        int total = sa->length + sb->length;
-
-        char *result = malloc(total + 1);
+        int total = (int)((int64_t)sa->length + sb->length);
+        char *result = hml_concat_alloc((int64_t)sa->length + sb->length);
         memcpy(result, sa->data, sa->length);
         memcpy(result + sa->length, sb->data, sb->length);
         result[total] = '\0';
@@ -190,11 +189,10 @@ HmlValue hml_string_concat(HmlValue a, HmlValue b) {
     if (!s1) s1 = "";
     if (!s2) s2 = "";
 
-    int len1 = strlen(s1);
-    int len2 = strlen(s2);
-    int total = len1 + len2;
-
-    char *result = malloc(total + 1);
+    size_t len1 = strlen(s1);
+    size_t len2 = strlen(s2);
+    char *result = hml_concat_alloc((int64_t)len1 + (int64_t)len2);
+    int total = (int)(len1 + len2);
     memcpy(result, s1, len1);
     memcpy(result + len1, s2, len2);
     result[total] = '\0';
@@ -274,9 +272,14 @@ HmlValue hml_to_string(HmlValue val) {
             // Match interpreter value_to_string: "[el, el]" with elements
             // converted recursively (strings unquoted)
             HmlArray *arr = val.as.as_array;
+            if (arr && hml_array_print_in_progress(arr)) {
+                return hml_val_string("[...]");
+            }
             size_t cap = 64, len = 0;
             char *out = malloc(cap);
             if (!out) return hml_val_string("[]");
+            HmlArrayPrintFrame frame = { arr, hml_array_print_frames };
+            hml_array_print_frames = &frame;
             out[len++] = '[';
             for (int i = 0; arr && i < arr->length; i++) {
                 HmlValue elem_str = hml_to_string(arr->elements[i]);
@@ -289,6 +292,7 @@ HmlValue hml_to_string(HmlValue val) {
                     if (!grown) {
                         free(out);
                         hml_release(&elem_str);
+                        hml_array_print_frames = frame.prev;
                         return hml_val_string("[]");
                     }
                     out = grown;
@@ -301,6 +305,7 @@ HmlValue hml_to_string(HmlValue val) {
                 len += elen;
                 hml_release(&elem_str);
             }
+            hml_array_print_frames = frame.prev;
             out[len++] = ']';
             out[len] = '\0';
             return hml_val_string_owned(out, len, cap);

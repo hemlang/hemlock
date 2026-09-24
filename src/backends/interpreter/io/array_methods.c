@@ -76,7 +76,10 @@ static Value call_function_value(Value func, Value *args, int num_args, Executio
 
     // Execute body
     ctx->return_state.is_returning = 0;
-    eval_stmt(fn->body, call_env, ctx);
+    // Skip the body if binding a typed parameter threw
+    if (!ctx->exception_state.is_throwing) {
+        eval_stmt(fn->body, call_env, ctx);
+    }
 
     // Get return value
     Value result = ctx->return_state.is_returning ? ctx->return_state.return_value : val_null();
@@ -92,7 +95,23 @@ static Value call_function_value(Value func, Value *args, int num_args, Executio
 
 // Default ordering used by sort() when no comparator is supplied: values are
 // ordered by type tag first, then by value within a type.
+// Sign of a numeric sort key: integers compare exactly (u64 included),
+// anything involving a float compares as double.
+static int sort_numeric_compare(Value a, Value b) {
+    if (is_float(a) || is_float(b)) {
+        double x = value_to_float(a), y = value_to_float(b);
+        return (x < y) ? -1 : (x > y) ? 1 : 0;
+    }
+    __int128 x = (a.type == VAL_U64) ? (__int128)a.as.as_u64 : (__int128)value_to_int64(a);
+    __int128 y = (b.type == VAL_U64) ? (__int128)b.as.as_u64 : (__int128)value_to_int64(b);
+    return (x < y) ? -1 : (x > y) ? 1 : 0;
+}
+
 static int sort_default_compare(Value a, Value b) {
+    // Numbers of different types order by value ([3, 1.5, 2] -> [1.5, 2, 3])
+    if (a.type != b.type && is_numeric(a) && is_numeric(b)) {
+        return sort_numeric_compare(a, b);
+    }
     if (a.type != b.type) {
         return (int)a.type - (int)b.type;
     }
@@ -132,7 +151,15 @@ static int sort_compare(Value a, Value b, Value comparator, int has_comparator,
     if (ctx->exception_state.is_throwing) {
         return 0;
     }
-    *out = value_to_int(cmp_result);
+    // Only the sign matters. `/` always yields a float, so comparators like
+    // `(a - b) / 10` are common; truncating them to int would treat small
+    // differences as equal (and large i64 results could flip sign).
+    if (!is_numeric(cmp_result)) {
+        value_release(cmp_result);
+        throw_runtime_error(ctx, "sort() comparator must return a number");
+        return 0;
+    }
+    *out = sort_numeric_compare(cmp_result, val_i32(0));
     value_release(cmp_result);
 
     if (arr->length != expected_length) {
@@ -316,6 +343,11 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         if (method[1] == 'u' && strcmp(method, "push") == 0) {
             if (num_args != 1) {
                 return throw_runtime_error(ctx, "push() expects 1 argument");
+            }
+            // Catchable type check (array_push's own check exits the process)
+            Value check_result = check_array_element_type_for_method(arr, args[0], ctx);
+            if (ctx->exception_state.is_throwing) {
+                return check_result;
             }
             array_push(arr, args[0]);
             return val_null();

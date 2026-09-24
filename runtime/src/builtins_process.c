@@ -54,8 +54,8 @@
 // Build {output, stderr, exit_code}; frees the capture buffers.
 static HmlValue win32_exec_result(char *out_buf, char *err_buf, int exit_code) {
     HmlValue result = hml_val_object();
-    hml_object_set_field(result, "output", hml_val_string(out_buf ? out_buf : ""));
-    hml_object_set_field(result, "stderr", hml_val_string(err_buf ? err_buf : ""));
+    hml_object_set_field_owned(result, "output", hml_val_string(out_buf ? out_buf : ""));
+    hml_object_set_field_owned(result, "stderr", hml_val_string(err_buf ? err_buf : ""));
     hml_object_set_field(result, "exit_code", hml_val_i32(exit_code));
     free(out_buf);
     free(err_buf);
@@ -69,8 +69,8 @@ static HmlValue win32_exec_failed(const char *what, const char *argv0, const cha
     char msg[512];
     snprintf(msg, sizeof(msg), "%s failed to execute '%s': %s\n", what, argv0, errmsg);
     HmlValue result = hml_val_object();
-    hml_object_set_field(result, "output", hml_val_string(""));
-    hml_object_set_field(result, "stderr", hml_val_string(msg));
+    hml_object_set_field_owned(result, "output", hml_val_string(""));
+    hml_object_set_field_owned(result, "stderr", hml_val_string(msg));
     hml_object_set_field(result, "exit_code", hml_val_i32(127));
     return result;
 }
@@ -363,8 +363,8 @@ done_warning:
     // Create result object with output, stderr, and exit_code
     // Note: popen() can't capture stderr separately, so we return empty string for it
     HmlValue result = hml_val_object();
-    hml_object_set_field(result, "output", hml_val_string(output_buffer));
-    hml_object_set_field(result, "stderr", hml_val_string(""));
+    hml_object_set_field_owned(result, "output", hml_val_string(output_buffer));
+    hml_object_set_field_owned(result, "stderr", hml_val_string(""));
     hml_object_set_field(result, "exit_code", hml_val_i32(exit_code));
     free(output_buffer);
 
@@ -647,8 +647,8 @@ HmlValue hml_exec_argv(HmlValue args_array, HmlValue opts) {
 
     // Create result object
     HmlValue result = hml_val_object();
-    hml_object_set_field(result, "output", hml_val_string(output_buffer));
-    hml_object_set_field(result, "stderr", hml_val_string(stderr_buffer));
+    hml_object_set_field_owned(result, "output", hml_val_string(output_buffer));
+    hml_object_set_field_owned(result, "stderr", hml_val_string(stderr_buffer));
     hml_object_set_field(result, "exit_code", hml_val_i32(exit_code));
     free(output_buffer);
     free(stderr_buffer);
@@ -877,8 +877,8 @@ HmlValue hml_exec_with_args(HmlValue command, HmlValue args_array) {
 
     // Create result object
     HmlValue result = hml_val_object();
-    hml_object_set_field(result, "output", hml_val_string(output_buffer));
-    hml_object_set_field(result, "stderr", hml_val_string(stderr_buffer));
+    hml_object_set_field_owned(result, "output", hml_val_string(output_buffer));
+    hml_object_set_field_owned(result, "stderr", hml_val_string(stderr_buffer));
     hml_object_set_field(result, "exit_code", hml_val_i32(exit_code));
     free(output_buffer);
     free(stderr_buffer);

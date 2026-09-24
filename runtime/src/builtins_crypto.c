@@ -657,6 +657,7 @@ static HmlValue create_keypair_object(void *pkey) {
     atomic_store(&obj->freed, 0);
     obj->hash_table = NULL;  // Lazy initialization
     obj->hash_capacity = 0;
+    obj->is_pooled = 0;
 
     obj->fields[0].name = strdup("private_key");
     obj->fields[0].value = hml_val_ptr(pkey);

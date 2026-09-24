@@ -1,0 +1,17 @@
+g/ => http://a/b/c/g/
+.. => http://a/b/
+. => http://a/b/c/
+ => http://a/b/c/d;p?q
+/../g => http://a/g
+./g/. => http://a/b/c/g/
+g?y#s => http://a/b/c/g?y#s
+mailto|x@y.com
+true
+true
+true
+true
+3
+2
+1704067200
+1704067200
+bad date rejected

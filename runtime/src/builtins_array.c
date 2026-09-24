@@ -76,10 +76,9 @@ void hml_array_set(HmlValue arr, HmlValue index, HmlValue val) {
     int idx = hml_to_i32(index);
     HmlArray *a = arr.as.as_array;
 
-    // Check element type for typed arrays. The interpreter raises this as a
-    // fatal (non-catchable) error for index assignment, so match that.
+    // Check element type for typed arrays (catchable, like push()).
     if (a->element_type != HML_VAL_NULL && val.type != a->element_type) {
-        hml_fatal_error("Type mismatch in typed array - expected element of specific type");
+        hml_runtime_error("Type mismatch in typed array - expected element of specific type");
     }
 
     if (idx < 0) {
@@ -324,15 +323,19 @@ HmlValue hml_array_join(HmlValue arr, HmlValue delimiter) {
     }
 
     // Calculate total length
-    int total_len = 0;
+    int64_t total_len64 = 0;
     for (int i = 0; i < a->length; i++) {
         HmlValue str = hml_to_string(a->elements[i]);
-        total_len += str.as.as_string->length;
+        total_len64 += str.as.as_string->length;
         if (i < a->length - 1) {
-            total_len += delim_len;
+            total_len64 += delim_len;
         }
         hml_release(&str);
     }
+    if (total_len64 > INT_MAX - 1) {
+        hml_runtime_error("join() result string too large");
+    }
+    int total_len = (int)total_len64;
 
     char *result = malloc(total_len + 1);
     if (!result) {
@@ -510,7 +513,7 @@ static int hml_is_numeric_type(HmlValueType type) {
 // Validate and set element type constraint on array
 HmlValue hml_validate_typed_array(HmlValue arr, HmlValueType element_type) {
     if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
-        hml_runtime_error("Expected array");
+        hml_runtime_error("Expected array, got non-array");
     }
 
     HmlArray *a = arr.as.as_array;
@@ -546,7 +549,7 @@ HmlValue hml_validate_typed_array(HmlValue arr, HmlValueType element_type) {
 // in particular auto-filling optional fields with their default (or null).
 HmlValue hml_validate_typed_array_object(HmlValue arr, const char *type_name) {
     if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
-        hml_runtime_error("Expected array");
+        hml_runtime_error("Expected array, got non-array");
     }
     if (!type_name) return arr;
 
@@ -775,7 +778,23 @@ typedef struct {
 } SortContext;
 
 // Default comparison function for sorting
+// Sign of a numeric sort key: integers compare exactly (u64 included),
+// anything involving a float compares as double.
+static int numeric_compare(HmlValue a, HmlValue b) {
+    if (hml_is_float_type(a) || hml_is_float_type(b)) {
+        double x = hml_val_to_double(a), y = hml_val_to_double(b);
+        return (x < y) ? -1 : (x > y) ? 1 : 0;
+    }
+    __int128 x = (a.type == HML_VAL_U64) ? (__int128)a.as.as_u64 : (__int128)hml_val_to_int64(a);
+    __int128 y = (b.type == HML_VAL_U64) ? (__int128)b.as.as_u64 : (__int128)hml_val_to_int64(b);
+    return (x < y) ? -1 : (x > y) ? 1 : 0;
+}
+
 static int default_compare(HmlValue a, HmlValue b) {
+    // Numbers of different types order by value ([3, 1.5, 2] -> [1.5, 2, 3])
+    if (a.type != b.type && hml_is_numeric(a) && hml_is_numeric(b)) {
+        return numeric_compare(a, b);
+    }
     // Compare by type first
     if (a.type != b.type) {
         return (int)a.type - (int)b.type;
@@ -813,7 +832,14 @@ static int compare_values(HmlValue a, HmlValue b, SortContext *ctx) {
     // Call user-provided comparator
     HmlValue args[2] = { a, b };
     HmlValue result = hml_call_function(ctx->comparator, args, 2);
-    int cmp = hml_to_i32(result);
+    // Only the sign matters. `/` always yields a float, so comparators like
+    // `(a - b) / 10` are common; truncating them to int would treat small
+    // differences as equal (and large i64 results could flip sign).
+    if (!hml_is_numeric(result)) {
+        hml_release(&result);
+        hml_runtime_error("sort() comparator must return a number");
+    }
+    int cmp = numeric_compare(result, hml_val_i32(0));
     hml_release(&result);
 
     if (ctx->array->length != ctx->expected_length) {

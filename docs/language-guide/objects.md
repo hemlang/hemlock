@@ -726,10 +726,19 @@ JSON serialization supports:
 - **Objects**: Nested objects
 - **Arrays**: Nested arrays
 
+Floats are written with the shortest representation that reads back to
+the same value, so `serialize()`/`deserialize()` round-trips numbers exactly.
+
 **Not supported:**
 - Functions (silently omitted)
 - Pointers (error)
 - Buffers (error)
+- NaN and Infinity (error - JSON has no representation for them)
+
+`deserialize()` accepts strict JSON only: malformed numbers (`01`, `1.`,
+`.5`, `+1`), trailing commas and trailing text after the value are errors.
+Integers that fit i32 become `i32`, larger ones `i64`, and integers beyond
+the i64 range become `f64`.
 
 ### Error Handling
 

@@ -331,6 +331,8 @@ int encode_utf8(uint32_t cp, char *out) {
 // ========== PRINT IMPLEMENTATION ==========
 
 // Helper to print a value to a file
+__thread const HmlArrayPrintFrame *hml_array_print_frames = NULL;
+
 void print_value_to(FILE *out, HmlValue val) {
     switch (val.type) {
         case HML_VAL_I8:
@@ -397,7 +399,11 @@ void print_value_to(FILE *out, HmlValue val) {
             }
             break;
         case HML_VAL_ARRAY:
-            if (val.as.as_array) {
+            if (val.as.as_array && hml_array_print_in_progress(val.as.as_array)) {
+                fprintf(out, "[...]");
+            } else if (val.as.as_array) {
+                HmlArrayPrintFrame frame = { val.as.as_array, hml_array_print_frames };
+                hml_array_print_frames = &frame;
                 fprintf(out, "[");
                 for (int i = 0; i < val.as.as_array->length; i++) {
                     if (i > 0) fprintf(out, ", ");
@@ -405,6 +411,7 @@ void print_value_to(FILE *out, HmlValue val) {
                     print_value_to(out, val.as.as_array->elements[i]);
                 }
                 fprintf(out, "]");
+                hml_array_print_frames = frame.prev;
             } else {
                 fprintf(out, "[]");
             }

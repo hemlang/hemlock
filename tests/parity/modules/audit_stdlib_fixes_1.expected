@@ -1,0 +1,16 @@
+123@4
+456@12
+789@20
+2
+"a\u0001\b\f\t\"z"
+true
+{"x":1,"a.b":2,"0":3}
+true
+rejected 01
+rejected [1,2,]
+rejected {"a":1,}
+rejected 1 2
+rejected +1
+nan rejected
+2.00|3|1.234568e+04|-0042
+é x 中

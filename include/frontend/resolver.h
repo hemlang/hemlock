@@ -27,6 +27,9 @@ typedef struct ResolverScope {
     int *annotation_counts;    // Number of annotations for each variable
     int count;                 // Number of variables
     int capacity;              // Allocated capacity
+    int is_dynamic;            // Names here are looked up by name at runtime
+                               // (match-arm bindings); lookups hitting them
+                               // stay unresolved
     struct ResolverScope *parent;  // Enclosing scope
 } ResolverScope;
 

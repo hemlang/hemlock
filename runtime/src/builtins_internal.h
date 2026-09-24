@@ -180,4 +180,46 @@ void hml_sandbox_error(const char *operation);
         return hml_##name(arg1, arg2, arg3); \
     }
 
+// Store a freshly created (+1) value in an object field. set_field retains,
+// so the creation reference must be dropped or the value leaks.
+static inline void hml_object_set_field_owned(HmlValue obj, const char *field, HmlValue val) {
+    hml_object_set_field(obj, field, val);
+    hml_release(&val);
+}
+
+// Arrays currently being printed/stringified on this thread, as a linked
+// list of frames on the C stack (defined in builtins_core.c). A
+// self-referential array (`a.push(a)`) would otherwise recurse until the
+// stack overflows; a back-reference prints as "[...]" instead.
+typedef struct HmlArrayPrintFrame {
+    const void *arr;
+    const struct HmlArrayPrintFrame *prev;
+} HmlArrayPrintFrame;
+
+extern __thread const HmlArrayPrintFrame *hml_array_print_frames;
+
+static inline int hml_array_print_in_progress(const void *arr) {
+    for (const HmlArrayPrintFrame *f = hml_array_print_frames; f; f = f->prev) {
+        if (f->arr == arr) return 1;
+    }
+    return 0;
+}
+
+// value.c: whether a pooled object's fields are still the pool's inline array.
+int hml_obj_fields_in_pool_storage(HmlObject *obj);
+
+// Allocate the output buffer for a string concatenation of `total` bytes
+// (plus the NUL). Lengths are int, so sums must be computed in 64 bits and
+// checked here; mirrors the interpreter's fatal string_concat() overflow.
+static inline char *hml_concat_alloc(int64_t total) {
+    if (total < 0 || total > INT_MAX - 1) {
+        hml_fatal_error("String concatenation overflow - result too large");
+    }
+    char *buf = malloc((size_t)total + 1);
+    if (!buf) {
+        hml_fatal_error("Memory allocation failed");
+    }
+    return buf;
+}
+
 #endif // HEMLOCK_BUILTINS_INTERNAL_H

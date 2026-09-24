@@ -221,6 +221,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             // Check that we consumed all the input
             json_skip_whitespace(&parser);
             if (parser.input[parser.pos] != '\0') {
+                VALUE_RELEASE(result);
                 return throw_runtime_error(ctx, "Unexpected trailing characters in JSON");
             }
 

@@ -299,7 +299,10 @@ Value builtin_apply(Value *args, int num_args, ExecutionContext *ctx) {
 
         // Execute function body
         ctx->return_state.is_returning = 0;
-        eval_stmt(fn->body, call_env, ctx);
+        // Skip the body if binding a typed parameter threw
+        if (!ctx->exception_state.is_throwing) {
+            eval_stmt(fn->body, call_env, ctx);
+        }
 
         // Get return value
         result = ctx->return_state.is_returning ? ctx->return_state.return_value : val_null();

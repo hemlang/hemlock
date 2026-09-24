@@ -33,6 +33,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             if (expr->as.call.func->type == EXPR_GET_PROPERTY) {
                 is_method_call = 1;
                 method_self = eval_expr(expr->as.call.func->as.get_property.object, env, ctx);
+                // Receiver threw: propagate instead of dispatching on its
+                // placeholder value (which reported "'m' is not a function").
+                if (ctx->exception_state.is_throwing) {
+                    VALUE_RELEASE(method_self);
+                    return val_null();
+                }
 
                 // METHOD DISPATCH INLINE CACHE:
                 // Cache the receiver type to skip the if-chain on subsequent calls
@@ -1131,7 +1137,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Execute body - reset return state first
                 ctx->return_state.is_returning = 0;
                 ctx->return_state.return_value = val_null();  // Reset to prevent stale values
-                eval_stmt(fn->body, call_env, ctx);
+                // A parameter that failed its type annotation (or a throwing
+                // default) leaves an exception pending: don't run the body,
+                // or its first failure would replace the real error.
+                if (!ctx->exception_state.is_throwing) {
+                    eval_stmt(fn->body, call_env, ctx);
+                }
 
                 // Execute deferred calls (in LIFO order) before returning
                 // This happens even if there was an exception
