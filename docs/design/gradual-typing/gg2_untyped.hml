@@ -1,0 +1,4 @@
+let a = [1.5, 2.5];
+let b = a;
+print(a[0]);
+print(typeof(a[0]));

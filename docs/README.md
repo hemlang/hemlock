@@ -66,6 +66,7 @@ Welcome to the Hemlock programming language documentation!
 - [Memory-Safety Model](design/memory-safety-model.md) - The buffer invariants, the safe-fragment theorem, and the proof obligations at every `ptr` crossing
 - [Implementation Details](design/implementation.md) - How Hemlock works internally
 - [Signature Syntax](design/signature-syntax.md) - Type system extensions and design
+- [Gradual Typing Analysis](design/gradual-typing-analysis.md) - Does Hemlock satisfy the gradual guarantee? (negative result, with witnesses)
 
 ### Project
 - [Migration Guide (v1.x → v2.0)](migration-2.0.md) - Upgrading from v1.x to v2.0.0

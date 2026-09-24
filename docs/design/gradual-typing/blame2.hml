@@ -1,0 +1,4 @@
+fn call_it(f: fn(): i32): i32 { return f(); }
+let liar = fn() { return "not an int"; };
+let x: i32 = call_it(liar);
+print(x);

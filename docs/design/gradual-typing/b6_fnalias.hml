@@ -1,0 +1,4 @@
+let g: fn(i32): i32 = fn(x) { return x; };
+let r = g("hello");
+print(r);
+print(typeof(r));

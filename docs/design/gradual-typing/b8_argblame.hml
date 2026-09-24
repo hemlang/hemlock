@@ -1,0 +1,6 @@
+fn f(x: i32): i32 { return x; }
+try {
+    f("hello");
+} catch (e) {
+    print("caught: " + e);
+}
