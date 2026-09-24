@@ -76,12 +76,13 @@ static inline int jbuf_append_i64(JsonBuffer *buf, int64_t val) {
     char tmp[24];
     char *p = tmp + sizeof(tmp);
     int negative = val < 0;
-    if (negative) val = -val;
+    // Negate in unsigned space: -INT64_MIN overflows int64_t.
+    uint64_t mag = negative ? 0 - (uint64_t)val : (uint64_t)val;
 
     do {
-        *--p = '0' + (val % 10);
-        val /= 10;
-    } while (val > 0);
+        *--p = (char)('0' + (mag % 10));
+        mag /= 10;
+    } while (mag > 0);
 
     if (negative) *--p = '-';
 

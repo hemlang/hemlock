@@ -366,7 +366,7 @@ HmlValue hml_string_replace(HmlValue str, HmlValue old, HmlValue new_str) {
     if (str.type != HML_VAL_STRING || !str.as.as_string ||
         old.type != HML_VAL_STRING || !old.as.as_string ||
         new_str.type != HML_VAL_STRING || !new_str.as.as_string) {
-        return str;
+        hml_runtime_error("replace() arguments must be strings");
     }
     HmlString *s = str.as.as_string;
     HmlString *o = old.as.as_string;
@@ -412,7 +412,7 @@ HmlValue hml_string_replace_all(HmlValue str, HmlValue old, HmlValue new_str) {
     if (str.type != HML_VAL_STRING || !str.as.as_string ||
         old.type != HML_VAL_STRING || !old.as.as_string ||
         new_str.type != HML_VAL_STRING || !new_str.as.as_string) {
-        return str;
+        hml_runtime_error("replace_all() arguments must be strings");
     }
     HmlString *s = str.as.as_string;
     HmlString *o = old.as.as_string;
@@ -525,9 +525,8 @@ HmlValue hml_string_concat3(HmlValue a, HmlValue b, HmlValue c) {
     int len_a = sa ? sa->length : 0;
     int len_b = sb ? sb->length : 0;
     int len_c = sc ? sc->length : 0;
+    char *result = hml_concat_alloc((int64_t)len_a + (int64_t)len_b + (int64_t)len_c);
     int total = len_a + len_b + len_c;
-
-    char *result = malloc(total + 1);
     int pos = 0;
     if (sa) { memcpy(result + pos, sa->data, len_a); pos += len_a; }
     if (sb) { memcpy(result + pos, sb->data, len_b); pos += len_b; }
@@ -558,9 +557,8 @@ HmlValue hml_string_concat4(HmlValue a, HmlValue b, HmlValue c, HmlValue d) {
     int len_b = sb ? sb->length : 0;
     int len_c = sc ? sc->length : 0;
     int len_d = sd ? sd->length : 0;
+    char *result = hml_concat_alloc((int64_t)len_a + (int64_t)len_b + (int64_t)len_c + (int64_t)len_d);
     int total = len_a + len_b + len_c + len_d;
-
-    char *result = malloc(total + 1);
     int pos = 0;
     if (sa) { memcpy(result + pos, sa->data, len_a); pos += len_a; }
     if (sb) { memcpy(result + pos, sb->data, len_b); pos += len_b; }
@@ -595,9 +593,8 @@ HmlValue hml_string_concat5(HmlValue a, HmlValue b, HmlValue c, HmlValue d, HmlV
     int len_c = sc ? sc->length : 0;
     int len_d = sd ? sd->length : 0;
     int len_e = se ? se->length : 0;
+    char *result = hml_concat_alloc((int64_t)len_a + (int64_t)len_b + (int64_t)len_c + (int64_t)len_d + (int64_t)len_e);
     int total = len_a + len_b + len_c + len_d + len_e;
-
-    char *result = malloc(total + 1);
     int pos = 0;
     if (sa) { memcpy(result + pos, sa->data, len_a); pos += len_a; }
     if (sb) { memcpy(result + pos, sb->data, len_b); pos += len_b; }
@@ -629,15 +626,16 @@ HmlValue hml_string_concat_many(HmlValue arr) {
     }
 
     // Calculate total length needed
-    int total_len = 0;
+    int64_t total_len64 = 0;
     for (int i = 0; i < a->length; i++) {
         if (a->elements[i].type == HML_VAL_STRING && a->elements[i].as.as_string) {
-            total_len += a->elements[i].as.as_string->length;
+            total_len64 += a->elements[i].as.as_string->length;
         }
     }
 
     // Allocate and build result
-    char *result = malloc(total_len + 1);
+    char *result = hml_concat_alloc(total_len64);
+    int total_len = (int)total_len64;
     int pos = 0;
     for (int i = 0; i < a->length; i++) {
         if (a->elements[i].type == HML_VAL_STRING && a->elements[i].as.as_string) {
@@ -711,9 +709,12 @@ void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue val) {
     int idx = hml_to_i32(index);
     HmlString *s = str.as.as_string;
 
-    if (idx < 0 || idx >= s->length) {
-        hml_runtime_error("String index %d out of bounds (length %d)", idx, s->length);
+    // Indexes are codepoints (same as s[i] reads and char_at)
+    int char_len = hml_string_codepoint_length(s);
+    if (idx < 0 || idx >= char_len) {
+        hml_runtime_error("String index %d out of bounds (length %d)", idx, char_len);
     }
+    idx = hml_utf8_byte_offset(s->data, s->length, idx);
 
     // Calculate bytes needed for new rune and current character at position
     int new_len = hml_utf8_encode_len(rune_val);

@@ -1,0 +1,19 @@
+// String index assignment uses codepoint indexes, like s[i] reads.
+let u = "é!";
+u[1] = 'Q';
+print(u);
+print(u.length);
+u[0] = 'e';
+print(u);
+u[1] = '中';
+print(u);
+print(u.length);
+print(u.byte_length);
+
+let v = "héllo";
+v[4] = 'O';
+print(v);
+v[1] = 'e';
+print(v);
+
+try { u[2] = 'x'; } catch (e) { print("out of bounds"); }

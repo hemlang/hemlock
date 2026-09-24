@@ -1,0 +1,36 @@
+// A throwing right-hand side must not perform the store; `break label`
+// inside a switch leaves the labeled loop; a throwing method receiver
+// propagates its own exception.
+fn boom() { throw "boom"; }
+
+let o = { x: 1 };
+try { o.x = boom(); } catch (e) {}
+print(o.x);
+
+let m = { c: 2147483647 };
+try { m.c += 1; } catch (e) {}
+print(m.c);
+
+let h = {};
+try { h["k"] = boom(); } catch (e) {}
+print(h.has("k"));
+
+let arr = [1, 2];
+try { arr[0] = boom(); } catch (e) {}
+print(arr[0]);
+
+fn f() { throw "boom2"; }
+try { f().keys(); } catch (e) { print(e); }
+
+let i = 0;
+lbl: while (i < 5) {
+    i++;
+    switch (i) { case 4: break lbl; }
+    print("i=" + i);
+}
+
+let j = 0;
+while (j < 3) {
+    j++;
+    switch (j) { case 2: break; default: print("d" + j); }
+}

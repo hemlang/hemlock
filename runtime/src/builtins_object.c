@@ -182,8 +182,9 @@ void hml_object_set_field(HmlValue obj, const char *field, HmlValue val) {
         }
         int new_cap = (o->capacity == 0) ? 4 : o->capacity * 2;
         HmlFieldEntry *new_fields;
-        if (o->is_pooled && o->capacity > 0) {
-            // Pooled object growing beyond pool storage — can't realloc pool memory
+        if (o->is_pooled && hml_obj_fields_in_pool_storage(o)) {
+            // First growth out of the pool's inline storage — can't realloc pool
+            // memory. Later growths are ordinary heap arrays and take realloc.
             new_fields = malloc(new_cap * sizeof(HmlFieldEntry));
             if (new_fields) {
                 memcpy(new_fields, o->fields, o->num_fields * sizeof(HmlFieldEntry));

@@ -222,6 +222,18 @@ static void* task_thread_wrapper(void* arg) {
     return NULL;
 }
 
+// pthread_create() failed: no thread will ever complete this task, so drop
+// both references (caller's and thread's) and throw, matching the
+// interpreter's "Failed to create thread" error instead of hanging join().
+__attribute__((noreturn))
+static void spawn_failed(HmlTask *task, int rc) {
+    task->detached = 1;  // there is no pthread to detach in task_free()
+    task->ref_count = 1;
+    HmlValue task_val = { .type = HML_VAL_TASK, .as.as_task = task };
+    hml_release(&task_val);
+    hml_runtime_error("Failed to create thread: %d", rc);
+}
+
 HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
     if (fn.type != HML_VAL_FUNCTION) {
         hml_runtime_error("spawn() expects a function");
@@ -275,8 +287,11 @@ HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setstacksize(&attr, atomic_load(&g_default_stack_size));
-    pthread_create(&task->sync->thread, &attr, task_thread_wrapper, task);
+    int rc = pthread_create(&task->sync->thread, &attr, task_thread_wrapper, task);
     pthread_attr_destroy(&attr);
+    if (rc != 0) {
+        spawn_failed(task, rc);
+    }
 
     // Return task value
     HmlValue result;
@@ -370,8 +385,11 @@ HmlValue hml_spawn_with(HmlValue options, HmlValue fn, HmlValue *args, int num_a
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setstacksize(&attr, stack_size);
-    pthread_create(&task->sync->thread, &attr, task_thread_wrapper, task);
+    int rc = pthread_create(&task->sync->thread, &attr, task_thread_wrapper, task);
     pthread_attr_destroy(&attr);
+    if (rc != 0) {
+        spawn_failed(task, rc);
+    }
 
     HmlValue result;
     result.type = HML_VAL_TASK;

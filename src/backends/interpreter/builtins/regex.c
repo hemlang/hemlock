@@ -10,6 +10,7 @@
 // (src/shared/regex_win32, on the include path for MinGW builds), so the
 // same POSIX implementation compiles on every platform.
 #include <regex.h>
+#include "regex_flags.h"
 
 // ========== REGEX BUILTINS ==========
 
@@ -33,7 +34,7 @@ Value builtin_regex_compile(Value *args, int num_args, ExecutionContext *ctx) {
 
     int cflags = REG_EXTENDED;  // Default to extended regex
     if (num_args >= 2 && args[1].type != VAL_NULL) {
-        cflags = (int)value_to_int64(args[1]);
+        cflags = hml_regex_native_cflags(value_to_int64(args[1]));
     }
 
     // Allocate regex_t
@@ -87,7 +88,7 @@ Value builtin_regex_test(Value *args, int num_args, ExecutionContext *ctx) {
 
     int flags = 0;
     if (num_args >= 3 && args[2].type != VAL_NULL) {
-        flags = (int)value_to_int64(args[2]);
+        flags = hml_regex_native_eflags(value_to_int64(args[2]));
     }
 
     regex_t *regex = (regex_t *)preg_val.as.as_ptr;
@@ -133,7 +134,7 @@ Value builtin_regex_match(Value *args, int num_args, ExecutionContext *ctx) {
 
     Array *result = array_new();
 
-    int exec_result = regexec(regex, text_data, nmatch, pmatch, 0);
+    int exec_result = hml_regexec_positions(regex, text_data, nmatch, pmatch, 0);
     if (exec_result == 0) {
         // Add all valid matches to the array
         for (int i = 0; i < nmatch; i++) {
@@ -275,7 +276,7 @@ Value builtin_regex_replace(Value *args, int num_args, ExecutionContext *ctx) {
     const char *repl_data = replacement.as.as_string->data;
     regmatch_t pmatch[1];
 
-    int result = regexec(regex, text_data, 1, pmatch, 0);
+    int result = hml_regexec_positions(regex, text_data, 1, pmatch, 0);
     if (result != 0) {
         // No match, return a retained copy of the original string
         value_retain(text);
@@ -339,7 +340,7 @@ Value builtin_regex_replace_all(Value *args, int num_args, ExecutionContext *ctx
     const char *p = src;
     regmatch_t pmatch[1];
 
-    while (*p && regexec(regex, p, 1, pmatch, (p == src) ? 0 : REG_NOTBOL) == 0) {
+    while (*p && hml_regexec_positions(regex, p, 1, pmatch, (p == src) ? 0 : REG_NOTBOL) == 0) {
         // Prevent infinite loop on zero-length matches
         if (pmatch[0].rm_so == pmatch[0].rm_eo) {
             if (p[pmatch[0].rm_eo] == '\0') break;
@@ -371,7 +372,7 @@ Value builtin_regex_replace_all(Value *args, int num_args, ExecutionContext *ctx
     char *dst = result;
     p = src;
 
-    while (*p && regexec(regex, p, 1, pmatch, (p == src) ? 0 : REG_NOTBOL) == 0) {
+    while (*p && hml_regexec_positions(regex, p, 1, pmatch, (p == src) ? 0 : REG_NOTBOL) == 0) {
         // Prevent infinite loop on zero-length matches
         if (pmatch[0].rm_so == pmatch[0].rm_eo) {
             if (p[pmatch[0].rm_eo] == '\0') break;

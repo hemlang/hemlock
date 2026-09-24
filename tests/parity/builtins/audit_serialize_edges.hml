@@ -1,0 +1,9 @@
+// JSON edge cases: INT64_MIN, surrogate pairs, malformed \u escapes.
+let big: i64 = -9223372036854775807 - 1;
+print([big].serialize());
+print("\"\\ud83d\\ude00 \\u00e9 \\u4e2d\"".deserialize());
+
+let bad = ["{\"a\":\"\\u\"" + "A".repeat(200) + "\"}", "\"\\u12\"", "\"\\ud83d\"", "\"\\ude00\"", "\"\\uZZZZ\""];
+for (b in bad) {
+    try { b.deserialize(); print("parsed?"); } catch (e) { print("error"); }
+}

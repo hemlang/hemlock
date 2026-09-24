@@ -11,17 +11,7 @@
 // (src/shared/regex_win32, on the include path for MinGW builds), so the
 // same POSIX implementation compiles on every platform.
 #include <regex.h>
-
-// ========== REGEX CONSTANTS ==========
-
-// These match POSIX regex.h values
-#define HML_REG_EXTENDED  1
-#define HML_REG_ICASE     2
-#define HML_REG_NOSUB     4
-#define HML_REG_NEWLINE   8
-
-#define HML_REG_NOTBOL    1
-#define HML_REG_NOTEOL    2
+#include "regex_flags.h"
 
 // ========== REGEX FUNCTIONS ==========
 
@@ -38,7 +28,7 @@ HmlValue hml_regex_compile(HmlValue pattern, HmlValue flags) {
 
     int cflags = REG_EXTENDED;  // Default to extended regex
     if (flags.type != HML_VAL_NULL) {
-        cflags = (int)hml_to_i64(flags);
+        cflags = hml_regex_native_cflags(hml_to_i64(flags));
     }
 
     // Allocate regex_t
@@ -73,7 +63,7 @@ HmlValue hml_regex_test(HmlValue preg, HmlValue text, HmlValue eflags) {
 
     int flags = 0;
     if (eflags.type != HML_VAL_NULL) {
-        flags = (int)hml_to_i64(eflags);
+        flags = hml_regex_native_eflags(hml_to_i64(eflags));
     }
 
     regex_t *regex = (regex_t *)preg.as.as_ptr;
@@ -112,7 +102,7 @@ HmlValue hml_regex_match(HmlValue preg, HmlValue text, HmlValue max_matches) {
 
     HmlValue result = hml_val_array();
 
-    int exec_result = regexec(regex, text_data, nmatch, pmatch, 0);
+    int exec_result = hml_regexec_positions(regex, text_data, nmatch, pmatch, 0);
     if (exec_result == 0) {
         // Add all valid matches to the array
         for (int i = 0; i < nmatch; i++) {
@@ -128,11 +118,12 @@ HmlValue hml_regex_match(HmlValue preg, HmlValue text, HmlValue max_matches) {
             if (matched) {
                 strncpy(matched, text_data + pmatch[i].rm_so, len);
                 matched[len] = '\0';
-                hml_object_set_field(match, "text", hml_val_string(matched));
+                hml_object_set_field_owned(match, "text", hml_val_string(matched));
                 free(matched);
             }
 
             hml_array_push(result, match);
+            hml_release(&match);
         }
     }
 
@@ -197,7 +188,7 @@ HmlValue hml_regex_replace(HmlValue preg, HmlValue text, HmlValue replacement) {
     const char *repl_data = replacement.as.as_string->data;
     regmatch_t pmatch[1];
 
-    int result = regexec(regex, text_data, 1, pmatch, 0);
+    int result = hml_regexec_positions(regex, text_data, 1, pmatch, 0);
     if (result != 0) {
         // No match, return a retained copy of the original string
         hml_retain(&text);
@@ -252,7 +243,7 @@ HmlValue hml_regex_replace_all(HmlValue preg, HmlValue text, HmlValue replacemen
     const char *p = src;
     regmatch_t pmatch[1];
 
-    while (*p && regexec(regex, p, 1, pmatch, (p == src) ? 0 : REG_NOTBOL) == 0) {
+    while (*p && hml_regexec_positions(regex, p, 1, pmatch, (p == src) ? 0 : REG_NOTBOL) == 0) {
         // Prevent infinite loop on zero-length matches
         if (pmatch[0].rm_so == pmatch[0].rm_eo) {
             if (p[pmatch[0].rm_eo] == '\0') break;
@@ -283,7 +274,7 @@ HmlValue hml_regex_replace_all(HmlValue preg, HmlValue text, HmlValue replacemen
     char *dst = result;
     p = src;
 
-    while (*p && regexec(regex, p, 1, pmatch, (p == src) ? 0 : REG_NOTBOL) == 0) {
+    while (*p && hml_regexec_positions(regex, p, 1, pmatch, (p == src) ? 0 : REG_NOTBOL) == 0) {
         // Prevent infinite loop on zero-length matches
         if (pmatch[0].rm_so == pmatch[0].rm_eo) {
             if (p[pmatch[0].rm_eo] == '\0') break;

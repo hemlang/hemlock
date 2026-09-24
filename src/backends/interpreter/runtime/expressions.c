@@ -607,6 +607,15 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             Value index_val = eval_expr(expr->as.index_assign.index, env, ctx);
             Value value = eval_expr(expr->as.index_assign.value, env, ctx);
 
+            // A throw while evaluating any operand must not perform the store
+            // (otherwise `a[k] = f()` with a throwing f() stored null).
+            if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(object);
+                VALUE_RELEASE(index_val);
+                VALUE_RELEASE(value);
+                return val_null();
+            }
+
             // FAST PATH: array[i32] = value - most common assignment case
             if (object.type == VAL_ARRAY && index_val.type == VAL_I32) {
                 Array *arr = object.as.as_array;
@@ -735,14 +744,19 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             if (object.type == VAL_STRING) {
                 String *str = object.as.as_string;
 
-                if (index < 0 || index >= str->length) {
+                // Indexes are codepoints (same as s[i] reads and char_at)
+                if (str->char_length < 0) {
+                    str->char_length = utf8_count_codepoints(str->data, str->length);
+                }
+                if (index < 0 || index >= str->char_length) {
                     // runtime_error does not unwind - return before the OOB write
-                    runtime_error(ctx, "String index %d out of bounds (length %d)", index, str->length);
+                    runtime_error(ctx, "String index %d out of bounds (length %d)", index, str->char_length);
                     VALUE_RELEASE(object);
                     VALUE_RELEASE(index_val);
                     VALUE_RELEASE(value);
                     return val_null();
                 }
+                index = utf8_byte_offset(str->data, str->length, index);
 
                 // Get the rune value (either from rune type or integer)
                 uint32_t rune_val;
@@ -1054,6 +1068,14 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             Value object = eval_expr(expr->as.set_property.object, env, ctx);
             const char *property = expr->as.set_property.property;
             Value value = eval_expr(expr->as.set_property.value, env, ctx);
+
+            // A throw while evaluating the target or value must not store
+            // (otherwise `o.x = f()` with a throwing f() stored null).
+            if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(object);
+                VALUE_RELEASE(value);
+                return val_null();
+            }
 
             if (object.type != VAL_OBJECT) {
                 VALUE_RELEASE(object);

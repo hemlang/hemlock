@@ -324,15 +324,19 @@ HmlValue hml_array_join(HmlValue arr, HmlValue delimiter) {
     }
 
     // Calculate total length
-    int total_len = 0;
+    int64_t total_len64 = 0;
     for (int i = 0; i < a->length; i++) {
         HmlValue str = hml_to_string(a->elements[i]);
-        total_len += str.as.as_string->length;
+        total_len64 += str.as.as_string->length;
         if (i < a->length - 1) {
-            total_len += delim_len;
+            total_len64 += delim_len;
         }
         hml_release(&str);
     }
+    if (total_len64 > INT_MAX - 1) {
+        hml_runtime_error("join() result string too large");
+    }
+    int total_len = (int)total_len64;
 
     char *result = malloc(total_len + 1);
     if (!result) {

@@ -33,6 +33,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             if (expr->as.call.func->type == EXPR_GET_PROPERTY) {
                 is_method_call = 1;
                 method_self = eval_expr(expr->as.call.func->as.get_property.object, env, ctx);
+                // Receiver threw: propagate instead of dispatching on its
+                // placeholder value (which reported "'m' is not a function").
+                if (ctx->exception_state.is_throwing) {
+                    VALUE_RELEASE(method_self);
+                    return val_null();
+                }
 
                 // METHOD DISPATCH INLINE CACHE:
                 // Cache the receiver type to skip the if-chain on subsequent calls

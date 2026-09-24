@@ -505,8 +505,8 @@ HmlValue hml_socket_recvfrom(HmlValue socket_val, HmlValue size) {
     data_val.type = HML_VAL_BUFFER;
     data_val.as.as_buffer = hbuf;
 
-    hml_object_set_field(result, "data", data_val);
-    hml_object_set_field(result, "address", hml_val_string(addr_str));
+    hml_object_set_field_owned(result, "data", data_val);
+    hml_object_set_field_owned(result, "address", hml_val_string(addr_str));
     hml_object_set_field(result, "port", hml_val_i32(src_port));
 
     return result;
