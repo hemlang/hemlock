@@ -1,5 +1,9 @@
 #include "internal.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 // Forward declarations for helper functions
 static Value get_object_field(Object *obj, const char *name);
 static void set_object_field(Object *obj, const char *name, Value value);
@@ -41,6 +45,148 @@ Value builtin_sleep(Value *args, int num_args, ExecutionContext *ctx) {
     req.tv_sec = (time_t)seconds;
     req.tv_nsec = (long)((seconds - req.tv_sec) * HML_NANOSECONDS_PER_SECOND);
     nanosleep(&req, NULL);
+    return val_null();
+}
+
+// ========== FRAME LOOP ==========
+//
+// main_loop(callback, fps) drives per-frame work without sleep(). See
+// runtime/src/builtins_mainloop.c for the full rationale: in a browser the
+// sleep()-based game loop forces Emscripten Asyncify onto the whole module,
+// and main_loop() exists so that a frame loop does not have to pay for it.
+//
+// The interpreter is native everywhere except the `make wasm-interpreter`
+// playground build, so the loop below is the paced native one; the WASM
+// interpreter hands the callback to the browser's frame scheduler instead
+// (a blocking loop there would wedge the tab).
+
+static Value g_main_loop_callback;
+static int g_main_loop_active = 0;
+static volatile int g_main_loop_stopping = 0;
+static ExecutionContext *g_main_loop_ctx = NULL;
+
+// Invoke a zero-argument Hemlock function value. Mirrors the callback path
+// used by the array methods (see io/array_methods.c).
+static Value main_loop_invoke(Value func, ExecutionContext *ctx) {
+    Function *fn = func.as.as_function;
+    if (fn->num_params != 0) {
+        runtime_error(ctx, "main_loop() callback must take no arguments (takes %d)",
+                      fn->num_params);
+        return val_null();
+    }
+
+    Environment *call_env = env_new(fn->closure_env);
+    ctx->return_state.is_returning = 0;
+    eval_stmt(fn->body, call_env, ctx);
+    Value result = ctx->return_state.is_returning ? ctx->return_state.return_value : val_null();
+    ctx->return_state.is_returning = 0;
+    env_release(call_env);
+    return result;
+}
+
+static void main_loop_clear(void) {
+    if (!g_main_loop_active) return;
+    g_main_loop_active = 0;
+    g_main_loop_stopping = 0;
+    g_main_loop_ctx = NULL;
+    VALUE_RELEASE(g_main_loop_callback);
+    g_main_loop_callback = val_null();
+}
+
+#ifndef __EMSCRIPTEN__
+// Only the native pacing loop needs a clock; the browser schedules frames.
+static double main_loop_now_ms(void) {
+#if defined(CLOCK_MONOTONIC)
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
+#else
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (double)tv.tv_sec * 1000.0 + (double)tv.tv_usec / 1000.0;
+#endif
+}
+#endif
+
+#ifdef __EMSCRIPTEN__
+static void main_loop_tick(void *unused) {
+    (void)unused;
+    if (!g_main_loop_active || !g_main_loop_ctx) return;
+    main_loop_invoke(g_main_loop_callback, g_main_loop_ctx);
+}
+#endif
+
+Value builtin_main_loop(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 2) {
+        runtime_error(ctx, "main_loop() expects 2 arguments (callback, fps)"); return val_null();
+    }
+    if (args[0].type != VAL_FUNCTION) {
+        runtime_error(ctx, "main_loop() first argument must be a function"); return val_null();
+    }
+    if (!is_numeric(args[1])) {
+        runtime_error(ctx, "main_loop() second argument must be numeric (fps)"); return val_null();
+    }
+    if (g_main_loop_active) {
+        runtime_error(ctx, "main_loop() is already running (call main_loop_stop() first)");
+        return val_null();
+    }
+
+    int64_t target_fps = value_to_int64(args[1]);
+    if (target_fps < 0) {
+        runtime_error(ctx, "main_loop() fps must be >= 0 (0 = let the host pick the rate)");
+        return val_null();
+    }
+
+    g_main_loop_callback = args[0];
+    VALUE_RETAIN(g_main_loop_callback);
+    g_main_loop_active = 1;
+    g_main_loop_stopping = 0;
+    g_main_loop_ctx = ctx;
+
+#ifdef __EMSCRIPTEN__
+    // Non-blocking: the callback keeps running on the browser's frame clock
+    // after this call returns, so the playground's eval() can finish. fps 0
+    // means requestAnimationFrame.
+    emscripten_set_main_loop_arg(main_loop_tick, NULL, (int)target_fps, 0);
+#else
+    double frame_ms = target_fps > 0 ? 1000.0 / (double)target_fps : 0.0;
+    while (!g_main_loop_stopping) {
+        double frame_start = main_loop_now_ms();
+
+        main_loop_invoke(g_main_loop_callback, ctx);
+        if (ctx->exception_state.is_throwing) break;
+
+        if (g_main_loop_stopping) break;
+
+        if (frame_ms > 0.0) {
+            double remaining = frame_ms - (main_loop_now_ms() - frame_start);
+            if (remaining > 0.0) {
+                struct timespec req;
+                req.tv_sec = (time_t)(remaining / 1000.0);
+                req.tv_nsec = (long)((remaining - (double)req.tv_sec * 1000.0) * 1000000.0);
+                nanosleep(&req, NULL);
+            }
+        }
+    }
+    main_loop_clear();
+#endif
+    return val_null();
+}
+
+Value builtin_main_loop_stop(Value *args, int num_args, ExecutionContext *ctx) {
+    (void)args;
+    if (num_args != 0) {
+        runtime_error(ctx, "main_loop_stop() expects no arguments"); return val_null();
+    }
+    if (!g_main_loop_active) return val_null();
+
+    g_main_loop_stopping = 1;
+#ifdef __EMSCRIPTEN__
+    // Nothing will return to the native loop body under Emscripten, so the
+    // teardown has to happen here.
+    emscripten_cancel_main_loop();
+    main_loop_clear();
+#endif
     return val_null();
 }
 
