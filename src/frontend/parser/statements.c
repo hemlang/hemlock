@@ -401,7 +401,14 @@ static Stmt* switch_statement(Parser *p) {
                     }
                     statements = new_statements;
                 }
+                Token before = p->current;
                 statements[count++] = statement(p);
+                // Guarantee forward progress (same guard as block_statement)
+                if (p->current.type != TOK_EOF
+                    && p->current.start == before.start
+                    && p->current.length == before.length) {
+                    advance(p);
+                }
             }
 
             case_bodies[num_cases] = stmt_block(statements, count);
@@ -432,7 +439,14 @@ static Stmt* switch_statement(Parser *p) {
                     }
                     statements = new_statements;
                 }
+                Token before = p->current;
                 statements[count++] = statement(p);
+                // Guarantee forward progress (same guard as block_statement)
+                if (p->current.type != TOK_EOF
+                    && p->current.start == before.start
+                    && p->current.length == before.length) {
+                    advance(p);
+                }
             }
 
             case_bodies[num_cases] = stmt_block(statements, count);

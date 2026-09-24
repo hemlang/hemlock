@@ -1,0 +1,14 @@
+[1, 2, 3]
+[-1, 1.5, 2, 3]
+[1, 3000000000, 5000000000]
+bad comparator
+[1, [...]]
+[1, [...]]
+1,[1, [...]]
+push mismatch
+set mismatch
+[1, null, null, 5]
+missing field
+bad variant
+not array
+end

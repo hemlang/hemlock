@@ -64,7 +64,10 @@ static void* task_thread_wrapper(void* arg) {
     }
 
     // Execute function body
-    eval_stmt(fn->body, func_env, task->ctx);
+    // Skip the body if binding a typed parameter threw
+    if (!task->ctx->exception_state.is_throwing) {
+        eval_stmt(fn->body, func_env, task->ctx);
+    }
 
     // Get return value
     Value result = val_null();

@@ -1137,7 +1137,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Execute body - reset return state first
                 ctx->return_state.is_returning = 0;
                 ctx->return_state.return_value = val_null();  // Reset to prevent stale values
-                eval_stmt(fn->body, call_env, ctx);
+                // A parameter that failed its type annotation (or a throwing
+                // default) leaves an exception pending: don't run the body,
+                // or its first failure would replace the real error.
+                if (!ctx->exception_state.is_throwing) {
+                    eval_stmt(fn->body, call_env, ctx);
+                }
 
                 // Execute deferred calls (in LIFO order) before returning
                 // This happens even if there was an exception

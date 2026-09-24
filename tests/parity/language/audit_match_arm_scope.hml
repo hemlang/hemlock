@@ -1,0 +1,33 @@
+// Match arms see enclosing function locals/params, typed patterns may shadow
+// an unboxed local, and closures created in an arm keep their captures.
+fn k(v) { return match (v) { _ => v }; }
+print(k(4));
+
+fn k4() { let q = 5; return match (1) { 1 => q, _ => 0 }; }
+print(k4());
+
+fn k5(v) { let q = 7; return match (v) { n if n > q => n + q, n => q - n }; }
+print(k5(10));
+print(k5(2));
+
+fn k6(v) {
+    let lim = 3;
+    let n = 100;
+    return match (v) {
+        {x, y} if x > lim => x + y + n,
+        [a, ...rest] => a + rest.length + lim,
+        n: i32 => n * lim,
+        _ => n
+    };
+}
+print(k6({x: 5, y: 1}));
+print(k6([1, 2, 3]));
+print(k6(7));
+print(k6("s"));
+
+fn k7(v) {
+    let z = 1;
+    let r = match (v) { 1 | 2 => fn() { return z + v; }, _ => fn() { return 0; } };
+    return r();
+}
+print(k7(2));

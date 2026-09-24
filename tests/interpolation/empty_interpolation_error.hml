@@ -1,0 +1,2 @@
+// Regression: an empty ${} used to segfault the parser (uninitialized token)
+print(`${}`);

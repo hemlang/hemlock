@@ -187,6 +187,24 @@ static inline void hml_object_set_field_owned(HmlValue obj, const char *field, H
     hml_release(&val);
 }
 
+// Arrays currently being printed/stringified on this thread, as a linked
+// list of frames on the C stack (defined in builtins_core.c). A
+// self-referential array (`a.push(a)`) would otherwise recurse until the
+// stack overflows; a back-reference prints as "[...]" instead.
+typedef struct HmlArrayPrintFrame {
+    const void *arr;
+    const struct HmlArrayPrintFrame *prev;
+} HmlArrayPrintFrame;
+
+extern __thread const HmlArrayPrintFrame *hml_array_print_frames;
+
+static inline int hml_array_print_in_progress(const void *arr) {
+    for (const HmlArrayPrintFrame *f = hml_array_print_frames; f; f = f->prev) {
+        if (f->arr == arr) return 1;
+    }
+    return 0;
+}
+
 // value.c: whether a pooled object's fields are still the pool's inline array.
 int hml_obj_fields_in_pool_storage(HmlObject *obj);
 

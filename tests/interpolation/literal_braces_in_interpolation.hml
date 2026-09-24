@@ -1,0 +1,3 @@
+// Braces inside string/rune literals in ${...} do not close the interpolation
+let x = 5;
+print(`v=${x} s=${ "}" } r=${'{'} ${ {a: 1}.a }`);

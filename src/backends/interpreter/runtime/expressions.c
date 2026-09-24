@@ -1871,7 +1871,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                     // Execute body
                     ctx->return_state.is_returning = 0;
-                    eval_stmt(fn->body, call_env, ctx);
+                    // Skip the body if binding a typed parameter threw
+                    if (!ctx->exception_state.is_throwing) {
+                        eval_stmt(fn->body, call_env, ctx);
+                    }
 
                     // Get return value
                     result = ctx->return_state.is_returning ? ctx->return_state.return_value : val_null();

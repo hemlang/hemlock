@@ -283,6 +283,10 @@ Stmt** parse_module_file(const char *path, int *stmt_count);
 // Generate code to match a pattern against a value, jumping to fail_label if no match
 // Creates local variables for any bindings in the pattern
 void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *scrutinee, const char *fail_label);
+// A match arm's bindings clear unboxable marks of same-named outer variables;
+// take a mark before the arm and restore those marks once the arm ends.
+int codegen_match_unbox_mark(void);
+void codegen_match_unbox_restore(CodegenContext *ctx, int mark);
 
 // ========== TYPE MAPPING HELPERS ==========
 

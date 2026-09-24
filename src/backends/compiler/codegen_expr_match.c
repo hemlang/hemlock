@@ -122,6 +122,32 @@ static void emit_pattern_binding(CodegenContext *ctx, const char *name, const ch
 
 // Register a pattern binding with the scope/local machinery (skipped in
 // assign mode - the enclosing OR pattern already registered it).
+// Unboxable marks cleared by pattern bindings, restored when the arm ends:
+// the binding only shadows the outer variable inside the arm, and the
+// outer one is still a native C local afterwards.
+static UnboxableVar *g_cleared_unboxables = NULL;
+static int g_cleared_unboxables_count = 0;
+
+int codegen_match_unbox_mark(void) {
+    return g_cleared_unboxables_count;
+}
+
+void codegen_match_unbox_restore(CodegenContext *ctx, int mark) {
+    while (g_cleared_unboxables_count > mark) {
+        UnboxableVar *u = g_cleared_unboxables;
+        g_cleared_unboxables = u->next;
+        g_cleared_unboxables_count--;
+        if (ctx->type_ctx) {
+            type_check_clear_unboxable(ctx->type_ctx, u->name);
+            type_check_mark_unboxable(ctx->type_ctx, u->name, u->native_type,
+                                      u->is_loop_counter, u->is_accumulator,
+                                      u->is_typed_var);
+        }
+        free(u->name);
+        free(u);
+    }
+}
+
 static void register_pattern_binding(CodegenContext *ctx, const char *name) {
     if (g_pattern_bind_assign) return;
     // Clear any stale unboxable mark left by a prior same-named variable
@@ -129,6 +155,19 @@ static void register_pattern_binding(CodegenContext *ctx, const char *name) {
     // codegen_expr_ident would treat this binding as a native C
     // primitive and emit hml_val_i32(x) on an HmlValue.
     if (ctx->type_ctx) {
+        for (UnboxableVar *u = ctx->type_ctx->unboxable_vars; u; u = u->next) {
+            if (strcmp(u->name, name) == 0) {
+                UnboxableVar *saved = malloc(sizeof(UnboxableVar));
+                if (saved) {
+                    *saved = *u;
+                    saved->name = strdup(u->name);
+                    saved->next = g_cleared_unboxables;
+                    g_cleared_unboxables = saved;
+                    g_cleared_unboxables_count++;
+                }
+                break;
+            }
+        }
         type_check_clear_unboxable(ctx->type_ctx, name);
     }
     codegen_add_local(ctx, name);

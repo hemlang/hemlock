@@ -272,9 +272,14 @@ HmlValue hml_to_string(HmlValue val) {
             // Match interpreter value_to_string: "[el, el]" with elements
             // converted recursively (strings unquoted)
             HmlArray *arr = val.as.as_array;
+            if (arr && hml_array_print_in_progress(arr)) {
+                return hml_val_string("[...]");
+            }
             size_t cap = 64, len = 0;
             char *out = malloc(cap);
             if (!out) return hml_val_string("[]");
+            HmlArrayPrintFrame frame = { arr, hml_array_print_frames };
+            hml_array_print_frames = &frame;
             out[len++] = '[';
             for (int i = 0; arr && i < arr->length; i++) {
                 HmlValue elem_str = hml_to_string(arr->elements[i]);
@@ -287,6 +292,7 @@ HmlValue hml_to_string(HmlValue val) {
                     if (!grown) {
                         free(out);
                         hml_release(&elem_str);
+                        hml_array_print_frames = frame.prev;
                         return hml_val_string("[]");
                     }
                     out = grown;
@@ -299,6 +305,7 @@ HmlValue hml_to_string(HmlValue val) {
                 len += elen;
                 hml_release(&elem_str);
             }
+            hml_array_print_frames = frame.prev;
             out[len++] = ']';
             out[len] = '\0';
             return hml_val_string_owned(out, len, cap);

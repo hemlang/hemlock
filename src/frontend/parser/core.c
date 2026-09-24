@@ -311,7 +311,10 @@ void parser_init(Parser *parser, Lexer *lexer) {
         // Skip error tokens during initialization
     }
 
-    // Now advance to set current = next and get the new next
+    // Now advance to set current = next and get the new next. Seed current
+    // first so `previous` is a real token even if an error is reported
+    // before anything is consumed (e.g. an empty `${}` sub-parse).
+    parser->current = parser->next;
     advance(parser);
 }
 
