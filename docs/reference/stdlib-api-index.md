@@ -278,7 +278,7 @@ fn DateTime(timestamp?: null)  // DateTime constructor - creates from Unix times
 fn now()  // Create DateTime from current time
 fn from_date( year: i32, month: i32, day: i32, hour?: 0, minute?: 0, second?: 0, )  // Create DateTime from date components (local time)
 fn from_utc(year: i32, month: i32, day: i32, hour?: 0, minute?: 0, second?: 0)  // Create DateTime from UTC date components
-fn parse_iso(date_str: string)  // Parse ISO 8601 date string (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+fn parse_iso(date_str: string)  // Parse ISO 8601 date string (YYYY-MM-DD, YYYY-MM-DDTHH:MM:SS, optional Z or +HH:MM)
 fn is_leap_year(year: i32): bool  // Check if a year is a leap year
 fn days_in_month(year: i32, month: i32): i32  // Get the number of days in a given month
 fn days_in_year(year: i32): i32  // Get the number of days in a given year
@@ -622,7 +622,7 @@ fn max(a, b)  [native]
 fn clamp(value, min_val, max_val)  [native]
 fn sign(x): i32  // Return -1, 0, or 1 based on sign of value
 fn cbrt(x): f64  // Cube root
-fn hypot(x, y): f64  // Hypotenuse: sqrt(x² + y²) without overflow
+fn hypot(x, y): f64  // Hypotenuse: sqrt(x² + y²) without overflow (scaled by the larger side)
 fn gcd(a, b): i64  // Greatest common divisor
 fn lcm(a, b): i64  // Least common multiple
 fn sinh(x): f64

@@ -37,31 +37,64 @@ export fn to_fixed(num, places?: 0): string {
 		n = -n;
 	}
 
-	// Round: multiply by 10^places, add 0.5, truncate
-	let mult: i64 = 1;
+	// Like JavaScript's toFixed: magnitudes >= 1e21 use the plain
+	// (exponent) form rather than printing 21+ integer digits
+	if (n >= 1e21) {
+		return "" + num;
+	}
+
+	// Generate the digits separately and round with carry. The old
+	// n * 10^places trick overflowed i64 (to_fixed(1e10, 10),
+	// to_fixed(1.5, 19)) for inputs well inside the documented range.
+	let int_f: f64 = __floor(n);
+	let frac: f64 = n - int_f;
+	let frac_digits = [];
 	let i = 0;
 	while (i < places) {
-		mult = mult * 10;
+		frac = frac * 10;
+		let d: f64 = __floor(frac);
+		frac = frac - d;
+		let di: i32 = d;
+		frac_digits.push(di);
 		i = i + 1;
 	}
-	let rounded: i64 = n * mult + 0.5;
+	if (frac >= 0.5) {
+		let j = frac_digits.length - 1;
+		let carry = true;
+		while (carry && j >= 0) {
+			if (frac_digits[j] == 9) {
+				frac_digits[j] = 0;
+				j = j - 1;
+			} else {
+				frac_digits[j] = frac_digits[j] + 1;
+				carry = false;
+			}
+		}
+		if (carry) {
+			int_f = int_f + 1;
+		}
+	}
 
-	// Extract integer and fractional parts from the rounded integer
-	let int_part: i64 = __divi(rounded, mult);
-	let frac_part: i64 = rounded % mult;
-
-	// Build integer part string
-	let int_str = "" + int_part;
+	// Integer part: exact via i64 when it fits, else digit by digit
+	let int_str = "";
+	if (int_f < 9.0e18) {
+		let iv: i64 = int_f;
+		int_str = "" + iv;
+	} else {
+		while (int_f >= 1) {
+			let d: i32 = int_f % 10.0;
+			int_str = ("" + d) + int_str;
+			int_f = __floor(int_f / 10.0);
+		}
+	}
 
 	// Build result
 	let result = int_str;
 	if (places > 0) {
-		// Build fractional part with leading zeros
-		let frac_str = "" + frac_part;
-		while (frac_str.length < places) {
-			frac_str = "0" + frac_str;
+		result = result + ".";
+		for (d in frac_digits) {
+			result = result + d;
 		}
-		result = result + "." + frac_str;
 	}
 
 	if (negative) {
@@ -141,6 +174,27 @@ export fn to_precision(num, digits): string {
 		}
 		let rounded: i64 = n / multiplier + 0.5;
 		n = rounded * multiplier;
+	}
+
+	// Rounding can carry into a new leading digit (9.99 -> 10.0 at 2
+	// digits); recompute the magnitude so the output keeps `digits`
+	// significant digits
+	let limit: f64 = 1;
+	let k = 0;
+	while (k <= magnitude) {
+		limit = limit * 10;
+		k = k + 1;
+	}
+	if (magnitude < 0) {
+		limit = 1;
+		k = 0;
+		while (k < -magnitude - 1) {
+			limit = limit / 10;
+			k = k + 1;
+		}
+	}
+	if (n >= limit) {
+		magnitude = magnitude + 1;
 	}
 
 	// Determine decimal places needed

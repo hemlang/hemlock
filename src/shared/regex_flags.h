@@ -50,4 +50,30 @@ static inline int hml_regexec_positions(const regex_t *preg, const char *text,
     return rc;
 }
 
+// Iterate over successive non-overlapping matches of `preg` in text[0..len).
+// *pos is the scan position (start at 0). On a match, stores the byte
+// offsets of the whole match in *so/*eo, advances *pos past it (by one
+// UTF-8 character for an empty match), and returns 1; returns 0 when done.
+static inline int hml_regex_next_match(const regex_t *preg, const char *text, size_t len,
+                                       size_t *pos, size_t *so, size_t *eo) {
+    if (*pos > len) return 0;
+    regmatch_t m;
+    if (hml_regexec_positions(preg, text + *pos, 1, &m, *pos > 0 ? REG_NOTBOL : 0) != 0) {
+        return 0;
+    }
+    *so = *pos + (size_t)m.rm_so;
+    *eo = *pos + (size_t)m.rm_eo;
+    if (*eo == *so) {
+        size_t adv = 1;
+        if (*eo < len) {
+            unsigned char c = (unsigned char)text[*eo];
+            adv = (c >= 0xF0) ? 4 : (c >= 0xE0) ? 3 : (c >= 0xC0) ? 2 : 1;
+        }
+        *pos = *eo + adv;
+    } else {
+        *pos = *eo;
+    }
+    return 1;
+}
+
 #endif // HEMLOCK_REGEX_FLAGS_H

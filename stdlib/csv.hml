@@ -41,6 +41,7 @@ export fn parse(text, options?: null): array {
 	let current_row: array = [];
 	let current_field = "";
 	let in_quotes = false;
+	let field_quoted = false;  // current field had quotes ("" is a real field)
 	let i = 0;
 	while (i < text.length) {
 		let c = text.substr(i, 1);
@@ -62,14 +63,17 @@ export fn parse(text, options?: null): array {
 			// Outside quoted field
 			if (c == quote) {
 				in_quotes = true;
+				field_quoted = true;
 			} else if (c == delimiter) {
 				// End of field
 				current_row.push(current_field);
 				current_field = "";
+				field_quoted = false;
 			} else if (c == "\n") {
 				// End of row
 				current_row.push(current_field);
 				current_field = "";
+				field_quoted = false;
 				rows.push(current_row);
 				current_row = [];
 			} else if (c == "\r") {
@@ -80,6 +84,7 @@ export fn parse(text, options?: null): array {
 				// End of row
 				current_row.push(current_field);
 				current_field = "";
+				field_quoted = false;
 				rows.push(current_row);
 				current_row = [];
 			} else {
@@ -89,7 +94,7 @@ export fn parse(text, options?: null): array {
 		i++;
 	}
 	// Handle last field/row
-	if (current_field.length > 0 || current_row.length > 0) {
+	if (current_field.length > 0 || current_row.length > 0 || field_quoted) {
 		current_row.push(current_field);
 		rows.push(current_row);
 	}
@@ -276,8 +281,10 @@ export fn stringify_row(row, options?: null): string {
 		let field = "" + row[i];
 
 		// Check if field needs quoting
+		// A row that is a single empty field must be written as "" or it
+		// would read back as a blank line (no row at all)
 		let needs_quote = field.contains(delimiter) || field.contains(quote) || field.contains("\n") ||
-			field.contains("\r");
+			field.contains("\r") || (row.length == 1 && field.length == 0);
 
 		if (needs_quote) {
 			// Escape quotes by doubling them

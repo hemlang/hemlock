@@ -57,7 +57,8 @@ export fn parse(url): object {
 	} else {
 		// Check for scheme without authority (like mailto:)
 		idx = remaining.find(":");
-		if (idx >= 0 && idx < remaining.find("/")) {
+		let first_slash = remaining.find("/");
+		if (idx >= 0 && (first_slash < 0 || idx < first_slash)) {
 			// Could be a scheme like mailto:, file:, etc.
 			let potential_scheme = remaining.slice(0, idx);
 			// Only treat as scheme if it looks like one (all letters)
@@ -72,6 +73,10 @@ export fn parse(url): object {
 	// extract the authority part (userinfo@host:port)
 	if (scheme == "http" || scheme == "https" || scheme == "ftp" || scheme == "ws" || scheme == "wss" ||
 		scheme == "") {
+		// Network-path reference (//host/path): the authority follows "//"
+		if (scheme == "" && remaining.starts_with("//")) {
+			remaining = remaining.substr(2);
+		}
 		// Find path start
 		idx = remaining.find("/");
 		let authority = "";
@@ -607,8 +612,11 @@ export fn decode_component(str): string {
 			bytes.push(32);
 			i = i + 1;
 		} else {
-			let code: i32 = ch;
-			bytes.push(code);
+			// Literal character: append its UTF-8 bytes (a non-ASCII rune is
+			// more than one byte; pushing the code point mangled it)
+			for (b in ("" + ch).bytes()) {
+				bytes.push(b);
+			}
 			i = i + 1;
 		}
 	}
@@ -675,8 +683,18 @@ export fn resolve(base, relative): string {
 			result = result + ":" + port;
 		}
 
-		result = result + relative;
+		let abs_parts = split_path_suffix(relative);
+		result = result + normalize_path(abs_parts[0]) + abs_parts[1];
 		return result;
+	}
+
+	// An empty reference is the base itself (minus any fragment)
+	if (relative == "") {
+		let hash_idx = base.find("#");
+		if (hash_idx >= 0) {
+			return base.slice(0, hash_idx);
+		}
+		return base;
 	}
 
 	// Handle query-only or fragment-only URLs
@@ -739,9 +757,10 @@ export fn resolve(base, relative): string {
 		dir_path = "/";
 	}
 
-	// Combine and normalize
-	let combined_path = dir_path + relative;
-	let normalized = normalize_path(combined_path);
+	// Combine and normalize (only the path part; keep ?query#fragment)
+	let rel_parts = split_path_suffix(relative);
+	let combined_path = dir_path + rel_parts[0];
+	let normalized = normalize_path(combined_path) + rel_parts[1];
 
 	// Build result URL
 	let result = "";
@@ -765,26 +784,38 @@ export fn resolve(base, relative): string {
 	return result;
 }
 
-// Normalize a path (resolve . and ..)
+// Normalize a path: RFC 3986 section 5.2.4 remove_dot_segments. A final
+// "." or ".." segment (or a trailing "/") leaves a trailing slash, and
+// ".." never climbs above the root.
 fn normalize_path(path): string {
+	let absolute = path.starts_with("/");
 	let segments = path.split("/");
 	let result: array = [];
+	let trailing_slash = false;
 
-	let i = 0;
+	let start = 0;
+	if (absolute) {
+		start = 1;  // skip the empty segment before the leading "/"
+	}
+
+	let i = start;
 	while (i < segments.length) {
 		let seg = segments[i];
+		let last = i == segments.length - 1;
 
-		if (seg == "." || seg == "") {
-			// Skip current directory and empty segments
-			// But preserve leading empty for absolute paths
-			if (i == 0 && seg == "") {
-				result.push("");
+		if (seg == ".") {
+			if (last) {
+				trailing_slash = true;
 			}
 		} else if (seg == "..") {
-			// Go up one level
-			if (result.length > 0 && result[result.length - 1] != "") {
+			if (result.length > 0) {
 				result.pop();
 			}
+			if (last) {
+				trailing_slash = true;
+			}
+		} else if (seg == "" && last) {
+			trailing_slash = true;
 		} else {
 			result.push(seg);
 		}
@@ -793,10 +824,30 @@ fn normalize_path(path): string {
 	}
 
 	let joined = result.join("/");
+	if (trailing_slash && result.length > 0) {
+		joined = joined + "/";
+	}
+	if (absolute) {
+		return "/" + joined;
+	}
 	if (joined == "") {
 		return "/";
 	}
 	return joined;
+}
+
+// Split "path?query#fragment" into [path, "?query#fragment"]
+fn split_path_suffix(reference): array {
+	let cut = reference.length;
+	let q = reference.find("?");
+	let h = reference.find("#");
+	if (q >= 0 && q < cut) {
+		cut = q;
+	}
+	if (h >= 0 && h < cut) {
+		cut = h;
+	}
+	return [reference.substr(0, cut), reference.substr(cut)];
 }
 
 // ============================================================================

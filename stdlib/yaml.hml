@@ -755,9 +755,36 @@ fn parse_value(s, indent: i32) {
 		return parse_block_scalar(s, indent);
 	}
 
-	// Quoted strings
-	if (ch == '"') { return parse_double_quoted(s); }
-	if (ch == '\'') { return parse_single_quoted(s); }
+	// Quoted strings - which may also be the first key of a mapping
+	// ("x": 1), so check for a following ':' like plain scalars below
+	if (ch == '"' || ch == '\'') {
+		let q_pos = s["pos"];
+		let q_line = s["line"];
+		let q_col = s["col"];
+		let quoted = null;
+		if (ch == '"') {
+			quoted = parse_double_quoted(s);
+		} else {
+			quoted = parse_single_quoted(s);
+		}
+		let after_pos = s["pos"];
+		let after_line = s["line"];
+		let after_col = s["col"];
+		scan_skip_spaces(s);
+		if (scan_peek(s) == ':') {
+			let next = scan_peek_n(s, 1);
+			if (next == ' ' || next == '\t' || is_newline(next) || next == '\x00') {
+				s["pos"] = q_pos;
+				s["line"] = q_line;
+				s["col"] = q_col;
+				return parse_block_mapping(s, indent);
+			}
+		}
+		s["pos"] = after_pos;
+		s["line"] = after_line;
+		s["col"] = after_col;
+		return quoted;
+	}
 
 	// Check for block sequence (- item)
 	if (ch == '-' && (scan_peek_n(s, 1) == ' ' || scan_peek_n(s, 1) == '\n' || scan_peek_n(s, 1) == '\x00')) {
@@ -845,6 +872,9 @@ fn parse_block_sequence(s, abs_indent: i32): array {
 			if (!skip_to_content_line(s)) { break; }
 			let spaces = count_indent(s);
 			if (spaces != abs_indent) { break; }
+			// Only consume the indent if this line continues the sequence;
+			// a sibling key at the same indent belongs to the parent mapping
+			if (scan_peek_n(s, spaces) != '-') { break; }
 			consume_indent(s, spaces);
 		}
 		first = false;
@@ -905,20 +935,17 @@ fn read_mapping_key(s): string {
 }
 
 fn read_mapping_value(s, map_indent: i32) {
+	let before_spaces = s["pos"];
 	scan_skip_spaces(s);
 
-	// Only treat # as comment if nothing else on the line (no value)
-	// A value like #ff0000 starts with # but is not a comment
-	if (scan_peek(s) == '#') {
-		// Peek ahead: if this is a comment (preceded by the space we just skipped),
-		// we need to determine if there's content. In YAML, after ": ", a # starts
-		// a comment only if the entire rest-of-line is a comment (no value).
-		// Since we can't know without parsing, treat # at start of value as value.
-		// Actually in YAML spec, # after space is ALWAYS a comment.
-		// But "key: #value" should parse #value as the value.
-		// The rule: # is a comment only when preceded by whitespace AND is not the
-		// first non-space character after the value indicator.
-		// Simplification: just don't skip comment here, let parse_value handle it.
+	// "key: # note" - a '#' between whitespace starts a comment, so the key
+	// has no inline value. "color: #ff0000" deliberately stays a value
+	// (lenient: strict YAML would read that as null too).
+	if (scan_peek(s) == '#' && s["pos"] > before_spaces) {
+		let after_hash = scan_peek_n(s, 1);
+		if (after_hash == ' ' || after_hash == '\t' || after_hash == '\x00' || is_newline(after_hash)) {
+			scan_skip_comment(s);
+		}
 	}
 
 	if (scan_at_end(s) || is_newline(scan_peek(s))) {
@@ -930,7 +957,14 @@ fn read_mapping_value(s, map_indent: i32) {
 		}
 
 		let child_indent = count_indent(s);
-		if (child_indent > map_indent) {
+		// A block sequence may sit at the same indent as its key
+		// ("key:\n- a\n- b", common in GitHub Actions / Kubernetes files)
+		let same_indent_seq = false;
+		if (child_indent == map_indent && scan_peek_n(s, child_indent) == '-') {
+			let after_dash = scan_peek_n(s, child_indent + 1);
+			same_indent_seq = after_dash == ' ' || after_dash == '\x00' || is_newline(after_dash);
+		}
+		if (child_indent > map_indent || same_indent_seq) {
 			consume_indent(s, child_indent);
 			let value = parse_value(s, child_indent);
 			skip_rest_of_line(s);
@@ -1080,6 +1114,22 @@ fn yaml_escape_string(str: string): string {
 		first == ',' || first == '?' || first == '-' || first == ':' ||
 		first == '#' || first == '\'' || first == '"') {
 		needs_quote = true;
+	}
+
+	// Leading/trailing whitespace would be trimmed, and a trailing ':'
+	// turns the scalar into a mapping key
+	let last = str.char_at(str.length - 1);
+	if (first == ' ' || first == '\t' || last == ' ' || last == '\t' || last == ':') {
+		needs_quote = true;
+	}
+
+	// A plain scalar that would read back as something else (a number in
+	// another base, a float like .5, a bool/null variant...) must be quoted
+	if (!needs_quote) {
+		let reread = resolve_scalar(str);
+		if (typeof(reread) != "string" || reread != str) {
+			needs_quote = true;
+		}
 	}
 
 	// Check for special chars

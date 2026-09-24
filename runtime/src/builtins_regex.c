@@ -78,7 +78,7 @@ HmlValue hml_regex_test(HmlValue preg, HmlValue text, HmlValue eflags) {
  * Finds matches in the text and returns an array of match objects.
  * Each match object has: { start: i32, end: i32, text: string }
  */
-HmlValue hml_regex_match(HmlValue preg, HmlValue text, HmlValue max_matches) {
+HmlValue hml_regex_match(HmlValue preg, HmlValue text, HmlValue max_matches_val) {
     if (preg.type != HML_VAL_PTR || preg.as.as_ptr == NULL) {
         hml_runtime_error("regex_match: invalid regex pointer");
     }
@@ -86,48 +86,38 @@ HmlValue hml_regex_match(HmlValue preg, HmlValue text, HmlValue max_matches) {
         hml_runtime_error("regex_match: text must be a string");
     }
 
-    int nmatch = 10;  // Default max matches
-    if (max_matches.type != HML_VAL_NULL) {
-        nmatch = (int)hml_to_i64(max_matches);
-        if (nmatch <= 0) nmatch = 10;
-        if (nmatch > 100) nmatch = 100;  // Cap at 100
+    // max_matches: null or <= 0 means no limit
+    int64_t max_matches = 0;
+    if (max_matches_val.type != HML_VAL_NULL) {
+        max_matches = hml_to_i64(max_matches_val);
     }
 
     regex_t *regex = (regex_t *)preg.as.as_ptr;
     const char *text_data = text.as.as_string->data;
-    regmatch_t *pmatch = (regmatch_t *)malloc(nmatch * sizeof(regmatch_t));
-    if (!pmatch) {
-        hml_runtime_error("regex_match: failed to allocate memory");
-    }
+    size_t text_len = (size_t)text.as.as_string->length;
 
     HmlValue result = hml_val_array();
 
-    int exec_result = hml_regexec_positions(regex, text_data, nmatch, pmatch, 0);
-    if (exec_result == 0) {
-        // Add all valid matches to the array
-        for (int i = 0; i < nmatch; i++) {
-            if (pmatch[i].rm_so == -1) break;  // No more matches
-
-            HmlValue match = hml_val_object();
-            hml_object_set_field(match, "start", hml_val_i32((int32_t)pmatch[i].rm_so));
-            hml_object_set_field(match, "end", hml_val_i32((int32_t)pmatch[i].rm_eo));
-
-            // Extract matched text
-            int len = pmatch[i].rm_eo - pmatch[i].rm_so;
-            char *matched = (char *)malloc(len + 1);
-            if (matched) {
-                strncpy(matched, text_data + pmatch[i].rm_so, len);
-                matched[len] = '\0';
-                hml_object_set_field_owned(match, "text", hml_val_string(matched));
-                free(matched);
-            }
-
-            hml_array_push(result, match);
+    // Successive whole-pattern matches (not the capture groups of one match)
+    size_t pos = 0, so = 0, eo = 0;
+    int64_t found = 0;
+    while ((max_matches <= 0 || found < max_matches) &&
+           hml_regex_next_match(regex, text_data, text_len, &pos, &so, &eo)) {
+        HmlValue match = hml_val_object();
+        hml_object_set_field(match, "start", hml_val_i32((int32_t)so));
+        hml_object_set_field(match, "end", hml_val_i32((int32_t)eo));
+        char *matched = strndup(text_data + so, eo - so);
+        if (!matched) {
             hml_release(&match);
+            hml_release(&result);
+            hml_runtime_error("regex_match: failed to allocate memory");
         }
+        hml_object_set_field_owned(match, "text", hml_val_string_owned(matched, (int)(eo - so), (int)(eo - so) + 1));
+        hml_array_push(result, match);
+        hml_release(&match);
+        found++;
     }
 
-    free(pmatch);
     return result;
 }
 

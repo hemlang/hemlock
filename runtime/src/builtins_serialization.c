@@ -13,6 +13,7 @@
  */
 
 #include "builtins_internal.h"
+#include "json_number.h"
 #include <stdatomic.h>
 
 // ========== OPTIMIZED SERIALIZATION (JSON) ==========
@@ -167,6 +168,20 @@ static inline void hjbuf_append_escaped_string(HmlJsonBuffer *buf, const char *s
 // Forward declaration
 static int serialize_to_buffer_impl(HmlValue val, HmlJsonBuffer *buf, HmlVisitedSet *visited);
 
+// Shortest %g form that parses back to the same value (f32: 6-9 digits,
+// f64: 15-17). Plain "%g" kept only 6 significant digits, so a
+// serialize()/deserialize() round trip silently lost precision.
+static int json_format_float(char *buf, size_t size, double value, int is_f32) {
+    int lo = is_f32 ? 6 : 15, hi = is_f32 ? 9 : 17;
+    int len = 0;
+    for (int prec = lo; prec <= hi; prec++) {
+        len = snprintf(buf, size, "%.*g", prec, value);
+        double back = strtod(buf, NULL);
+        if (is_f32 ? ((float)back == (float)value) : (back == value)) break;
+    }
+    return len;
+}
+
 static int serialize_to_buffer_impl(HmlValue val, HmlJsonBuffer *buf, HmlVisitedSet *visited) {
     char tmp[32];
 
@@ -196,12 +211,18 @@ static int serialize_to_buffer_impl(HmlValue val, HmlJsonBuffer *buf, HmlVisited
             hjbuf_append_u64(buf, val.as.as_u64);
             return 1;
         case HML_VAL_F32: {
-            int len = snprintf(tmp, sizeof(tmp), "%g", val.as.as_f32);
+            if (!isfinite(val.as.as_f32)) {
+                hml_runtime_error("serialize() cannot represent NaN or Infinity in JSON");
+            }
+            int len = json_format_float(tmp, sizeof(tmp), val.as.as_f32, 1);
             hjbuf_append_str(buf, tmp, len);
             return 1;
         }
         case HML_VAL_F64: {
-            int len = snprintf(tmp, sizeof(tmp), "%g", val.as.as_f64);
+            if (!isfinite(val.as.as_f64)) {
+                hml_runtime_error("serialize() cannot represent NaN or Infinity in JSON");
+            }
+            int len = json_format_float(tmp, sizeof(tmp), val.as.as_f64, 0);
             hjbuf_append_str(buf, tmp, len);
             return 1;
         }
@@ -458,84 +479,19 @@ static HmlValue json_parse_string(HmlJSONParser *p) {
 
 // Optimized number parsing - no allocation
 static HmlValue json_parse_number(HmlJSONParser *p) {
-    const char *s = p->input + p->pos;
-    int negative = 0;
-
-    if (*s == '-') {
-        negative = 1;
-        s++;
+    size_t consumed = 0;
+    int64_t ival = 0;
+    double dval = 0.0;
+    HmlJsonNumKind kind = hml_json_scan_number(p->input + p->pos, &consumed, &ival, &dval);
+    if (kind == HML_JSON_NUM_INVALID) {
+        hml_runtime_error("Invalid number in JSON");
     }
-
-    int64_t int_val = 0;
-    while (*s >= '0' && *s <= '9') {
-        int_val = int_val * 10 + (*s - '0');
-        s++;
+    p->pos += consumed;
+    switch (kind) {
+        case HML_JSON_NUM_I32: return hml_val_i32((int32_t)ival);
+        case HML_JSON_NUM_I64: return hml_val_i64(ival);
+        default:               return hml_val_f64(dval);
     }
-
-    if (*s == '.') {
-        s++;
-        double frac = 0.0;
-        double divisor = 10.0;
-        while (*s >= '0' && *s <= '9') {
-            frac += (*s - '0') / divisor;
-            divisor *= 10.0;
-            s++;
-        }
-
-        if (*s == 'e' || *s == 'E') {
-            s++;
-            int exp_negative = 0;
-            if (*s == '-') { exp_negative = 1; s++; }
-            else if (*s == '+') { s++; }
-
-            int exp = 0;
-            while (*s >= '0' && *s <= '9') {
-                exp = exp * 10 + (*s - '0');
-                s++;
-            }
-
-            double multiplier = 1.0;
-            for (int i = 0; i < exp; i++) multiplier *= 10.0;
-            if (exp_negative) {
-                frac = (int_val + frac) / multiplier;
-                int_val = 0;
-            } else {
-                frac = (int_val + frac) * multiplier;
-                int_val = 0;
-            }
-        }
-
-        p->pos = s - p->input;
-        double result = int_val + frac;
-        return hml_val_f64(negative ? -result : result);
-    }
-
-    if (*s == 'e' || *s == 'E') {
-        s++;
-        int exp_negative = 0;
-        if (*s == '-') { exp_negative = 1; s++; }
-        else if (*s == '+') { s++; }
-
-        int exp = 0;
-        while (*s >= '0' && *s <= '9') {
-            exp = exp * 10 + (*s - '0');
-            s++;
-        }
-
-        p->pos = s - p->input;
-        double result = (double)int_val;
-        double multiplier = 1.0;
-        for (int i = 0; i < exp; i++) multiplier *= 10.0;
-        result = exp_negative ? result / multiplier : result * multiplier;
-        return hml_val_f64(negative ? -result : result);
-    }
-
-    p->pos = s - p->input;
-
-    if (int_val <= 2147483647) {
-        return hml_val_i32(negative ? -(int32_t)int_val : (int32_t)int_val);
-    }
-    return hml_val_i64(negative ? -int_val : int_val);
 }
 
 static HmlValue json_parse_object(HmlJSONParser *p) {
@@ -635,6 +591,15 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
 
         if (p->input[p->pos] == ',') {
             p->pos++;
+            json_skip_whitespace(p);
+            if (p->input[p->pos] == '}') {
+                for (int i = 0; i < num_fields; i++) {
+                    free(fields[i].name);
+                    hml_release(&fields[i].value);
+                }
+                free(fields);
+                hml_runtime_error("Trailing comma in JSON object");
+            }
         } else if (p->input[p->pos] != '}') {
             // Cleanup on error
             for (int i = 0; i < num_fields; i++) {
@@ -745,6 +710,14 @@ static HmlValue json_parse_array(HmlJSONParser *p) {
 
         if (p->input[p->pos] == ',') {
             p->pos++;
+            json_skip_whitespace(p);
+            if (p->input[p->pos] == ']') {
+                for (int i = 0; i < length; i++) {
+                    hml_release(&elements[i]);
+                }
+                free(elements);
+                hml_runtime_error("Trailing comma in JSON array");
+            }
         } else if (p->input[p->pos] != ']') {
             // Cleanup on error
             for (int i = 0; i < length; i++) {
@@ -846,5 +819,13 @@ HmlValue hml_deserialize(HmlValue json_str) {
         .depth = 0
     };
 
-    return json_parse_value(&parser);
+    HmlValue result = json_parse_value(&parser);
+
+    // The whole input must be one JSON value (matches the interpreter)
+    json_skip_whitespace(&parser);
+    if (parser.input[parser.pos] != '\0') {
+        hml_release(&result);
+        hml_runtime_error("Unexpected trailing characters in JSON");
+    }
+    return result;
 }
