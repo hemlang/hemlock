@@ -1,3 +1,4 @@
+// @expect-compile-fail parse error: this file is intentionally malformed
 // Regression: malformed match patterns used to hang the parser forever
 let x = match (1) { {a ] } => 1 };
 let y = match (1) { [a ) ] => 1 };

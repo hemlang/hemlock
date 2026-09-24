@@ -1,3 +1,4 @@
+// @expect-compile-fail parse error: this file is intentionally malformed
 // Regression: parse errors inside ${...} used to be ignored and the program ran
 print("start");
 print(`${1 +}`);
