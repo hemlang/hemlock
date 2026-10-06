@@ -9,10 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The standalone Windows build links again.** `WIN_LWS_STATIC=1` failed with
-  `undefined reference to WaitOnAddress` / `WakeByAddressSingle` once MSYS2
-  shipped a libuv whose `pipe.c` uses them. They live in `synchronization.lib`
-  (Windows 8+), which is now on the link line.
+- **A `u32` above 2147483647 keeps its value when mixed with an `i64` or
+  `u64`.** In the interpreter, `u32(4294967295) == 4294967295` was `false` and
+  `u32(3000000000) + i64(1)` gave `-1294967295`: promoting a `u32` to `i64` or
+  `u64` went through `value_to_int()`, which returns `int32_t`, so the value
+  wrapped negative before it was widened. `promote_value()` now uses
+  `value_to_int64()`. The compiler was already correct. This bit any program
+  reading a `u32` from a buffer (`read_u32_le`) and comparing it or doing
+  arithmetic with an integer literal, which defaults to `i64`.
 
 - **A WebSocket program no longer hangs instead of exiting.** Handing a
   `WebSocketServer` to `spawn()` produced correct output and then left the
