@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The standalone Windows build links again.** `WIN_LWS_STATIC=1` failed with
+  `undefined reference to WaitOnAddress` / `WakeByAddressSingle` once MSYS2
+  shipped a libuv whose `pipe.c` uses them. They live in `synchronization.lib`
+  (Windows 8+), which is now on the link line.
+
 - **A WebSocket program no longer hangs instead of exiting.** Handing a
   `WebSocketServer` to `spawn()` produced correct output and then left the
   process alive forever, in the interpreter and in compiled binaries alike. The
