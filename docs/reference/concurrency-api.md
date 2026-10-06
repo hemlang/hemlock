@@ -618,7 +618,7 @@ try {
 ```hemlock
 async fn work(id: i32, should_fail: i32): i32 {
     if (should_fail == 1) {
-        throw "Task " + typeof(id) + " failed";
+        throw "Task " + id + " failed";
     }
     return id * 10;
 }

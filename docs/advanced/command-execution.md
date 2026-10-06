@@ -120,7 +120,7 @@ import { exec } from "@stdlib/process";
 
 let r = exec("ls -la");
 print(r.output);
-print("Exit code: " + typeof(r.exit_code));
+print("Exit code: " + r.exit_code);
 ```
 
 ### Checking Exit Status
@@ -166,7 +166,7 @@ import { exec } from "@stdlib/process";
 
 let r = exec("ls /nonexistent");
 if (r.exit_code != 0) {
-    print("Command failed with code: " + typeof(r.exit_code));
+    print("Command failed with code: " + r.exit_code);
     print("Error output: " + r.output);  // Note: stderr not captured
 }
 ```
@@ -180,7 +180,7 @@ let r = exec("cat file.txt");
 let lines = r.output.split("\n");
 let i = 0;
 while (i < lines.length) {
-    print("Line " + typeof(i) + ": " + lines[i]);
+    print("Line " + i + ": " + lines[i]);
     i = i + 1;
 }
 ```
@@ -231,7 +231,7 @@ if (r.exit_code == 0) {
 } else if (r.exit_code == 1) {
     print("File does not exist");
 } else {
-    print("Test command failed: " + typeof(r.exit_code));
+    print("Test command failed: " + r.exit_code);
 }
 ```
 
@@ -303,7 +303,7 @@ fn safe_exec(command: string) {
     try {
         let r = exec(command);
         if (r.exit_code != 0) {
-            print("Warning: Command failed with code " + typeof(r.exit_code));
+            print("Warning: Command failed with code " + r.exit_code);
             return "";
         }
         return r.output;

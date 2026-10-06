@@ -42,7 +42,7 @@ Register a signal handler function.
 import { signal, SIGINT } from "@stdlib/signal";
 
 fn my_handler(sig) {
-    print("Caught signal: " + typeof(sig));
+    print("Caught signal: " + sig);
 }
 
 let old_handler = signal(SIGINT, my_handler);
@@ -177,7 +177,7 @@ Signal handlers receive one argument: the signal number (i32)
 import { signal, SIGINT, SIGTERM } from "@stdlib/signal";
 
 fn my_handler(signum) {
-    print("Received signal: " + typeof(signum));
+    print("Received signal: " + signum);
     // signum contains the signal number (e.g., 2 for SIGINT)
 
     if (signum == SIGINT) {
@@ -288,13 +288,13 @@ let signal_count = 0;
 
 fn count_signals(sig) {
     signal_count = signal_count + 1;
-    print("Received " + typeof(signal_count) + " signals");
+    print("Received " + signal_count + " signals");
 }
 
 signal(SIGUSR1, count_signals);
 
 // Later...
-print("Total signals: " + typeof(signal_count));
+print("Total signals: " + signal_count);
 ```
 
 ### Configuration Reload on Signal
@@ -347,12 +347,12 @@ let state = 0;
 
 fn next_state(sig) {
     state = (state + 1) % 3;
-    print("State: " + typeof(state));
+    print("State: " + state);
 }
 
 fn prev_state(sig) {
     state = (state - 1 + 3) % 3;
-    print("State: " + typeof(state));
+    print("State: " + state);
 }
 
 signal(SIGUSR1, next_state);  // Advance state
@@ -610,7 +610,7 @@ import { signal, SIGUSR1 } from "@stdlib/signal";
 let requests_handled = 0;
 
 fn report_status(sig) {
-    print("Status: " + typeof(requests_handled) + " requests handled");
+    print("Status: " + requests_handled + " requests handled");
 }
 
 signal(SIGUSR1, report_status);
@@ -674,7 +674,7 @@ signal(SIGUSR1, handle_signal);
 // Simulate some work
 let i = 0;
 while (running && i < 100) {
-    print("Working... " + typeof(i));
+    print("Working... " + i);
 
     // Trigger SIGUSR1 every 10 iterations
     if (i == 10 || i == 20) {
@@ -684,7 +684,7 @@ while (running && i < 100) {
     i = i + 1;
 }
 
-print("Total signals received: " + typeof(signal_count));
+print("Total signals received: " + signal_count);
 ```
 
 ### Example 2: Multi-Signal State Machine
@@ -707,7 +707,7 @@ fn stop_processing(sig) {
 
 fn report_stats(sig) {
     print("State: " + state);
-    print("Requests: " + typeof(request_count));
+    print("Requests: " + request_count);
 }
 
 signal(SIGUSR1, start_processing);
@@ -734,14 +734,14 @@ let should_exit = false;
 
 fn increase_workers(sig) {
     worker_count = worker_count + 1;
-    print("Workers: " + typeof(worker_count));
+    print("Workers: " + worker_count);
 }
 
 fn decrease_workers(sig) {
     if (worker_count > 1) {
         worker_count = worker_count - 1;
     }
-    print("Workers: " + typeof(worker_count));
+    print("Workers: " + worker_count);
 }
 
 fn shutdown(sig) {
@@ -807,7 +807,7 @@ if (!operation_complete) {
 import { signal, SIGINT } from "@stdlib/signal";
 
 fn debug_handler(sig) {
-    print("Handler called for signal: " + typeof(sig));
+    print("Handler called for signal: " + sig);
     print("Stack: (not yet available)");
 
     // Your handler logic...
@@ -823,7 +823,7 @@ let handler_calls = 0;
 
 fn counting_handler(sig) {
     handler_calls = handler_calls + 1;
-    print("Handler call #" + typeof(handler_calls));
+    print("Handler call #" + handler_calls);
 
     // Your handler logic...
 }
@@ -835,7 +835,7 @@ fn counting_handler(sig) {
 import { signal, raise, SIGUSR1 } from "@stdlib/signal";
 
 fn test_handler(sig) {
-    print("Test signal received: " + typeof(sig));
+    print("Test signal received: " + sig);
 }
 
 signal(SIGUSR1, test_handler);

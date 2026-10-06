@@ -61,7 +61,7 @@ s[0] = 'H';             // Mutate with rune (now "Hello")
 let text = "Hi🚀!";
 print(text[0]);         // 'H'
 print(text[1]);         // 'i'
-print(text[2]);         // '🚀' (one codepoint)
+print(text[2]);         // U+1F680 (one codepoint; non-ASCII runes print as U+XXXX)
 print(text[3]);         // '!'
 ```
 
@@ -74,7 +74,7 @@ Use the `+` operator to concatenate strings and runes:
 **String + String:**
 ```hemlock
 let s = "hello" + " " + "world";  // "hello world"
-let msg = "Count: " + typeof(42); // "Count: 42"
+let msg = "Count: " + 42; // "Count: 42"
 ```
 
 **String + Rune:**
@@ -808,6 +808,7 @@ let cleaned = "  HELLO  "
 | `substr`       | `(start: i32, length: i32)`                  | `string`  | Extract substring by position/length  |
 | `slice`        | `(start: i32, end: i32)`                     | `string`  | Extract substring by range            |
 | `find`         | `(needle: string)`                           | `i32`     | Find first occurrence (-1 if not found)|
+| `rfind`        | `(needle: string)`                           | `i32`     | Find last occurrence (-1 if not found) |
 | `contains`     | `(needle: string)`                           | `bool`    | Check if contains substring           |
 | `split`        | `(delimiter: string)`                        | `array`   | Split into array                      |
 | `trim`         | `()`                                         | `string`  | Remove whitespace                     |
