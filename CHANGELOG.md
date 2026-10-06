@@ -5,6 +5,24 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A WebSocket client now notices when the server closes the connection.**
+  libwebsockets reports a client connection closing as
+  `LWS_CALLBACK_CLIENT_CLOSED`, but the client callback only handled
+  `LWS_CALLBACK_CLOSED` (the server-side reason), so `closed` never became
+  true. A `while (!ws.closed) { ws.recv(...) }` loop ran forever after a
+  server close. Messages that arrived before the close are still delivered:
+  `recv()` drains the queue before reporting the connection closed, and
+  `close()` now clears the queue pointers it frees.
+- **`close()` on a server-side connection now closes it.** It only marked the
+  handle closed and never told libwebsockets, so the client stayed connected.
+  It now wakes the server's service thread (`lws_cancel_service`), which
+  requests a writeable callback and closes the connection from there with a
+  close frame (status 1000), since only that thread may touch the context.
+
 ## [2.11.0] - 2026-09-25
 
 A semantics-hardening release: JSON (de)serialization is now exact and strict,

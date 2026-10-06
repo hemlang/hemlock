@@ -1,0 +1,76 @@
+// Test that a client notices when the server closes the connection
+// Requires: libwebsockets-dev installed, make stdlib
+// Run with: ./hemlock tests/stdlib_websocket/test_websocket_server_close.hml
+//
+// libwebsockets reports a client connection closing as
+// LWS_CALLBACK_CLIENT_CLOSED, not LWS_CALLBACK_CLOSED; the client used to
+// ignore it, so `closed` never became true and recv() loops never ended.
+
+import { WebSocket, WebSocketServer } from "@stdlib/websocket";
+import { sleep } from "@stdlib/time";
+
+print("Testing server-initiated WebSocket close...");
+
+let tests_passed = 0;
+let tests_failed = 0;
+
+async fn accept_connection(srv) {
+    return srv.accept(5000);
+}
+
+// Test 1: the client sees the server's last message, then `closed`
+print("Test 1: Server sends a final message and closes");
+try {
+    let server = WebSocketServer("127.0.0.1", 9004);
+    defer server.close();
+
+    let accept_task = spawn(accept_connection, server);
+    sleep(0.5);
+
+    let client = WebSocket("ws://127.0.0.1:9004");
+    defer client.close();
+
+    let server_conn = join(accept_task);
+    assert(server_conn != null, "Server should accept connection");
+
+    server_conn.send_text("goodbye");
+    sleep(0.2);
+    server_conn.close();
+
+    let got_goodbye = false;
+    let polls = 0;
+    while (polls < 50 && !client.closed) {
+        let msg = client.recv(100);
+        if (msg != null && msg.type == "text" && msg.data == "goodbye") {
+            got_goodbye = true;
+        }
+        polls = polls + 1;
+    }
+
+    assert(got_goodbye, "Message sent before the close should still arrive");
+    assert(client.closed, "Client should notice the server closed the connection");
+    assert(client.recv(100) == null, "recv() after close should return null");
+    print("✓ Final message delivered, then closed after " + polls + " polls");
+    tests_passed = tests_passed + 1;
+} catch (e) {
+    print("✗ Test 1 failed: " + e);
+    tests_failed = tests_failed + 1;
+}
+
+print("");
+print("========================================");
+print("WebSocket Server Close Tests Summary:");
+print("  Passed: " + tests_passed);
+print("  Failed: " + tests_failed);
+print("========================================");
+
+if (tests_failed > 0) {
+    print("");
+    print("Some tests failed. Common issues:");
+    print("  - lws_wrapper.so not compiled (run: make stdlib)");
+    print("  - libwebsockets not installed");
+    print("  - Port 9004 already in use");
+}
+
+print("");
+assert(tests_failed == 0, "All WebSocket server close tests should pass");
