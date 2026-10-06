@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   requests a writeable callback and closes the connection from there with a
   close frame (status 1000), since only that thread may touch the context.
 
-## [2.11.0] - 2026-09-25
+## [2.11.0] - 2026-10-06
 
 A semantics-hardening release: JSON (de)serialization is now exact and strict,
 the borrow checker is substantially more precise, and wasm gains a proper

@@ -43,7 +43,7 @@ print(args.length);    // Total number of arguments (including script name)
 **In script.hml:**
 ```hemlock
 print("Script name: " + args[0]);     // "script.hml"
-print("Total args: " + typeof(args.length));  // "4"
+print("Total args: " + args.length);  // "4"
 print("First arg: " + args[1]);       // "hello"
 print("Second arg: " + args[2]);      // "world"
 print("Third arg: " + args[3]);       // "test 123"
@@ -137,7 +137,7 @@ Skip `args[0]` (script name) and process actual arguments:
 ```hemlock
 let i = 1;
 while (i < args.length) {
-    print("Argument " + typeof(i) + ": " + args[i]);
+    print("Argument " + i + ": " + args[i]);
     i = i + 1;
 }
 ```
@@ -238,7 +238,7 @@ Process all provided arguments:
 if (args.length < 2) {
     print("Usage: " + args[0] + " <file1> [file2] [file3] ...");
 } else {
-    print("Processing " + typeof(args.length - 1) + " files:");
+    print("Processing " + (args.length - 1) + " files:");
 
     let i = 1;
     while (i < args.length) {
@@ -428,9 +428,9 @@ fn parse_args() {
 }
 
 let opts = parse_args();
-print("Verbose: " + typeof(opts.verbose));
+print("Verbose: " + opts.verbose);
 print("Output: " + opts.output);
-print("Files: " + typeof(opts.files.length));
+print("Files: " + opts.files.length);
 ```
 
 ## Best Practices
@@ -571,7 +571,7 @@ if (args.length < 3) {
 if (args.length < 2) {
     print("Usage: " + args[0] + " <file1> [file2] [file3] ...");
 } else {
-    print("Processing " + typeof(args.length - 1) + " files:");
+    print("Processing " + (args.length - 1) + " files:");
 
     let i = 1;
     while (i < args.length) {
@@ -584,7 +584,7 @@ if (args.length < 2) {
             f.close();
 
             // Process content...
-            print("    " + typeof(content.length) + " bytes");
+            print("    " + content.length + " bytes");
         } catch (e) {
             print("    Error: " + e);
         }
@@ -659,7 +659,7 @@ if (config.help) {
     if (config.verbose) {
         print("Verbose mode enabled");
         print("Output file: " + config.output);
-        print("Input files: " + typeof(config.files.length));
+        print("Input files: " + config.files.length);
     }
 
     // Process files

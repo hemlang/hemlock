@@ -1026,7 +1026,7 @@ fn createVector(x, y) {
         },
 
         toString: fn() {
-            return "(" + typeof(self.x) + ", " + typeof(self.y) + ")";
+            return "(" + self.x + ", " + self.y + ")";
         }
     };
 }
