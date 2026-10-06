@@ -1564,6 +1564,30 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         // Not a type alias, try object type
         ObjectType *object_type = lookup_object_type(target_type->type_name);
         if (!object_type) {
+            // Builtin types that lex as identifiers (task, file, channel are
+            // documented types). User-defined types take precedence above,
+            // so `define channel { ... }` keeps working.
+            if (strcmp(target_type->type_name, "task") == 0) {
+                if (value.type == VAL_TASK) {
+                    return value;
+                }
+                runtime_error(ctx, "Cannot convert to task");
+                return val_null();
+            }
+            if (strcmp(target_type->type_name, "file") == 0) {
+                if (value.type == VAL_FILE) {
+                    return value;
+                }
+                runtime_error(ctx, "Cannot convert to file");
+                return val_null();
+            }
+            if (strcmp(target_type->type_name, "channel") == 0) {
+                if (value.type == VAL_CHANNEL) {
+                    return value;
+                }
+                runtime_error(ctx, "Cannot convert to channel");
+                return val_null();
+            }
             runtime_error(ctx, "Unknown type '%s'", target_type->type_name);
             return val_null();
         }

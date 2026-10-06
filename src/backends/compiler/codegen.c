@@ -2432,6 +2432,30 @@ const char* type_kind_to_hml_val(TypeKind kind) {
     }
 }
 
+// Map a TYPE_CUSTOM_OBJECT annotation's type name to a runtime value tag for
+// the builtin types that lex as identifiers (task, file, channel are
+// documented types). Returns NULL for anything else, including user-defined
+// types - callers must check the type context for shadowing defines/aliases
+// first so e.g. `define channel { ... }` keeps validating as an object type.
+const char* builtin_type_name_to_hml_val(const char *type_name) {
+    if (!type_name) return NULL;
+    if (strcmp(type_name, "task") == 0)    return "HML_VAL_TASK";
+    if (strcmp(type_name, "file") == 0)    return "HML_VAL_FILE";
+    if (strcmp(type_name, "channel") == 0) return "HML_VAL_CHANNEL";
+    return NULL;
+}
+
+// True if `type_name` names a user-defined type (enum, object, or alias) in
+// the type-check context. Lets user definitions shadow the builtin
+// identifier-lexed type names, mirroring the interpreter's lookup order.
+int is_user_defined_type_name(TypeCheckContext *type_ctx, const char *type_name) {
+    if (!type_ctx || !type_name) return 0;
+    if (type_check_lookup_enum(type_ctx, type_name)) return 1;
+    if (type_check_lookup_object(type_ctx, type_name)) return 1;
+    if (type_check_lookup_type_alias(type_ctx, type_name)) return 1;
+    return 0;
+}
+
 const char* type_kind_to_ffi_type(TypeKind kind) {
     switch (kind) {
         case TYPE_I8:     return "HML_FFI_I8";
