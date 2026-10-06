@@ -1,6 +1,6 @@
 # @stdlib/shell - Shell Utilities
 
-Provides utilities for building shell commands safely, escaping arguments, parsing output, and executing commands.
+Provides utilities for building shell commands safely, escaping arguments, parsing output, and executing commands. Includes Bash-like features such as brace expansion and range generation for shell scripting.
 
 ## Import
 
@@ -8,6 +8,178 @@ Provides utilities for building shell commands safely, escaping arguments, parsi
 import { escape, quote, run, run_capture } from "@stdlib/shell";
 import { which, command_exists, env_or } from "@stdlib/shell";
 import { build_command, pipe, and_then } from "@stdlib/shell";
+import { sh, sh_ok, last_exit } from "@stdlib/shell";
+import { range, char_range, expand } from "@stdlib/shell";
+```
+
+## Quick Shell Execution
+
+For quick scripting, use `sh()` to run shell commands directly (like Bash).
+
+### sh(cmd: string): string
+
+Run a shell command and return stdout (trimmed). Throws on failure.
+
+```hemlock
+// Simple command
+let date = sh("date");
+print(date);  // "Mon Jan 20 10:30:00 UTC 2025"
+
+// Pipes work naturally
+let count = sh("ls -la | wc -l");
+print("Files: " + count);
+
+// Command substitution
+let kernel = sh("uname -r");
+print("Kernel: " + kernel);
+
+// Environment variables expand
+let home = sh("echo $HOME");
+```
+
+### sh_ok(cmd: string): bool
+
+Run a shell command, return true if it succeeded (doesn't throw).
+
+```hemlock
+if (sh_ok("which docker")) {
+    print("Docker is installed");
+}
+
+if (sh_ok("test -f /etc/passwd")) {
+    print("File exists");
+}
+
+// Check multiple conditions
+if (sh_ok("[ -d /tmp ] && [ -w /tmp ]")) {
+    print("/tmp is writable");
+}
+```
+
+### last_exit(): i32
+
+Get the exit code from the last `sh()` or `sh_ok()` call.
+
+```hemlock
+sh_ok("grep pattern file.txt");
+if (last_exit() == 0) {
+    print("Pattern found");
+} else if (last_exit() == 1) {
+    print("Pattern not found");
+} else {
+    print("Error occurred");
+}
+```
+
+## Range Generation
+
+Generate numeric and character sequences like Bash's `{1..10}`.
+
+### range(start, end, step?): array
+
+Generate a numeric range (inclusive).
+
+```hemlock
+range(1, 5);           // [1, 2, 3, 4, 5]
+range(5, 1);           // [5, 4, 3, 2, 1] (auto-detects direction)
+range(0, 10, 2);       // [0, 2, 4, 6, 8, 10]
+range(10, 0, -2);      // [10, 8, 6, 4, 2, 0]
+
+// Use in loops
+for (i in range(1, 10)) {
+    print("Count: " + i);
+}
+
+// Generate file indices
+for (n in range(1, 100)) {
+    let filename = "file" + n + ".txt";
+    // ...
+}
+```
+
+### char_range(start, end): array
+
+Generate a character range.
+
+```hemlock
+char_range('a', 'z');  // ['a', 'b', ..., 'z']
+char_range('A', 'F');  // ['A', 'B', 'C', 'D', 'E', 'F']
+char_range('z', 'a');  // ['z', 'y', ..., 'a'] (reverse)
+char_range('0', '9');  // ['0', '1', ..., '9']
+```
+
+## Brace Expansion
+
+Expand Bash-style brace expressions.
+
+### expand(pattern: string): array
+
+Expand brace patterns like Bash.
+
+```hemlock
+// List expansion
+expand("{a,b,c}");           // ["a", "b", "c"]
+expand("{foo,bar,baz}");     // ["foo", "bar", "baz"]
+
+// Numeric range
+expand("{1..5}");            // ["1", "2", "3", "4", "5"]
+expand("{5..1}");            // ["5", "4", "3", "2", "1"]
+expand("{1..10..2}");        // ["1", "3", "5", "7", "9"]
+
+// Character range
+expand("{a..f}");            // ["a", "b", "c", "d", "e", "f"]
+expand("{A..Z}");            // ["A", "B", ..., "Z"]
+
+// Zero-padded ranges
+expand("{01..05}");          // ["01", "02", "03", "04", "05"]
+expand("{001..100}");        // ["001", "002", ..., "100"]
+
+// With prefix and suffix
+expand("file{1..3}.txt");    // ["file1.txt", "file2.txt", "file3.txt"]
+expand("test_{a,b,c}.log");  // ["test_a.log", "test_b.log", "test_c.log"]
+
+// Multiple braces (cartesian product)
+expand("{a,b}{1,2}");        // ["a1", "a2", "b1", "b2"]
+expand("{x,y}{1..3}");       // ["x1", "x2", "x3", "y1", "y2", "y3"]
+
+// Nested braces
+expand("{{a,b},{c,d}}");     // ["a", "b", "c", "d"]
+
+// Real-world examples
+expand("server{01..03}.example.com");
+// ["server01.example.com", "server02.example.com", "server03.example.com"]
+
+expand("backup_{mon,wed,fri}.tar.gz");
+// ["backup_mon.tar.gz", "backup_wed.tar.gz", "backup_fri.tar.gz"]
+
+expand("/var/log/{syslog,auth,kern}.log");
+// ["/var/log/syslog.log", "/var/log/auth.log", "/var/log/kern.log"]
+```
+
+### Scripting Example
+
+```hemlock
+import { sh, expand, range } from "@stdlib/shell";
+
+// Process multiple files
+let files = expand("data_{2020..2024}.csv");
+for (f in files) {
+    print("Processing: " + f);
+    sh("gzip " + f);
+}
+
+// Generate server list
+let servers = expand("web{01..10}.prod.local");
+for (server in servers) {
+    if (sh_ok("ping -c 1 " + server)) {
+        print(server + " is up");
+    }
+}
+
+// Batch operations
+for (i in range(1, 100)) {
+    sh("curl -o page" + i + ".html https://example.com/page/" + i);
+}
 ```
 
 ## Argument Escaping
