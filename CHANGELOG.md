@@ -5,6 +5,92 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.11.0] - 2026-09-25
+
+A semantics-hardening release: JSON (de)serialization is now exact and strict,
+the borrow checker is substantially more precise, and wasm gains a proper
+frame loop.
+
+### Added
+
+- **`main_loop(callback, fps)` and `main_loop_stop()` in `@stdlib/time`.**
+  Hands the frame callback to the host's scheduler (`emscripten_set_main_loop_arg`
+  under wasm), so a frame loop needs no `sleep()` and the program can be linked
+  with `--no-asyncify`. fps 0 means `requestAnimationFrame` (vsync-locked).
+  Natively it is a paced loop that returns once stopped.
+
+### Changed
+
+- **JSON (de)serialization is exact and strict.** `serialize()` now emits the
+  shortest form that parses back exactly (was `%g`, 6 significant digits), and
+  `NaN`/`Infinity` throw instead of emitting invalid JSON. `deserialize()`
+  rejects trailing commas and trailing text. Programs that relied on the old
+  float output format or parsed non-strict JSON will break.
+- **Borrow checker: transitive summaries, factories, branch-sensitive
+  expressions.** Interprocedural summaries are now computed to a fixpoint,
+  factory functions are recognised, and expression-level branches are
+  flow-sensitive. Substantially reduces false positives while catching more
+  real bugs.
+
+### Fixed
+
+- **A `u32` above 2147483647 keeps its value when mixed with an `i64` or
+  `u64`.** In the interpreter, `u32(4294967295) == 4294967295` was `false` and
+  `u32(3000000000) + i64(1)` gave `-1294967295`: promoting a `u32` to `i64` or
+  `u64` went through `value_to_int()`, which returns `int32_t`, so the value
+  wrapped negative before it was widened. `promote_value()` now uses
+  `value_to_int64()`. The compiler was already correct. This bit any program
+  reading a `u32` from a buffer (`read_u32_le`) and comparing it or doing
+  arithmetic with an integer literal, which defaults to `i64`.
+
+- **A WebSocket program no longer hangs instead of exiting.** Handing a
+  `WebSocketServer` to `spawn()` produced correct output and then left the
+  process alive forever, in the interpreter and in compiled binaries alike. The
+  service thread loops `while (!shutdown) lws_service(ctx, 50)`, and that
+  timeout argument has been ignored since libwebsockets 3.2 — under the libuv
+  event loop it blocks until something happens, so setting `shutdown` was never
+  noticed and the `pthread_join()` in `close()` waited forever. It reproduced
+  with no client connected at all, which ruled out the traffic and the shutdown
+  ordering. Both close paths now call `lws_cancel_service()` before joining, the
+  documented way to interrupt a blocked `lws_service()` from another thread.
+
+  Same root cause as the connect timeout fixed in 2.10.0: that ignored argument
+  is worth suspecting whenever libwebsockets appears to ignore a deadline.
+
+- **Wasm: pointer builtins no longer panic or fail to link.** `builtins_ffi.c`
+  was wrapped entirely in `#ifndef __EMSCRIPTEN__`, which swept up the
+  `ptr_offset`/`ptr_read_*`/`ptr_write_*`/`ptr_deref_*` family. Those need
+  neither `dlopen` nor `libffi` — they are address arithmetic and loads/stores
+  over linear memory — so the guard now closes before them.
+
+- **Wasm: `--target wasm` links with `-sASYNCIFY`.** `hml_sleep()` compiles to
+  `emscripten_sleep()`, which only exists when Asyncify is on. Without the flag
+  Emscripten links a throwing stub, so the program died the first time it slept.
+
+- **Windows: static libuv now links.** `make WIN_LWS_STATIC=1` builds a
+  self-contained binary, but libuv's synchronization functions were missing.
+  The Makefile now links `ws2_32`, `bcrypt`, `ole32`, `oleaut32`, `uuid`,
+  `advapi32`, and `shell32` alongside libuv and libwebsockets.
+
+- **Runtime memory-safety bugs and interpreter/compiler divergences.** A batch
+  of fixes including template string interpolation segfaults, switch case body
+  infinite loops, match arm scope resolution, REPL use-after-free, self-
+  referential array printing, and type-annotation failure handling.
+
+- **Interpreter crashes/hangs and more backend divergences.** Frontend parser
+  guards, resolver scope fixes, and backend consistency improvements.
+
+### Notes
+
+- The UCRT throw-from-a-native-callback crash is **not** fixed. A third
+  mechanism was tried and rejected: calling the CRT's non-`ex` `_setjmp`
+  directly, which survives an isolated 400-frame test and then takes
+  `array_sort` from intermittent to 30-in-30 in the real runtime. The UCRT
+  backtrace (`RtlVirtualUnwind` ← `RtlUnwindEx` ← `ucrtbase!.intrinsic_setjmpex`
+  ← `hml_throw`) and the measurements for all four mechanisms are recorded in
+  `docs/advanced/windows.md`. The evidence points away from a `setjmp` spelling
+  and towards not longjmping out of native frames at all.
+
 ## [Unreleased]
 
 ### Fixed
