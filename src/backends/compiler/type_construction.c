@@ -229,14 +229,30 @@ CheckedType* checked_type_from_ast_ctx(TypeCheckContext *ctx, Type *ast_type) {
     // Check if this is a custom type that's actually a type alias
     if (ast_type->kind == TYPE_CUSTOM_OBJECT && ast_type->type_name && ctx) {
         TypeAliasDef *alias = type_check_lookup_type_alias(ctx, ast_type->type_name);
-        if (alias && alias->aliased_type) {
-            // Return a clone of the aliased type
-            CheckedType *resolved = checked_type_clone(alias->aliased_type);
-            // Preserve nullable from the original
-            if (ast_type->nullable) {
-                resolved->nullable = 1;
+        if (alias) {
+            // Alias targets resolve lazily: aliases are registered before
+            // user-defined objects/enums are collected, so resolving here
+            // (with full context) lets `define channel {...}` shadow the
+            // builtin `channel` through aliases too, mirroring the
+            // interpreter. The result is cached on the alias.
+            if (!alias->aliased_type && alias->aliased_ast && !alias->resolving) {
+                alias->resolving = 1;
+                alias->aliased_type = checked_type_from_ast_ctx(ctx, alias->aliased_ast);
+                alias->resolving = 0;
             }
-            return resolved;
+            if (alias->aliased_type) {
+                // Return a clone of the aliased type
+                CheckedType *resolved = checked_type_clone(alias->aliased_type);
+                // Preserve nullable from the original
+                if (ast_type->nullable) {
+                    resolved->nullable = 1;
+                }
+                return resolved;
+            }
+            // Unresolvable here (e.g. an alias cycle): fall back to
+            // context-free resolution, which never consults aliases and
+            // always terminates, matching pre-lazy behavior.
+            return checked_type_from_ast(ast_type);
         }
 
         // A user-defined enum or object type shadows the builtin type names

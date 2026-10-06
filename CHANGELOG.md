@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Type annotations `channel`, `task`, and `file` now work on both
+  backends.** These documented builtin types were rejected as annotations:
+  the interpreter failed with `Unknown type` at call time (killing a
+  spawned producer and hanging the receiver), while the compiler's static
+  checker contradictorily reported `expected 'channel', got 'channel'`.
+  Both backends now accept them, including nullable forms (`channel?`) and
+  `array<channel>`. User-defined types with these names still take
+  precedence in annotations, including through type aliases (alias targets
+  are now resolved after user-defined objects and enums are collected).
+
 - **A WebSocket program no longer hangs instead of exiting.** Handing a
   `WebSocketServer` to `spawn()` produced correct output and then left the
   process alive forever, in the interpreter and in compiled binaries alike. The

@@ -435,8 +435,8 @@ Represents an open file handle.
 
 ```hemlock
 async fn compute(): i32 { return 42; }
-let task = spawn(compute);
-let result: i32 = join(task);
+let t: task = spawn(compute);
+let result: i32 = join(t);
 ```
 
 Represents an async task handle.
@@ -450,6 +450,10 @@ let value = ch.recv();
 ```
 
 Represents a communication channel between tasks.
+
+> **Note:** `file`, `task`, and `channel` are builtin type names, but a
+> user-defined `define`, `enum`, or `type` with the same name takes
+> precedence in annotations.
 
 ### Void Type
 
