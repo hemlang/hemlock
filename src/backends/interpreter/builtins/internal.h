@@ -103,6 +103,8 @@ Value builtin_now(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_time_ms(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_sleep(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_clock(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_main_loop(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_main_loop_stop(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_localtime(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_gmtime(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_mktime(Value *args, int num_args, ExecutionContext *ctx);

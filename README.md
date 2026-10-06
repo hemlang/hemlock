@@ -8,7 +8,7 @@ Hemlock is a systems scripting language that combines the power of C with the er
 
 ## Documentation
 
-The checked-in documentation starts at **[docs/README.md](docs/README.md)**. Standard library module references live in **[stdlib/docs/](stdlib/docs/)**, and the release history is in **[CHANGELOG.md](CHANGELOG.md)**.
+The checked-in documentation starts at **[docs/README.md](docs/README.md)**. Standard library module references live in **[stdlib/docs/](stdlib/docs/)**, and the release history is in **[CHANGELOG.md](CHANGELOG.md)**. Hemlock v2.11.0 is the current release.
 
 ## Design Philosophy
 
@@ -105,7 +105,8 @@ sudo apt-get install libffi-dev libssl-dev libwebsockets-dev
 
 ```bash
 make        # Build hemlock
-make test   # Run all tests
+make test   # Run interpreter tests (rebuilds first)
+make test-all   # Run all tests (interpreter, compiler, parity, etc.)
 ```
 
 ### Install
@@ -163,6 +164,11 @@ See [Installation - WASM Build](docs/getting-started/installation.md#webassembly
 ./hemlock                          # Start REPL
 ```
 
+```hemlock
+// Your first Hemlock program
+print("Hello, World!");
+```
+
 ## Bundling & Packaging
 
 Hemlock provides tools to bundle multi-file projects and create self-contained executables.
@@ -193,9 +199,9 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v2.4.1 is the current checked-in release. Highlights include:
+Hemlock v2.11.0 is the current checked-in release. Highlights include:
 
-- **v2.4.1 socket FD_CLOEXEC + binary file read + exec_argv stdin** - TCP listener and accepted-client socket fds now set `FD_CLOEXEC` so `posix_spawn`'d children don't inherit (and pin) the parent's listener after a crash. New `file.read_binary()` returns a buffer that preserves 0x00 bytes when reading `/proc/<pid>/cmdline` or other binary content. `exec_argv()` gained a `stdin` option that pipes a string into the child's stdin without a `sh -c "cmd < file"` wrapper.
+- **v2.11.0 JSON strictness + borrow checker precision + wasm frame loop** - JSON (de)serialization is now exact and strict, the borrow checker is substantially more precise, and wasm gains a proper frame loop.
 - **v2.4.0 HTTP/auth + ergonomics batch** - `@stdlib/http` POST/PUT/DELETE/PATCH now actually send custom headers (`Authorization`, `X-Request-Id`, etc. were silently dropped before — only `Content-Type` made it past the wrapper). Interpreter named-module imports are live bindings instead of import-time snapshots, so reassigning an exported `let` propagates to importers and to spawned tasks. Flow null-narrowing follows `?.` field access. Type error labels report the parameter name instead of `'positional'`. `string.lower()`/`upper()` aliases. `get_binary` follows 3xx redirects. C codegen no longer prefixes call symbols with surrounding-scope tokens. macOS libwebsockets picks up Homebrew CA bundles automatically. Default LWS HTTP timeout dropped from ~30s to 5s.
 - **v2.3.1 binary HTTP fixes** - `@stdlib/http.download(url, path)` now actually writes the buffer body (was silently writing zero-byte files in compiled binaries); new `download_streaming(url, path)` for bounded-memory pulls of large artifacts; new `stream.read_binary()` preserves 0x00 bytes that `read()` would have truncated at.
 - **v2.3.0 streaming HTTP** - `@stdlib/http` now exports `stream()`, `stream_get()`, `stream_post()`, `post_json_stream()`, and `stream_sse()` for chunked HTTP and Server-Sent Events. Built on the already-bundled libwebsockets, so no new dependency. The compiler runtime now sends POST/PUT/PATCH bodies for streaming requests and throws the same catchable exceptions as the interpreter on invalid arguments — full interpreter/compiler parity.
@@ -214,7 +220,7 @@ Hemlock v2.4.1 is the current checked-in release. Highlights include:
 - FFI for C interop with `export extern fn` for reusable library wrappers.
 - Compiler backend (C code generation), formatter, bundler/packager, and LSP tooling.
 - [hpm](https://github.com/hemlang/hpm) package manager with GitHub-based registry.
-- A 1,400+ file Hemlock test corpus, including interpreter/compiler parity tests.
+- A 1,265-file Hemlock test corpus, including interpreter/compiler parity tests.
 
 ## Philosophy
 

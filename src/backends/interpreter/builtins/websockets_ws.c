@@ -36,6 +36,7 @@ typedef struct {
     volatile int shutdown;
     int has_own_thread;
     int owns_memory;
+    volatile int close_requested; /* server side: close() called, lws not told yet */
 } ws_connection_t;
 
 typedef struct ws_server {
@@ -102,6 +103,17 @@ Value get_websocket_property(WebSocketHandle *ws, const char *property, Executio
 static void ws_connection_close(ws_connection_t *conn) {
     if (!conn) return;
 
+    /* A server-side connection belongs to the server's lws context, which only
+     * its service thread may touch. Ask that thread to close it: the wake-up
+     * arrives as LWS_CALLBACK_EVENT_WAIT_CANCELLED, which requests a writeable
+     * callback, and returning -1 from that sends the close frame. */
+    if (!conn->has_own_thread && conn->wsi && !conn->closed) {
+        conn->close_requested = 1;
+        if (conn->context) {
+            lws_cancel_service(conn->context);
+        }
+    }
+
     conn->closed = 1;
     conn->shutdown = 1;
 
@@ -126,6 +138,8 @@ static void ws_connection_close(ws_connection_t *conn) {
         free(msg);
         msg = next;
     }
+    conn->msg_queue_head = NULL; /* recv may still look at the queue */
+    conn->msg_queue_tail = NULL;
 
     if (conn->send_buffer) {
         free(conn->send_buffer);
@@ -238,6 +252,7 @@ static int ws_callback(struct lws *wsi, enum lws_callback_reasons reason,
             }
             break;
 
+        case LWS_CALLBACK_CLIENT_CLOSED: /* how lws reports a client connection closing */
         case LWS_CALLBACK_CLOSED:
             if (conn) {
                 conn->closed = 1;
@@ -265,6 +280,12 @@ static int ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
     ws_connection_t *conn = (ws_connection_t *)user;
 
     switch (reason) {
+        case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
+            /* lws_cancel_service() from another thread: a connection may
+             * have been closed; let each check in SERVER_WRITEABLE */
+            lws_callback_on_writable_all_protocol(lws_get_context(wsi), lws_get_protocol(wsi));
+            break;
+
         case LWS_CALLBACK_ESTABLISHED:
             if (conn) {
                 conn->wsi = wsi;
@@ -309,6 +330,11 @@ static int ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
             break;
 
         case LWS_CALLBACK_SERVER_WRITEABLE:
+            if (conn && conn->close_requested) {
+                conn->close_requested = 0;
+                lws_close_reason(wsi, LWS_CLOSE_STATUS_NORMAL, NULL, 0);
+                return -1; /* lws sends the close frame and drops the connection */
+            }
             if (conn && conn->send_pending && conn->send_buffer) {
                 lws_write(wsi, (unsigned char *)conn->send_buffer + LWS_PRE,
                          conn->send_len, LWS_WRITE_TEXT);
@@ -681,7 +707,8 @@ Value builtin_lws_ws_recv(Value *args, int num_args, ExecutionContext *ctx) {
         ctx->exception_state.exception_value = val_string("__lws_ws_recv() expects websocket or ptr as first argument");
         return val_null();
     }
-    if (!conn || conn->closed) {
+    /* a closed connection still delivers what it received first */
+    if (!conn || (conn->closed && !conn->msg_queue_head)) {
         return val_null();
     }
 
@@ -700,7 +727,7 @@ Value builtin_lws_ws_recv(Value *args, int num_args, ExecutionContext *ctx) {
         }
 
         usleep(10000);  // 10ms sleep
-        if (conn->closed) return val_null();
+        if (conn->closed && !conn->msg_queue_head) return val_null();
         if (iterations > 0) iterations--;
     }
 

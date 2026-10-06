@@ -172,7 +172,7 @@ for (let i = 0; i < 10; i = i + 1) {
             break;  // ✅ Breaks after finally runs
         }
     } finally {
-        print("cleanup " + typeof(i));
+        print("cleanup " + i);
     }
 }
 ```
@@ -334,7 +334,7 @@ fn process_state(state: i32) {
     } else if (state == 3) {
         return "stopped";
     } else {
-        panic("invalid state: " + typeof(state));  // Should never happen
+        panic("invalid state: " + state);  // Should never happen
     }
 }
 
@@ -413,7 +413,7 @@ for (let i = 0; i < 10; i = i + 1) {
     try {
         if (i == 5) { break; }  // ✅ Breaks after finally runs
     } finally {
-        print("cleanup " + typeof(i));
+        print("cleanup " + i);
     }
 }
 ```
@@ -712,7 +712,7 @@ fn process_users(users) {
         i = i + 1;
     }
 
-    print("Processed: " + typeof(success_count) + " success, " + typeof(error_count) + " errors");
+    print("Processed: " + success_count + " success, " + error_count + " errors");
 }
 ```
 
@@ -748,7 +748,7 @@ try {
 } catch (e) {
     print(e.toString());
     if (e.type == "DivisionByZero") {
-        print("Details: a=" + typeof(e.details.a) + ", b=" + typeof(e.details.b));
+        print("Details: a=" + e.details.a + ", b=" + e.details.b);
     }
 }
 ```
@@ -765,9 +765,9 @@ fn retry(operation, max_attempts) {
         } catch (e) {
             attempt = attempt + 1;
             if (attempt >= max_attempts) {
-                throw "Operation failed after " + typeof(max_attempts) + " attempts: " + e;
+                throw "Operation failed after " + max_attempts + " attempts: " + e;
             }
-            print("Attempt " + typeof(attempt) + " failed, retrying...");
+            print("Attempt " + attempt + " failed, retrying...");
         }
     }
 }

@@ -3,13 +3,18 @@
  *
  * Dynamic loading, function calls, struct marshaling, and callbacks.
  *
- * WASM: This entire file is excluded when building for Emscripten.
- * Stub implementations are provided in wasm_shim.c.
+ * WASM: the dlopen/libffi machinery below is excluded when building for
+ * Emscripten (there is no dynamic loader to talk to); stubs live in
+ * wasm_shim.c. The ptr_read / ptr_write / ptr_offset family at the bottom
+ * of this file is NOT part of that machinery: it is plain pointer
+ * arithmetic on linear memory, which works exactly the same under WASM,
+ * so it is compiled unconditionally.
  */
+
+#include "builtins_internal.h"
 
 #ifndef __EMSCRIPTEN__
 
-#include "builtins_internal.h"
 #include <pthread.h>
 
 #ifndef HEMLOCK_NO_FFI
@@ -1404,6 +1409,17 @@ HmlValue hml_builtin_callback_free(HmlClosureEnv *env, HmlValue ptr) {
 
 #endif /* HEMLOCK_NO_FFI */
 
+#endif // !__EMSCRIPTEN__
+
+// ========== RAW POINTER ACCESS (available on every target, WASM included) ==========
+//
+// These live next to the FFI code because that is where they are most often
+// used, but they need neither dlopen nor libffi: they are loads, stores and
+// address arithmetic over the process's (or WASM module's) linear memory.
+// Keeping them inside the !__EMSCRIPTEN__ guard used to make every one of
+// them a panicking stub in the browser, which takes out any program that
+// walks a buffer by hand.
+
 // Helper: extract raw pointer from ptr or buffer value, validating that an
 // access of `access_size` bytes at offset 0 stays within a (safe) buffer. Raw
 // ptr is intentionally unchecked (Hemlock's documented unsafe-pointer
@@ -1587,5 +1603,3 @@ HmlValue hml_builtin_ptr_read_f64(HmlClosureEnv *env, HmlValue ptr) {
     void *p = hml_ffi_extract_ptr(ptr, sizeof(double), "ptr_read_f64()");
     return hml_val_f64(*(double*)p);
 }
-
-#endif // !__EMSCRIPTEN__

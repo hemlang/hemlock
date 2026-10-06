@@ -1326,7 +1326,9 @@ Value promote_value(Value val, ValueType target_type) {
             } else if (val.type == VAL_U64) {
                 return val_i64((int64_t)val.as.as_u64);
             } else {
-                return val_i64((int64_t)value_to_int(val));
+                // value_to_int64, not value_to_int: u32 values above INT32_MAX
+                // would otherwise wrap negative (4294967295 -> -1)
+                return val_i64(value_to_int64(val));
             }
         case VAL_U8: return val_u8((uint8_t)value_to_int(val));
         case VAL_U16: return val_u16((uint16_t)value_to_int(val));
@@ -1340,7 +1342,7 @@ Value promote_value(Value val, ValueType target_type) {
             } else if (val.type == VAL_I64) {
                 return val_u64((uint64_t)val.as.as_i64);
             } else {
-                return val_u64((uint64_t)value_to_int(val));
+                return val_u64((uint64_t)value_to_int64(val));
             }
         case VAL_F32:
             // Use value_to_float to preserve precision for i64/u64 values

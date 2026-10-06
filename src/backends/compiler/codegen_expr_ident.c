@@ -320,6 +320,10 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_clock, 0, 0, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__sleep") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_sleep, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__main_loop") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_main_loop, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__main_loop_stop") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_main_loop_stop, 0, 0, 0);", result);
     // Handle datetime functions (builtins)
     } else if (strcmp(expr->as.ident.name, "__localtime") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_localtime, 1, 1, 0);", result);
