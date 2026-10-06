@@ -174,7 +174,7 @@ WIN_LWS_STATIC_LIBS = -Wl,-Bstatic -lwebsockets_static \
                       $(call win_static_lib,uv) $(call win_static_lib,ev) \
                       -Wl,-Bdynamic -lws2_32 -lmswsock -liphlpapi -lcrypt32 \
                       -lsecur32 -lbcrypt -ladvapi32 -luser32 -lgdi32 -lpsapi \
-                      -luserenv -ldbghelp -lole32 -lshell32
+                      -luserenv -ldbghelp -lole32 -lshell32 -lsynchronization
 else
 LDFLAGS = $(LDFLAGS_LIBFFI) $(LDFLAGS_OPENSSL) -lm -lpthread -lffi -ldl -lz -lcrypto $(EXTRA_LDFLAGS)
 endif
