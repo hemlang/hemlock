@@ -114,6 +114,7 @@ void type_check_free(TypeCheckContext *ctx) {
         TypeAliasDef *next = a->next;
         free(a->name);
         checked_type_free(a->aliased_type);
+        // a->aliased_ast is borrowed from the parser AST; do not free.
         if (a->type_params) {
             for (int i = 0; i < a->num_type_params; i++) {
                 free(a->type_params[i]);
@@ -508,11 +509,16 @@ EnumDef* type_check_lookup_enum(TypeCheckContext *ctx, const char *name) {
 // ========== TYPE ALIAS REGISTRATION ==========
 
 void type_check_register_type_alias(TypeCheckContext *ctx, const char *name,
-                                     CheckedType *aliased_type,
+                                     Type *aliased_ast,
                                      char **type_params, int num_type_params) {
     TypeAliasDef *def = calloc(1, sizeof(TypeAliasDef));
     def->name = strdup(name);
-    def->aliased_type = aliased_type;
+    // Stored unresolved; lowered lazily in checked_type_from_ast_ctx once
+    // user-defined objects/enums have been collected (see type_construction.c).
+    // The AST is borrowed from the parser and must not be freed here.
+    def->aliased_ast = aliased_ast;
+    def->aliased_type = NULL;
+    def->resolving = 0;
     def->num_type_params = num_type_params;
 
     if (num_type_params > 0 && type_params) {

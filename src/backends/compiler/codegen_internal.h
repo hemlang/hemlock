@@ -294,6 +294,16 @@ void codegen_match_unbox_restore(CodegenContext *ctx, int mark);
 // Returns NULL for types that don't have a direct HML_VAL mapping
 const char* type_kind_to_hml_val(TypeKind kind);
 
+// Map a TYPE_CUSTOM_OBJECT annotation's type name to an HML_VAL_* string for
+// the builtin identifier-lexed types (task/file/channel). Returns NULL for
+// user-defined types; callers check the type context for shadowing first.
+const char* builtin_type_name_to_hml_val(const char *type_name);
+
+// True if `type_name` names a user-defined type (enum, object, or alias).
+// Lets user definitions shadow the builtin identifier-lexed type names,
+// mirroring the interpreter's lookup order.
+int is_user_defined_type_name(TypeCheckContext *type_ctx, const char *type_name);
+
 // Convert TypeKind to HML_FFI_* string (e.g., TYPE_I8 -> "HML_FFI_I8")
 // Returns "HML_FFI_VOID" for unknown types
 const char* type_kind_to_ffi_type(TypeKind kind);

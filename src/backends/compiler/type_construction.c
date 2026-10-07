@@ -156,6 +156,28 @@ CheckedType* checked_type_from_ast(Type *ast_type) {
         case TYPE_CUSTOM_OBJECT:
             type->kind = CHECKED_CUSTOM;
             if (ast_type->type_name) {
+                // Builtin types that lex as identifiers: task, file, and
+                // channel are documented types. Map them to the same kinds
+                // that call inference produces for spawn()/open()/channel(),
+                // so annotations and inferred types agree.
+                if (strcmp(ast_type->type_name, "task") == 0) {
+                    free(type);
+                    type = checked_type_primitive(CHECKED_TASK);
+                    type->nullable = ast_type->nullable;
+                    break;
+                }
+                if (strcmp(ast_type->type_name, "file") == 0) {
+                    free(type);
+                    type = checked_type_primitive(CHECKED_FILE);
+                    type->nullable = ast_type->nullable;
+                    break;
+                }
+                if (strcmp(ast_type->type_name, "channel") == 0) {
+                    free(type);
+                    type = checked_type_primitive(CHECKED_CHANNEL);
+                    type->nullable = ast_type->nullable;
+                    break;
+                }
                 type->type_name = strdup(ast_type->type_name);
             }
             // Handle type arguments for generic types (e.g., Stack<i32>)
@@ -207,14 +229,49 @@ CheckedType* checked_type_from_ast_ctx(TypeCheckContext *ctx, Type *ast_type) {
     // Check if this is a custom type that's actually a type alias
     if (ast_type->kind == TYPE_CUSTOM_OBJECT && ast_type->type_name && ctx) {
         TypeAliasDef *alias = type_check_lookup_type_alias(ctx, ast_type->type_name);
-        if (alias && alias->aliased_type) {
-            // Return a clone of the aliased type
-            CheckedType *resolved = checked_type_clone(alias->aliased_type);
-            // Preserve nullable from the original
-            if (ast_type->nullable) {
-                resolved->nullable = 1;
+        if (alias) {
+            // Alias targets resolve lazily: aliases are registered before
+            // user-defined objects/enums are collected, so resolving here
+            // (with full context) lets `define channel {...}` shadow the
+            // builtin `channel` through aliases too, mirroring the
+            // interpreter. The result is cached on the alias.
+            if (!alias->aliased_type && alias->aliased_ast && !alias->resolving) {
+                alias->resolving = 1;
+                alias->aliased_type = checked_type_from_ast_ctx(ctx, alias->aliased_ast);
+                alias->resolving = 0;
             }
-            return resolved;
+            if (alias->aliased_type) {
+                // Return a clone of the aliased type
+                CheckedType *resolved = checked_type_clone(alias->aliased_type);
+                // Preserve nullable from the original
+                if (ast_type->nullable) {
+                    resolved->nullable = 1;
+                }
+                return resolved;
+            }
+            // Unresolvable here (e.g. an alias cycle): fall back to
+            // context-free resolution, which never consults aliases and
+            // always terminates, matching pre-lazy behavior.
+            return checked_type_from_ast(ast_type);
+        }
+
+        // A user-defined enum or object type shadows the builtin type names
+        // (task, file, channel). Keep it as CHECKED_CUSTOM so it matches by
+        // name, mirroring the interpreter's lookup precedence.
+        if (type_check_lookup_enum(ctx, ast_type->type_name) ||
+            type_check_lookup_object(ctx, ast_type->type_name)) {
+            CheckedType *custom = calloc(1, sizeof(CheckedType));
+            custom->kind = CHECKED_CUSTOM;
+            custom->nullable = ast_type->nullable;
+            custom->type_name = strdup(ast_type->type_name);
+            if (ast_type->num_type_args > 0) {
+                custom->num_type_args = ast_type->num_type_args;
+                custom->type_args = calloc(ast_type->num_type_args, sizeof(CheckedType*));
+                for (int i = 0; i < ast_type->num_type_args; i++) {
+                    custom->type_args[i] = checked_type_from_ast_ctx(ctx, ast_type->type_args[i]);
+                }
+            }
+            return custom;
         }
     }
 
