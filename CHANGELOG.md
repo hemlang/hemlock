@@ -119,43 +119,73 @@ frame loop.
   `docs/advanced/windows.md`. The evidence points away from a `setjmp` spelling
   and towards not longjmping out of native frames at all.
 
-## [Unreleased]
+## [2.10.3] - 2026-08-08
+
+Patch release. A program that spawned a WebSocket server never exited.
 
 ### Fixed
 
-- **A `u32` above 2147483647 keeps its value when mixed with an `i64` or
-  `u64`.** In the interpreter, `u32(4294967295) == 4294967295` was `false` and
-  `u32(3000000000) + i64(1)` gave `-1294967295`: promoting a `u32` to `i64` or
-  `u64` went through `value_to_int()`, which returns `int32_t`, so the value
-  wrapped negative before it was widened. `promote_value()` now uses
-  `value_to_int64()`. The compiler was already correct. This bit any program
-  reading a `u32` from a buffer (`read_u32_le`) and comparing it or doing
-  arithmetic with an integer literal, which defaults to `i64`.
+- **A program that `spawn()`s a `WebSocketServer` now exits.** It produced
+  correct output and then stayed alive forever, in the interpreter and in
+  compiled binaries alike. The service thread loops
+  `while (!shutdown) lws_service(ctx, 50)`, but libwebsockets has ignored that
+  timeout argument since 3.2 — under the libuv event loop it blocks until
+  something happens, so `shutdown` was never noticed and the `pthread_join()`
+  in `close()` waited forever. Both close paths now call
+  `lws_cancel_service()` before joining, the documented way to interrupt a
+  blocked `lws_service()` from another thread.
 
-- **A WebSocket program no longer hangs instead of exiting.** Handing a
-  `WebSocketServer` to `spawn()` produced correct output and then left the
-  process alive forever, in the interpreter and in compiled binaries alike. The
-  service thread loops `while (!shutdown) lws_service(ctx, 50)`, and that
-  timeout argument has been ignored since libwebsockets 3.2 — under the libuv
-  event loop it blocks until something happens, so setting `shutdown` was never
-  noticed and the `pthread_join()` in `close()` waited forever. It reproduced
-  with no client connected at all, which ruled out the traffic and the shutdown
-  ordering. Both close paths now call `lws_cancel_service()` before joining, the
-  documented way to interrupt a blocked `lws_service()` from another thread.
+### Changed
 
-  Same root cause as the connect timeout fixed in 2.10.0: that ignored argument
-  is worth suspecting whenever libwebsockets appears to ignore a deadline.
+- **CI:** WebSocket runs are bounded by a timeout, the standalone check
+  actually relinks, and `ws.hml` is passed its port.
 
-### Notes
+## [2.10.2] - 2026-08-08
 
-- The UCRT throw-from-a-native-callback crash is **not** fixed. A third
-  mechanism was tried and rejected: calling the CRT's non-`ex` `_setjmp`
-  directly, which survives an isolated 400-frame test and then takes
-  `array_sort` from intermittent to 30-in-30 in the real runtime. The UCRT
-  backtrace (`RtlVirtualUnwind` ← `RtlUnwindEx` ← `ucrtbase!.intrinsic_setjmpex`
-  ← `hml_throw`) and the measurements for all four mechanisms are recorded in
-  `docs/advanced/windows.md`. The evidence points away from a `setjmp` spelling
-  and towards not longjmping out of native frames at all.
+Patch release. Every process got the same "random" numbers.
+
+### Fixed
+
+- **The random number generator is seeded at startup.** `rand()`,
+  `randint()`, `randf()`, `shuffle()` and friends (`@stdlib/random`,
+  `@stdlib/math`) are backed by libc `rand()`, which nothing ever seeded, so
+  every fresh process produced the same sequence from its first draw — e.g. two
+  servers picking a "random" port collided every time. `main()` now seeds once
+  from `/dev/urandom`, falling back to `time(NULL) ^ getpid()`. Explicit
+  `seed()`/`set_seed()` calls still give fully reproducible sequences.
+- **Windows static libwebsockets builds request only static libraries that
+  exist.** `WIN_LWS_STATIC_LIBS` hardcoded `-lssl -lcrypto -luv`, so a host
+  whose libwebsockets doesn't pull in libuv failed to link with "cannot find
+  -luv". Each archive is now probed with `--print-file-name`, and
+  `WIN_LWS_STATIC=1` without `libwebsockets_static.a` stops with a message
+  naming the package to install.
+
+### Changed
+
+- **CI:** the Windows jobs compile once instead of five times, use unique
+  ports, have more timeout headroom, and install libuv.
+
+## [2.10.1] - 2026-08-08
+
+Patch release. A use-after-free on HTTP redirects.
+
+### Fixed
+
+- **Use-after-free when an HTTP redirect follows a completed request.**
+  `http_request_binary_with_redirects()` frees the response as soon as it sees
+  a 3xx with a `Location` header, but the request builtins mark a response
+  complete as soon as headers are parsed — before libwebsockets has torn the
+  connection down. The cached per-scheme `lws_context` then kept pumping
+  events for the old connection into the freed response struct (an ASan
+  heap-use-after-free; "realloc(): invalid old size" in non-ASan builds). All
+  six `builtin_lws_http_*` variants now detach the response from the
+  connection with `lws_set_wsi_user(wsi, NULL)` before returning it. Reproduced
+  with `get_binary()` on a GitHub release tarball URL.
+
+### Changed
+
+- **CI:** the Windows job installs pkgconf and asserts that libwebsockets is
+  actually compiled in, and its WebSocket smoke tests are fixed.
 
 ## [2.10.0] - 2026-08-08
 
@@ -438,6 +468,48 @@ consumers (gn.hml, Witchgrid).
 
 - **`to_string` / `string_byte_length` as first-class values failed to link.** Their codegen value-wrap path (`__to_string` / `__string_byte_length`) referenced `hml_builtin_to_string` / `hml_builtin_string_byte_length`, which were never defined — any compiled program using either builtin as a first-class value (not a direct call) failed at link time with undefined symbols. Added the missing env-first wrapper shims (matching the sibling `hml_builtin_cstr_to_string` / `hml_builtin_string_from_bytes`). Regression test: `tests/compiler/builtin_value_to_string.hml`.
 - **hemlockc codegen correctness batch from a parity audit** (PR #592): width/signedness-correct integer comparisons and exact integer equality in `hml_binary_op` (u64 comparisons no longer go through int64, mixed-sign comparisons follow type promotion, boxed i32/i64 arithmetic throws on overflow); equality semantics mirror the interpreter (array == array errors, differing non-numeric types compare false); `++`/`--` preserve the operand's type and width in both backends (u16 65535++ wraps to 0, i64 no longer truncates through int32); `defer` evaluates its expression at function exit with current variable values, is scoped to the owning function via per-function defer frames, and runs during exception unwind; `finally` runs when the expression of a `return` inside `try` throws; captured locals are live-shared with closures (writes are visible both ways); escape analysis covers defer/try/for-in/switch/throw; non-finite float constants emit valid C (`INFINITY`/`NAN`); calls to undefined identifiers raise the interpreter's catchable error instead of a GCC failure; `char_at`/`byte_at`/string indexing throw on out-of-bounds; for-in re-checks the live iterable length; interpreter `print`/`write`/`eprint` accept multiple arguments; interpreter `array_set` no longer writes `elements[-1]` on negative-index errors; top-level defers run at normal program exit. 11 parity regression tests.
+
+## [2.6.2] - 2026-06-05
+
+Patch release on top of 2.6.0. Supersedes 2.6.1.
+
+### Fixed
+
+- **`to_string` / `string_byte_length` as first-class values now link in
+  compiled programs.** Their value-wrap path referenced
+  `hml_builtin_to_string` / `hml_builtin_string_byte_length`, which were never
+  defined, so any compiled program using either builtin as a value (not a
+  direct call) failed with undefined symbols. Added the missing env-first
+  wrapper shims.
+- **`HttpServer` no longer crashes on empty or malformed requests.** A
+  connection that sent no data — e.g. a browser's speculative preconnect
+  socket — crashed `handle_one()` and took down the whole server.
+  `handle_one()` now drops empty reads and `_parse_request()` guards against a
+  short request line.
+- **Signals in compiled programs are delivered to the main thread, and
+  zero-parameter handlers no longer crash.** Compiled worker threads didn't
+  mask signals, so SIGTERM/SIGINT/SIGHUP could run the handler on a worker
+  holding a runtime lock; worker threads now block all signals, matching the
+  interpreter. Handlers were also always called with one argument, so a
+  `fn() { ... }` handler (as used by `on_shutdown`) threw "expects 0
+  arguments, got 1"; handlers are now invoked with the arity they declare.
+
+### Notes
+
+- `include/version.h` was not bumped for this release: the 2.6.2 binaries
+  report themselves as **2.6.0**.
+
+## [2.6.1] - 2026-06-04
+
+**Regressed build — do not use.** Use 2.6.2 or later.
+
+### Notes
+
+- The `v2.6.1` tag was created on a stale branch carrying v2.3.1-era code, not
+  on v2.6.0. Relative to 2.6.0 it removes ~3,466 lines across 89 files,
+  reverting every change from 2.4.0 through 2.6.0.
+- `include/version.h` in this build reports **2.3.1**.
+- 2.6.2 was rebuilt correctly on v2.6.0.
 
 ## [2.6.0] - 2026-06-03
 
