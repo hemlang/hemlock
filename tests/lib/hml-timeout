@@ -1,0 +1,15 @@
+#!/bin/bash
+#
+# Executable form of tests/lib/timeout.sh, for callers that cannot use a
+# shell function: Makefile recipes, `env VAR=... hml-timeout ...`, xargs, etc.
+#
+#   tests/lib/hml-timeout [-s SIGNAL] [-k DURATION] DURATION COMMAND [ARG...]
+#
+# Same resolution order and exit codes as tests/lib/timeout.sh.
+source "$(dirname "${BASH_SOURCE[0]}")/timeout.sh"
+
+case "$HML_TIMEOUT_IMPL" in
+    system|gtimeout) exec "$HML_TIMEOUT_BIN" "$@" ;;
+esac
+timeout "$@"
+exit $?

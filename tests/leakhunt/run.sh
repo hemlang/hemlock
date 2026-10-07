@@ -24,6 +24,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/tests/lib/timeout.sh"  # portable `timeout` (macOS has none)
 HEMLOCKC="$ROOT/hemlockc"
 RT_DIR="$ROOT/runtime"
 LH_DIR="$ROOT/tests/leakhunt"
@@ -81,7 +82,10 @@ for src in $glob; do
     echo "CRASH $name (cc failed)"; cat "$WORK/$name.cc"; crash=$((crash+1)); leaked_names="$leaked_names $name"; continue
   fi
 
-  env $SAN_ENV timeout 120 "$bin" >"$rep" 2>&1
+  # `timeout` may be a shell function (tests/lib/timeout.sh), which
+  # `env` cannot exec — export the sanitizer vars in a subshell instead.
+  # shellcheck disable=SC2086  # SAN_ENV is intentionally word-split
+  ( export $SAN_ENV; timeout 120 "$bin" ) >"$rep" 2>&1
   rc=$?
   if [ $rc -eq 42 ] || grep -q "ERROR: LeakSanitizer" "$rep"; then
     n=$(grep -cE "Direct leak|Indirect leak" "$rep")

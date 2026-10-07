@@ -17,6 +17,7 @@ set -u
 
 MODE="${1:-none}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/tests/lib/timeout.sh"  # portable `timeout` (macOS has none)
 cd "$ROOT"
 
 HEMLOCKC="$ROOT/hemlockc"
@@ -111,7 +112,11 @@ for src in $glob; do
   fi
 
   out="$WORK/$name.out"
-  env $SAN_ENV timeout "$TIMEOUT" $RUN_WRAP "$bin" >"$out" 2>&1
+  # `timeout` may be a shell function (tests/lib/timeout.sh), which
+  # `env` cannot exec — export the sanitizer vars in a subshell instead.
+  # shellcheck disable=SC2086  # SAN_ENV / RUN_WRAP are intentionally word-split
+  ( if [ -n "$SAN_ENV" ]; then export $SAN_ENV; fi
+    timeout "$TIMEOUT" $RUN_WRAP "$bin" ) >"$out" 2>&1
   rc=$?
 
   if [ $rc -eq 124 ]; then
