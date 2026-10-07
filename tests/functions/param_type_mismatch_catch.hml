@@ -1,3 +1,4 @@
+// @expect-compile-fail argument type mismatch is a compile-time error
 // expect: pass
 // Regression: a typed parameter whose argument fails conversion must throw a
 // normal catchable error. convert_to_type() releases its input on failure, but
