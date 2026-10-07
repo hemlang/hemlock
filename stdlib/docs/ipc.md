@@ -274,6 +274,7 @@ Create a PID file for process identification and single-instance enforcement.
 
 ```hemlock
 import { PidFile } from "@stdlib/ipc";
+import { exit } from "@stdlib/process";
 
 let pf = PidFile("/tmp/myapp.pid");
 
@@ -453,6 +454,7 @@ fn consumer() {
 
 ```hemlock
 import { Semaphore } from "@stdlib/ipc";
+import { sleep } from "@stdlib/time";
 
 let pool_size = 3;
 let pool = Semaphore("/tmp/resource_pool", pool_size);
@@ -476,7 +478,7 @@ fn use_resource() {
 
 ```hemlock
 import { PidFile } from "@stdlib/ipc";
-import { get_pid } from "@stdlib/process";
+import { get_pid, exit } from "@stdlib/process";
 
 let pid_file = PidFile("/var/run/myapp.pid");
 

@@ -867,12 +867,14 @@ let p: Person = { name: "Alice", age: 30 };
 ### Generic Type Aliases
 
 ```hemlock
-// Generic type alias
-type Pair<T> = { first: T, second: T };
-type Result<T, E> = { value: T?, error: E? };
+// Generic type alias (aliases name a generic define; inline
+// object types like `{ first: T }` are not supported)
+define Pair<A, B> { first: A, second: B }
+type Point2<T> = Pair<T, T>;
 
 // Using generic aliases
-let coords: Pair<f64> = { first: 3.14, second: 2.71 };
+let coords: Point2<f64> = { first: 3.14, second: 2.71 };
+print(coords.first);  // 3.14
 ```
 
 **Note:** Type aliases are transparent - `typeof()` returns the underlying type name, not the alias.
@@ -940,12 +942,14 @@ fn divide(a, b) {
 **Use duck typing for flexibility:**
 ```hemlock
 define Printable {
-    toString: fn,
+    fn toString(): string,
 }
 
 fn print_item(item: Printable) {
     print(item.toString());
 }
+
+print_item({ name: "widget", toString: fn() { return "widget"; } });
 ```
 
 ## Next Steps

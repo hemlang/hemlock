@@ -273,6 +273,8 @@ select(channels: array, timeout_ms?: i32): object | null
 
 **Example:**
 ```hemlock
+import { sleep } from "@stdlib/time";
+
 let ch1 = channel(1);
 let ch2 = channel(1);
 
@@ -619,6 +621,8 @@ detach(bg_task);  // Will run independently
 Blocking operations in one task don't block others:
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 async fn reader(filename: string) {
     let f = open(filename, "r");  // Blocks this thread only
     let content = f.read();       // Blocks this thread only
@@ -757,6 +761,8 @@ Uses 1 thread per task, which can be inefficient for many short tasks.
 File/network operations still block the thread:
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 async fn read_file(path: string) {
     let f = open(path, "r");
     let content = f.read();  // Blocks the thread

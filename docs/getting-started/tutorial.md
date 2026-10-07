@@ -551,6 +551,8 @@ try {
 ### Finally Block
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let file = null;
 
 try {
@@ -596,6 +598,8 @@ validate(-5);  // Program exits with: panic: x must be non-negative
 ### Reading Files
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 // Read entire file
 let f = open("data.txt", "r");
 let content = f.read();
@@ -611,6 +615,8 @@ f2.close();
 ### Writing Files
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 // Write text
 let f = open("output.txt", "w");
 f.write("Hello, File!\n");
@@ -626,6 +632,8 @@ f2.close();
 ### Binary I/O
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 // Write binary data
 let buf = buffer(256);
 buf[0] = 255;
@@ -648,6 +656,8 @@ free(data);
 ### File Properties
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("/path/to/file.txt", "r");
 
 print(f.path);    // "/path/to/file.txt"
@@ -663,6 +673,8 @@ print(f.closed);  // true
 Let's build a simple word counter program:
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 // wordcount.hml - Count words in a file
 
 fn count_words(filename: string): i32 {

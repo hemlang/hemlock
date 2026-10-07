@@ -558,14 +558,14 @@ print(typeof(p));      // "object" (original is still anonymous)
 
 ## Method Signatures in Define
 
-Define blocks can specify method signatures, creating interface-like contracts:
+Define blocks can specify method signatures, creating interface-like contracts. Method signatures are separated by commas, just like fields (a `;` after a signature is a parse error):
 
 ### Required Methods
 
 ```hemlock
 define Comparable {
     value: i32,
-    fn compare(other: Self): i32;  // Required method signature
+    fn compare(other: Self): i32,  // Required method signature
 }
 
 // Objects must provide the required method
@@ -579,8 +579,8 @@ let a: Comparable = {
 
 ```hemlock
 define Serializable {
-    fn serialize(): string;       // Required
-    fn pretty?(): string;         // Optional method (may be absent)
+    fn serialize(): string,       // Required
+    fn pretty?(): string,         // Optional method (may be absent)
 }
 ```
 
@@ -590,12 +590,12 @@ define Serializable {
 
 ```hemlock
 define Cloneable {
-    fn clone(): Self;  // Returns same type as the object
+    fn clone(): Self,  // Returns same type as the object
 }
 
 define Comparable {
-    fn compare(other: Self): i32;  // Takes same type as parameter
-    fn equals(other: Self): bool;
+    fn compare(other: Self): i32,  // Takes same type as parameter
+    fn equals(other: Self): bool,
 }
 
 let item: Cloneable = {
@@ -612,15 +612,15 @@ let item: Cloneable = {
 define Entity {
     id: i32,
     name: string,
-    fn validate(): bool;
-    fn serialize(): string;
+    fn validate(): bool,
+    fn serialize(): string,
 }
 
 let user: Entity = {
     id: 1,
     name: "Alice",
     validate: fn() { return self.id > 0 && self.name != ""; },
-    serialize: fn() { return '{"id":' + self.id + ',"name":"' + self.name + '"}'; }
+    serialize: fn() { return `{"id":${self.id},"name":"${self.name}"}`; }
 };
 ```
 
@@ -1009,6 +1009,8 @@ let p: Point = obj;
 ### Example: Vector Math
 
 ```hemlock
+import { sqrt } from "@stdlib/math";
+
 fn createVector(x, y) {
     return {
         x: x,

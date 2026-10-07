@@ -755,6 +755,8 @@ HmlValue hemlock_compute_distance(HmlValue x1, HmlValue y1, HmlValue x2, HmlValu
 ### Example 5: Performance-Critical Path with Mixed Hints
 
 ```hemlock
+import { signal, SIGABRT } from "@stdlib/signal";
+
 @optimize("3")
 @hot
 fn process_frame(@noalias frame_data: buffer, width: i32, height: i32) {

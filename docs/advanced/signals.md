@@ -578,6 +578,8 @@ while (true) {
 
 ```hemlock
 import { signal, SIGUSR1 } from "@stdlib/signal";
+import { open } from "@stdlib/fs";
+import { exec } from "@stdlib/process";
 
 let log_file = open("app.log", "a");
 let rotate_needed = false;

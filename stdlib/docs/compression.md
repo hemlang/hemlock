@@ -236,6 +236,7 @@ Get the number of entries added.
 **Example:**
 ```hemlock
 import { TarWriter, TarReader } from "@stdlib/compression";
+import { open } from "@stdlib/fs";
 
 // Create tar archive
 let writer = TarWriter();
@@ -291,6 +292,7 @@ Check if archive contains entry with given name.
 **Example:**
 ```hemlock
 import { TarReader, TAR_TYPE_FILE, TAR_TYPE_DIRECTORY } from "@stdlib/compression";
+import { open } from "@stdlib/fs";
 
 // Read tar file
 let f = open("archive.tar", "r");
@@ -343,6 +345,7 @@ while (i < entries.length) {
 
 ```hemlock
 import { gzip, gunzip, TarWriter, TarReader } from "@stdlib/compression";
+import { open } from "@stdlib/fs";
 
 // Create compressed archive
 fn create_tarball(output_path: string, files: array) {

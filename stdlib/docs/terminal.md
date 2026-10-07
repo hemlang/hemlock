@@ -16,7 +16,7 @@ The terminal module provides comprehensive terminal control:
 ## Usage
 
 ```hemlock
-import { RED, GREEN, BOLD, clear, color } from "@stdlib/terminal";
+import { RED, GREEN, BOLD, clear, color, RESET } from "@stdlib/terminal";
 
 // Colored text
 print(RED + "Error: Something went wrong" + RESET);
@@ -43,7 +43,7 @@ print(term.color("Hello", term.BLUE));
 ### Basic Colors (Foreground)
 
 ```hemlock
-import { BLACK, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE } from "@stdlib/terminal";
+import { BLACK, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE, RESET } from "@stdlib/terminal";
 
 print(RED + "Red text" + RESET);
 print(GREEN + "Green text" + RESET);
@@ -56,7 +56,7 @@ Available colors:
 ### Bright Colors (Foreground)
 
 ```hemlock
-import { BRIGHT_RED, BRIGHT_GREEN, BRIGHT_BLUE, GRAY } from "@stdlib/terminal";
+import { BRIGHT_RED, BRIGHT_GREEN, BRIGHT_BLUE, GRAY, RESET } from "@stdlib/terminal";
 
 print(BRIGHT_RED + "Bright red" + RESET);
 print(GRAY + "Gray text" + RESET);
@@ -68,7 +68,7 @@ Available bright colors:
 ### Background Colors
 
 ```hemlock
-import { BG_RED, BG_GREEN, BG_BLUE, WHITE } from "@stdlib/terminal";
+import { BG_RED, BG_GREEN, BG_BLUE, WHITE, RESET } from "@stdlib/terminal";
 
 print(WHITE + BG_RED + " Error " + RESET);
 print(WHITE + BG_GREEN + " Success " + RESET);
@@ -85,7 +85,7 @@ Available background colors:
 ### Style Constants
 
 ```hemlock
-import { BOLD, ITALIC, UNDERLINE, DIM } from "@stdlib/terminal";
+import { BOLD, ITALIC, UNDERLINE, DIM, RESET } from "@stdlib/terminal";
 
 print(BOLD + "Bold text" + RESET);
 print(ITALIC + "Italic text" + RESET);
@@ -257,6 +257,7 @@ Move cursor to absolute position.
 
 ```hemlock
 import { move_to } from "@stdlib/terminal";
+import { exec } from "@stdlib/process";
 
 exec("printf '" + move_to(10, 20) + "Hello'");  // Print at row 10, col 20
 ```
@@ -271,6 +272,7 @@ Move cursor relative to current position.
 
 ```hemlock
 import { move_up, move_down, move_left, move_right } from "@stdlib/terminal";
+import { exec } from "@stdlib/process";
 
 // Move cursor up 3 lines
 exec("printf '" + move_up(3) + "'");
@@ -283,6 +285,7 @@ exec("printf '" + move_right(5) + "'");
 
 ```hemlock
 import { SAVE_CURSOR, RESTORE_CURSOR } from "@stdlib/terminal";
+import { exec } from "@stdlib/process";
 
 // Save current position
 exec("printf '" + SAVE_CURSOR + "'");
@@ -303,6 +306,7 @@ exec("printf '" + RESTORE_CURSOR + "'");
 
 ```hemlock
 import { HIDE_CURSOR, SHOW_CURSOR } from "@stdlib/terminal";
+import { exec } from "@stdlib/process";
 
 // Hide cursor (useful for animations)
 exec("printf '" + HIDE_CURSOR + "'");
@@ -323,6 +327,7 @@ exec("printf '" + SHOW_CURSOR + "'");
 
 ```hemlock
 import { CLEAR_SCREEN, CLEAR_TO_END, CLEAR_TO_START } from "@stdlib/terminal";
+import { exec } from "@stdlib/process";
 
 // Clear entire screen
 exec("printf '" + CLEAR_SCREEN + "'");
@@ -340,6 +345,7 @@ exec("printf '" + CLEAR_TO_END + "'");
 
 ```hemlock
 import { CLEAR_LINE, CLEAR_LINE_TO_END } from "@stdlib/terminal";
+import { exec } from "@stdlib/process";
 
 // Clear entire line
 exec("printf '\r" + CLEAR_LINE + "'");
@@ -357,6 +363,7 @@ exec("printf '" + CLEAR_LINE_TO_END + "'");
 
 ```hemlock
 import { scroll_up, scroll_down } from "@stdlib/terminal";
+import { exec } from "@stdlib/process";
 
 // Scroll entire display up 3 lines
 exec("printf '" + scroll_up(3) + "'");
@@ -377,7 +384,7 @@ Get terminal dimensions.
 **Returns:** `object` - `{ rows: i32, cols: i32 }`
 
 ```hemlock
-import { size } from "@stdlib/terminal";
+import { size, print_at } from "@stdlib/terminal";
 
 let dimensions = size();
 print("Terminal size: " + typeof(dimensions.rows) + "x" + typeof(dimensions.cols));
@@ -493,7 +500,7 @@ spinner.finish("Done!");
 ### Predefined Spinner Styles
 
 ```hemlock
-import { SPINNER_DOTS, SPINNER_LINE, SPINNER_ARROW } from "@stdlib/terminal";
+import { SPINNER_DOTS, SPINNER_LINE, SPINNER_ARROW, Spinner, SPINNER_CLOCK, SPINNER_BOUNCE } from "@stdlib/terminal";
 
 // Dots spinner (Unicode braille)
 let s1 = Spinner(SPINNER_DOTS());
@@ -684,6 +691,7 @@ load_data();
 ```hemlock
 import { clear, move_to, color, GREEN, YELLOW, RED, size } from "@stdlib/terminal";
 import { sleep } from "@stdlib/time";
+import { exec } from "@stdlib/process";
 
 fn dashboard(): null {
     let running = true;
@@ -813,6 +821,7 @@ if (supports_color()) {
 
 ```hemlock
 import { HIDE_CURSOR, SHOW_CURSOR, Spinner } from "@stdlib/terminal";
+import { exec } from "@stdlib/process";
 
 exec("printf '" + HIDE_CURSOR + "'");
 let spinner = Spinner();
@@ -827,6 +836,7 @@ exec("printf '" + SHOW_CURSOR + "'");
 
 ```hemlock
 import { SAVE_CURSOR, RESTORE_CURSOR } from "@stdlib/terminal";
+import { exec } from "@stdlib/process";
 
 exec("printf '" + SAVE_CURSOR + "'");
 
