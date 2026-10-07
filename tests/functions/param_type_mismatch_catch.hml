@@ -1,0 +1,70 @@
+// expect: pass
+// Regression: a typed parameter whose argument fails conversion must throw a
+// normal catchable error. convert_to_type() releases its input on failure, but
+// the call paths passed it a borrowed args[] slot that was released again
+// after the call - a double release. With two failing heap arguments the
+// interpreter crashed (SIGSEGV/SIGABRT); with one it silently freed a string
+// still owned by the caller.
+
+fn check(cond, msg) {
+    if (!cond) {
+        panic("FAIL: " + msg);
+    }
+}
+
+fn g(a: i32, b: i32) { return a + b; }
+fn mixed(a: i32, b: bool) { return a; }
+fn rest_typed(...xs: i32) { return xs; }
+async fn worker(a: i32, b: i32) { return a + b; }
+
+// Caller-owned strings: these must survive every failed call intact.
+let s1 = "first-argument-string";
+let s2 = "second-argument-string";
+
+// Repeat so any heap corruption from an over-release surfaces reliably.
+for (let i = 0; i < 50; i++) {
+    let caught = 0;
+
+    // 1. Direct call, both args fail (the original crash)
+    try { g(s1, s2); } catch (e) { caught++; }
+    // 2. Direct call, one arg fails
+    try { g(1, s2); } catch (e) { caught++; }
+    // 3. Same string passed to both params
+    try { g(s1, s1); } catch (e) { caught++; }
+    // 4. Typed rest parameter
+    try { rest_typed(s1, s2); } catch (e) { caught++; }
+    // 5. Optional call f?.()
+    let f = g;
+    try { f?.(s1, s2); } catch (e) { caught++; }
+    // 6. Array method callback
+    try { [s1, s2].map(fn(x: i32) { return x; }); } catch (e) { caught++; }
+    // 7. spawn
+    try { await spawn(worker, s1, s2); } catch (e) { caught++; }
+
+    check(caught == 7, "expected 7 caught errors, got " + caught);
+
+    // Churn the allocator so a freed string would be overwritten.
+    let junk = [];
+    for (let j = 0; j < 20; j++) { junk.push("junk-" + j + "-" + i); }
+
+    check(s1 == "first-argument-string", "s1 corrupted: " + s1);
+    check(s2 == "second-argument-string", "s2 corrupted: " + s2);
+}
+
+// The first failing parameter's error is the one reported.
+try {
+    mixed("x", "y");
+    panic("FAIL: mixed() should have thrown");
+} catch (e) {
+    check(e.contains("i32"), "expected first-param (i32) error, got: " + e);
+}
+
+// Successful typed calls with heap arguments still work and leave args intact.
+fn join2(a: string, b: string): string { return a + "+" + b; }
+for (let i = 0; i < 50; i++) {
+    check(join2(s1, s2) == "first-argument-string+second-argument-string", "join2 result");
+    check([s1].map(fn(x: string) { return x.length; })[0] == 21, "map typed string param");
+}
+check(s1 == "first-argument-string" && s2 == "second-argument-string", "args intact after success");
+
+print("param type mismatch: ok");

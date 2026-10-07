@@ -57,17 +57,22 @@ static Value call_function_value(Value func, Value *args, int num_args, Executio
     // Bind parameters
     for (int i = 0; i < fn->num_params; i++) {
         Value arg_value = args[i];
+        // Own a reference: convert_to_type consumes it on failure, and the
+        // caller still releases args[i].
+        VALUE_RETAIN(arg_value);
 
         // Type check if parameter has type annotation
         if (fn->param_types[i]) {
             arg_value = convert_to_type(arg_value, fn->param_types[i], call_env, ctx);
             if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(arg_value);
                 env_release(call_env);
                 return val_null();
             }
         }
 
-        env_set(call_env, fn->param_names[i], arg_value, ctx);
+        env_set(call_env, fn->param_names[i], arg_value, ctx);  // retains
+        VALUE_RELEASE(arg_value);
         if (ctx->exception_state.is_throwing) {
             env_release(call_env);
             return val_null();

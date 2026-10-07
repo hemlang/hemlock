@@ -1860,13 +1860,20 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     // Bind parameters
                     for (int i = 0; i < fn->num_params; i++) {
                         Value arg_value = (i < num_args) ? args[i] : val_null();
+                        // Own a reference: convert_to_type consumes it on failure,
+                        // and args[i] is released by the cleanup below.
+                        VALUE_RETAIN(arg_value);
 
                         // Type check if parameter has type annotation
                         if (fn->param_types[i]) {
                             arg_value = convert_to_type(arg_value, fn->param_types[i], call_env, ctx);
                         }
 
-                        env_set(call_env, fn->param_names[i], arg_value, ctx);
+                        env_set(call_env, fn->param_names[i], arg_value, ctx);  // retains
+                        VALUE_RELEASE(arg_value);
+                        if (ctx->exception_state.is_throwing) {
+                            break;
+                        }
                     }
 
                     // Execute body
