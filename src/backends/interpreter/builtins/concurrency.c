@@ -56,11 +56,18 @@ static void* task_thread_wrapper(void* arg) {
     // Bind parameters (these are deep-copied, so safe to use directly)
     for (int i = 0; i < fn->num_params && i < task->num_args; i++) {
         Value param_arg = task->args[i];
+        // Own a reference: convert_to_type consumes it on failure, and
+        // task_free() still releases task->args[i].
+        VALUE_RETAIN(param_arg);
         // Type check if parameter has type annotation
         if (fn->param_types[i]) {
             param_arg = convert_to_type(param_arg, fn->param_types[i], func_env, task->ctx);
         }
-        env_define(func_env, fn->param_names[i], param_arg, 0, task->ctx);
+        env_define(func_env, fn->param_names[i], param_arg, 0, task->ctx);  // retains
+        VALUE_RELEASE(param_arg);
+        if (task->ctx->exception_state.is_throwing) {
+            break;
+        }
     }
 
     // Execute function body
