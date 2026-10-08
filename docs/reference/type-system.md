@@ -599,7 +599,7 @@ let p: Person = { name: "Alice" };
 print(typeof(p));               // "Person"
 ```
 
-**See Also:** [Built-in Functions](builtins.md#typeof)
+**See Also:** [Built-in Functions](builtins.md#type-system)
 
 ---
 
