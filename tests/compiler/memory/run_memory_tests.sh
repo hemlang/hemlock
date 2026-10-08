@@ -13,6 +13,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../../lib/timeout.sh"  # portable `timeout` (macOS has none)
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 HEMLOCKC="$ROOT_DIR/hemlockc"
 

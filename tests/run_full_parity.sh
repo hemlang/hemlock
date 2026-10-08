@@ -7,6 +7,8 @@
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Portable timeout (Linux timeout / macOS gtimeout / perl fallback)
+source "$SCRIPT_DIR/lib/timeout.sh"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 HEMLOCK="$ROOT_DIR/hemlock"
 HEMLOCKC="$ROOT_DIR/hemlockc"

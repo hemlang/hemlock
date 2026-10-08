@@ -289,6 +289,10 @@ run: $(TARGET)
 test: $(TARGET) stdlib
 	@bash tests/run_tests.sh
 
+# Portable `timeout` for recipes: uses GNU timeout on Linux, gtimeout or a
+# perl fallback on macOS (which ships no `timeout`). See tests/lib/timeout.sh.
+HML_TIMEOUT = tests/lib/hml-timeout
+
 # Test the persistent WASM context API (native, no Emscripten needed)
 TEST_WASM_CTX_SRC = tests/wasm/test_persistent_context.c
 TEST_WASM_CTX_BIN = $(BUILD_DIR)/test_persistent_context
@@ -303,7 +307,7 @@ test-wasm-context: $(INTERP_OBJS) $(LIBTOOLS) $(LIBCOMMON)
 	@$(CC) $(CFLAGS) $(TEST_WASM_CTX_SRC) $(TEST_WASM_CTX_OBJS) $(LIBTOOLS) $(LIBCOMMON) \
 		-o $(TEST_WASM_CTX_BIN) $(LDFLAGS)
 	@echo "Running persistent context API test..."
-	@timeout 30 $(TEST_WASM_CTX_BIN)
+	@$(HML_TIMEOUT) 30 $(TEST_WASM_CTX_BIN)
 
 test-formatter: $(TARGET)
 	@bash tests/formatter/run_tests.sh
@@ -450,7 +454,7 @@ asan-test: asan
 	@echo "Running test suite with AddressSanitizer (leak detection enabled)..."
 	@echo "This will report any memory leaks in the runtime."
 	@echo ""
-	ASAN_OPTIONS="detect_leaks=1:halt_on_error=0:print_stats=1" timeout 120 $(MAKE) test || true
+	ASAN_OPTIONS="detect_leaks=1:halt_on_error=0:print_stats=1" $(HML_TIMEOUT) 120 $(MAKE) test || true
 	@echo ""
 	@echo "✓ ASAN test run complete. Check output above for leak reports."
 
