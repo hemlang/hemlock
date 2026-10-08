@@ -559,7 +559,7 @@ fn add(a: i32, b: i32): i32 {
 }
 
 add(5, 10);        // OK
-add(5.5, 10.5);    // Arguments truncate to i32 (5 + 10): returns 15
+add(5.5, 10.5);    // Interpreter: truncates to i32 (5 + 10) → 15. hemlockc currently differs (returns f64 16) — [#654](https://github.com/hemlang/hemlock/issues/654)
 add("a", "b");     // Error: type mismatch (compile-time in hemlockc, runtime in the interpreter)
 ```
 

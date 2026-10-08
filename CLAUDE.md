@@ -339,7 +339,7 @@ changing stdlib exports (`make docs-check` verifies freshness in CI).
 ## FFI (Foreign Function Interface)
 
 ```hemlock
-import "libc.so.6";
+import "libc.so.6";  // Linux; use "libc.dylib" on macOS
 import { callback, callback_free } from "@stdlib/ffi";
 extern fn strlen(s: string): i32;
 extern fn qsort(base: ptr, n: u64, size: u64, cmp: ptr): void;
