@@ -152,6 +152,8 @@ hemlockc myprogram.hml -o myprogram   # Translate to executable
 
 **In Hemlock:**
 ```hemlock
+import { open } from "@stdlib/fs";
+
 fn process_file() {
     let f = open("data.txt", "r");
     defer f.close();  // "Close this file when I'm done here"

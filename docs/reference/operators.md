@@ -590,6 +590,8 @@ This prevents the common bug of unexpected integer truncation.
 For integer division (like integer division in other languages), use `divi()`. `div()` is plain float division, equivalent to the `/` operator:
 
 ```hemlock
+import { div, divi } from "@stdlib/math";
+
 // div(a, b) - float division (same as /)
 print(div(5, 2));          // 2.5 (f64)
 print(div(-7, 3));         // -2.333... (f64)
@@ -606,6 +608,8 @@ Note: `div()` and `divi()` raise a runtime error on division by zero even for fl
 For other rounding operations that return integers:
 
 ```hemlock
+import { floori, ceili, roundi, trunci } from "@stdlib/math";
+
 print(floori(3.7));        // 3 (i64)
 print(ceili(3.2));         // 4 (i64)
 print(roundi(3.5));        // 4 (i64)

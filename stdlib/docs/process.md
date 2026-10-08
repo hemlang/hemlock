@@ -23,6 +23,8 @@ import * as process from "@stdlib/process";
 Get the current process ID.
 
 ```hemlock
+import { get_pid } from "@stdlib/process";
+
 let pid = get_pid();
 print("Current PID: " + typeof(pid));
 ```
@@ -32,6 +34,8 @@ print("Current PID: " + typeof(pid));
 Get the parent process ID.
 
 ```hemlock
+import { getppid } from "@stdlib/process";
+
 let ppid = getppid();
 print("Parent PID: " + typeof(ppid));
 ```
@@ -41,6 +45,8 @@ print("Parent PID: " + typeof(ppid));
 Get the real user ID of the current process.
 
 ```hemlock
+import { getuid } from "@stdlib/process";
+
 let uid = getuid();
 print("User ID: " + typeof(uid));
 ```
@@ -50,6 +56,8 @@ print("User ID: " + typeof(uid));
 Get the effective user ID of the current process.
 
 ```hemlock
+import { geteuid } from "@stdlib/process";
+
 let euid = geteuid();
 ```
 
@@ -58,6 +66,8 @@ let euid = geteuid();
 Get the real group ID of the current process.
 
 ```hemlock
+import { getgid } from "@stdlib/process";
+
 let gid = getgid();
 print("Group ID: " + typeof(gid));
 ```
@@ -67,6 +77,8 @@ print("Group ID: " + typeof(gid));
 Get the effective group ID of the current process.
 
 ```hemlock
+import { getegid } from "@stdlib/process";
+
 let egid = getegid();
 ```
 
@@ -77,6 +89,8 @@ let egid = getegid();
 Terminate the current process with an optional exit code (default: 0).
 
 ```hemlock
+import { exit } from "@stdlib/process";
+
 // Exit with success
 exit();
 
@@ -93,6 +107,8 @@ if (error_occurred) {
 Send a signal to a process.
 
 ```hemlock
+import { kill } from "@stdlib/process";
+
 // Send SIGTERM (15) to process
 kill(target_pid, 15);
 
@@ -118,6 +134,8 @@ try {
 Abort the current process, generating a core dump.
 
 ```hemlock
+import { abort } from "@stdlib/process";
+
 if (critical_error) {
     abort();  // Terminates immediately with core dump
 }
@@ -136,6 +154,8 @@ Fork the current process, creating a child process.
 - Child's PID in the parent process
 
 ```hemlock
+import { fork, exit, waitpid } from "@stdlib/process";
+
 let pid = fork();
 
 if (pid == 0) {
@@ -160,6 +180,8 @@ Wait for any child process to change state.
 - `status` (i32) - Exit status of the child
 
 ```hemlock
+import { wait } from "@stdlib/process";
+
 let result = wait();
 print("Child " + typeof(result.pid) + " exited with status: " + typeof(result.status));
 ```
@@ -177,6 +199,8 @@ Wait for a specific child process to change state.
 **Returns:** Same as `wait()`
 
 ```hemlock
+import { fork, exit, waitpid } from "@stdlib/process";
+
 let child_pid = fork();
 
 if (child_pid == 0) {
@@ -205,6 +229,8 @@ Execute a shell command and capture its output.
 - `exit_code` (i32) - Command's exit status
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let result = exec("echo 'Hello World'");
 print(result.output);        // "Hello World\n"
 print(result.exit_code);     // 0
@@ -238,6 +264,8 @@ Execute a command without shell interpretation. This is the safe alternative to 
 - `exit_code` (i32) - Command's exit status
 
 ```hemlock
+import { exec_argv } from "@stdlib/process";
+
 // Basic usage
 let result = exec_argv(["ls", "-la", "/tmp"]);
 print(result.output);      // stdout
@@ -334,6 +362,8 @@ let status = waitpid(pid, 0);
 ### Check if process exists
 
 ```hemlock
+import { kill } from "@stdlib/process";
+
 fn process_exists(pid: i32) {
     try {
         kill(pid, 0);  // Signal 0 doesn't actually send a signal
@@ -351,6 +381,8 @@ if (process_exists(1234)) {
 ### Execute and check success
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 fn exec_success(command: string) {
     let result = exec(command);
     return result.exit_code == 0;
@@ -364,6 +396,8 @@ if (exec_success("test -f myfile.txt")) {
 ### Get all process info
 
 ```hemlock
+import { get_pid, getppid, getuid, geteuid, getgid, getegid } from "@stdlib/process";
+
 fn get_process_info() {
     let info = {};
     info.pid = get_pid();
@@ -383,6 +417,8 @@ print("UID: " + typeof(info.uid));
 ### Graceful process termination
 
 ```hemlock
+import { kill } from "@stdlib/process";
+
 fn terminate_gracefully(pid: i32) {
     // Try SIGTERM first
     try {
@@ -418,6 +454,8 @@ fn terminate_gracefully(pid: i32) {
 The `exec()` function executes commands via the shell, which can be dangerous with untrusted input:
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // ❌ UNSAFE - vulnerable to command injection
 let user_input = "file.txt; rm -rf /";
 let result = exec("cat " + user_input);
@@ -445,6 +483,8 @@ fn safe_exec(filename: string) {
 Always check if operations succeed:
 
 ```hemlock
+import { kill } from "@stdlib/process";
+
 try {
     kill(target_pid, 15);
     print("Signal sent successfully");
@@ -458,6 +498,8 @@ try {
 All functions that can fail throw exceptions:
 
 ```hemlock
+import { exec, kill } from "@stdlib/process";
+
 try {
     let result = exec("nonexistent_command");
 } catch (e) {

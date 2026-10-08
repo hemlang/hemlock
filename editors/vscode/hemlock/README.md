@@ -103,6 +103,8 @@ Simply open any Hemlock file (`.hml` extension) and the extension will automatic
 The extension highlights and provides IntelliSense for all Hemlock language features:
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 // Function with type annotations - hover shows "fn - Function declaration keyword"
 fn factorial(n: i32): i32 {
     if (n <= 1) {

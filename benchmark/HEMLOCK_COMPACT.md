@@ -126,6 +126,8 @@ ch.send(value); let val = ch.recv(); ch.close();
 
 ## Atomics
 ```
+import { atomic_load_i32, atomic_store_i32, atomic_add_i32, atomic_sub_i32, atomic_cas_i32, atomic_exchange_i32, atomic_fence } from "@stdlib/atomic";
+
 atomic_load_i32(p); atomic_store_i32(p, val);
 atomic_add_i32(p, n); atomic_sub_i32(p, n);
 atomic_cas_i32(p, expected, desired);  // returns bool
@@ -135,6 +137,8 @@ atomic_fence();
 
 ## I/O
 ```
+import { open } from "@stdlib/fs";
+
 print("hello");          // stdout with newline
 write("no newline");     // stdout without newline
 eprint("error");         // stderr with newline
@@ -169,5 +173,7 @@ extern fn strlen(s: string): i32;
 
 ## Signals
 ```
+import { signal, SIGINT } from "@stdlib/signal";
+
 signal(SIGINT, fn(sig) { print("caught"); });
 ```
