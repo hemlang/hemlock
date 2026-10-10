@@ -79,10 +79,11 @@ jobs:
 
     - name: Smoke test - FFI graceful error
       run: |
-        # FFI should warn but not crash in WASM
-        OUTPUT=$(node -- wasm/hemlock.js -e 'print("before"); print("after");' 2>&1)
+        # FFI imports should warn on stderr but not crash in WASM
+        OUTPUT=$(node -- wasm/hemlock.js -e 'import "libc.so.6"; print("survived");' 2>&1)
         echo "Output: $OUTPUT"
-        echo "$OUTPUT" | grep -q "before" || { echo "FAIL: expected output"; exit 1; }
+        echo "$OUTPUT" | grep -q "survived" || { echo "FAIL: expected execution to continue after FFI import"; exit 1; }
+        echo "$OUTPUT" | grep -qi "warning.*ffi\|warning.*wasm\|warning.*shared" || { echo "FAIL: expected FFI warning on stderr"; exit 1; }
 
     - name: Test persistent context API
       run: node tests/wasm/test_persistent_context.js
