@@ -1,0 +1,4 @@
+let a = [1.5, 2.5];
+let b: array<i32> = a;
+print(a[0]);
+print(typeof(a[0]));

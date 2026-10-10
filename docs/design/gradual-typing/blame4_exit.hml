@@ -1,0 +1,6 @@
+try {
+    let g: fn(i32): i32 = fn(x: string): i32 => 0;
+    print("no error");
+} catch (e) {
+    print("caught: " + e);
+}
