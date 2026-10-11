@@ -1,0 +1,43 @@
+// ThreadPool queueing semantics (@stdlib/async) pinned on both backends.
+import { ThreadPool, parallel_map } from "@stdlib/async";
+
+let pool = ThreadPool(2);
+
+// Futures memoize: get() can be called repeatedly; a failed job rethrows each time.
+let ok = pool.submit1(fn(x) { return x + 1; }, 41);
+print(ok.get());
+print(ok.get());
+
+let bad = pool.submit(fn() { throw "boom"; });
+let first = "";
+let second = "";
+try { bad.get(); } catch (e) { first = e; }
+try { bad.get(); } catch (e) { second = e; }
+print(first);
+print(second);
+
+// get_timeout() returns null while the job is still running, then the value.
+let slow = pool.submit1(fn(secs) { __sleep(secs); return "slow done"; }, 0.1);
+print(slow.get_timeout(1));
+print(slow.get());
+
+// submit2 passes both arguments.
+print(pool.submit2(fn(x, y) { return x * y; }, 6, 7).get());
+pool.shutdown();
+pool.shutdown();  // idempotent
+
+// shutdown() runs every job already queued before returning; results stay available.
+let single = ThreadPool(1);
+let futures = [];
+for (let i = 0; i < 5; i++) {
+    futures.push(single.submit1(fn(n) { __sleep(0.01); return n * n; }, i));
+}
+single.shutdown();
+let squares = [];
+for (fut in futures) {
+    squares.push(fut.get());
+}
+print(squares);
+
+// parallel_map preserves input order regardless of completion order.
+print(parallel_map([5, 1, 3], fn(x) { __sleep(x * 0.01); return x * 10; }, 3));

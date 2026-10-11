@@ -197,10 +197,8 @@ struct HmlFileHandle {
 };
 
 // Task synchronization block - all pthread objects in one allocation
-// This reduces fragmentation by combining mutex, cond, and thread into single block
 typedef struct HmlTaskSync {
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
+    pthread_mutex_t mutex;  // guards state/joined/detached/result/exception
     pthread_t thread;
 } HmlTaskSync;
 
@@ -222,36 +220,13 @@ struct HmlTask {
     HmlValue exception_value; // Exception value for propagation on join()
 };
 
-// Channel synchronization block - all pthread objects in one allocation
-// This reduces fragmentation by combining all sync primitives into single block
-typedef struct HmlChannelSync {
-    pthread_mutex_t mutex;
-    pthread_cond_t not_empty;
-    pthread_cond_t not_full;
-    pthread_cond_t rendezvous;
-} HmlChannelSync;
-
 // Channel (for async communication)
+// All queueing/blocking logic lives in the shared core (src/shared/chan_core.c);
+// this wrapper only adds the runtime's reference count.
+typedef struct HmlChan HmlChan;
 struct HmlChannel {
-    HmlValue *buffer;
-    int capacity;
-    int head;
-    int tail;
-    int count;
-    int closed;
-    HmlChannelSync *sync;        // Single allocation for all sync primitives (reduces fragmentation)
+    HmlChan *chan;               // Shared channel core (opaque)
     _Atomic int ref_count;
-    // Unbuffered channel support (rendezvous)
-    HmlValue unbuffered_value;   // Value being transferred in rendezvous (inline, no separate alloc)
-    int sender_waiting;          // Flag: sender is blocked waiting for receiver
-    int receiver_waiting;        // Flag: receiver is blocked waiting for sender
-    // Count of completed rendezvous handoffs. A staged sender records the
-    // current value and waits until it changes: with multiple senders, a
-    // bare "sender_waiting == 0" check can't tell "my value was consumed"
-    // from "another sender has staged a new value", and a signal() wakeup
-    // can go to the wrong sender (lost wakeup -> deadlock). Consumers bump
-    // this and broadcast `rendezvous`.
-    unsigned long long rendezvous_gen;
 };
 
 // Socket (TCP/UDP networking)

@@ -5,6 +5,7 @@
 #include "runtime/memory.h"
 #include "frontend/ast.h"
 #include "hemlock_limits.h"
+#include "chan_core.h"
 #include <stdint.h>
 #include <inttypes.h>
 #include <stdbool.h>

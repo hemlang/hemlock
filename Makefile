@@ -309,6 +309,21 @@ test-wasm-context: $(INTERP_OBJS) $(LIBTOOLS) $(LIBCOMMON)
 	@echo "Running persistent context API test..."
 	@$(HML_TIMEOUT) 30 $(TEST_WASM_CTX_BIN)
 
+# Stress test for the shared channel core (producers/consumers/select under
+# load, leak and double-release accounting). TSAN=1 builds it under
+# ThreadSanitizer.
+CHAN_CORE_TEST_SRC = tests/shared/chan_core_stress.c
+CHAN_CORE_TEST_BIN = $(BUILD_DIR)/chan_core_stress
+CHAN_CORE_TEST_SAN = $(if $(TSAN),-fsanitize=thread -O1,)
+
+.PHONY: test-chan-core
+test-chan-core: $(BUILD_DIRS)
+	@echo "Building channel core stress test..."
+	@$(CC) $(CFLAGS) $(CHAN_CORE_TEST_SAN) $(CHAN_CORE_TEST_SRC) $(SRC_DIR)/shared/chan_core.c \
+		-o $(CHAN_CORE_TEST_BIN) -lpthread
+	@echo "Running channel core stress test..."
+	@$(HML_TIMEOUT) 120 $(CHAN_CORE_TEST_BIN)
+
 test-formatter: $(TARGET)
 	@bash tests/formatter/run_tests.sh
 
@@ -996,7 +1011,7 @@ test-memory: compiler
 
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler test-borrow test-lint parity test-contracts test-bundler test-lsp test-memory test-formatter test-cli test-check docs-check
+test-all: test test-compiler test-borrow test-lint parity test-contracts test-bundler test-lsp test-memory test-chan-core test-formatter test-cli test-check docs-check
 
 # ========== RELEASE BUILD ==========
 

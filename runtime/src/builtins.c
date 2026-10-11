@@ -18,6 +18,7 @@
  */
 
 #include "builtins_internal.h"
+#include "chan_core.h"
 #include <math.h>
 
 
@@ -342,9 +343,9 @@ HmlValue hml_to_string(HmlValue val) {
             break;
         case HML_VAL_CHANNEL:
             snprintf(buffer, sizeof(buffer), "<channel capacity=%d count=%d%s>",
-                     val.as.as_channel ? val.as.as_channel->capacity : 0,
-                     val.as.as_channel ? val.as.as_channel->count : 0,
-                     (val.as.as_channel && val.as.as_channel->closed) ? " closed" : "");
+                     val.as.as_channel ? hml_chan_capacity(val.as.as_channel->chan) : 0,
+                     val.as.as_channel ? hml_chan_count(val.as.as_channel->chan) : 0,
+                     (val.as.as_channel && hml_chan_is_closed(val.as.as_channel->chan)) ? " closed" : "");
             break;
         default:
             return hml_val_string("<value>");

@@ -6,6 +6,7 @@
  */
 
 #include "../include/hemlock_runtime.h"
+#include "chan_core.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -838,10 +839,9 @@ static void task_free(HmlTask *task) {
             }
             free(task->args);
         }
-        // Free the consolidated sync structure (contains mutex, cond, thread)
+        // Free the consolidated sync structure (contains mutex, thread)
         if (task->sync) {
             pthread_mutex_destroy(&task->sync->mutex);
-            pthread_cond_destroy(&task->sync->cond);
             free(task->sync);
         }
         free(task->name);
@@ -851,24 +851,7 @@ static void task_free(HmlTask *task) {
 
 static void channel_free(HmlChannel *ch) {
     if (ch) {
-        // Release any buffered values
-        if (ch->buffer) {
-            for (int i = 0; i < ch->count; i++) {
-                int idx = (ch->head + i) % ch->capacity;
-                hml_release(&ch->buffer[idx]);
-            }
-            free(ch->buffer);
-        }
-        // Release unbuffered value if present
-        hml_release(&ch->unbuffered_value);
-        // Free the consolidated sync structure
-        if (ch->sync) {
-            pthread_mutex_destroy(&ch->sync->mutex);
-            pthread_cond_destroy(&ch->sync->not_empty);
-            pthread_cond_destroy(&ch->sync->not_full);
-            pthread_cond_destroy(&ch->sync->rendezvous);
-            free(ch->sync);
-        }
+        hml_chan_free(ch->chan);  // releases any values still queued
         free(ch);
     }
 }

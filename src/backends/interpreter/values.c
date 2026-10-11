@@ -970,7 +970,7 @@ Task* task_new(int id, Function *function, Value *args, int num_args, Environmen
     function_retain(function);  // Retain function since task holds a reference
     task->args = args;
     task->num_args = num_args;
-    task->result = NULL;
+    task->result = val_null();
     task->joined = 0;
     task->env = env;
     // Note: Don't retain env - it's owned by the function which we already retained
@@ -1008,12 +1008,7 @@ void task_free(Task *task) {
             }
             free(task->args);
         }
-        if (task->result) {
-            // Release the result value before freeing the pointer
-            // This handles string/array/object results that need refcount decrement
-            value_release(*task->result);
-            free(task->result);
-        }
+        value_release(task->result);
         if (task->ctx) {
             exec_context_free(task->ctx);
         }
@@ -1061,100 +1056,27 @@ Value val_task(Task *task) {
 
 // ========== CHANNEL OPERATIONS ==========
 
+static void channel_item_release(void *item) {
+    value_release(*(Value *)item);
+}
+
 Channel* channel_new(int capacity) {
     Channel *ch = malloc(sizeof(Channel));
-    if (!ch) {
-        fprintf(stderr, "Runtime error: Memory allocation failed\n");
-        exit(1);
+    if (ch) {
+        ch->chan = hml_chan_new(capacity, sizeof(Value), channel_item_release);
+        ch->ref_count = 1;  // Start with 1 - caller owns the first reference
     }
-    ch->capacity = capacity;
-    ch->head = 0;
-    ch->tail = 0;
-    ch->count = 0;
-    ch->closed = 0;
-    ch->ref_count = 1;  // Start with 1 - caller owns the first reference
-
-    if (capacity > 0) {
-        ch->buffer = malloc(sizeof(Value) * capacity);
-        if (!ch->buffer) {
-            free(ch);
-            fprintf(stderr, "Runtime error: Memory allocation failed\n");
-            exit(1);
-        }
-    } else {
-        ch->buffer = NULL;
-    }
-
-    // Initialize pthread mutex and condition variables
-    ch->mutex = malloc(sizeof(pthread_mutex_t));
-    ch->not_empty = malloc(sizeof(pthread_cond_t));
-    ch->not_full = malloc(sizeof(pthread_cond_t));
-
-    // For unbuffered channels, also allocate the rendezvous condvar
-    ch->rendezvous = malloc(sizeof(pthread_cond_t));
-
-    if (!ch->mutex || !ch->not_empty || !ch->not_full || !ch->rendezvous) {
-        if (ch->buffer) free(ch->buffer);
-        if (ch->mutex) free(ch->mutex);
-        if (ch->not_empty) free(ch->not_empty);
-        if (ch->not_full) free(ch->not_full);
-        if (ch->rendezvous) free(ch->rendezvous);
+    if (!ch || !ch->chan) {
         free(ch);
         fprintf(stderr, "Runtime error: Memory allocation failed\n");
         exit(1);
     }
-
-    pthread_mutex_init((pthread_mutex_t*)ch->mutex, NULL);
-    pthread_cond_init((pthread_cond_t*)ch->not_empty, NULL);
-    pthread_cond_init((pthread_cond_t*)ch->not_full, NULL);
-    pthread_cond_init((pthread_cond_t*)ch->rendezvous, NULL);
-
-    // Initialize unbuffered channel fields
-    ch->unbuffered_value = malloc(sizeof(Value));
-    if (ch->unbuffered_value) {
-        *(ch->unbuffered_value) = val_null();
-    }
-    ch->sender_waiting = 0;
-    ch->receiver_waiting = 0;
-    ch->rendezvous_gen = 0;
-
     return ch;
 }
 
 void channel_free(Channel *ch) {
     if (ch) {
-        // Drain any remaining buffered values before freeing
-        // This prevents memory leaks when channel is closed with values still in buffer
-        if (ch->buffer && ch->count > 0) {
-            for (int i = 0; i < ch->count; i++) {
-                int idx = (ch->head + i) % ch->capacity;
-                value_release(ch->buffer[idx]);
-            }
-        }
-        if (ch->buffer) {
-            free(ch->buffer);
-        }
-        if (ch->mutex) {
-            pthread_mutex_destroy((pthread_mutex_t*)ch->mutex);
-            free(ch->mutex);
-        }
-        if (ch->not_empty) {
-            pthread_cond_destroy((pthread_cond_t*)ch->not_empty);
-            free(ch->not_empty);
-        }
-        if (ch->not_full) {
-            pthread_cond_destroy((pthread_cond_t*)ch->not_full);
-            free(ch->not_full);
-        }
-        if (ch->rendezvous) {
-            pthread_cond_destroy((pthread_cond_t*)ch->rendezvous);
-            free(ch->rendezvous);
-        }
-        if (ch->unbuffered_value) {
-            // Release the value if there's one waiting (for unbuffered channels)
-            value_release(*ch->unbuffered_value);
-            free(ch->unbuffered_value);
-        }
+        hml_chan_free(ch->chan);  // releases any values still queued
         free(ch);
     }
 }
@@ -1446,9 +1368,9 @@ void fprint_value(FILE *out, Value val) {
             break;
         case VAL_CHANNEL:
             fprintf(out, "<channel capacity=%d count=%d%s>",
-                   val.as.as_channel->capacity,
-                   val.as.as_channel->count,
-                   val.as.as_channel->closed ? " closed" : "");
+                   hml_chan_capacity(val.as.as_channel->chan),
+                   hml_chan_count(val.as.as_channel->chan),
+                   hml_chan_is_closed(val.as.as_channel->chan) ? " closed" : "");
             break;
         case VAL_REF:
             fprintf(out, "<ref>");
@@ -1644,9 +1566,9 @@ char* value_to_string(Value val) {
             return strdup(buffer);
         case VAL_CHANNEL:
             snprintf(buffer, sizeof(buffer), "<channel capacity=%d count=%d%s>",
-                   val.as.as_channel->capacity,
-                   val.as.as_channel->count,
-                   val.as.as_channel->closed ? " closed" : "");
+                   hml_chan_capacity(val.as.as_channel->chan),
+                   hml_chan_count(val.as.as_channel->chan),
+                   hml_chan_is_closed(val.as.as_channel->chan) ? " closed" : "");
             return strdup(buffer);
         case VAL_REF:
             return strdup("<ref>");

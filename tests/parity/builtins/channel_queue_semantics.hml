@@ -1,0 +1,89 @@
+// Channel queueing semantics pinned on both backends.
+// Covers the shared channel core: rendezvous withdrawal on timeout, select()
+// completing a rendezvous, select() fairness, close() with a staged sender,
+// FIFO drain after close, timed receive, and back-pressure.
+
+// 1. Unbuffered send_timeout with no receiver fails and withdraws its value;
+//    a later receiver sees only the next send.
+let ch0 = channel(0);
+print(ch0.send_timeout("stale", 30));
+let r = spawn(async fn(c) { return c.recv(); }, ch0);
+ch0.send("fresh");
+print(join(r));
+
+// 2. select() performs the rendezvous on an unbuffered channel: the blocked
+//    sender is released.
+let ch1 = channel(0);
+let s = spawn(async fn(c) { c.send("handoff"); return "sender done"; }, ch1);
+let picked = select([ch1]);
+print(picked.value);
+print(join(s));
+
+// 3. With several channels ready, select() rotates its starting point so a
+//    busy channel cannot starve another.
+let a = channel(4);
+let b = channel(4);
+for (let i = 0; i < 4; i++) {
+    a.send("a");
+    b.send("b");
+}
+let seen_a = 0;
+let seen_b = 0;
+for (let i = 0; i < 8; i++) {
+    let got = select([a, b]);
+    if (got.value == "a") { seen_a++; } else { seen_b++; }
+}
+print(seen_a > 0 && seen_b > 0);
+print(seen_a + seen_b);
+
+// 4. close() while a sender is staged on an unbuffered channel: that send throws.
+let ch2 = channel(0);
+let blocked = spawn(async fn(c) {
+    try {
+        c.send(1);
+        return "sent";
+    } catch (e) {
+        return "caught: " + e;
+    }
+}, ch2);
+__sleep(0.05);
+ch2.close();
+print(join(blocked));
+
+// 5. A closed buffered channel drains FIFO, then yields null; select() reports it closed.
+let ch3 = channel(3);
+ch3.send(1);
+ch3.send(2);
+ch3.send(3);
+ch3.close();
+print(ch3.recv());
+print(ch3.recv());
+print(ch3.recv());
+print(ch3.recv());
+let closed = select([ch3], 100);
+print(closed.value == null);
+
+// 6. recv_timeout on an empty open channel returns null after the deadline;
+//    a later send is not lost.
+let ch4 = channel(1);
+print(ch4.recv_timeout(20));
+ch4.send("later");
+print(ch4.recv_timeout(20));
+
+// 7. Back-pressure: send on a full buffered channel blocks until a receiver drains it.
+let ch5 = channel(1);
+ch5.send("first");
+let drainer = spawn(async fn(c) { __sleep(0.03); return c.recv(); }, ch5);
+ch5.send("second");
+print(join(drainer));
+print(ch5.recv());
+
+// 8. select() with a timeout wakes as soon as a producer sends, not at the deadline.
+let ch6 = channel(1);
+let producer = spawn(async fn(c) { __sleep(0.02); c.send("prompt"); return null; }, ch6);
+let start = __time_ms();
+let woke = select([ch6], 2000);
+let elapsed = __time_ms() - start;
+join(producer);
+print(woke.value);
+print(elapsed < 1000);

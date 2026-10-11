@@ -155,49 +155,15 @@ typedef enum {
     TASK_COMPLETED,  // Finished execution
 } TaskState;
 
-// Task struct (async task handle)
-typedef struct Task {
-    int id;                     // Unique task ID
-    TaskState state;            // Current state
-    Function *function;         // Async function to execute
-    Value *args;                // Arguments to pass
-    int num_args;               // Number of arguments
-    Value *result;              // Return value when completed (NULL if not completed)
-    int joined;                 // Flag: task has been joined
-    Environment *env;           // Task's environment
-    ExecutionContext *ctx;      // Task's execution context
-    struct Task *waiting_on;    // Task we're blocked on (for join)
-    void *thread;               // pthread_t (opaque pointer)
-    int detached;               // Flag: task is detached (fire-and-forget)
-    void *task_mutex;           // pthread_mutex_t for thread-safe state access
-    int ref_count;              // Reference count for memory management (atomic)
-    char *name;                 // Optional debug name (from spawn_with)
-} Task;
+typedef struct Task Task;
 
 // Channel struct (communication channel)
+// All queueing/blocking logic lives in the shared core (src/shared/chan_core.c);
+// this wrapper only adds the interpreter's reference count.
+typedef struct HmlChan HmlChan;
 typedef struct {
-    Value *buffer;              // Ring buffer for messages
-    int capacity;               // Buffer capacity (0 for unbuffered)
-    int head;                   // Read position
-    int tail;                   // Write position
-    int count;                  // Number of messages in buffer
-    int closed;                 // Flag: channel is closed
-    void *mutex;                // pthread_mutex_t (opaque pointer)
-    void *not_empty;            // pthread_cond_t (opaque pointer)
-    void *not_full;             // pthread_cond_t (opaque pointer)
-    int ref_count;              // Reference count for memory management
-    // Unbuffered channel support (rendezvous)
-    Value *unbuffered_value;    // Pointer to value being transferred in rendezvous
-    int sender_waiting;         // Flag: sender is blocked waiting for receiver
-    int receiver_waiting;       // Flag: receiver is blocked waiting for sender
-    void *rendezvous;           // pthread_cond_t for rendezvous completion
-    // Count of completed rendezvous handoffs. A staged sender records the
-    // current value and waits until it changes: with multiple senders, a
-    // bare "sender_waiting == 0" check can't tell "my value was consumed"
-    // from "another sender has staged a new value", and a signal() wakeup
-    // can go to the wrong sender (lost wakeup -> deadlock). Consumers bump
-    // this and broadcast `rendezvous`.
-    unsigned long long rendezvous_gen;
+    HmlChan *chan;              // Shared channel core (opaque)
+    int ref_count;              // Reference count for memory management (atomic)
 } Channel;
 
 // Reference types for pass-by-reference
@@ -259,6 +225,25 @@ struct Value {
         Channel *as_channel;
         Reference *as_ref;      // Reference for pass-by-reference
     } as;
+};
+
+// Task struct (async task handle)
+struct Task {
+    int id;                     // Unique task ID
+    TaskState state;            // Current state
+    Function *function;         // Async function to execute
+    Value *args;                // Arguments to pass
+    int num_args;               // Number of arguments
+    Value result;               // Return value (valid once state == TASK_COMPLETED)
+    int joined;                 // Flag: task has been joined
+    Environment *env;           // Task's environment
+    ExecutionContext *ctx;      // Task's execution context
+    struct Task *waiting_on;    // Task we're blocked on (for join)
+    void *thread;               // pthread_t (opaque pointer)
+    int detached;               // Flag: task is detached (fire-and-forget)
+    void *task_mutex;           // pthread_mutex_t for thread-safe state access
+    int ref_count;              // Reference count for memory management (atomic)
+    char *name;                 // Optional debug name (from spawn_with)
 };
 
 // Field entry struct - unified storage for name and value (reduces fragmentation)
