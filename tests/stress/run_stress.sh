@@ -60,7 +60,7 @@ fi
 # Base runtime cflags mirror runtime/Makefile (Linux path) minus the
 # optimization level we override for sanitizer-friendly stacks.
 LWS_CFLAGS="$(pkg-config --cflags libwebsockets 2>/dev/null || true)"
-RT_CFLAGS="-Wall -std=c11 -O1 -g -fPIC -Iinclude -I../src/shared \
+RT_CFLAGS="-Wall -std=c11 -O1 -g -fPIC -Iinclude -I../src/shared -I../include \
 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -DHML_HAVE_ZLIB \
 -DHML_HAVE_LIBWEBSOCKETS $LWS_CFLAGS $SAN_CFLAGS"
 

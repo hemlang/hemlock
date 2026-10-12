@@ -183,7 +183,7 @@ static void *task_thread_main(void *arg) {
 }
 
 // Allocate a task holding `fn` and deep copies of `args` (thread isolation).
-static HmlTask *task_create(HmlValue fn, HmlValue *args, int num_args, const char *name) {
+static HmlTask *task_alloc(HmlValue fn, HmlValue *args, int num_args, const char *name) {
     HmlTask *task = calloc(1, sizeof(HmlTask));
     if (!task) {
         hml_runtime_error("Memory allocation failed in spawn()");
@@ -215,7 +215,7 @@ static HmlTask *task_create(HmlValue fn, HmlValue *args, int num_args, const cha
 
 // Start the worker thread. On failure drops both references and throws,
 // matching the interpreter's "Failed to create thread" error.
-static HmlValue task_start(HmlTask *task, size_t stack_size) {
+static HmlValue task_launch(HmlTask *task, size_t stack_size) {
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setstacksize(&attr, stack_size);
@@ -246,8 +246,8 @@ static HmlFunction *require_async_fn(HmlValue fn, const char *not_fn_msg, const 
 
 HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
     require_async_fn(fn, "spawn() expects a function", "spawn() requires an async function");
-    HmlTask *task = task_create(fn, args, num_args, NULL);
-    return task_start(task, atomic_load(&g_default_stack_size));
+    HmlTask *task = task_alloc(fn, args, num_args, NULL);
+    return task_launch(task, atomic_load(&g_default_stack_size));
 }
 
 // spawn_with(options, fn, args...) - options: { stack_size?: int, name?: string }
@@ -273,7 +273,7 @@ HmlValue hml_spawn_with(HmlValue options, HmlValue fn, HmlValue *args, int num_a
         stack_size = (size_t)sz;
     }
 
-    // The name option's string is borrowed only until task_create copies it.
+    // The name option's string is borrowed only until task_alloc copies it.
     HmlValue nv = hml_val_null();
     const char *name = NULL;
     if (hml_object_has_field(options, "name")) {
@@ -284,9 +284,9 @@ HmlValue hml_spawn_with(HmlValue options, HmlValue fn, HmlValue *args, int num_a
         }
         name = hml_to_string_ptr(nv);
     }
-    HmlTask *task = task_create(fn, args, num_args, name);
+    HmlTask *task = task_alloc(fn, args, num_args, name);
     hml_release(&nv);
-    return task_start(task, stack_size);
+    return task_launch(task, stack_size);
 }
 
 HmlValue hml_get_default_stack_size(void) {
