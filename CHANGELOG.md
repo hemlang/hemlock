@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Channels now share one queueing core across both backends.** The ring
+  buffer, unbuffered rendezvous, close semantics, deadlines and `select()`
+  used to be implemented twice (interpreter and compiled runtime), with four
+  condition variables and three rendezvous flags per channel. They now live
+  once in `src/shared/chan_core.c`, which models an unbuffered channel as a
+  one-slot queue whose sender additionally waits for its item to be taken;
+  both backends are thin adapters over it. Behavior pinned by the suite is
+  unchanged (FIFO delivery, drain-then-null on close, `send_timeout`
+  withdrawing an unconsumed value, throw on send to a closed channel).
+- **`select()` no longer polls.** It used to loop over the channels with an
+  exponential-backoff `nanosleep` (interpreter) or a fixed 1 ms `usleep`
+  (compiled), burning CPU while idle and adding up to a millisecond of
+  latency per message. It now registers a waiter on every channel in the set
+  and sleeps on a condition variable until a `send()` or `close()` wakes it.
+  When several channels are ready, the winner rotates across calls instead
+  of always being the first in the array, so a busy channel cannot starve
+  the others.
+- **Timed channel operations re-check their condition at the deadline.** A
+  `send_timeout()`/`recv_timeout()` whose wakeup lands on the same tick as
+  its deadline now completes instead of reporting a timeout, and a
+  signal consumed by a timing-out waiter can no longer leave another waiter
+  asleep.
+- **One spawn path per backend.** `spawn()`, `spawn_with()` and
+  `detach(fn, ...)` shared three near-identical copies of the thread
+  set-up; each backend now has one. Fire-and-forget tasks are created with
+  a detached pthread attribute instead of being detached after the fact,
+  and a failed `pthread_create` releases both task references instead of
+  leaking the task. The interpreter's worker no longer races the caller to
+  decide who detaches a finished thread: whoever drops the last reference
+  does it, in `task_free()`.
+- **`ThreadPool` (`@stdlib/async`) has one job path and memoized futures.**
+  `submit`/`submit1`/`submit2` share a single enqueue routine; a Future's
+  `get()` can be called repeatedly (it receives once and caches the
+  outcome); `shutdown()` closes the work queue so workers drain what is
+  already queued and exit on their own, then joins them.
+
 ### Fixed
 
 - **Type annotations `channel`, `task`, and `file` now work on both

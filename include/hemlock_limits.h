@@ -134,8 +134,8 @@
 #define HML_NANOSECONDS_PER_MS      1000000L
 #define HML_MILLISECONDS_PER_SECOND 1000
 
-// Default sleep interval for polling (1ms in nanoseconds)
-#define HML_POLL_SLEEP_NS 1000000L
+// Initial capacity of a channel's select() waiter list (grows on demand)
+#define HML_CHAN_WAITERS_INITIAL 4
 
 // ========== ASCII CONSTANTS ==========
 

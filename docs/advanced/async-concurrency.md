@@ -265,11 +265,20 @@ select(channels: array, timeout_ms?: i32): object | null
 
 **Returns:**
 - `{ channel, value }` - Object with the channel that had data and the received value
-- `{ channel, value: null }` - Immediately, if any polled channel is closed
+- `{ channel, value: null }` - Immediately, if any channel in the set is closed
   and empty (even while other channels in the set are open) - remove that
   channel from the set instead of treating the result as data
-- `null` - On timeout (if timeout was specified), or when **all** channels
-  are closed
+- `null` - On timeout (only if a timeout was specified)
+
+**Blocking and fairness:** `select()` does not poll. It registers itself as
+a waiter on every channel in the set and sleeps until a `send()` or `close()`
+on one of them wakes it, so an idle `select()` costs no CPU and reacts to a
+send immediately. When several channels are ready at once, the channel that
+wins is chosen in rotating order across calls rather than always the first in
+the array, so a busy channel cannot starve the others.
+
+Receiving from an unbuffered channel through `select()` is a full rendezvous:
+the blocked sender is released exactly as it would be by `recv()`.
 
 **Example:**
 ```hemlock

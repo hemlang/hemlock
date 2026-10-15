@@ -13,6 +13,7 @@
 
 #define _GNU_SOURCE
 #include "builtins_internal.h"
+#include "chan_core.h"
 #include <pthread.h>
 #include <stdatomic.h>
 #include <signal.h>
@@ -98,29 +99,26 @@ static HmlValue call_hemlock_function_ffi(void *fn_ptr, void *closure_env, HmlVa
 }
 #endif // !__EMSCRIPTEN__ && !HEMLOCK_NO_FFI
 
-// Thread wrapper function
-static void* task_thread_wrapper(void* arg) {
-    HmlTask *task = (HmlTask*)arg;
+// ========== TASKS ==========
+//
+// A task is reference counted: one reference for the caller's handle, one
+// for the worker thread (released when the function returns). task_free()
+// (value.c) detaches the pthread if it was neither joined nor detached, so
+// a dropped handle never leaks thread resources.
 
-    // Block all signals in worker threads so asynchronous signals
-    // (SIGINT/SIGTERM/SIGHUP, ...) are always delivered to the main thread.
-    // The C signal handler calls back into the VM (hml_call_function), which
-    // is not safe to run on an arbitrary worker that may be holding a malloc
-    // or runtime lock. Without this, a server whose accept loop runs in a
-    // spawned task (e.g. serve_async) could have the signal delivered to a
-    // worker and the registered shutdown handler would never run reliably,
-    // leaving the process to take the default (terminating) action. This
-    // matches the interpreter backend, which masks all signals in its task
-    // threads for the same reason.
-    // (POSIX only: Windows delivers console control events on its own thread)
+static void *task_thread_main(void *arg) {
+    HmlTask *task = (HmlTask *)arg;
+
+    // Only the main thread handles signals: the C signal handler calls back
+    // into the VM, which is not safe on a worker that may hold a runtime
+    // lock. (POSIX only: Windows delivers console control events on its own
+    // thread.)
 #if !defined(__EMSCRIPTEN__) && !defined(_WIN32)
     sigset_t block_set;
     sigfillset(&block_set);
     pthread_sigmask(SIG_BLOCK, &block_set, NULL);
 #endif
 
-    // Set thread name if provided (must be called from within the thread for macOS)
-    // Not available in Emscripten/WASM
 #ifndef __EMSCRIPTEN__
     if (task->name) {
         char name_buf[16];
@@ -133,192 +131,134 @@ static void* task_thread_wrapper(void* arg) {
     }
 #endif
 
-    // macOS aggressively coalesces timers on threads inheriting a low QoS
-    // class — a process launched from launchd / nohup / a background shell
-    // can end up with QOS_CLASS_BACKGROUND or QOS_CLASS_UTILITY, in which
-    // case nanosleep() can run anywhere from 30s up to ~5 minutes for the
-    // *same* requested 30-second sleep. That's death for any heartbeat /
-    // poll loop that depends on punctual wakeups (e.g. a worker phoning
-    // home to a control plane every N seconds — the CP marks it stale,
-    // even though the process is healthy and the sleep eventually returns).
-    // Pin spawn'd-task threads to USER_INITIATED so timer coalescing stays
-    // off and sleep() means roughly what it says.
+    // macOS coalesces timers aggressively on low-QoS threads (a process
+    // launched from launchd/nohup can inherit BACKGROUND/UTILITY), stretching
+    // a 30s nanosleep to minutes. Pin task threads to USER_INITIATED so
+    // heartbeat/poll loops wake up on time.
 #if defined(__APPLE__) && !defined(__EMSCRIPTEN__)
     pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
 #endif
 
-    // Mark as running
     pthread_mutex_lock(&task->sync->mutex);
     task->state = HML_TASK_RUNNING;
     pthread_mutex_unlock(&task->sync->mutex);
 
-    // Get function info
     HmlFunction *fn = task->function.as.as_function;
-#if !defined(__EMSCRIPTEN__) && !defined(HEMLOCK_NO_FFI)
-    void *fn_ptr = fn->fn_ptr;
-    void *closure_env = fn->closure_env;
-#endif
+    int arity = fn->num_params + (fn->has_rest_param ? 1 : 0);
+    int direct_call = arity <= 8;  // direct dispatcher limit; libffi beyond
 
-    // Prefer direct call dispatcher for common arities; fall back to libffi for large signatures.
-    int can_use_direct_call = 0;
-    if (fn->has_rest_param) {
-        can_use_direct_call = (fn->num_params + 1) <= 8;
-    } else {
-        can_use_direct_call = fn->num_params <= 8;
-    }
-
-    // Set up exception handler so task exceptions are captured instead of crashing
-    // the whole process. This matches the interpreter's behavior where task exceptions
-    // are stored and re-thrown on join().
+    // Capture exceptions so they propagate on join() instead of killing the process.
     HmlExceptionContext *ex_ctx = hml_exception_push();
-    HmlValue result;
+    HmlValue result = hml_val_null();
+    HmlValue exception = hml_val_null();
+    int threw = 0;
 
     if (setjmp(ex_ctx->exception_buf) == 0) {
-        // Normal execution path
-        if (can_use_direct_call) {
+        if (direct_call) {
             result = hml_call_function(task->function, task->args, task->num_args);
         } else {
 #if defined(__EMSCRIPTEN__) || defined(HEMLOCK_NO_FFI)
-            // libffi not available, direct dispatch only supports up to 8 params
             hml_runtime_error("spawn(): functions with >8 parameters not supported in this build");
-            result = hml_val_null();
 #else
-            result = call_hemlock_function_ffi(fn_ptr, closure_env, task->args, task->num_args);
+            result = call_hemlock_function_ffi(fn->fn_ptr, fn->closure_env, task->args, task->num_args);
 #endif
         }
         hml_exception_pop();
     } else {
-        // Exception was thrown - capture it for propagation on join()
-        HmlValue exc = hml_exception_get_value();
+        exception = hml_exception_get_value();  // owned reference
         hml_exception_pop();
-
-        pthread_mutex_lock(&task->sync->mutex);
-        task->has_exception = 1;
-        task->exception_value = exc;
-        hml_retain(&task->exception_value);
-        task->result = hml_val_null();
-        task->state = HML_TASK_COMPLETED;
-        pthread_cond_signal(&task->sync->cond);
-        pthread_mutex_unlock(&task->sync->mutex);
-
-        hml_release(&exc);
-
-        // Release the thread's reference to the task
-        HmlValue task_val = { .type = HML_VAL_TASK, .as.as_task = task };
-        hml_release(&task_val);
-        return NULL;
+        threw = 1;
     }
 
-    // Store result and mark as completed
     pthread_mutex_lock(&task->sync->mutex);
     task->result = result;
+    task->has_exception = threw;
+    task->exception_value = exception;
     task->state = HML_TASK_COMPLETED;
-    pthread_cond_signal(&task->sync->cond);
     pthread_mutex_unlock(&task->sync->mutex);
 
-    // Release the thread's reference to the task
     HmlValue task_val = { .type = HML_VAL_TASK, .as.as_task = task };
-    hml_release(&task_val);
+    hml_release(&task_val);  // the worker's reference
     return NULL;
 }
 
-// pthread_create() failed: no thread will ever complete this task, so drop
-// both references (caller's and thread's) and throw, matching the
-// interpreter's "Failed to create thread" error instead of hanging join().
-__attribute__((noreturn))
-static void spawn_failed(HmlTask *task, int rc) {
-    task->detached = 1;  // there is no pthread to detach in task_free()
-    task->ref_count = 1;
-    HmlValue task_val = { .type = HML_VAL_TASK, .as.as_task = task };
-    hml_release(&task_val);
-    hml_runtime_error("Failed to create thread: %d", rc);
-}
-
-HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
-    if (fn.type != HML_VAL_FUNCTION) {
-        hml_runtime_error("spawn() expects a function");
+// Allocate a task holding `fn` and deep copies of `args` (thread isolation).
+static HmlTask *task_alloc(HmlValue fn, HmlValue *args, int num_args, const char *name) {
+    HmlTask *task = calloc(1, sizeof(HmlTask));
+    if (!task) {
+        hml_runtime_error("Memory allocation failed in spawn()");
     }
-
-    // Verify function is async (for parity with interpreter)
-    HmlFunction *func = fn.as.as_function;
-    if (!func->is_async) {
-        hml_runtime_error("spawn() requires an async function");
+    task->sync = malloc(sizeof(HmlTaskSync));
+    if (!task->sync) {
+        free(task);
+        hml_runtime_error("Memory allocation failed in spawn()");
     }
-
-    // Create task
-    HmlTask *task = malloc(sizeof(HmlTask));
     task->id = atomic_fetch_add(&g_next_task_id, 1);
     task->state = HML_TASK_READY;
     task->result = hml_val_null();
-    task->joined = 0;
-    task->detached = 0;
-    task->has_exception = 0;
     task->exception_value = hml_val_null();
-    // ref_count=2: one for the caller, one for the thread wrapper.
-    // The thread releases its reference on completion, preventing
-    // use-after-free when the caller drops the task immediately.
-    task->ref_count = 2;
-
-    // Store function and args
+    task->ref_count = 2;  // caller's handle + worker thread
     task->function = fn;
     hml_retain(&task->function);
+    task->name = name ? strdup(name) : NULL;
+    pthread_mutex_init(&task->sync->mutex, NULL);
+
     task->num_args = num_args;
     if (num_args > 0) {
         task->args = malloc(sizeof(HmlValue) * num_args);
         for (int i = 0; i < num_args; i++) {
-            // Deep copy arguments to prevent sharing mutable state between threads.
-            // This matches the interpreter's behavior and prevents data races with
-            // mutable types like strings, arrays, and objects.
             task->args[i] = hml_value_deep_copy(args[i]);
         }
-    } else {
-        task->args = NULL;
     }
-
-    // Initialize sync structures in single allocation (reduces fragmentation)
-    task->sync = malloc(sizeof(HmlTaskSync));
-    pthread_mutex_init(&task->sync->mutex, NULL);
-    pthread_cond_init(&task->sync->cond, NULL);
-
-    // Initialize name
-    task->name = NULL;
-
-    // Create thread with default stack size
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setstacksize(&attr, atomic_load(&g_default_stack_size));
-    int rc = pthread_create(&task->sync->thread, &attr, task_thread_wrapper, task);
-    pthread_attr_destroy(&attr);
-    if (rc != 0) {
-        spawn_failed(task, rc);
-    }
-
-    // Return task value
-    HmlValue result;
-    result.type = HML_VAL_TASK;
-    result.as.as_task = task;
-    return result;
+    return task;
 }
 
-// spawn_with(options, fn, args...) - Spawn with configuration options
+// Start the worker thread. On failure drops both references and throws,
+// matching the interpreter's "Failed to create thread" error.
+static HmlValue task_launch(HmlTask *task, size_t stack_size) {
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, stack_size);
+    int rc = pthread_create(&task->sync->thread, &attr, task_thread_main, task);
+    pthread_attr_destroy(&attr);
+
+    if (rc != 0) {
+        task->detached = 1;  // there is no pthread for task_free() to detach
+        task->ref_count = 1;
+        HmlValue task_val = { .type = HML_VAL_TASK, .as.as_task = task };
+        hml_release(&task_val);
+        hml_runtime_error("Failed to create thread: %d", rc);
+    }
+
+    HmlValue handle = { .type = HML_VAL_TASK, .as.as_task = task };
+    return handle;
+}
+
+static HmlFunction *require_async_fn(HmlValue fn, const char *not_fn_msg, const char *not_async_msg) {
+    if (fn.type != HML_VAL_FUNCTION) {
+        hml_runtime_error("%s", not_fn_msg);
+    }
+    if (!fn.as.as_function->is_async) {
+        hml_runtime_error("%s", not_async_msg);
+    }
+    return fn.as.as_function;
+}
+
+HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
+    require_async_fn(fn, "spawn() expects a function", "spawn() requires an async function");
+    HmlTask *task = task_alloc(fn, args, num_args, NULL);
+    return task_launch(task, atomic_load(&g_default_stack_size));
+}
+
+// spawn_with(options, fn, args...) - options: { stack_size?: int, name?: string }
 HmlValue hml_spawn_with(HmlValue options, HmlValue fn, HmlValue *args, int num_args) {
     if (options.type != HML_VAL_OBJECT) {
         hml_runtime_error("spawn_with() first argument must be an options object");
     }
+    require_async_fn(fn, "spawn_with() second argument must be a function",
+                     "spawn_with() requires an async function");
 
-    if (fn.type != HML_VAL_FUNCTION) {
-        hml_runtime_error("spawn_with() second argument must be a function");
-    }
-
-    HmlFunction *func = fn.as.as_function;
-    if (!func->is_async) {
-        hml_runtime_error("spawn_with() requires an async function");
-    }
-
-    // Extract options
     size_t stack_size = atomic_load(&g_default_stack_size);
-    const char *thread_name = NULL;
-
     if (hml_object_has_field(options, "stack_size")) {
         HmlValue sv = hml_object_get_field(options, "stack_size");
         if (!hml_is_integer(sv)) {
@@ -333,76 +273,26 @@ HmlValue hml_spawn_with(HmlValue options, HmlValue fn, HmlValue *args, int num_a
         stack_size = (size_t)sz;
     }
 
-    // nv stays live until task->name is strdup'd below (thread_name borrows
-    // its string data); released right after.
+    // The name option's string is borrowed only until task_alloc copies it.
     HmlValue nv = hml_val_null();
+    const char *name = NULL;
     if (hml_object_has_field(options, "name")) {
         nv = hml_object_get_field(options, "name");
         if (nv.type != HML_VAL_STRING) {
             hml_release(&nv);
             hml_runtime_error("spawn_with() name must be a string");
         }
-        thread_name = hml_to_string_ptr(nv);
+        name = hml_to_string_ptr(nv);
     }
-
-    // Create task
-    HmlTask *task = malloc(sizeof(HmlTask));
-    task->id = atomic_fetch_add(&g_next_task_id, 1);
-    task->state = HML_TASK_READY;
-    task->result = hml_val_null();
-    task->joined = 0;
-    task->detached = 0;
-    task->has_exception = 0;
-    task->exception_value = hml_val_null();
-    // ref_count=2: one for the caller, one for the thread wrapper.
-    // The thread releases its reference on completion, preventing
-    // use-after-free when the caller drops the task immediately.
-    task->ref_count = 2;
-
-    // Store function and args
-    task->function = fn;
-    hml_retain(&task->function);
-    task->num_args = num_args;
-    if (num_args > 0) {
-        task->args = malloc(sizeof(HmlValue) * num_args);
-        for (int i = 0; i < num_args; i++) {
-            task->args[i] = hml_value_deep_copy(args[i]);
-        }
-    } else {
-        task->args = NULL;
-    }
-
-    // Set debug name (copies nv's data; the name option ref can go now)
-    task->name = thread_name ? strdup(thread_name) : NULL;
+    HmlTask *task = task_alloc(fn, args, num_args, name);
     hml_release(&nv);
-
-    // Initialize sync structures
-    task->sync = malloc(sizeof(HmlTaskSync));
-    pthread_mutex_init(&task->sync->mutex, NULL);
-    pthread_cond_init(&task->sync->cond, NULL);
-
-    // Create thread with requested stack size
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setstacksize(&attr, stack_size);
-    int rc = pthread_create(&task->sync->thread, &attr, task_thread_wrapper, task);
-    pthread_attr_destroy(&attr);
-    if (rc != 0) {
-        spawn_failed(task, rc);
-    }
-
-    HmlValue result;
-    result.type = HML_VAL_TASK;
-    result.as.as_task = task;
-    return result;
+    return task_launch(task, stack_size);
 }
 
-// get_default_stack_size() - Returns the current default thread stack size
 HmlValue hml_get_default_stack_size(void) {
     return hml_val_i64((int64_t)atomic_load(&g_default_stack_size));
 }
 
-// set_default_stack_size(size) - Sets the default thread stack size
 void hml_set_default_stack_size(HmlValue size) {
     if (!hml_is_integer(size)) {
         hml_runtime_error("set_default_stack_size() argument must be an integer");
@@ -418,51 +308,31 @@ HmlValue hml_join(HmlValue task_val) {
     if (task_val.type != HML_VAL_TASK) {
         hml_runtime_error("join() expects a task");
     }
-
     HmlTask *task = task_val.as.as_task;
 
-    // Lock mutex BEFORE checking flags to prevent TOCTOU race condition
-    // Multiple threads calling join() simultaneously must be serialized
+    // Claim the join under the lock so concurrent join()/detach() serialize.
     pthread_mutex_lock(&task->sync->mutex);
-
     if (task->joined) {
         pthread_mutex_unlock(&task->sync->mutex);
         hml_runtime_error_loc("task handle already joined");
     }
-
     if (task->detached) {
         pthread_mutex_unlock(&task->sync->mutex);
         hml_runtime_error_loc("cannot join detached task");
     }
-
-    // Mark as joined while holding mutex to prevent concurrent join/detach
     task->joined = 1;
-
-    // Wait for task to complete
-    while (task->state != HML_TASK_COMPLETED) {
-        pthread_cond_wait(&task->sync->cond, &task->sync->mutex);
-    }
-
-    // Get result while holding mutex
-    HmlValue result = task->result;
-    hml_retain(&result);
-    int had_exception = task->has_exception;
-    HmlValue exception = task->exception_value;
-    if (had_exception) {
-        hml_retain(&exception);
-    }
-
     pthread_mutex_unlock(&task->sync->mutex);
 
-    // Join the thread (outside mutex to avoid blocking other operations)
     pthread_join(task->sync->thread, NULL);
 
-    // Re-throw task exception in the joining thread (parity with interpreter)
-    if (had_exception) {
-        hml_release(&result);
-        hml_throw(exception);
+    // The worker has exited: its outcome is final and ours to read.
+    if (task->has_exception) {
+        HmlValue exception = task->exception_value;
+        hml_retain(&exception);
+        hml_throw(exception);  // re-throw in the joining thread (parity with interpreter)
     }
-
+    HmlValue result = task->result;
+    hml_retain(&result);
     return result;
 }
 
@@ -470,58 +340,44 @@ void hml_detach(HmlValue task_val) {
     if (task_val.type != HML_VAL_TASK) {
         hml_runtime_error("detach() expects a task");
     }
-
     HmlTask *task = task_val.as.as_task;
 
-    // Lock mutex BEFORE checking flags to prevent TOCTOU race condition
-    // Multiple threads calling detach() or join()/detach() simultaneously must be serialized
     pthread_mutex_lock(&task->sync->mutex);
-
     if (task->joined) {
         pthread_mutex_unlock(&task->sync->mutex);
         hml_runtime_error("cannot detach already joined task");
     }
-
     if (task->detached) {
         pthread_mutex_unlock(&task->sync->mutex);
-        return; // Already detached
+        return;  // already detached
     }
-
-    // Mark as detached while holding mutex to prevent concurrent join/detach
     task->detached = 1;
-
     pthread_mutex_unlock(&task->sync->mutex);
 
-    // Detach the pthread (outside mutex - this is a pthread operation)
     pthread_detach(task->sync->thread);
 }
 
-// task_debug_info(task) - Print debug information about a task
 void hml_task_debug_info(HmlValue task_val) {
     if (task_val.type != HML_VAL_TASK) {
         hml_runtime_error("task_debug_info() expects a task");
     }
-
     HmlTask *task = task_val.as.as_task;
 
-    // Lock mutex to safely read task state
     pthread_mutex_lock(&task->sync->mutex);
-
+    const char *state = "UNKNOWN";
+    switch (task->state) {
+        case HML_TASK_READY:     state = "READY"; break;
+        case HML_TASK_RUNNING:   state = "RUNNING"; break;
+        case HML_TASK_COMPLETED: state = "COMPLETED"; break;
+    }
     printf("=== Task Debug Info ===\n");
     printf("Task ID: %d\n", task->id);
-    printf("State: ");
-    switch (task->state) {
-        case HML_TASK_READY: printf("READY\n"); break;
-        case HML_TASK_RUNNING: printf("RUNNING\n"); break;
-        case HML_TASK_COMPLETED: printf("COMPLETED\n"); break;
-        default: printf("UNKNOWN\n"); break;
-    }
+    printf("State: %s\n", state);
     printf("Joined: %s\n", task->joined ? "true" : "false");
     printf("Detached: %s\n", task->detached ? "true" : "false");
     printf("Ref Count: %d\n", atomic_load(&task->ref_count));
     printf("Has Result: %s\n", task->result.type != HML_VAL_NULL ? "true" : "false");
     printf("======================\n");
-
     pthread_mutex_unlock(&task->sync->mutex);
 }
 
@@ -530,531 +386,163 @@ HmlValue hml_apply(HmlValue fn, HmlValue args_array) {
     if (fn.type != HML_VAL_FUNCTION) {
         hml_runtime_error("apply() first argument must be a function");
     }
-
     if (args_array.type != HML_VAL_ARRAY) {
         hml_runtime_error("apply() second argument must be an array");
     }
-
     HmlFunction *func = fn.as.as_function;
     HmlArray *arr = args_array.as.as_array;
 
 #if defined(__EMSCRIPTEN__) || defined(HEMLOCK_NO_FFI)
-    // No libffi: use direct call dispatcher
-    // Supports up to 8 parameters which covers virtually all real use cases
+    // No libffi: the direct dispatcher covers up to 8 parameters.
     (void)func;
     return hml_call_function(fn, arr->elements, arr->length);
 #else
-    // Native: use libffi for arbitrary parameter count
     return call_hemlock_function_ffi(func->fn_ptr, func->closure_env, arr->elements, arr->length);
 #endif
 }
 
-// Channel functions
+// ========== CHANNELS ==========
+//
+// Thin adapters over the shared channel core (src/shared/chan_core.c),
+// which owns all queueing and blocking logic. These functions validate
+// arguments, manage HmlValue references, and map core status codes onto
+// the runtime's return/throw conventions:
+//
+//   send()          -> throws on closed
+//   recv()          -> value, or null once closed and drained
+//   recv_timeout()  -> value, or null on timeout / closed
+//   send_timeout()  -> true on success, false on timeout, throws on closed
+//   select()        -> { channel, value } / { channel, value: null } / null on timeout
+
+static void channel_item_release(void *item) {
+    hml_release((HmlValue *)item);
+}
+
+static HmlChan *require_channel(HmlValue channel, const char *who) {
+    if (channel.type != HML_VAL_CHANNEL) {
+        hml_runtime_error("%s expects a channel", who);
+    }
+    return channel.as.as_channel->chan;
+}
+
+// The core consumes the reference on every return path, so retain first.
+static HmlChanStatus send_value(HmlChan *chan, HmlValue value, const struct timespec *deadline) {
+    hml_retain(&value);
+    return hml_chan_send(chan, &value, deadline);
+}
+
+static HmlValue recv_value(HmlChan *chan, const struct timespec *deadline) {
+    HmlValue value;
+    if (hml_chan_recv(chan, &value, deadline) == HML_CHAN_OK) {
+        return value;  // caller owns the reference handed out by the core
+    }
+    return hml_val_null();
+}
+
 HmlValue hml_channel(int32_t capacity) {
     HmlChannel *ch = malloc(sizeof(HmlChannel));
-    ch->capacity = capacity;
-    ch->head = 0;
-    ch->tail = 0;
-    ch->count = 0;
-    ch->closed = 0;
-    ch->ref_count = 1;
-
-    // Only allocate buffer for buffered channels (capacity > 0)
-    if (capacity > 0) {
-        ch->buffer = malloc(sizeof(HmlValue) * capacity);
-    } else {
-        ch->buffer = NULL;
+    if (ch) {
+        ch->chan = hml_chan_new(capacity, sizeof(HmlValue), channel_item_release);
+        ch->ref_count = 1;
     }
-
-    // Initialize sync structures in single allocation (reduces fragmentation)
-    ch->sync = malloc(sizeof(HmlChannelSync));
-    pthread_mutex_init(&ch->sync->mutex, NULL);
-    pthread_cond_init(&ch->sync->not_empty, NULL);
-    pthread_cond_init(&ch->sync->not_full, NULL);
-    pthread_cond_init(&ch->sync->rendezvous, NULL);
-
-    // Initialize unbuffered channel fields (value is inline, no separate alloc)
-    ch->unbuffered_value = hml_val_null();
-    ch->sender_waiting = 0;
-    ch->receiver_waiting = 0;
-    ch->rendezvous_gen = 0;
-
-    HmlValue result;
-    result.type = HML_VAL_CHANNEL;
-    result.as.as_channel = ch;
+    if (!ch || !ch->chan) {
+        free(ch);
+        hml_runtime_error("Memory allocation failed in channel()");
+    }
+    HmlValue result = { .type = HML_VAL_CHANNEL, .as.as_channel = ch };
     return result;
 }
 
 void hml_channel_send(HmlValue channel, HmlValue value) {
-    if (channel.type != HML_VAL_CHANNEL) {
-        hml_runtime_error("send() expects a channel");
-    }
-
-    HmlChannel *ch = channel.as.as_channel;
-
-    pthread_mutex_lock(&ch->sync->mutex);
-
-    // Check if channel is closed
-    if (ch->closed) {
-        pthread_mutex_unlock(&ch->sync->mutex);
+    HmlChan *chan = require_channel(channel, "send()");
+    if (send_value(chan, value, NULL) == HML_CHAN_CLOSED) {
         hml_runtime_error("cannot send to closed channel");
     }
-
-    if (ch->capacity == 0) {
-        // Unbuffered channel - rendezvous with receiver.
-        // If another sender already staged a value, wait for its rendezvous
-        // to complete first: overwriting ch->unbuffered_value here leaked the
-        // other sender's retained value and silently dropped its message
-        // (its send() still reported success).
-        while (ch->sender_waiting && !ch->closed) {
-            pthread_cond_wait(&ch->sync->not_full, &ch->sync->mutex);
-        }
-        if (ch->closed) {
-            pthread_mutex_unlock(&ch->sync->mutex);
-            hml_runtime_error("cannot send to closed channel");
-        }
-
-        hml_retain(&value);
-        ch->unbuffered_value = value;
-        ch->sender_waiting = 1;
-        // Remember the handoff generation at staging time. "My value was
-        // consumed" is detected as a generation bump, NOT as
-        // sender_waiting == 0: with multiple senders another sender may
-        // have re-staged (setting the flag back to 1) before we wake.
-        unsigned long long my_gen = ch->rendezvous_gen;
-
-        // Signal any waiting receiver that data is available
-        pthread_cond_signal(&ch->sync->not_empty);
-
-        // Wait for receiver to pick up the value
-        while (ch->rendezvous_gen == my_gen && !ch->closed) {
-            pthread_cond_wait(&ch->sync->rendezvous, &ch->sync->mutex);
-        }
-
-        // Woken because channel closed with our value still staged
-        if (ch->closed && ch->rendezvous_gen == my_gen) {
-            ch->sender_waiting = 0;
-            hml_release(&ch->unbuffered_value);
-            ch->unbuffered_value = hml_val_null();
-            pthread_mutex_unlock(&ch->sync->mutex);
-            hml_runtime_error("cannot send to closed channel");
-        }
-
-        pthread_mutex_unlock(&ch->sync->mutex);
-        return;
-    }
-
-    // Buffered channel - wait while buffer is full
-    while (ch->count >= ch->capacity && !ch->closed) {
-        pthread_cond_wait(&ch->sync->not_full, &ch->sync->mutex);
-    }
-
-    // Check again if closed after waking up
-    if (ch->closed) {
-        pthread_mutex_unlock(&ch->sync->mutex);
-        hml_runtime_error("cannot send to closed channel");
-    }
-
-    // Add value to buffer
-    ch->buffer[ch->tail] = value;
-    hml_retain(&ch->buffer[ch->tail]);
-    ch->tail = (ch->tail + 1) % ch->capacity;
-    ch->count++;
-
-    pthread_cond_signal(&ch->sync->not_empty);
-    pthread_mutex_unlock(&ch->sync->mutex);
 }
 
 HmlValue hml_channel_recv(HmlValue channel) {
-    if (channel.type != HML_VAL_CHANNEL) {
-        hml_runtime_error("recv() expects a channel");
-    }
-
-    HmlChannel *ch = channel.as.as_channel;
-
-    pthread_mutex_lock(&ch->sync->mutex);
-
-    if (ch->capacity == 0) {
-        // Unbuffered channel - rendezvous with sender
-        // Wait for sender to have data available
-        while (!ch->sender_waiting && !ch->closed) {
-            pthread_cond_wait(&ch->sync->not_empty, &ch->sync->mutex);
-        }
-
-        // If channel is closed and no sender waiting, return null
-        if (!ch->sender_waiting && ch->closed) {
-            pthread_mutex_unlock(&ch->sync->mutex);
-            return hml_val_null();
-        }
-
-        // Get the value from sender
-        HmlValue value = ch->unbuffered_value;
-        ch->unbuffered_value = hml_val_null();
-        ch->sender_waiting = 0;
-        ch->rendezvous_gen++;
-
-        // Wake the sender whose value was consumed (broadcast: signal()
-        // could deliver the wakeup to a different staged-and-waiting
-        // sender, leaving the right one asleep), and wake any sender
-        // queued waiting for the rendezvous slot to free up
-        pthread_cond_broadcast(&ch->sync->rendezvous);
-        pthread_cond_signal(&ch->sync->not_full);
-        pthread_mutex_unlock(&ch->sync->mutex);
-
-        return value;
-    }
-
-    // Buffered channel - wait while buffer is empty
-    while (ch->count == 0 && !ch->closed) {
-        pthread_cond_wait(&ch->sync->not_empty, &ch->sync->mutex);
-    }
-
-    if (ch->count == 0 && ch->closed) {
-        pthread_mutex_unlock(&ch->sync->mutex);
-        return hml_val_null();
-    }
-
-    // Get value from buffer
-    HmlValue value = ch->buffer[ch->head];
-    ch->head = (ch->head + 1) % ch->capacity;
-    ch->count--;
-
-    pthread_cond_signal(&ch->sync->not_full);
-    pthread_mutex_unlock(&ch->sync->mutex);
-
-    return value;
+    return recv_value(require_channel(channel, "recv()"), NULL);
 }
 
-// channel.recv_timeout(timeout_ms) - receive with timeout, returns null on timeout
 HmlValue hml_channel_recv_timeout(HmlValue channel, HmlValue timeout_val) {
-    if (channel.type != HML_VAL_CHANNEL) {
-        hml_runtime_error("recv_timeout() expects a channel");
-    }
-
-    int timeout_ms = hml_to_i32(timeout_val);
-    HmlChannel *ch = channel.as.as_channel;
-
-    // Calculate deadline
+    HmlChan *chan = require_channel(channel, "recv_timeout()");
     struct timespec deadline;
-    clock_gettime(CLOCK_REALTIME, &deadline);
-    deadline.tv_sec += timeout_ms / 1000;
-    deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
-    if (deadline.tv_nsec >= 1000000000) {
-        deadline.tv_sec++;
-        deadline.tv_nsec -= 1000000000;
-    }
-
-    pthread_mutex_lock(&ch->sync->mutex);
-
-    if (ch->capacity == 0) {
-        // Unbuffered channel with timeout - rendezvous with sender
-        // Wait for sender to have data available (with timeout)
-        while (!ch->sender_waiting && !ch->closed) {
-            int rc = pthread_cond_timedwait(&ch->sync->not_empty,
-                                            &ch->sync->mutex, &deadline);
-            if (rc == ETIMEDOUT) {
-                pthread_mutex_unlock(&ch->sync->mutex);
-                return hml_val_null();  // Timeout
-            }
-        }
-
-        // If channel is closed and no sender waiting, return null
-        if (!ch->sender_waiting && ch->closed) {
-            pthread_mutex_unlock(&ch->sync->mutex);
-            return hml_val_null();
-        }
-
-        // Get the value from sender
-        HmlValue value = ch->unbuffered_value;
-        ch->unbuffered_value = hml_val_null();
-        ch->sender_waiting = 0;
-        ch->rendezvous_gen++;
-
-        // Wake the sender whose value was consumed (broadcast - see
-        // hml_channel_recv), and wake any sender queued waiting for the
-        // rendezvous slot to free up
-        pthread_cond_broadcast(&ch->sync->rendezvous);
-        pthread_cond_signal(&ch->sync->not_full);
-        pthread_mutex_unlock(&ch->sync->mutex);
-
-        return value;
-    }
-
-    // Buffered channel - wait while buffer is empty
-    while (ch->count == 0 && !ch->closed) {
-        int rc = pthread_cond_timedwait(&ch->sync->not_empty,
-                                        &ch->sync->mutex, &deadline);
-        if (rc == ETIMEDOUT) {
-            pthread_mutex_unlock(&ch->sync->mutex);
-            return hml_val_null();  // Timeout
-        }
-    }
-
-    if (ch->count == 0 && ch->closed) {
-        pthread_mutex_unlock(&ch->sync->mutex);
-        return hml_val_null();
-    }
-
-    // Get value from buffer
-    HmlValue value = ch->buffer[ch->head];
-    ch->head = (ch->head + 1) % ch->capacity;
-    ch->count--;
-
-    pthread_cond_signal(&ch->sync->not_full);
-    pthread_mutex_unlock(&ch->sync->mutex);
-
-    return value;
+    hml_chan_deadline_after_ms(&deadline, hml_to_i32(timeout_val));
+    return recv_value(chan, &deadline);
 }
 
-// channel.send_timeout(value, timeout_ms) - send with timeout, returns bool (true if sent)
 HmlValue hml_channel_send_timeout(HmlValue channel, HmlValue value, HmlValue timeout_val) {
-    if (channel.type != HML_VAL_CHANNEL) {
-        hml_runtime_error("send_timeout() expects a channel");
-    }
-
-    int timeout_ms = hml_to_i32(timeout_val);
-    HmlChannel *ch = channel.as.as_channel;
-
-    // Calculate deadline
+    HmlChan *chan = require_channel(channel, "send_timeout()");
     struct timespec deadline;
-    clock_gettime(CLOCK_REALTIME, &deadline);
-    deadline.tv_sec += timeout_ms / 1000;
-    deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
-    if (deadline.tv_nsec >= 1000000000) {
-        deadline.tv_sec++;
-        deadline.tv_nsec -= 1000000000;
+    hml_chan_deadline_after_ms(&deadline, hml_to_i32(timeout_val));
+    switch (send_value(chan, value, &deadline)) {
+        case HML_CHAN_OK:      return hml_val_bool(1);
+        case HML_CHAN_TIMEOUT: return hml_val_bool(0);
+        case HML_CHAN_CLOSED:  break;
     }
-
-    pthread_mutex_lock(&ch->sync->mutex);
-
-    // Check if channel is closed
-    if (ch->closed) {
-        pthread_mutex_unlock(&ch->sync->mutex);
-        hml_runtime_error("cannot send to closed channel");
-    }
-
-    if (ch->capacity == 0) {
-        // Unbuffered channel with timeout - rendezvous with receiver.
-        // Wait for any in-progress sender's rendezvous first (see
-        // hml_channel_send: staging over it leaks + drops that message).
-        while (ch->sender_waiting && !ch->closed) {
-            int rc = pthread_cond_timedwait(&ch->sync->not_full,
-                                            &ch->sync->mutex, &deadline);
-            if (rc == ETIMEDOUT) {
-                pthread_mutex_unlock(&ch->sync->mutex);
-                return hml_val_bool(0);  // Timeout - send failed
-            }
-        }
-        if (ch->closed) {
-            pthread_mutex_unlock(&ch->sync->mutex);
-            hml_runtime_error("cannot send to closed channel");
-        }
-
-        hml_retain(&value);
-        ch->unbuffered_value = value;
-        ch->sender_waiting = 1;
-        // Generation at staging time - see hml_channel_send for why success
-        // is detected as a generation bump rather than sender_waiting == 0.
-        unsigned long long my_gen = ch->rendezvous_gen;
-
-        // Signal any waiting receiver that data is available
-        pthread_cond_signal(&ch->sync->not_empty);
-
-        // Wait for receiver to pick up the value (with timeout)
-        while (ch->rendezvous_gen == my_gen && !ch->closed) {
-            int rc = pthread_cond_timedwait(&ch->sync->rendezvous,
-                                            &ch->sync->mutex, &deadline);
-            if (rc == ETIMEDOUT) {
-                if (ch->rendezvous_gen != my_gen) {
-                    break;  // Consumed right at the deadline - success
-                }
-                // Timeout with our value still staged - withdraw it and
-                // free the slot for any sender queued behind us
-                ch->sender_waiting = 0;
-                hml_release(&ch->unbuffered_value);
-                ch->unbuffered_value = hml_val_null();
-                pthread_cond_signal(&ch->sync->not_full);
-                pthread_mutex_unlock(&ch->sync->mutex);
-                return hml_val_bool(0);  // Timeout - send failed
-            }
-        }
-
-        // Woken because channel closed with our value still staged
-        if (ch->closed && ch->rendezvous_gen == my_gen) {
-            ch->sender_waiting = 0;
-            hml_release(&ch->unbuffered_value);
-            ch->unbuffered_value = hml_val_null();
-            pthread_mutex_unlock(&ch->sync->mutex);
-            hml_runtime_error("cannot send to closed channel");
-        }
-
-        pthread_mutex_unlock(&ch->sync->mutex);
-        return hml_val_bool(1);  // Success
-    }
-
-    // Buffered channel - wait while buffer is full
-    while (ch->count >= ch->capacity && !ch->closed) {
-        int rc = pthread_cond_timedwait(&ch->sync->not_full,
-                                        &ch->sync->mutex, &deadline);
-        if (rc == ETIMEDOUT) {
-            pthread_mutex_unlock(&ch->sync->mutex);
-            return hml_val_bool(0);  // Timeout - send failed
-        }
-    }
-
-    // Check again if closed after waking up
-    if (ch->closed) {
-        pthread_mutex_unlock(&ch->sync->mutex);
-        hml_runtime_error("cannot send to closed channel");
-    }
-
-    // Add value to buffer
-    ch->buffer[ch->tail] = value;
-    hml_retain(&ch->buffer[ch->tail]);
-    ch->tail = (ch->tail + 1) % ch->capacity;
-    ch->count++;
-
-    pthread_cond_signal(&ch->sync->not_empty);
-    pthread_mutex_unlock(&ch->sync->mutex);
-
-    return hml_val_bool(1);  // Success
+    hml_runtime_error("cannot send to closed channel");
+    return hml_val_bool(0);  // unreachable
 }
 
 void hml_channel_close(HmlValue channel) {
     if (channel.type != HML_VAL_CHANNEL) {
         return;
     }
-
-    HmlChannel *ch = channel.as.as_channel;
-
-    pthread_mutex_lock(&ch->sync->mutex);
-    ch->closed = 1;
-    // Wake up all waiting threads
-    pthread_cond_broadcast(&ch->sync->not_empty);
-    pthread_cond_broadcast(&ch->sync->not_full);
-    // Also wake up any unbuffered channel senders waiting on rendezvous
-    pthread_cond_broadcast(&ch->sync->rendezvous);
-    pthread_mutex_unlock(&ch->sync->mutex);
+    hml_chan_close(channel.as.as_channel->chan);
 }
 
-// select(channels, timeout_ms?) - wait on multiple channels
+// Build { channel, value }. Takes ownership of `value`.
+static HmlValue make_select_result(HmlValue channel, HmlValue value) {
+    HmlValue result = hml_val_object();
+    hml_object_set_field(result, "channel", channel);
+    hml_object_set_field(result, "value", value);  // set_field retains its own copy
+    hml_release(&value);
+    return result;
+}
+
+// select(channels, timeout_ms?) - block (no polling) until one channel has a
+// value or is closed and drained.
 HmlValue hml_select(HmlValue channels, HmlValue timeout) {
     if (channels.type != HML_VAL_ARRAY) {
         hml_runtime_error("select() expects array of channels as first argument");
     }
-
     HmlArray *arr = channels.as.as_array;
     if (arr->length == 0) {
         hml_runtime_error("select() requires at least one channel");
     }
 
-    // Validate all elements are channels
+    HmlChan **chans = malloc(sizeof(HmlChan *) * arr->length);
+    if (!chans) {
+        hml_runtime_error("Memory allocation failed in select()");
+    }
     for (int i = 0; i < arr->length; i++) {
         if (arr->elements[i].type != HML_VAL_CHANNEL) {
+            free(chans);
             hml_runtime_error("select() array must contain only channels");
         }
+        chans[i] = arr->elements[i].as.as_channel->chan;
     }
 
-    // Get timeout in milliseconds (-1 means infinite)
-    int timeout_ms = -1;
+    struct timespec deadline, *deadline_ptr = NULL;
     if (timeout.type != HML_VAL_NULL) {
-        timeout_ms = hml_to_i32(timeout);
+        int timeout_ms = hml_to_i32(timeout);
+        if (timeout_ms >= 0) {  // negative = wait forever
+            hml_chan_deadline_after_ms(&deadline, timeout_ms);
+            deadline_ptr = &deadline;
+        }
     }
 
-    // Calculate deadline
-    struct timespec deadline;
-    struct timespec *deadline_ptr = NULL;
-    if (timeout_ms >= 0) {
-        clock_gettime(CLOCK_REALTIME, &deadline);
-        deadline.tv_sec += timeout_ms / 1000;
-        deadline.tv_nsec += (timeout_ms % 1000) * 1000000;
-        if (deadline.tv_nsec >= 1000000000) {
-            deadline.tv_sec++;
-            deadline.tv_nsec -= 1000000000;
-        }
-        deadline_ptr = &deadline;
+    int index = 0;
+    HmlValue value;
+    HmlChanStatus status = hml_chan_select(chans, arr->length, deadline_ptr, &index, &value);
+    free(chans);
+
+    switch (status) {
+        case HML_CHAN_OK:      return make_select_result(arr->elements[index], value);
+        case HML_CHAN_CLOSED:  return make_select_result(arr->elements[index], hml_val_null());
+        case HML_CHAN_TIMEOUT: break;
     }
-
-    // Polling loop
-    while (1) {
-        // Check each channel for available data
-        for (int i = 0; i < arr->length; i++) {
-            HmlChannel *ch = arr->elements[i].as.as_channel;
-
-            pthread_mutex_lock(&ch->sync->mutex);
-
-            // Check for unbuffered channel with sender waiting (rendezvous pattern)
-            if (ch->capacity == 0 && ch->sender_waiting) {
-                // Get the value from sender
-                HmlValue msg = ch->unbuffered_value;
-                ch->unbuffered_value = hml_val_null();
-                ch->sender_waiting = 0;
-                ch->rendezvous_gen++;
-
-                // Wake the sender whose value was consumed (broadcast - a
-                // signal() could wake a different staged sender), and wake
-                // any sender queued waiting for the rendezvous slot
-                pthread_cond_broadcast(&ch->sync->rendezvous);
-                pthread_cond_signal(&ch->sync->not_full);
-                pthread_mutex_unlock(&ch->sync->mutex);
-
-                // Create result object { channel, value }
-                HmlValue result = hml_val_object();
-                hml_object_set_field(result, "channel", arr->elements[i]);
-                hml_object_set_field(result, "value", msg);
-                // We took over the channel's reference to msg; set_field
-                // retained its own copy, so drop ours.
-                hml_release(&msg);
-                return result;
-            }
-
-            // Check if buffered channel has data
-            if (ch->count > 0) {
-                // Read the value
-                HmlValue msg = ch->buffer[ch->head];
-                ch->head = (ch->head + 1) % ch->capacity;
-                ch->count--;
-
-                // Signal that buffer is not full
-                pthread_cond_signal(&ch->sync->not_full);
-                pthread_mutex_unlock(&ch->sync->mutex);
-
-                // Create result object { channel, value }
-                HmlValue result = hml_val_object();
-                hml_object_set_field(result, "channel", arr->elements[i]);
-                hml_object_set_field(result, "value", msg);
-                // We took over the buffer slot's reference to msg; set_field
-                // retained its own copy, so drop ours.
-                hml_release(&msg);
-                return result;
-            }
-
-            // Check if channel is closed and empty
-            if (ch->closed) {
-                pthread_mutex_unlock(&ch->sync->mutex);
-                // Return object with null value for closed channel
-                HmlValue result = hml_val_object();
-                hml_object_set_field(result, "channel", arr->elements[i]);
-                hml_object_set_field(result, "value", hml_val_null());
-                return result;
-            }
-
-            pthread_mutex_unlock(&ch->sync->mutex);
-        }
-
-        // Check timeout
-        if (deadline_ptr) {
-            struct timespec now;
-            clock_gettime(CLOCK_REALTIME, &now);
-            if (now.tv_sec > deadline_ptr->tv_sec ||
-                (now.tv_sec == deadline_ptr->tv_sec && now.tv_nsec >= deadline_ptr->tv_nsec)) {
-                return hml_val_null();  // Timeout
-            }
-        }
-
-        // Sleep briefly before polling again (1ms)
-        usleep(1000);
-    }
+    return hml_val_null();
 }
 
 // ========== POSIX poll() - native only ==========
