@@ -1,0 +1,4 @@
+fn main() {
+    let ch = channel(10);
+    ch.send(1);
+}

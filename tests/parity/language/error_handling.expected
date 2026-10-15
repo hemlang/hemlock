@@ -1,0 +1,20 @@
+caught div by zero
+inner caught: inner error
+outer caught
+caught
+finally ran: true
+no error
+finally2 ran: true
+finally before propagate
+caught propagated
+caught: from finally
+finally with return
+from try
+catch e: inner
+outer e: outer
+caught: 42
+caught: true
+caught: null
+caught array oob
+caught missing field
+done

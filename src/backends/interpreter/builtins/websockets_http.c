@@ -15,6 +15,17 @@
 
 // ========== HTTP SUPPORT ==========
 
+// Default timeout for the non-*_timeout LWS HTTP builtins.
+// The service loop polls in ~10ms increments, so 5000ms maps to 500
+// iterations instead of the previous 3000 iterations (~30000ms).
+#define LWS_HTTP_DEFAULT_TIMEOUT_MS 5000
+#define LWS_HTTP_SERVICE_POLL_MS 10
+
+static int lws_timeout_iterations_from_ms(int timeout_ms) {
+    int iterations = timeout_ms / LWS_HTTP_SERVICE_POLL_MS;
+    return iterations < 1 ? 1 : iterations;
+}
+
 typedef struct {
     char *body;
     size_t body_len;
@@ -26,7 +37,38 @@ typedef struct {
     char *headers;       // Response headers as string
     char **custom_headers;   // Custom request headers (e.g., "Authorization: Bearer xxx")
     int num_custom_headers;
+    // Outgoing request body (for POST/PUT/PATCH/etc.)
+    char *post_body;
+    size_t post_body_len;
+    char *content_type;
+    int body_sent;
 } http_response_t;
+
+// Helper: does the caller's custom_headers list contain a Content-Type entry?
+static int custom_headers_have_content_type(http_response_t *resp) {
+    if (!resp || !resp->custom_headers) return 0;
+    for (int i = 0; i < resp->num_custom_headers; i++) {
+        const char *h = resp->custom_headers[i];
+        if (!h) continue;
+        // Case-insensitive prefix compare on "content-type"
+        const char *needle = "content-type";
+        size_t nl = 12;
+        size_t hl = strlen(h);
+        if (hl < nl) continue;
+        int match = 1;
+        for (size_t j = 0; j < nl; j++) {
+            char c = h[j];
+            if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+            if (c != needle[j]) { match = 0; break; }
+        }
+        if (!match) continue;
+        // Next non-space char must be ':'
+        size_t k = nl;
+        while (k < hl && (h[k] == ' ' || h[k] == '\t')) k++;
+        if (k < hl && h[k] == ':') return 1;
+    }
+    return 0;
+}
 
 static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
                          void *user, void *in, size_t len) {
@@ -72,6 +114,52 @@ static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
                         *p += accept_len;
                     }
                 }
+
+                // If we have a request body, emit Content-Type / Content-Length
+                // and request a writable callback so we can send the body bytes.
+                if (resp && resp->post_body && resp->post_body_len > 0) {
+                    int caller_set_ct = custom_headers_have_content_type(resp);
+                    if (!caller_set_ct) {
+                        const char *ct = (resp->content_type && resp->content_type[0])
+                                             ? resp->content_type
+                                             : "application/octet-stream";
+                        char ct_line[256];
+                        int ctn = snprintf(ct_line, sizeof(ct_line),
+                                           "Content-Type: %s\r\n", ct);
+                        if (ctn > 0 && (end - *p) >= ctn) {
+                            memcpy(*p, ct_line, (size_t)ctn);
+                            *p += ctn;
+                        }
+                    }
+                    char cl_line[64];
+                    int cln = snprintf(cl_line, sizeof(cl_line),
+                                       "Content-Length: %zu\r\n",
+                                       resp->post_body_len);
+                    if (cln > 0 && (end - *p) >= cln) {
+                        memcpy(*p, cl_line, (size_t)cln);
+                        *p += cln;
+                    }
+                    lws_client_http_body_pending(wsi, 1);
+                    lws_callback_on_writable(wsi);
+                }
+            }
+            break;
+
+        case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+            if (resp && resp->post_body && resp->post_body_len > 0 && !resp->body_sent) {
+                size_t body_len = resp->post_body_len;
+                unsigned char *buf = malloc(LWS_PRE + body_len);
+                if (!buf) {
+                    resp->failed = 1;
+                    resp->complete = 1;
+                    return -1;
+                }
+                memcpy(buf + LWS_PRE, resp->post_body, body_len);
+                int n = lws_write(wsi, buf + LWS_PRE, body_len, LWS_WRITE_HTTP);
+                free(buf);
+                lws_client_http_body_pending(wsi, 0);
+                resp->body_sent = 1;
+                return n < 0 ? -1 : 0;
             }
             break;
 
@@ -168,6 +256,14 @@ static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
         case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
             // Accumulate response body - this is called after lws_http_client_read
             if (resp) {
+                // Guard against size_t overflow in the capacity computation
+                // ((body_len + len + 1) * 2 must not wrap)
+                if (len > SIZE_MAX / 2 - 1 ||
+                    resp->body_len > SIZE_MAX / 2 - 1 - len) {
+                    resp->failed = 1;
+                    resp->complete = 1;
+                    return -1;
+                }
                 if (resp->body_len + len >= resp->body_capacity) {
                     resp->body_capacity = (resp->body_len + len + 1) * 2;
                     char *new_body = realloc(resp->body, resp->body_capacity);
@@ -203,6 +299,16 @@ static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
     return 0;
 }
 
+// Parse and validate a port number from a URL. Returns -1 on invalid input.
+static int parse_url_port(const char *s) {
+    if (*s < '0' || *s > '9') return -1;
+    char *end = NULL;
+    long p = strtol(s, &end, 10);
+    if (p < 1 || p > 65535) return -1;
+    if (end && *end != '\0' && *end != '/') return -1;
+    return (int)p;
+}
+
 // Parse URL into components
 int parse_url(const char *url, char *host, int *port, char *path, int *ssl) {
     *ssl = 0;
@@ -223,7 +329,8 @@ int parse_url(const char *url, char *host, int *port, char *path, int *ssl) {
             if (host_len >= 256) return -1;
             strncpy(host, rest, host_len);
             host[host_len] = '\0';
-            *port = (int)strtol(colon + 1, NULL, 10);
+            *port = parse_url_port(colon + 1);
+            if (*port < 0) return -1;
             if (slash) {
                 strncpy(path, slash, 511);
                 path[511] = '\0';
@@ -249,7 +356,8 @@ int parse_url(const char *url, char *host, int *port, char *path, int *ssl) {
             if (host_len >= 256) return -1;
             strncpy(host, rest, host_len);
             host[host_len] = '\0';
-            *port = (int)strtol(colon + 1, NULL, 10);
+            *port = parse_url_port(colon + 1);
+            if (*port < 0) return -1;
             if (slash) {
                 strncpy(path, slash, 511);
                 path[511] = '\0';
@@ -292,7 +400,7 @@ static struct lws_context* get_http_context(int needs_ssl) {
             info.port = CONTEXT_PORT_NO_LISTEN;
             info.max_http_header_data = 16384;
             info.protocols = shared_http_protocols;
-            ssl_http_context = lws_create_context(&info);
+            ssl_http_context = (lws_configure_macos_ca_file(), lws_create_context(&info));
         }
         return ssl_http_context;
     }
@@ -303,7 +411,22 @@ static struct lws_context* get_http_context(int needs_ssl) {
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;
     info.protocols = shared_http_protocols;
-    return lws_create_context(&info);
+    return (lws_configure_macos_ca_file(), lws_create_context(&info));
+}
+
+// Helper: validate a custom header. CR/LF anywhere except a single trailing
+// "\r\n" would let callers inject extra headers or smuggle a request body
+// (HTTP request splitting), so such headers are rejected.
+static int custom_header_is_safe(const char *hdr) {
+    size_t len = strlen(hdr);
+    // Allow one optional trailing CRLF
+    if (len >= 2 && hdr[len-2] == '\r' && hdr[len-1] == '\n') {
+        len -= 2;
+    }
+    for (size_t i = 0; i < len; i++) {
+        if (hdr[i] == '\r' || hdr[i] == '\n') return 0;
+    }
+    return 1;
 }
 
 // Helper: parse a Hemlock array of strings into C header strings stored in resp
@@ -318,7 +441,8 @@ static void parse_headers_into_resp(http_response_t *resp, Value headers_val) {
     int count = 0;
     for (int i = 0; i < arr->length; i++) {
         Value item = arr->elements[i];
-        if (item.type == VAL_STRING && item.as.as_string && item.as.as_string->data) {
+        if (item.type == VAL_STRING && item.as.as_string && item.as.as_string->data &&
+            custom_header_is_safe(item.as.as_string->data)) {
             resp->custom_headers[count] = strdup(item.as.as_string->data);
             if (resp->custom_headers[count]) count++;
         }
@@ -336,6 +460,46 @@ static void free_custom_headers(http_response_t *resp) {
         resp->custom_headers = NULL;
         resp->num_custom_headers = 0;
     }
+}
+
+// Helper: free request-body fields stored in resp
+static void free_request_body(http_response_t *resp) {
+    if (!resp) return;
+    if (resp->post_body) {
+        free(resp->post_body);
+        resp->post_body = NULL;
+    }
+    if (resp->content_type) {
+        free(resp->content_type);
+        resp->content_type = NULL;
+    }
+    resp->post_body_len = 0;
+}
+
+// Helper: attach an outgoing request body (dups the input strings). Safe to
+// call with NULL/empty body — leaves post_body fields NULL so nothing is sent.
+static int attach_request_body(http_response_t *resp,
+                               const char *body,
+                               const char *content_type) {
+    if (!resp) return 0;
+    if (body && body[0] != '\0') {
+        size_t blen = strlen(body);
+        resp->post_body = malloc(blen + 1);
+        if (!resp->post_body) return -1;
+        memcpy(resp->post_body, body, blen);
+        resp->post_body[blen] = '\0';
+        resp->post_body_len = blen;
+        if (content_type && content_type[0] != '\0') {
+            resp->content_type = strdup(content_type);
+            if (!resp->content_type) {
+                free(resp->post_body);
+                resp->post_body = NULL;
+                resp->post_body_len = 0;
+                return -1;
+            }
+        }
+    }
+    return 0;
 }
 
 // __lws_http_get(url: string, headers?: array): ptr
@@ -400,7 +564,7 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
         free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        ctx->exception_state.exception_value = val_string(lws_context_error_message());
         return val_null();
     }
 
@@ -439,15 +603,27 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    // Event loop (timeout after 30 seconds)
-    int timeout = 3000;
+    // Event loop (timeout after 5 seconds)
+    int timeout = lws_timeout_iterations_from_ms(LWS_HTTP_DEFAULT_TIMEOUT_MS);
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
+    }
+
+    // Detach resp from the wsi now that we're done reading it. resp->complete
+    // can be set as soon as headers are parsed (e.g. on a 3xx redirect),
+    // before libwebsockets has actually finished tearing the connection down
+    // -- especially since get_http_context() caches and reuses one lws_context
+    // per scheme, so a later call's lws_service() can still dispatch a stray
+    // callback for this wsi. Without this, the Hemlock stdlib layer frees
+    // resp (e.g. to follow the redirect) while the wsi can still deliver a
+    // callback into it, causing a use-after-free write in http_callback().
+    if (wsi) {
+        lws_set_wsi_user(wsi, NULL);
     }
 
     if (!ssl) lws_context_destroy(context);
 
-    if (resp->failed || timeout <= 0) {
+    if (resp->failed || !resp->complete) {
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
@@ -526,7 +702,7 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
         free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        ctx->exception_state.exception_value = val_string(lws_context_error_message());
         return val_null();
     }
 
@@ -555,32 +731,56 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
         connect_info.ssl_connection |= LCCSCF_USE_SSL;
     }
 
-    // Note: POST body handling in libwebsockets is complex
-    // This is a simplified version - real implementation would need WRITABLE callback
-    (void)post_body;  // Suppress warning - not fully implemented yet
-    (void)content_type;
+    // Attach the outgoing request body so the callback can send it.
+    if (attach_request_body(resp, post_body, content_type) < 0) {
+        if (!ssl) lws_context_destroy(context);
+        free(resp->body);
+        free_custom_headers(resp);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate request body");
+        return val_null();
+    }
 
     if (!lws_client_connect_via_info(&connect_info)) {
         if (!ssl) lws_context_destroy(context);
         free(resp->body);
+        free_request_body(resp);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to connect");
         return val_null();
     }
 
-    // Event loop (timeout after 30 seconds)
-    int timeout = 3000;
+    // Event loop (timeout after 5 seconds)
+    int timeout = lws_timeout_iterations_from_ms(LWS_HTTP_DEFAULT_TIMEOUT_MS);
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
+    }
+
+    // Detach resp from the wsi now that we're done reading it. resp->complete
+    // can be set as soon as headers are parsed (e.g. on a 3xx redirect),
+    // before libwebsockets has actually finished tearing the connection down
+    // -- especially since get_http_context() caches and reuses one lws_context
+    // per scheme, so a later call's lws_service() can still dispatch a stray
+    // callback for this wsi. Without this, the Hemlock stdlib layer frees
+    // resp (e.g. to follow the redirect) while the wsi can still deliver a
+    // callback into it, causing a use-after-free write in http_callback().
+    if (wsi) {
+        lws_set_wsi_user(wsi, NULL);
     }
 
     if (!ssl) lws_context_destroy(context);
 
-    if (resp->failed || timeout <= 0) {
+    // Request body is no longer needed once the call completes.
+    free_request_body(resp);
+
+    if (resp->failed || !resp->complete) {
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
@@ -643,6 +843,7 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     resp->body_capacity = 4096;
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
@@ -650,18 +851,13 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     }
     resp->body[0] = '\0';
 
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-    info.protocols = shared_http_protocols;
-
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = get_http_context(ssl);
     if (!context) {
         free(resp->body);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        ctx->exception_state.exception_value = val_string(lws_context_error_message());
         return val_null();
     }
 
@@ -690,31 +886,56 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
         connect_info.ssl_connection |= LCCSCF_USE_SSL;
     }
 
-    // Note: Body handling for PUT/DELETE is simplified
-    (void)body;
-    (void)content_type;
+    // Attach the outgoing request body so the callback can send it.
+    if (attach_request_body(resp, body, content_type) < 0) {
+        if (!ssl) lws_context_destroy(context);
+        free(resp->body);
+        free_custom_headers(resp);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate request body");
+        return val_null();
+    }
 
     if (!lws_client_connect_via_info(&connect_info)) {
         if (!ssl) lws_context_destroy(context);
         free(resp->body);
+        free_request_body(resp);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to connect");
         return val_null();
     }
 
-    // Event loop (timeout after 30 seconds)
-    int timeout = 3000;
+    // Event loop (timeout after 5 seconds)
+    int timeout = lws_timeout_iterations_from_ms(LWS_HTTP_DEFAULT_TIMEOUT_MS);
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
+    }
+
+    // Detach resp from the wsi now that we're done reading it. resp->complete
+    // can be set as soon as headers are parsed (e.g. on a 3xx redirect),
+    // before libwebsockets has actually finished tearing the connection down
+    // -- especially since get_http_context() caches and reuses one lws_context
+    // per scheme, so a later call's lws_service() can still dispatch a stray
+    // callback for this wsi. Without this, the Hemlock stdlib layer frees
+    // resp (e.g. to follow the redirect) while the wsi can still deliver a
+    // callback into it, causing a use-after-free write in http_callback().
+    if (wsi) {
+        lws_set_wsi_user(wsi, NULL);
     }
 
     if (!ssl) lws_context_destroy(context);
 
-    if (resp->failed || timeout <= 0) {
+    // Request body is no longer needed once the call completes.
+    free_request_body(resp);
+
+    if (resp->failed || !resp->complete) {
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
@@ -724,7 +945,7 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
     return val_ptr(resp);
 }
 
-// __lws_http_get_timeout(url: string, timeout_ms: i32): ptr
+// __lws_http_get_timeout(url: string, timeout_ms: i32, headers?: array): ptr
 // HTTP GET with configurable timeout
 Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *ctx) {
     // SANDBOX: Check if network is allowed
@@ -735,9 +956,9 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
 
     lws_init_logging();
 
-    if (num_args != 2) {
+    if (num_args < 2 || num_args > 3) {
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_get_timeout() expects 2 arguments (url, timeout_ms)");
+        ctx->exception_state.exception_value = val_string("__lws_http_get_timeout() expects 2-3 arguments (url, timeout_ms, headers?)");
         return val_null();
     }
 
@@ -761,9 +982,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
         return val_null();
     }
 
-    // Convert timeout_ms to iterations (each iteration is ~10ms)
-    int timeout_iterations = timeout_ms / 10;
-    if (timeout_iterations < 1) timeout_iterations = 1;
+    int timeout_iterations = lws_timeout_iterations_from_ms(timeout_ms);
 
     const char *url = args[0].as.as_string->data;
     char host[256], path[512];
@@ -782,9 +1001,15 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
         return val_null();
     }
 
+    // Parse optional custom headers
+    if (num_args == 3) {
+        parse_headers_into_resp(resp, args[2]);
+    }
+
     resp->body_capacity = 4096;
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
@@ -792,18 +1017,13 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     }
     resp->body[0] = '\0';
 
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-    info.protocols = shared_http_protocols;
-
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = get_http_context(ssl);
     if (!context) {
         free(resp->body);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        ctx->exception_state.exception_value = val_string(lws_context_error_message());
         return val_null();
     }
 
@@ -831,6 +1051,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     if (!lws_client_connect_via_info(&connect_info)) {
         if (!ssl) lws_context_destroy(context);
         free(resp->body);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to connect");
@@ -840,15 +1061,28 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     // Event loop with custom timeout
     int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
+    }
+
+    // Detach resp from the wsi now that we're done reading it. resp->complete
+    // can be set as soon as headers are parsed (e.g. on a 3xx redirect),
+    // before libwebsockets has actually finished tearing the connection down
+    // -- especially since get_http_context() caches and reuses one lws_context
+    // per scheme, so a later call's lws_service() can still dispatch a stray
+    // callback for this wsi. Without this, the Hemlock stdlib layer frees
+    // resp (e.g. to follow the redirect) while the wsi can still deliver a
+    // callback into it, causing a use-after-free write in http_callback().
+    if (wsi) {
+        lws_set_wsi_user(wsi, NULL);
     }
 
     if (!ssl) lws_context_destroy(context);
 
-    if (resp->failed || timeout <= 0) {
+    if (resp->failed || !resp->complete) {
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
@@ -858,7 +1092,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     return val_ptr(resp);
 }
 
-// __lws_http_post_timeout(url: string, body: string, content_type: string, timeout_ms: i32): ptr
+// __lws_http_post_timeout(url: string, body: string, content_type: string, timeout_ms: i32, headers?: array): ptr
 // HTTP POST with configurable timeout
 Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext *ctx) {
     // SANDBOX: Check if network is allowed
@@ -869,9 +1103,9 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
 
     lws_init_logging();
 
-    if (num_args != 4) {
+    if (num_args < 4 || num_args > 5) {
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_post_timeout() expects 4 arguments (url, body, content_type, timeout_ms)");
+        ctx->exception_state.exception_value = val_string("__lws_http_post_timeout() expects 4-5 arguments (url, body, content_type, timeout_ms, headers?)");
         return val_null();
     }
 
@@ -895,12 +1129,11 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
         return val_null();
     }
 
-    int timeout_iterations = timeout_ms / 10;
-    if (timeout_iterations < 1) timeout_iterations = 1;
+    int timeout_iterations = lws_timeout_iterations_from_ms(timeout_ms);
 
     const char *url = args[0].as.as_string->data;
-    (void)args[1];  // body - not fully implemented
-    (void)args[2];  // content_type
+    const char *post_body = args[1].as.as_string->data;
+    const char *content_type = args[2].as.as_string->data;
 
     char host[256], path[512];
     int port, ssl;
@@ -918,9 +1151,15 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
         return val_null();
     }
 
+    // Parse optional custom headers
+    if (num_args == 5) {
+        parse_headers_into_resp(resp, args[4]);
+    }
+
     resp->body_capacity = 4096;
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
@@ -928,18 +1167,13 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     }
     resp->body[0] = '\0';
 
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-    info.protocols = shared_http_protocols;
-
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = get_http_context(ssl);
     if (!context) {
         free(resp->body);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        ctx->exception_state.exception_value = val_string(lws_context_error_message());
         return val_null();
     }
 
@@ -964,9 +1198,22 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
         connect_info.ssl_connection |= LCCSCF_USE_SSL;
     }
 
+    // Attach the outgoing request body so the callback can send it.
+    if (attach_request_body(resp, post_body, content_type) < 0) {
+        if (!ssl) lws_context_destroy(context);
+        free(resp->body);
+        free_custom_headers(resp);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate request body");
+        return val_null();
+    }
+
     if (!lws_client_connect_via_info(&connect_info)) {
         if (!ssl) lws_context_destroy(context);
         free(resp->body);
+        free_request_body(resp);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to connect");
@@ -976,15 +1223,31 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     // Event loop with custom timeout
     int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
+    }
+
+    // Detach resp from the wsi now that we're done reading it. resp->complete
+    // can be set as soon as headers are parsed (e.g. on a 3xx redirect),
+    // before libwebsockets has actually finished tearing the connection down
+    // -- especially since get_http_context() caches and reuses one lws_context
+    // per scheme, so a later call's lws_service() can still dispatch a stray
+    // callback for this wsi. Without this, the Hemlock stdlib layer frees
+    // resp (e.g. to follow the redirect) while the wsi can still deliver a
+    // callback into it, causing a use-after-free write in http_callback().
+    if (wsi) {
+        lws_set_wsi_user(wsi, NULL);
     }
 
     if (!ssl) lws_context_destroy(context);
 
-    if (resp->failed || timeout <= 0) {
+    // Request body is no longer needed once the call completes.
+    free_request_body(resp);
+
+    if (resp->failed || !resp->complete) {
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
@@ -994,7 +1257,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     return val_ptr(resp);
 }
 
-// __lws_http_request_timeout(method: string, url: string, body: string, content_type: string, timeout_ms: i32): ptr
+// __lws_http_request_timeout(method: string, url: string, body: string, content_type: string, timeout_ms: i32, headers?: array): ptr
 // Generic HTTP request with configurable timeout
 Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionContext *ctx) {
     // SANDBOX: Check if network is allowed
@@ -1005,9 +1268,9 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
 
     lws_init_logging();
 
-    if (num_args != 5) {
+    if (num_args < 5 || num_args > 6) {
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("__lws_http_request_timeout() expects 5 arguments (method, url, body, content_type, timeout_ms)");
+        ctx->exception_state.exception_value = val_string("__lws_http_request_timeout() expects 5-6 arguments (method, url, body, content_type, timeout_ms, headers?)");
         return val_null();
     }
 
@@ -1032,13 +1295,12 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
         return val_null();
     }
 
-    int timeout_iterations = timeout_ms / 10;
-    if (timeout_iterations < 1) timeout_iterations = 1;
+    int timeout_iterations = lws_timeout_iterations_from_ms(timeout_ms);
 
     const char *method = args[0].as.as_string->data;
     const char *url = args[1].as.as_string->data;
-    (void)args[2];  // body
-    (void)args[3];  // content_type
+    const char *post_body = args[2].as.as_string->data;
+    const char *content_type = args[3].as.as_string->data;
 
     char host[256], path[512];
     int port, ssl;
@@ -1056,9 +1318,15 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
         return val_null();
     }
 
+    // Parse optional custom headers
+    if (num_args == 6) {
+        parse_headers_into_resp(resp, args[5]);
+    }
+
     resp->body_capacity = 4096;
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to allocate body buffer");
@@ -1066,18 +1334,13 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     }
     resp->body[0] = '\0';
 
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-    info.protocols = shared_http_protocols;
-
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = get_http_context(ssl);
     if (!context) {
         free(resp->body);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
-        ctx->exception_state.exception_value = val_string("Failed to create libwebsockets context");
+        ctx->exception_state.exception_value = val_string(lws_context_error_message());
         return val_null();
     }
 
@@ -1102,9 +1365,22 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
         connect_info.ssl_connection |= LCCSCF_USE_SSL;
     }
 
+    // Attach the outgoing request body so the callback can send it.
+    if (attach_request_body(resp, post_body, content_type) < 0) {
+        if (!ssl) lws_context_destroy(context);
+        free(resp->body);
+        free_custom_headers(resp);
+        free(resp);
+        ctx->exception_state.is_throwing = 1;
+        ctx->exception_state.exception_value = val_string("Failed to allocate request body");
+        return val_null();
+    }
+
     if (!lws_client_connect_via_info(&connect_info)) {
         if (!ssl) lws_context_destroy(context);
         free(resp->body);
+        free_request_body(resp);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("Failed to connect");
@@ -1114,15 +1390,31 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     // Event loop with custom timeout
     int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
+    }
+
+    // Detach resp from the wsi now that we're done reading it. resp->complete
+    // can be set as soon as headers are parsed (e.g. on a 3xx redirect),
+    // before libwebsockets has actually finished tearing the connection down
+    // -- especially since get_http_context() caches and reuses one lws_context
+    // per scheme, so a later call's lws_service() can still dispatch a stray
+    // callback for this wsi. Without this, the Hemlock stdlib layer frees
+    // resp (e.g. to follow the redirect) while the wsi can still deliver a
+    // callback into it, causing a use-after-free write in http_callback().
+    if (wsi) {
+        lws_set_wsi_user(wsi, NULL);
     }
 
     if (!ssl) lws_context_destroy(context);
 
-    if (resp->failed || timeout <= 0) {
+    // Request body is no longer needed once the call completes.
+    free_request_body(resp);
+
+    if (resp->failed || !resp->complete) {
         if (resp->body) free(resp->body);
         if (resp->headers) free(resp->headers);
         if (resp->redirect_url) free(resp->redirect_url);
+        free_custom_headers(resp);
         free(resp);
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("HTTP request failed or timed out");
@@ -1303,6 +1595,7 @@ Value builtin_lws_response_free(Value *args, int num_args, ExecutionContext *ctx
         if (resp->redirect_url) free(resp->redirect_url);
         if (resp->headers) free(resp->headers);
         free_custom_headers(resp);
+        free_request_body(resp);
         free(resp);
     }
 

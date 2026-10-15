@@ -64,6 +64,21 @@ hemlockc --strict-types program.hml -o program
 3. **Return types** - Checks return statements match declared return type
 4. **Operator usage** - Verifies operands are compatible
 5. **Property access** - Validates object field types for typed objects
+6. **Object literals** - When an object literal is assigned to (or passed to a
+   parameter of) a custom `define`d type, its fields are validated structurally:
+   missing required fields and mistyped fields are compile-time errors. This
+   applies to `let`/`const` initializers, function arguments, and compound
+   (`A & B`) types alike.
+
+```hemlock
+define Person { name: string, age: i32 }
+
+fn greet(p: Person): string { return p.name; }
+
+greet({ name: "Alice" });          // ERROR: missing required field 'age' for type 'Person'
+greet({ name: "Bob", age: "30" }); // ERROR: field 'age' of type 'Person' expects 'i32', got 'string'
+greet({ name: "Carol", age: 30 }); // OK
+```
 
 ### Permissive Numeric Conversions
 
@@ -584,7 +599,7 @@ let p: Person = { name: "Alice" };
 print(typeof(p));               // "Person"
 ```
 
-**See Also:** [Built-in Functions](builtins.md#typeof)
+**See Also:** [Built-in Functions](builtins.md#type-system)
 
 ---
 
@@ -623,6 +638,15 @@ let value: i32 = 'Z';   // 90
 
 // Rune to string
 let s: string = 'H';    // "H"
+
+// Number/bool to string (value's string representation; both backends agree)
+let n: string = 42;     // "42"
+let b: string = true;   // "true"
+// let x: string = null; // ERROR - null does not convert to string
+
+// The reverse direction is NOT a conversion: a string never parses to a
+// number via annotation — use i32("42") / f64("3.14") instead.
+// let bad: i32 = "42"; // ERROR
 ```
 
 ---

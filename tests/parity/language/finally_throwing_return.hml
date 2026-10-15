@@ -1,0 +1,27 @@
+// finally must run when the exception is thrown by the expression of a
+// `return` statement inside the try block.
+let cleanups = 0;
+fn boom(): i32 { throw "kaboom"; }
+fn risky(): i32 {
+    try {
+        return boom();
+    } finally {
+        cleanups++;
+        print("finally ran");
+    }
+}
+try { risky(); } catch (e) { print("caught " + e + ", cleanups=" + cleanups); }
+
+// Multiple frames: each level's finally runs during propagation
+let depth = 0;
+fn recur(n: i32): i32 {
+    if (n == 0) { throw "deep"; }
+    try { return recur(n - 1); } finally { depth++; }
+}
+try { recur(5); } catch (e) { print(e + " " + depth); }
+
+// Normal returns still pass through finally exactly once
+fn normal(): i32 {
+    try { return 42; } finally { print("normal finally"); }
+}
+print(normal());

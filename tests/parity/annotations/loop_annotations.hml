@@ -1,0 +1,78 @@
+// Parity test: loop and branch annotations must not change behavior.
+//
+// @unroll(n)/@nounroll/@simd are loop hints; the compiler emits the matching
+// `#pragma GCC ...` ahead of the generated loop, while the interpreter ignores
+// them. @likely/@unlikely become __builtin_expect in compiled code and are
+// likewise ignored by the interpreter. Either way the observable output must be
+// identical across both backends.
+
+// @unroll(n) on a classic counter loop
+fn sum_to(n: i32): i32 {
+    let total = 0;
+    @unroll(4)
+    for (let i = 0; i < n; i++) {
+        total = total + i;
+    }
+    return total;
+}
+
+// @simd on a top-level loop
+let acc = 0;
+@simd
+for (let i = 0; i < 8; i++) {
+    acc = acc + i;
+}
+
+// @nounroll on a while loop
+let j = 0;
+@nounroll
+while (j < 5) {
+    acc = acc + j;
+    j = j + 1;
+}
+
+// @unroll on a for-in loop
+let arr = [10, 20, 30, 40];
+let s = 0;
+@unroll(2)
+for (x in arr) {
+    s = s + x;
+}
+
+// @unroll(1) on an infinite loop with a manual break
+let k = 0;
+@unroll(1)
+loop {
+    if (k >= 3) { break; }
+    k = k + 1;
+}
+
+// @likely / @unlikely branch hints
+let val = 42;
+@likely
+if (val > 0) {
+    print("positive");
+}
+
+@unlikely
+if (val < 0) {
+    print("negative");
+} else {
+    print("non-negative");
+}
+
+// Nested annotated loops still behave correctly
+let grid = 0;
+@unroll(2)
+for (let r = 0; r < 3; r++) {
+    @simd
+    for (let c = 0; c < 3; c++) {
+        grid = grid + 1;
+    }
+}
+
+print(sum_to(10));   // 45
+print(acc);          // (0+1+..+7)=28 + (0+1+2+3+4)=10 => 38
+print(s);            // 10+20+30+40 = 100
+print(k);            // 3
+print(grid);         // 9

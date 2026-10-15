@@ -3,6 +3,9 @@
 # Hemlock Test Runner
 # Runs all tests and reports results
 
+# Portable timeout (Linux timeout / macOS gtimeout / perl fallback)
+source "$(dirname "${BASH_SOURCE[0]}")/lib/timeout.sh"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -78,6 +81,12 @@ is_error_test() {
     if [[ "$test_file" =~ stdlib_ ]]; then
         return 1
     fi
+    # Explicit opt-out: regression tests that catch their errors via try/catch
+    # and must exit 0 can override the name-based heuristic below with a
+    # "// expect: pass" marker on the first line.
+    if head -n 1 "$test_file" | grep -q "expect: pass"; then
+        return 1
+    fi
     # Tests with these keywords in their name are expected to fail
     if [[ "$test_file" =~ (overflow|negative|invalid|error) ]]; then
         return 0
@@ -109,8 +118,9 @@ format_time() {
 echo -e "${BLUE}Running tests...${NC}"
 echo ""
 
-# Find all test files (excluding compiler, parity, and formatter directories which have their own test runners)
-TEST_FILES=$(find "$TEST_DIR" -name "*.hml" -not -path "*/compiler/*" -not -path "*/parity/*" -not -path "*/formatter/*" | sort)
+# Find all test files (excluding compiler, parity, contracts, formatter, lint, and check directories which have their own test runners)
+# lint/ and check/ fixtures are static-diagnostic cases; some fail or trap at runtime by design (e.g. modulo-by-zero, double free)
+TEST_FILES=$(find "$TEST_DIR" -name "*.hml" -not -path "*/compiler/*" -not -path "*/parity/*" -not -path "*/contracts/*" -not -path "*/formatter/*" -not -path "*/lint/*" -not -path "*/check/*" | sort)
 
 CURRENT_CATEGORY=""
 for test_file in $TEST_FILES; do
@@ -157,6 +167,14 @@ for test_file in $TEST_FILES; do
         fi
         echo -e "${BLUE}[$category]${NC}"
         CURRENT_CATEGORY="$category"
+    fi
+
+    # Skip individual tests outside stdlib_http/ that still need libwebsockets
+    if [[ "$test_name" == "stress/http_client_leak.hml" ]]; then
+        if [ ! -f "$PROJECT_ROOT/stdlib/c/lws_wrapper.so" ]; then
+            echo -e "${YELLOW}⊘${NC} Skipping $test_name (libwebsockets not installed)"
+            continue
+        fi
     fi
 
     # Run the test with timeout and capture output, exit code, and timing

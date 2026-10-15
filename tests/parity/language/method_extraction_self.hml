@@ -1,0 +1,45 @@
+// Test extracting a method from an object keeps 'self' bound to that object
+
+// Basic extraction: self stays bound to the source object
+let o = { v: 1, fn get() { return self.v; } };
+let g = o.get;
+print(g());
+
+// Mutation through an extracted method reaches the original object
+let counter = { count: 0, fn inc() { self.count = self.count + 1; } };
+let bump = counter.inc;
+bump();
+print(counter.count);
+bump();
+bump();
+print(counter.count);
+
+// Extraction then external mutation: the binding is by reference, not a copy
+let box = { v: 5, fn get() { return self.v; } };
+let read = box.get;
+box.v = 99;
+print(read());
+
+// Two extractions from the same object both see live state
+let ra = box.get;
+let rb = box.get;
+print(ra());
+print(rb());
+
+// A bound method stored on another object and called as a method
+// rebinds to the new receiver
+let other = { v: 42 };
+other.get = box.get;
+print(other.get());
+
+// Plain (non-method) functions stored in objects still work when extracted
+fn double(x) { return x * 2; }
+let holder = { d: double };
+let d = holder.d;
+print(d(21));
+
+// Extracted methods passed as arguments keep their binding
+fn call_it(f) { return f(); }
+print(call_it(box.get));
+
+print("done");

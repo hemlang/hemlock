@@ -31,8 +31,8 @@ HmlValue hml_exec(HmlValue command) {
     WASM_STUB_PANIC_RETURN("exec");
 }
 
-HmlValue hml_exec_argv(HmlValue args_array) {
-    (void)args_array;
+HmlValue hml_exec_argv(HmlValue args_array, HmlValue opts) {
+    (void)args_array; (void)opts;
     WASM_STUB_PANIC_RETURN("exec_argv");
 }
 
@@ -103,6 +103,11 @@ HmlValue hml_waitpid(HmlValue pid, HmlValue options) {
     WASM_STUB_PANIC_RETURN("waitpid");
 }
 
+HmlValue hml_posix_spawn(HmlValue argv, HmlValue opts) {
+    (void)argv; (void)opts;
+    WASM_STUB_PANIC_RETURN("spawn");
+}
+
 void hml_abort(void) {
     fprintf(stderr, "abort() called in WASM\n");
     exit(134);  // SIGABRT exit code
@@ -151,9 +156,9 @@ HmlValue hml_builtin_exec_with_args(HmlClosureEnv *env, HmlValue command, HmlVal
     return hml_exec_with_args(command, args_array);
 }
 
-HmlValue hml_builtin_exec_argv(HmlClosureEnv *env, HmlValue args_array) {
+HmlValue hml_builtin_exec_argv(HmlClosureEnv *env, HmlValue args_array, HmlValue opts) {
     (void)env;
-    return hml_exec_argv(args_array);
+    return hml_exec_argv(args_array, opts);
 }
 
 HmlValue hml_builtin_getppid(HmlClosureEnv *env) { (void)env; return hml_getppid(); }
@@ -176,6 +181,9 @@ void hml_socket_listen(HmlValue s, HmlValue b) { (void)s;(void)b; WASM_STUB_PANI
 HmlValue hml_socket_accept(HmlValue s) { (void)s; WASM_STUB_PANIC_RETURN("socket_accept"); }
 void hml_socket_connect(HmlValue s, HmlValue a, HmlValue p) { (void)s;(void)a;(void)p; WASM_STUB_PANIC("socket_connect"); }
 void hml_socket_close(HmlValue s) { (void)s; WASM_STUB_PANIC("socket_close"); }
+// Sockets can never be created on WASM (socket_create panics), but hml_release
+// dispatches here for HML_VAL_SOCKET values; free defensively without closing.
+void hml_socket_destroy(HmlSocket *sock) { if (sock) { free(sock->address); free(sock); } }
 HmlValue hml_socket_send(HmlValue s, HmlValue d) { (void)s;(void)d; WASM_STUB_PANIC_RETURN("socket_send"); }
 HmlValue hml_socket_recv(HmlValue s, HmlValue sz) { (void)s;(void)sz; WASM_STUB_PANIC_RETURN("socket_recv"); }
 HmlValue hml_socket_sendto(HmlValue s, HmlValue a, HmlValue p, HmlValue d) { (void)s;(void)a;(void)p;(void)d; WASM_STUB_PANIC_RETURN("socket_sendto"); }
@@ -210,6 +218,10 @@ HmlValue hml_builtin_socket_get_closed(HmlClosureEnv *env, HmlValue s) { (void)e
 // ========== FFI BUILTINS (builtins_ffi.c) ==========
 
 HmlValue hml_ffi_load(const char *path) { (void)path; WASM_STUB_PANIC_RETURN("ffi_open"); }
+HmlValue hml_ffi_load_import(const char *path) {
+    fprintf(stderr, "Warning: FFI import '%s' ignored in WASM build\n", path);
+    return hml_val_null();
+}
 void hml_ffi_close(HmlValue lib) { (void)lib; WASM_STUB_PANIC("ffi_close"); }
 void* hml_ffi_sym(HmlValue lib, const char *name) { (void)lib;(void)name; WASM_STUB_PANIC("ffi_sym"); return NULL; }
 HmlValue hml_ffi_call(void *fp, HmlValue *args, int n, HmlFFIType *types) { (void)fp;(void)args;(void)n;(void)types; WASM_STUB_PANIC_RETURN("ffi_call"); }
@@ -226,10 +238,10 @@ int hml_ffi_callback_free_by_ptr(void *ptr) { (void)ptr; return 0; }
 
 HmlValue hml_builtin_callback(HmlClosureEnv *env, HmlValue fn, HmlValue pt, HmlValue rt) { (void)env;(void)fn;(void)pt;(void)rt; WASM_STUB_PANIC_RETURN("callback"); }
 HmlValue hml_builtin_callback_free(HmlClosureEnv *env, HmlValue ptr) { (void)env;(void)ptr; WASM_STUB_PANIC_RETURN("callback_free"); }
-HmlValue hml_builtin_ptr_deref_i32(HmlClosureEnv *env, HmlValue ptr) { (void)env;(void)ptr; WASM_STUB_PANIC_RETURN("ptr_deref_i32"); }
-HmlValue hml_builtin_ptr_write_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue val) { (void)env;(void)ptr;(void)val; WASM_STUB_PANIC_RETURN("ptr_write_i32"); }
-HmlValue hml_builtin_ptr_offset(HmlClosureEnv *env, HmlValue ptr, HmlValue off, HmlValue sz) { (void)env;(void)ptr;(void)off;(void)sz; WASM_STUB_PANIC_RETURN("ptr_offset"); }
-HmlValue hml_builtin_ptr_read_i32(HmlClosureEnv *env, HmlValue ptr) { (void)env;(void)ptr; WASM_STUB_PANIC_RETURN("ptr_read_i32"); }
+
+// NOTE: ptr_offset / ptr_deref_* / ptr_read_* / ptr_write_* are deliberately
+// NOT stubbed here. They are pure pointer arithmetic over linear memory and
+// are compiled for WASM from builtins_ffi.c like every other target.
 
 // ========== ASYNC BUILTINS (builtins_async.c) ==========
 // When compiled with -pthread (__EMSCRIPTEN_PTHREADS__), builtins_async.c provides

@@ -30,6 +30,13 @@ void hml_exception_pop(void) {
     }
 }
 
+// CONSUMES exception_value: the caller's owned reference transfers into the
+// exception context (released later by hml_exception_pop). hml_throw never
+// returns, so a caller-side release after it is unreachable - retaining here
+// instead (as this used to) leaked one reference per throw, which bled
+// continuously in servers that signal errors with catchable exceptions.
+// Callers that throw a value they do NOT own must retain it first (see
+// hml_assert).
 void hml_throw(HmlValue exception_value) {
     if (!g_exception_stack || !g_exception_stack->is_active) {
         // Uncaught exception
@@ -40,7 +47,6 @@ void hml_throw(HmlValue exception_value) {
     }
 
     g_exception_stack->exception_value = exception_value;
-    hml_retain(&g_exception_stack->exception_value);
     longjmp(g_exception_stack->exception_buf, 1);
 }
 
@@ -53,7 +59,85 @@ HmlValue hml_exception_get_value(void) {
     return hml_val_null();
 }
 
-// Runtime error helper - throws catchable exception with formatted message
+// ========== SOURCE LOCATION FOR RUNTIME ERRORS ==========
+// The interpreter prefixes runtime errors with "[file:line]" plus the offending
+// source line and a caret. Compiled binaries reproduce this: codegen embeds the
+// source via hml_set_source() and updates hml_error_line per statement.
+
+static const char *g_source_file = NULL;  // Set once at startup; read-only after.
+static const char *g_source_code = NULL;
+_Thread_local int hml_error_line = 0;      // Updated per statement by generated code.
+
+void hml_set_source(const char *file, const char *code) {
+    g_source_file = file;
+    g_source_code = code;
+}
+
+// Return a pointer to the start of `line_num` in `source`, with its length.
+static const char *hml_get_source_line(const char *source, int line_num, int *line_length) {
+    if (!source || line_num <= 0) { *line_length = 0; return NULL; }
+    const char *p = source;
+    int current_line = 1;
+    while (*p && current_line < line_num) {
+        if (*p == '\n') current_line++;
+        p++;
+    }
+    if (!*p && current_line < line_num) { *line_length = 0; return NULL; }
+    const char *line_start = p;
+    while (*p && *p != '\n') p++;
+    *line_length = (int)(p - line_start);
+    return line_start;
+}
+
+// Build "[file:line] message" plus a source snippet + caret, mirroring the
+// interpreter's format_error_with_context() (column is always 0 here, so the
+// caret sits at the start of the line). Caller frees the result.
+static char *hml_format_error_with_context(const char *file, int line, const char *message) {
+    if (!message) message = "Unknown error";
+    size_t base_size = 1024;
+    char *buffer = malloc(base_size);
+    if (!buffer) return NULL;
+    int offset = 0;
+
+    if (file && line > 0) {
+        offset += snprintf(buffer + offset, base_size - offset, "[%s:%d] ", file, line);
+    } else if (line > 0) {
+        offset += snprintf(buffer + offset, base_size - offset, "[line %d] ", line);
+    }
+    offset += snprintf(buffer + offset, base_size - offset, "%s", message);
+
+    if (g_source_code && line > 0) {
+        int line_length;
+        const char *line_text = hml_get_source_line(g_source_code, line, &line_length);
+        if (line_text && line_length > 0) {
+            int max_display = 80;
+            int display_len = line_length < max_display ? line_length : max_display;
+            size_t needed = (size_t)offset + (size_t)display_len + 100;
+            if (needed > base_size) {
+                char *new_buf = realloc(buffer, needed);
+                if (!new_buf) return buffer;  // best-effort: return what we have
+                buffer = new_buf;
+                base_size = needed;
+            }
+            offset += snprintf(buffer + offset, base_size - offset, "\n  %4d | %.*s",
+                               line, display_len, line_text);
+            if (line_length > max_display) {
+                offset += snprintf(buffer + offset, base_size - offset, "...");
+            }
+            offset += snprintf(buffer + offset, base_size - offset, "\n       | ");
+            if ((size_t)offset + 2 < base_size) {
+                buffer[offset++] = '^';
+                buffer[offset] = '\0';
+            }
+        }
+    }
+    return buffer;
+}
+
+// Runtime error helper - throws catchable exception with a bare message (no
+// source location). This is the default for most builtins, matching the
+// interpreter's throw_runtime_error(). Sites that the interpreter locates use
+// hml_runtime_error_loc()/hml_runtime_error_line() instead.
 void hml_runtime_error(const char *format, ...) {
     char buffer[1024];
     va_list args;
@@ -61,8 +145,86 @@ void hml_runtime_error(const char *format, ...) {
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
 
-    HmlValue error_msg = hml_val_string(buffer);
-    hml_throw(error_msg);
+    hml_throw(hml_val_string(buffer));
+}
+
+// Runtime error with full location: "[file:line] message" plus the offending
+// source line and a caret. Mirrors the interpreter's runtime_error() path
+// (used for index/bounds/field/alloc/join/raise faults).
+void hml_runtime_error_loc(const char *format, ...) {
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    if (hml_error_line > 0) {
+        char *formatted = hml_format_error_with_context(g_source_file, hml_error_line, buffer);
+        if (formatted) {
+            HmlValue error_msg = hml_val_string(formatted);
+            free(formatted);
+            hml_throw(error_msg);
+        }
+    }
+    hml_throw(hml_val_string(buffer));
+}
+
+// Fatal, non-catchable runtime error: prints "Runtime error: <msg>" and exits.
+// Mirrors the interpreter's ctx-less runtime_error() path (used where the
+// interpreter raises a fatal error rather than a catchable exception).
+void hml_fatal_error(const char *message) {
+    fprintf(stderr, "Runtime error: %s\n", message);
+    exit(1);
+}
+
+// Runtime error with line-only prefix "[line N] message" (no file, no snippet).
+// Matches the interpreter's runtime_error_at() — used for operator-level faults
+// such as division by zero and negative shift amounts.
+void hml_runtime_error_line(const char *format, ...) {
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    if (hml_error_line > 0) {
+        char full[1100];
+        snprintf(full, sizeof(full), "[line %d] %s", hml_error_line, buffer);
+        hml_throw(hml_val_string(full));
+    } else {
+        hml_throw(hml_val_string(buffer));
+    }
+}
+
+// ========== ENV-FIRST BUILTIN WRAPPERS ==========
+// When a builtin is used as a first-class value (e.g. the stdlib re-export
+// `export let poll = __poll;` then called through the `poll` binding), the
+// compiler wraps it as an HML_VAL_FUNCTION and hml_call_function dispatches it
+// as f(env, args...). User functions have that env-first C signature, but these
+// raw builtins do not — so the old wraps pointed straight at e.g. hml_poll and
+// every argument shifted by one (env was passed as the first HmlValue, the real
+// first arg as the second, ...). That mis-typed the first arg, producing errors
+// like "poll() expects array as first argument". On Linux the resulting uncaught
+// exception exited 0 (silently masked); on macOS it aborts (SIGABRT) — surfacing
+// the bug. These thin shims give each builtin the env-first signature the
+// function-value path expects. See codegen_expr_ident.c.
+HmlValue hml_builtin_poll(HmlClosureEnv *env, HmlValue fds, HmlValue timeout) {
+    (void)env; return hml_poll(fds, timeout);
+}
+HmlValue hml_builtin_open(HmlClosureEnv *env, HmlValue path, HmlValue mode) {
+    (void)env; return hml_open(path, mode);
+}
+HmlValue hml_builtin_raise(HmlClosureEnv *env, HmlValue signum) {
+    (void)env; return hml_raise(signum);
+}
+HmlValue hml_builtin_signal(HmlClosureEnv *env, HmlValue signum, HmlValue handler) {
+    (void)env; return hml_signal(signum, handler);
+}
+HmlValue hml_builtin_string_concat_many(HmlClosureEnv *env, HmlValue arr) {
+    (void)env; return hml_string_concat_many(arr);
+}
+HmlValue hml_builtin_task_debug_info(HmlClosureEnv *env, HmlValue task) {
+    (void)env; hml_task_debug_info(task); return hml_val_null();
 }
 
 // ========== DEFER SUPPORT ==========
@@ -86,6 +248,19 @@ void hml_defer_pop_and_execute(void) {
 
 void hml_defer_execute_all(void) {
     while (g_defer_stack) {
+        hml_defer_pop_and_execute();
+    }
+}
+
+// Per-function defer frames: record the stack mark at function entry, drain
+// only entries pushed after the mark on exit. This keeps a callee's return
+// from running its caller's pending defers.
+void* hml_defer_frame_begin(void) {
+    return g_defer_stack;
+}
+
+void hml_defer_execute_frame(void *mark) {
+    while (g_defer_stack && g_defer_stack != (DeferEntry *)mark) {
         hml_defer_pop_and_execute();
     }
 }
@@ -156,9 +331,12 @@ typedef HmlValue (*HmlFn6)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValu
 typedef HmlValue (*HmlFn7)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
 typedef HmlValue (*HmlFn8)(HmlClosureEnv*, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue, HmlValue);
 
-// Hot path: dispatch function call with optimized branching
+// Hot path: dispatch function call with optimized branching.
+// This is the raw dispatch that ignores any bound 'self' on the callee;
+// hml_call_method uses it directly after setting hml_self itself (an explicit
+// receiver always wins over a stored binding, matching the interpreter).
 __attribute__((hot))
-HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
+HmlValue hml_call_function_no_bind(HmlValue fn, HmlValue *args, int num_args) {
     // Validate args pointer if we have arguments
     if (__builtin_expect(num_args > 0 && args == NULL, 0)) {
         hml_runtime_error("Function called with NULL args array");
@@ -295,6 +473,26 @@ HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
     hml_runtime_error("Cannot call non-function value (type: %s)", hml_typeof_str(fn));
 }
 
+// Public entry point: honors a bound 'self' on extracted methods.
+// When the callee was extracted from an object (let g = obj.method;), calling
+// it through this path runs with 'self' bound to that object.
+__attribute__((hot))
+HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args) {
+    if (__builtin_expect(fn.type == HML_VAL_FUNCTION && fn.as.as_function != NULL &&
+                         fn.as.as_function->has_bound_self, 0)) {
+        HmlValue prev_self = hml_self;
+        hml_self = fn.as.as_function->bound_self;
+        hml_retain(&hml_self);
+
+        HmlValue result = hml_call_function_no_bind(fn, args, num_args);
+
+        hml_release(&hml_self);
+        hml_self = prev_self;
+        return result;
+    }
+    return hml_call_function_no_bind(fn, args, num_args);
+}
+
 // Call a function with named arguments - reorders args to match parameter names
 HmlValue hml_call_function_named(HmlValue fn, HmlValue *args, const char **arg_names, int num_args) {
     // If no named arguments or not a function, fall back to regular call
@@ -392,11 +590,20 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
         if (strcmp(method, "substr") == 0 && num_args == 2) {
             return hml_string_substr(obj, args[0], args[1]);
         }
+        if (strcmp(method, "substr") == 0 && num_args == 1) {
+            return hml_string_substr_from(obj, args[0]);
+        }
         if (strcmp(method, "slice") == 0 && num_args == 2) {
             return hml_string_slice(obj, args[0], args[1]);
         }
+        if (strcmp(method, "slice") == 0 && num_args == 1) {
+            return hml_string_slice(obj, args[0], hml_string_length(obj));
+        }
         if (strcmp(method, "find") == 0 && num_args == 1) {
             return hml_string_find(obj, args[0]);
+        }
+        if (strcmp(method, "rfind") == 0 && num_args == 1) {
+            return hml_string_rfind(obj, args[0]);
         }
         if (strcmp(method, "contains") == 0 && num_args == 1) {
             return hml_string_contains(obj, args[0]);
@@ -407,10 +614,10 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
         if (strcmp(method, "trim") == 0 && num_args == 0) {
             return hml_string_trim(obj);
         }
-        if (strcmp(method, "to_upper") == 0 && num_args == 0) {
+        if ((strcmp(method, "to_upper") == 0 || strcmp(method, "upper") == 0) && num_args == 0) {
             return hml_string_to_upper(obj);
         }
-        if (strcmp(method, "to_lower") == 0 && num_args == 0) {
+        if ((strcmp(method, "to_lower") == 0 || strcmp(method, "lower") == 0) && num_args == 0) {
             return hml_string_to_lower(obj);
         }
         if (strcmp(method, "starts_with") == 0 && num_args == 1) {
@@ -500,7 +707,7 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
         }
         if ((strcmp(method, "reduce") == 0) && (num_args == 1 || num_args == 2)) {
             HmlValue initial = (num_args == 2) ? args[1] : hml_val_null();
-            return hml_array_reduce(obj, args[0], initial);
+            return hml_array_reduce_n(obj, args[0], initial, num_args == 2);
         }
         hml_runtime_error("Array has no method '%s'", method);
     }
@@ -513,6 +720,10 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
         }
         if (strcmp(method, "read_bytes") == 0 && num_args == 1) {
             return hml_file_read_bytes(obj, args[0]);
+        }
+        if (strcmp(method, "read_binary") == 0 && (num_args == 0 || num_args == 1)) {
+            HmlValue size = (num_args == 1) ? args[0] : hml_val_i32(-1);
+            return hml_file_read_binary(obj, size);
         }
         if (strcmp(method, "write") == 0 && num_args == 1) {
             return hml_file_write(obj, args[0]);
@@ -644,8 +855,9 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
     hml_self = obj;
     hml_retain(&hml_self);
 
-    // Call the method
-    HmlValue result = hml_call_function(fn, args, num_args);
+    // Call the method. Use the no-bind dispatch: the explicit receiver set
+    // above must win even if the stored field is an extracted bound method.
+    HmlValue result = hml_call_function_no_bind(fn, args, num_args);
 
     // Restore previous self
     hml_release(&hml_self);

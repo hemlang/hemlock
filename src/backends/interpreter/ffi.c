@@ -1,11 +1,15 @@
 #include "internal.h"
 
-#ifndef __EMSCRIPTEN__
-/* Native FFI implementation - excluded from WASM builds (no libffi/dlopen).
-   WASM stubs are provided in wasm_interp_shim.c. */
+#if !defined(__EMSCRIPTEN__) && !defined(HEMLOCK_NO_FFI)
+/* Native FFI implementation - excluded from WASM builds (no libffi/dlopen)
+   and HEMLOCK_NO_FFI builds (e.g. MinGW without libffi).
+   Stubs are provided in wasm_interp_shim.c. */
 
 #include <ffi.h>
+#ifndef _WIN32
 #include <dlfcn.h>
+#endif
+#include "hemlock_platform.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -78,6 +82,37 @@ typedef struct {
 static CallbackState g_callback_state = {NULL, 0, 0};
 static atomic_int g_next_callback_id = 1;  // Atomic to prevent race conditions
 
+// Declared-function tracking for cleanup. VAL_FFI_FUNCTION values are not
+// reference counted (they can be copied freely between environments), so
+// this registry owns every FFIFunction and frees them in ffi_cleanup().
+typedef struct {
+    FFIFunction **functions;
+    int num_functions;
+    int functions_capacity;
+} FFIFunctionState;
+
+static FFIFunctionState g_function_state = {NULL, 0, 0};
+
+// Free the Type metadata owned by a callback (built via type_from_string in
+// builtin_callback). Must be called from every callback free path.
+static void ffi_callback_free_types(FFICallback *cb) {
+    if (cb->hemlock_params) {
+        for (int i = 0; i < cb->num_params; i++) {
+            if (cb->hemlock_params[i]) {
+                free(cb->hemlock_params[i]->type_name);
+                free(cb->hemlock_params[i]);
+            }
+        }
+        free(cb->hemlock_params);
+        cb->hemlock_params = NULL;
+    }
+    if (cb->hemlock_return) {
+        free(cb->hemlock_return->type_name);
+        free(cb->hemlock_return);
+        cb->hemlock_return = NULL;
+    }
+}
+
 // Thread-safety: Mutex for callback invocations
 // Note: Hemlock interpreter is not fully thread-safe, so callbacks must be serialized
 static pthread_mutex_t ffi_callback_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -141,6 +176,60 @@ static const char* translate_library_path(const char *path) {
 }
 #endif
 
+#ifdef _WIN32
+// Translate Linux library names to Windows equivalents so cross-platform
+// bindings (e.g. `import "libraylib.so"`) work unmodified
+static const char* translate_library_path(const char *path) {
+    // C runtime: libc/libm live in msvcrt
+    if (strcmp(path, "libc.so.6") == 0 || strcmp(path, "libm.so.6") == 0) {
+        return "msvcrt.dll";
+    }
+
+    // Only translate .so / .so.N names; explicit .dll paths pass through
+    size_t len = strlen(path);
+    size_t base_len;
+    const char *so_pos = strstr(path, ".so.");
+    if (so_pos != NULL) {
+        base_len = (size_t)(so_pos - path);
+    } else if (len > 3 && strcmp(path + len - 3, ".so") == 0) {
+        base_len = len - 3;
+    } else {
+        return path;
+    }
+
+    static char translated[512];
+    if (base_len + 5 >= sizeof(translated)) {
+        return path;
+    }
+
+    // MSYS2-style name first (libfoo.so -> libfoo.dll) ...
+    memcpy(translated, path, base_len);
+    strcpy(translated + base_len, ".dll");
+    void *probe = dlopen(translated, RTLD_LAZY);
+    if (probe) {
+        dlclose(probe);
+        return translated;
+    }
+
+    // ... then official-release style without the lib prefix
+    // (libraylib.so -> raylib.dll)
+    const char *basename = strrchr(translated, '/');
+    const char *bs = strrchr(translated, '\\');
+    if (bs > basename) basename = bs;
+    basename = basename ? basename + 1 : translated;
+    if (strncmp(basename, "lib", 3) == 0) {
+        memmove((char *)basename, basename + 3, strlen(basename + 3) + 1);
+        probe = dlopen(translated, RTLD_LAZY);
+        if (probe) {
+            dlclose(probe);
+            return translated;
+        }
+    }
+
+    return path;  // nothing loadable found; let dlopen report the original
+}
+#endif
+
 // ========== LIBRARY PATH SECURITY ==========
 
 // Validate FFI library path for obvious security issues
@@ -192,8 +281,8 @@ static FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
 
     pthread_mutex_lock(&ffi_cache_mutex);
 
-#ifdef __APPLE__
-    // Translate Linux library names to macOS equivalents
+#if defined(__APPLE__) || defined(_WIN32)
+    // Translate Linux library names to the platform's equivalents
     const char *actual_path = translate_library_path(path);
 #else
     const char *actual_path = path;
@@ -744,10 +833,25 @@ static int hemlock_to_c_value_fast(Value val, Type *type, void *storage) {
             *(double*)storage = val.as.as_f64;
             return 1;
         case TYPE_PTR:
-            *(void**)storage = val.as.as_ptr;
+            if (val.type == VAL_BUFFER) {
+                // Buffers are passed as a pointer to their data, not the
+                // Buffer struct itself (mirrors ptr_read/ptr_write and
+                // struct-field marshaling)
+                *(void**)storage = val.as.as_buffer ? val.as.as_buffer->data : NULL;
+            } else if (val.type == VAL_STRING) {
+                *(void**)storage = val.as.as_string ? (void*)val.as.as_string->data : NULL;
+            } else if (val.type == VAL_NULL) {
+                *(void**)storage = NULL;
+            } else {
+                *(void**)storage = val.as.as_ptr;
+            }
             return 1;
         case TYPE_STRING:
-            *(char**)storage = val.as.as_string ? val.as.as_string->data : NULL;
+            if (val.type == VAL_NULL) {
+                *(char**)storage = NULL;
+            } else {
+                *(char**)storage = val.as.as_string ? val.as.as_string->data : NULL;
+            }
             return 1;
         case TYPE_BOOL:
             *(int*)storage = val.as.as_bool ? 1 : 0;
@@ -897,11 +1001,31 @@ static FFIFunction* ffi_declare_function(
         char err[512];
         snprintf(err, sizeof(err), "Failed to prepare FFI call interface for '%s'", name);
         ctx->exception_state.exception_value = val_string(err);
+        free(func->lib_path);
+        free(func->cif);
         free(func->arg_types);
         free(func->name);
         free(func);
         return NULL;
     }
+
+    // Register for cleanup - the registry owns the FFIFunction (FFI function
+    // values are not refcounted, so ffi_cleanup() is the single free site)
+    pthread_mutex_lock(&ffi_cache_mutex);
+    if (g_function_state.num_functions >= g_function_state.functions_capacity) {
+        int new_cap = g_function_state.functions_capacity == 0
+                          ? 8 : g_function_state.functions_capacity * 2;
+        FFIFunction **grown = realloc(g_function_state.functions,
+                                      sizeof(FFIFunction*) * new_cap);
+        if (grown) {
+            g_function_state.functions = grown;
+            g_function_state.functions_capacity = new_cap;
+        }
+    }
+    if (g_function_state.num_functions < g_function_state.functions_capacity) {
+        g_function_state.functions[g_function_state.num_functions++] = func;
+    }
+    pthread_mutex_unlock(&ffi_cache_mutex);
 
     return func;
 }
@@ -1350,10 +1474,8 @@ void ffi_free_callback(FFICallback *cb) {
         function_release(cb->hemlock_fn);
     }
 
-    // Free type arrays
-    if (cb->hemlock_params) {
-        free(cb->hemlock_params);
-    }
+    // Free type metadata (params array, Type structs, return type)
+    ffi_callback_free_types(cb);
     if (cb->arg_types) {
         free(cb->arg_types);
     }
@@ -1391,9 +1513,7 @@ int ffi_free_callback_by_ptr(void *code_ptr) {
             if (cb->hemlock_fn) {
                 function_release(cb->hemlock_fn);
             }
-            if (cb->hemlock_params) {
-                free(cb->hemlock_params);
-            }
+            ffi_callback_free_types(cb);
             if (cb->arg_types) {
                 free(cb->arg_types);
             }
@@ -1495,10 +1615,8 @@ void ffi_cleanup(void) {
             if (cb->hemlock_fn) {
                 function_release(cb->hemlock_fn);
             }
-            // Free type arrays
-            if (cb->hemlock_params) {
-                free(cb->hemlock_params);
-            }
+            // Free type metadata (params array, Type structs, return type)
+            ffi_callback_free_types(cb);
             if (cb->arg_types) {
                 free(cb->arg_types);
             }
@@ -1512,6 +1630,15 @@ void ffi_cleanup(void) {
     g_callback_state.callbacks = NULL;
     g_callback_state.num_callbacks = 0;
     g_callback_state.callbacks_capacity = 0;
+
+    // Clean up declared FFI functions (registry is the sole owner)
+    for (int i = 0; i < g_function_state.num_functions; i++) {
+        ffi_free_function(g_function_state.functions[i]);
+    }
+    free(g_function_state.functions);
+    g_function_state.functions = NULL;
+    g_function_state.num_functions = 0;
+    g_function_state.functions_capacity = 0;
 
     // Clean up libraries
     for (int i = 0; i < g_ffi_state.num_libraries; i++) {
@@ -1571,4 +1698,4 @@ void execute_extern_fn(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
     }
 }
 
-#endif /* __EMSCRIPTEN__ */
+#endif /* !__EMSCRIPTEN__ && !HEMLOCK_NO_FFI */

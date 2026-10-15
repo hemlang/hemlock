@@ -10,6 +10,8 @@
 // Suppress libwebsockets startup messages by default
 // Defined in websockets.c, used by HTTP and WS code
 void lws_init_logging(void);
+void lws_configure_macos_ca_file(void);
+const char *lws_context_error_message(void);
 
 // Parse URL into host, port, path, ssl components
 // Defined in websockets_http.c, used by websockets_stream.c

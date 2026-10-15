@@ -1,0 +1,181 @@
+// Test arena.hml advanced features - helpers, GrowingArena methods, ScratchScope methods
+
+import {
+    Arena, GrowingArena, ScratchScope,
+    SIZEOF_I8, SIZEOF_I16, SIZEOF_I32, SIZEOF_I64,
+    SIZEOF_U8, SIZEOF_U16, SIZEOF_U32, SIZEOF_U64,
+    SIZEOF_F32, SIZEOF_F64, SIZEOF_PTR,
+    arena_alloc_i32_array, arena_alloc_i64_array,
+    arena_alloc_f64_array, arena_alloc_ptr_array,
+    arena_copy_string
+} from "@stdlib/arena";
+
+// === Size Constants ===
+print("=== Testing Size Constants ===");
+assert(SIZEOF_I8 == 1, "SIZEOF_I8 == 1");
+assert(SIZEOF_U8 == 1, "SIZEOF_U8 == 1");
+assert(SIZEOF_I16 == 2, "SIZEOF_I16 == 2");
+assert(SIZEOF_U16 == 2, "SIZEOF_U16 == 2");
+assert(SIZEOF_I32 == 4, "SIZEOF_I32 == 4");
+assert(SIZEOF_U32 == 4, "SIZEOF_U32 == 4");
+assert(SIZEOF_I64 == 8, "SIZEOF_I64 == 8");
+assert(SIZEOF_U64 == 8, "SIZEOF_U64 == 8");
+assert(SIZEOF_F32 == 4, "SIZEOF_F32 == 4");
+assert(SIZEOF_F64 == 8, "SIZEOF_F64 == 8");
+assert(SIZEOF_PTR == 8, "SIZEOF_PTR == 8");
+print("Size constants passed!");
+
+// === Arena alloc_with_size ===
+print("=== Testing alloc_with_size ===");
+let arena = Arena(4096);
+let result = arena.alloc_with_size(128);
+assert(result.ptr != null, "alloc_with_size ptr not null");
+assert(result.size == 128, "alloc_with_size size correct");
+arena.destroy();
+print("alloc_with_size passed!");
+
+// === Arena can_alloc ===
+print("=== Testing can_alloc ===");
+arena = Arena(256);
+assert(arena.can_alloc(100) == true, "can_alloc 100 in 256");
+assert(arena.can_alloc(256) == true, "can_alloc 256 in 256");
+assert(arena.can_alloc(257) == false, "cannot alloc 257 in 256");
+
+arena.alloc(200);
+assert(arena.can_alloc(56) == true, "can_alloc 56 after 200 alloc");
+assert(arena.can_alloc(57) == false, "cannot alloc 57 after 200 alloc");
+arena.destroy();
+print("can_alloc passed!");
+
+// === Arena base_ptr and current_ptr ===
+print("=== Testing base_ptr / current_ptr ===");
+arena = Arena(1024);
+let base = arena.base_ptr();
+let cur = arena.current_ptr();
+assert(base != null, "base_ptr not null");
+assert(cur != null, "current_ptr not null");
+
+// Before any allocations, base and current should be the same
+// (current_ptr = base + used, used = 0)
+
+arena.alloc(64);
+let cur_after = arena.current_ptr();
+// current_ptr should have advanced
+assert(cur_after != cur || arena.used == 64, "current_ptr advanced after alloc");
+arena.destroy();
+print("base_ptr / current_ptr passed!");
+
+// === Typed Allocation Helpers ===
+print("=== Testing arena_alloc_i64_array ===");
+arena = Arena(8192);
+
+let i64_arr = arena_alloc_i64_array(arena, 5);
+assert(i64_arr != null, "i64 array alloc not null");
+for (let i = 0; i < 5; i++) {
+    ptr_write_i64(i64_arr + i * SIZEOF_I64, i64(i * 100));
+}
+for (let i = 0; i < 5; i++) {
+    assert(ptr_deref_i64(i64_arr + i * SIZEOF_I64) == i64(i * 100), "i64 array readback");
+}
+print("arena_alloc_i64_array passed!");
+
+print("=== Testing arena_alloc_f64_array ===");
+let f64_arr = arena_alloc_f64_array(arena, 3);
+assert(f64_arr != null, "f64 array alloc not null");
+ptr_write_f64(f64_arr, 1.5);
+ptr_write_f64(f64_arr + SIZEOF_F64, 2.5);
+ptr_write_f64(f64_arr + 2 * SIZEOF_F64, 3.5);
+assert(ptr_deref_f64(f64_arr) == 1.5, "f64 [0]");
+assert(ptr_deref_f64(f64_arr + SIZEOF_F64) == 2.5, "f64 [1]");
+assert(ptr_deref_f64(f64_arr + 2 * SIZEOF_F64) == 3.5, "f64 [2]");
+print("arena_alloc_f64_array passed!");
+
+print("=== Testing arena_alloc_ptr_array ===");
+let ptr_arr = arena_alloc_ptr_array(arena, 4);
+assert(ptr_arr != null, "ptr array alloc not null");
+print("arena_alloc_ptr_array passed!");
+
+print("=== Testing arena_copy_string ===");
+let str_ptr = arena_copy_string(arena, "hello");
+assert(str_ptr != null, "copy_string not null");
+// Read back individual characters
+assert(ptr_deref_i8(str_ptr) == 104, "h == 104");  // 'h' = 104
+assert(ptr_deref_i8(str_ptr + 1) == 101, "e == 101");  // 'e' = 101
+assert(ptr_deref_i8(str_ptr + 5) == 0, "null terminator");
+print("arena_copy_string passed!");
+
+arena.destroy();
+
+// === GrowingArena alloc_aligned ===
+print("=== Testing GrowingArena alloc_aligned ===");
+let growing = GrowingArena(512);
+let ga_aligned = growing.alloc_aligned(64, 16);
+assert(ga_aligned != null, "GrowingArena aligned alloc not null");
+print("GrowingArena alloc_aligned passed!");
+
+// === GrowingArena alloc_zeroed ===
+print("=== Testing GrowingArena alloc_zeroed ===");
+let ga_zeroed = growing.alloc_zeroed(32);
+assert(ga_zeroed != null, "GrowingArena zeroed alloc not null");
+for (let i = 0; i < 8; i++) {
+    assert(ptr_deref_i32(ga_zeroed + i * 4) == 0, "GrowingArena zeroed memory");
+}
+print("GrowingArena alloc_zeroed passed!");
+
+// === GrowingArena can_alloc_without_grow ===
+print("=== Testing GrowingArena can_alloc_without_grow ===");
+let growing2 = GrowingArena(256);
+assert(growing2.can_alloc_without_grow(100) == true, "can alloc 100 without grow");
+growing2.alloc(200);
+assert(growing2.can_alloc_without_grow(100) == false, "cannot alloc 100 without grow after 200");
+growing2.destroy();
+print("GrowingArena can_alloc_without_grow passed!");
+
+growing.destroy();
+
+// === ScratchScope alloc_aligned ===
+print("=== Testing ScratchScope alloc_aligned ===");
+let scratch_arena = Arena(4096);
+let scope = ScratchScope(scratch_arena);
+let sa_aligned = scope.alloc_aligned(32, 16);
+assert(sa_aligned != null, "ScratchScope aligned alloc not null");
+
+// === ScratchScope alloc_zeroed ===
+print("=== Testing ScratchScope alloc_zeroed ===");
+let sa_zeroed = scope.alloc_zeroed(16);
+assert(sa_zeroed != null, "ScratchScope zeroed alloc not null");
+for (let i = 0; i < 4; i++) {
+    assert(ptr_deref_i32(sa_zeroed + i * 4) == 0, "ScratchScope zeroed memory");
+}
+
+// Release scope and verify arena is restored
+let used_before_release = scratch_arena.used;
+scope.release();
+assert(scratch_arena.used == 0, "ScratchScope release restores arena");
+assert(scope.is_released() == true, "ScratchScope is released");
+print("ScratchScope alloc_aligned/zeroed passed!");
+
+// === Nested ScratchScopes ===
+print("=== Testing Nested ScratchScopes ===");
+scratch_arena.reset();
+
+let outer_alloc = scratch_arena.alloc(100);
+let outer_scope = ScratchScope(scratch_arena);
+let scope_alloc1 = outer_scope.alloc(200);
+assert(scratch_arena.used == 300, "outer scope used 300");
+
+let inner_scope = ScratchScope(scratch_arena);
+let scope_alloc2 = inner_scope.alloc(150);
+assert(scratch_arena.used == 450, "inner scope used 450");
+
+inner_scope.release();
+assert(scratch_arena.used == 300, "inner release restores to 300");
+
+outer_scope.release();
+assert(scratch_arena.used == 100, "outer release restores to 100");
+
+scratch_arena.destroy();
+print("Nested ScratchScopes passed!");
+
+print("");
+print("All advanced arena tests passed!");

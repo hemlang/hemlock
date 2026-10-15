@@ -12,7 +12,6 @@ static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...)
     va_end(args);
 
     ctx->exception_state.exception_value = val_string(buffer);
-    value_retain(ctx->exception_state.exception_value);
     ctx->exception_state.is_throwing = 1;
     return val_null();
 }
@@ -32,13 +31,48 @@ static Value throw_runtime_error_at(ExecutionContext *ctx, int line, const char 
     }
 
     ctx->exception_state.exception_value = val_string(full_buffer);
-    value_retain(ctx->exception_state.exception_value);
     ctx->exception_state.is_throwing = 1;
     return val_null();
 }
 
 // Line number for error reporting (set by caller)
 static __thread int current_line = 0;
+
+static Value string_to_upper(String *str, ExecutionContext *ctx, const char *method) {
+    char *upper = malloc(str->length + 1);
+    if (upper == NULL) {
+        return throw_runtime_error(ctx, "%s() out of memory", method);
+    }
+    for (int i = 0; i < str->length; i++) {
+        char c = str->data[i];
+        if (c >= 'a' && c <= 'z') {
+            upper[i] = c - HML_ASCII_CASE_OFFSET;  // Convert to uppercase
+        } else {
+            upper[i] = c;
+        }
+    }
+    upper[str->length] = '\0';
+
+    return val_string_take(upper, str->length, str->length + 1);
+}
+
+static Value string_to_lower(String *str, ExecutionContext *ctx, const char *method) {
+    char *lower = malloc(str->length + 1);
+    if (lower == NULL) {
+        return throw_runtime_error(ctx, "%s() out of memory", method);
+    }
+    for (int i = 0; i < str->length; i++) {
+        char c = str->data[i];
+        if (c >= 'A' && c <= 'Z') {
+            lower[i] = c + HML_ASCII_CASE_OFFSET;  // Convert to lowercase
+        } else {
+            lower[i] = c;
+        }
+    }
+    lower[str->length] = '\0';
+
+    return val_string_take(lower, str->length, str->length + 1);
+}
 
 // ========== STRING METHOD HANDLING ==========
 
@@ -175,6 +209,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             JSONParser parser;
             parser.input = str->data;
             parser.pos = 0;
+            parser.depth = 0;
 
             Value result = json_parse_value(&parser, ctx);
 
@@ -186,6 +221,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             // Check that we consumed all the input
             json_skip_whitespace(&parser);
             if (parser.input[parser.pos] != '\0') {
+                VALUE_RELEASE(result);
                 return throw_runtime_error(ctx, "Unexpected trailing characters in JSON");
             }
 
@@ -213,7 +249,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         break;
 
     case 'f':
-        // find(needle) - find first occurrence, returns index or -1
+        // find(needle) - find first occurrence, returns codepoint index or -1
         if (strcmp(method, "find") == 0) {
             if (num_args != 1) {
                 return throw_runtime_error(ctx, "find() expects 1 argument (substring)");
@@ -230,10 +266,11 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                 return val_i32(-1);  // Needle longer than haystack
             }
 
-            // Search for needle in haystack
+            // Search for needle in haystack; report the codepoint index so
+            // the result composes with substr()/slice()/char_at()
             for (int i = 0; i <= str->length - needle->length; i++) {
                 if (memcmp(str->data + i, needle->data, needle->length) == 0) {
-                    return val_i32(i);
+                    return val_i32(utf8_count_codepoints(str->data, i));
                 }
             }
             return val_i32(-1);  // Not found
@@ -241,6 +278,36 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         break;
 
     case 'r':
+        // rfind(needle) - find last occurrence, returns codepoint index or -1
+        if (method[1] == 'f' && strcmp(method, "rfind") == 0) {
+            if (num_args != 1) {
+                return throw_runtime_error(ctx, "rfind() expects 1 argument (substring)");
+            }
+            if (args[0].type != VAL_STRING) {
+                return throw_runtime_error(ctx, "rfind() argument must be a string");
+            }
+
+            String *needle = args[0].as.as_string;
+            if (needle->length == 0) {
+                // Empty string found at end (Python/JS behavior)
+                if (str->char_length < 0) {
+                    str->char_length = utf8_count_codepoints(str->data, str->length);
+                }
+                return val_i32(str->char_length);
+            }
+            if (needle->length > str->length) {
+                return val_i32(-1);  // Needle longer than haystack
+            }
+
+            // Search backwards for needle in haystack; report the codepoint
+            // index so the result composes with substr()/slice()/char_at()
+            for (int i = str->length - needle->length; i >= 0; i--) {
+                if (memcmp(str->data + i, needle->data, needle->length) == 0) {
+                    return val_i32(utf8_count_codepoints(str->data, i));
+                }
+            }
+            return val_i32(-1);  // Not found
+        }
         // replace(old, new) - replace first occurrence
         if (method[1] == 'e' && method[2] == 'p' && method[3] == 'l' && strcmp(method, "replace") == 0) {
             if (num_args != 2) {
@@ -267,9 +334,13 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                 return val_string(str->data);
             }
 
-            // Build new string with replacement
-            int new_len = str->length - old->length + new->length;
-            char *result = malloc(new_len + 1);
+            // Build new string with replacement (64-bit math to avoid overflow)
+            int64_t new_len64 = (int64_t)str->length - old->length + new->length;
+            if (new_len64 > INT32_MAX) {
+                return throw_runtime_error(ctx, "replace() result string too large");
+            }
+            int new_len = (int)new_len64;
+            char *result = malloc((size_t)new_len + 1);
             if (result == NULL) {
                 return throw_runtime_error(ctx, "replace() out of memory");
             }
@@ -310,9 +381,16 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                 return val_string(str->data);  // No replacements needed
             }
 
-            // Build new string
-            int new_len = str->length - (count * old->length) + (count * new->length);
-            char *result = malloc(new_len + 1);
+            // Build new string (64-bit math: count * length products can
+            // overflow int, which would undersize the allocation and turn the
+            // copy loop below into a heap buffer overflow)
+            int64_t new_len64 = (int64_t)str->length +
+                                (int64_t)count * ((int64_t)new->length - old->length);
+            if (new_len64 > INT32_MAX) {
+                return throw_runtime_error(ctx, "replace_all() result string too large");
+            }
+            int new_len = (int)new_len64;
+            char *result = malloc((size_t)new_len + 1);
             if (result == NULL) {
                 return throw_runtime_error(ctx, "replace_all() out of memory");
             }
@@ -370,12 +448,13 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         break;
 
     case 's':
-        // substr(start, length) - extract substring by codepoint positions
+        // substr(start[, length]) - extract substring by codepoint positions
+        // One-argument form takes everything from start to the end of the string
         if (method[1] == 'u' && strcmp(method, "substr") == 0) {
-            if (num_args != 2) {
-                return throw_runtime_error(ctx, "substr() expects 2 arguments (start, length)");
+            if (num_args < 1 || num_args > 2) {
+                return throw_runtime_error(ctx, "substr() expects 1-2 arguments (start[, length])");
             }
-            if (!is_integer(args[0]) || !is_integer(args[1])) {
+            if (!is_integer(args[0]) || (num_args == 2 && !is_integer(args[1]))) {
                 return throw_runtime_error(ctx, "substr() arguments must be integers");
             }
 
@@ -385,7 +464,6 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             }
 
             int32_t start = value_to_int(args[0]);
-            int32_t char_length = value_to_int(args[1]);
 
             // Clamp bounds to valid range
             if (start < 0) start = 0;
@@ -393,10 +471,13 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                 // Start beyond string length - return empty string
                 return val_string("");
             }
+
+            int32_t char_length = (num_args == 2) ? value_to_int(args[1])
+                                                  : str->char_length - start;
             if (char_length < 0) char_length = 0;
 
             // Clamp length to available characters
-            if (start + char_length > str->char_length) {
+            if (char_length > str->char_length - start) {
                 char_length = str->char_length - start;
             }
 
@@ -538,6 +619,28 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
         }
         break;
 
+    case 'l':
+        // lower() - alias for to_lower()
+        if (method[1] == 'o' && method[2] == 'w' && strcmp(method, "lower") == 0) {
+            if (num_args != 0) {
+                return throw_runtime_error(ctx, "lower() expects no arguments");
+            }
+
+            return string_to_lower(str, ctx, method);
+        }
+        break;
+
+    case 'u':
+        // upper() - alias for to_upper()
+        if (method[1] == 'p' && method[2] == 'p' && strcmp(method, "upper") == 0) {
+            if (num_args != 0) {
+                return throw_runtime_error(ctx, "upper() expects no arguments");
+            }
+
+            return string_to_upper(str, ctx, method);
+        }
+        break;
+
     case 't':
         // trim() - remove whitespace from both ends
         if (method[1] == 'r' && strcmp(method, "trim") == 0) {
@@ -632,21 +735,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                 return throw_runtime_error(ctx, "to_upper() expects no arguments");
             }
 
-            char *upper = malloc(str->length + 1);
-            if (upper == NULL) {
-                return throw_runtime_error(ctx, "to_upper() out of memory");
-            }
-            for (int i = 0; i < str->length; i++) {
-                char c = str->data[i];
-                if (c >= 'a' && c <= 'z') {
-                    upper[i] = c - HML_ASCII_CASE_OFFSET;  // Convert to uppercase
-                } else {
-                    upper[i] = c;
-                }
-            }
-            upper[str->length] = '\0';
-
-            return val_string_take(upper, str->length, str->length + 1);
+            return string_to_upper(str, ctx, method);
         }
         // to_lower() - convert to lowercase
         if (method[1] == 'o' && method[2] == '_' && method[3] == 'l' && strcmp(method, "to_lower") == 0) {
@@ -654,21 +743,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
                 return throw_runtime_error(ctx, "to_lower() expects no arguments");
             }
 
-            char *lower = malloc(str->length + 1);
-            if (lower == NULL) {
-                return throw_runtime_error(ctx, "to_lower() out of memory");
-            }
-            for (int i = 0; i < str->length; i++) {
-                char c = str->data[i];
-                if (c >= 'A' && c <= 'Z') {
-                    lower[i] = c + HML_ASCII_CASE_OFFSET;  // Convert to lowercase
-                } else {
-                    lower[i] = c;
-                }
-            }
-            lower[str->length] = '\0';
-
-            return val_string_take(lower, str->length, str->length + 1);
+            return string_to_lower(str, ctx, method);
         }
         // to_bytes() - convert string to buffer
         if (method[1] == 'o' && method[2] == '_' && method[3] == 'b' && strcmp(method, "to_bytes") == 0) {

@@ -157,8 +157,26 @@ int type_check_method_call(TypeCheckContext *ctx, CheckedType *receiver_type,
 
     // String methods
     if (receiver_type->kind == CHECKED_STRING) {
+        // substr takes 1-2 integer arguments (start[, length])
+        if (strcmp(method_name, "substr") == 0) {
+            if (num_args < 1 || num_args > 2) {
+                type_error(ctx, line,
+                    "string.substr() expects 1-2 arguments (start[, length]), got %d",
+                    num_args);
+            }
+            for (int i = 0; i < num_args && i < 2; i++) {
+                CheckedType *arg_type = type_check_infer_expr(ctx, args[i]);
+                if (!type_is_integer(arg_type) && arg_type->kind != CHECKED_ANY) {
+                    type_error(ctx, line, "string.substr(): argument %d must be integer, got '%s'",
+                        i + 1, checked_type_name(arg_type));
+                }
+                checked_type_free(arg_type);
+            }
+            return 1;
+        }
+
         // Methods that take integer indices
-        if (strcmp(method_name, "substr") == 0 || strcmp(method_name, "slice") == 0 ||
+        if (strcmp(method_name, "slice") == 0 ||
             strcmp(method_name, "char_at") == 0 || strcmp(method_name, "byte_at") == 0) {
             for (int i = 0; i < num_args && i < 2; i++) {
                 CheckedType *arg_type = type_check_infer_expr(ctx, args[i]);
@@ -172,7 +190,8 @@ int type_check_method_call(TypeCheckContext *ctx, CheckedType *receiver_type,
         }
 
         // Methods that take a string argument
-        if (strcmp(method_name, "find") == 0 || strcmp(method_name, "contains") == 0 ||
+        if (strcmp(method_name, "find") == 0 || strcmp(method_name, "rfind") == 0 ||
+            strcmp(method_name, "contains") == 0 ||
             strcmp(method_name, "starts_with") == 0 || strcmp(method_name, "ends_with") == 0 ||
             strcmp(method_name, "split") == 0) {
             if (num_args > 0) {
@@ -221,7 +240,8 @@ int type_check_method_call(TypeCheckContext *ctx, CheckedType *receiver_type,
 
         // No-arg string methods
         if (strcmp(method_name, "trim") == 0 || strcmp(method_name, "to_upper") == 0 ||
-            strcmp(method_name, "to_lower") == 0 || strcmp(method_name, "chars") == 0 ||
+            strcmp(method_name, "upper") == 0 || strcmp(method_name, "to_lower") == 0 ||
+            strcmp(method_name, "lower") == 0 || strcmp(method_name, "chars") == 0 ||
             strcmp(method_name, "bytes") == 0 || strcmp(method_name, "byte_ptr") == 0 ||
             strcmp(method_name, "to_bytes") == 0 ||
             strcmp(method_name, "deserialize") == 0) {
@@ -447,24 +467,80 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
                                 }
                             }
 
-                            // If parameter not found, skip type checking (runtime will catch it)
-                            if (param_idx < 0) continue;
+                            // A named argument that matches no parameter is a
+                            // guaranteed runtime throw in the interpreter
+                            // ("Unknown parameter name"), while the compiled
+                            // binary silently binds it positionally — reject it
+                            // here so a typo like `f(nam: ...)` can't compile
+                            // into divergent behavior. Only when the signature
+                            // carries parameter names; otherwise stay silent.
+                            if (param_idx < 0) {
+                                if (sig->param_names) {
+                                    type_error(ctx, expr->line,
+                                        "unknown named argument '%s' to '%s': no parameter with that name",
+                                        arg_name, name);
+                                }
+                                continue;
+                            }
                         }
 
                         if (!sig->param_types[param_idx]) continue;
 
                         CheckedType *arg_type = type_check_infer_expr(ctx, expr->as.call.args[i]);
                         if (!type_is_assignable(sig->param_types[param_idx], arg_type)) {
-                            type_error(ctx, expr->line,
-                                "argument '%s' to '%s': expected '%s', got '%s'",
-                                (expr->as.call.arg_names && expr->as.call.arg_names[i])
-                                    ? expr->as.call.arg_names[i]
-                                    : "positional",
-                                name,
-                                checked_type_name(sig->param_types[param_idx]),
-                                checked_type_name(arg_type));
+                            const char *param_name = (sig->param_names && sig->param_names[param_idx])
+                                ? sig->param_names[param_idx]
+                                : NULL;
+                            const char *arg_name = (expr->as.call.arg_names && expr->as.call.arg_names[i])
+                                ? expr->as.call.arg_names[i]
+                                : NULL;
+
+                            if (arg_name) {
+                                type_error(ctx, expr->line,
+                                    "argument '%s' to '%s': expected '%s', got '%s'",
+                                    arg_name, name,
+                                    checked_type_name(sig->param_types[param_idx]),
+                                    checked_type_name(arg_type));
+                            } else if (param_name) {
+                                type_error(ctx, expr->line,
+                                    "argument %d ('%s') to '%s': expected '%s', got '%s'",
+                                    i + 1, param_name, name,
+                                    checked_type_name(sig->param_types[param_idx]),
+                                    checked_type_name(arg_type));
+                            } else {
+                                type_error(ctx, expr->line,
+                                    "argument %d to '%s': expected '%s', got '%s'",
+                                    i + 1, name,
+                                    checked_type_name(sig->param_types[param_idx]),
+                                    checked_type_name(arg_type));
+                            }
                         }
                         checked_type_free(arg_type);
+
+                        // Structural validation for object literals passed to
+                        // custom-typed parameters. Without this, missing or
+                        // mistyped fields slip past compile time (type_is_assignable
+                        // treats any object literal as assignable to a custom type)
+                        // and only blow up at runtime - and the two backends diverge,
+                        // since the interpreter throws "Object missing required field"
+                        // while the compiled binary silently runs. Mirrors the
+                        // let/const initializer path in type_check_stmt.c.
+                        Expr *arg_expr = expr->as.call.args[i];
+                        if (arg_expr->type == EXPR_OBJECT_LITERAL) {
+                            CheckedType *pt = sig->param_types[param_idx];
+                            if (pt->kind == CHECKED_CUSTOM && pt->type_name) {
+                                type_check_validate_object_literal(ctx, arg_expr,
+                                    pt->type_name, expr->line);
+                            } else if (pt->kind == CHECKED_COMPOUND) {
+                                for (int k = 0; k < pt->num_compound_types; k++) {
+                                    CheckedType *c = pt->compound_types[k];
+                                    if (c && c->kind == CHECKED_CUSTOM && c->type_name) {
+                                        type_check_validate_object_literal(ctx, arg_expr,
+                                            c->type_name, expr->line);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -490,6 +566,9 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
                 type_error(ctx, expr->line,
                     "cannot reassign const variable '%s'", expr->as.assign.name);
             }
+
+            // Reassignment can make previous flow-sensitive non-null facts stale.
+            type_check_clear_narrowings_for_assignment(ctx, expr->as.assign.name);
 
             // Check type compatibility
             CheckedType *var_type = type_check_lookup(ctx, expr->as.assign.name);

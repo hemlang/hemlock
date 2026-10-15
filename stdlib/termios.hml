@@ -7,7 +7,8 @@
 // - Arrow key and special key detection
 // - Safe cleanup with automatic restore on exit
 //
-// Supported platforms: Linux, macOS
+// Supported platforms: Linux, macOS, Windows (console API via the
+// __term_* builtins; arrow keys arrive as VT escape sequences there too)
 //
 // Example usage:
 //   import { enable_raw_mode, disable_raw_mode, read_key, KEY_UP } from "@stdlib/termios";
@@ -30,18 +31,24 @@ import { time_ms, sleep } from "@stdlib/time";
 let _platform = platform();
 let _is_linux = _platform == "linux";
 let _is_macos = _platform == "macos";
+let _is_windows = _platform == "windows";
 
-if (!_is_linux && !_is_macos) {
-    panic("termios: unsupported platform '" + _platform + "' (requires Linux or macOS)");
+if (!_is_linux && !_is_macos && !_is_windows) {
+    panic("termios: unsupported platform '" + _platform + "' (requires Linux, macOS, or Windows)");
 }
 
 // ========== FFI LIBRARY LOADING ==========
 
-// Load platform-specific C library
+// Load platform-specific C library. Windows never calls the POSIX
+// externs below (it uses the __term_* builtins), but extern declarations
+// need a loaded library; they bind lazily, so the unresolvable termios
+// symbols in msvcrt are harmless.
 if (_is_linux) {
     import "libc.so.6";
-} else {
+} else if (_is_macos) {
     import "libSystem.B.dylib";
+} else {
+    import "msvcrt.dll";
 }
 
 // POSIX termios functions (available on both platforms)
@@ -142,6 +149,9 @@ let _is_raw_mode = false;            // Current mode flag
 
 // Check if stdin is connected to a terminal (not a pipe or file)
 export fn is_terminal(): bool {
+    if (_is_windows) {
+        return __term_is_tty();
+    }
     return isatty(STDIN_FILENO) == 1;
 }
 
@@ -159,6 +169,15 @@ export fn enable_raw_mode(): bool {
     // Check if stdin is a terminal
     if (!is_terminal()) {
         return false;  // Can't enable raw mode on non-terminal
+    }
+
+    if (_is_windows) {
+        // Console API path (also enables VT input/output processing)
+        if (!__term_raw(true)) {
+            return false;
+        }
+        _is_raw_mode = true;
+        return true;
     }
 
     // Allocate termios structures
@@ -229,6 +248,14 @@ export fn enable_raw_mode(): bool {
 // Disable raw mode - restore original terminal settings
 // Safe to call multiple times
 export fn disable_raw_mode(): bool {
+    if (_is_windows) {
+        if (!_is_raw_mode) {
+            return true;
+        }
+        _is_raw_mode = false;
+        return __term_raw(false);
+    }
+
     if (!_is_raw_mode || _original_termios == ptr_null()) {
         return true;  // Not in raw mode or nothing to restore
     }
@@ -256,6 +283,10 @@ export fn is_raw_mode(): bool {
 // Read a single byte from stdin
 // Returns -1 if no data available (non-blocking) or on error
 fn read_byte(): i32 {
+    if (_is_windows) {
+        return __term_read_byte(-1);  // blocking
+    }
+
     let buf = alloc(1);
     let n = read(STDIN_FILENO, buf, 1);
     let result = -1;
@@ -269,6 +300,10 @@ fn read_byte(): i32 {
 // Try to read a byte with very short timeout (for escape sequences)
 // Uses VMIN=0/VTIME=1 to avoid variadic fcntl() which crashes on arm64 macOS
 fn read_byte_nowait(): i32 {
+    if (_is_windows) {
+        return __term_read_byte(100);  // 0.1s timeout, like VTIME=1
+    }
+
     // Temporarily set non-blocking: VMIN=0, VTIME=1 (0.1s timeout)
     ptr_write_u8(_raw_termios + _CC_OFFSET + _VMIN_IDX, 0);
     ptr_write_u8(_raw_termios + _CC_OFFSET + _VTIME_IDX, 1);
@@ -419,19 +454,28 @@ export fn read_key_timeout(timeout_ms: i32): object {
     let start = time_ms();
 
     // Set non-blocking: VMIN=0, VTIME=0 (return immediately if no data)
-    ptr_write_u8(_raw_termios + _CC_OFFSET + _VMIN_IDX, 0);
-    ptr_write_u8(_raw_termios + _CC_OFFSET + _VTIME_IDX, 0);
-    tcsetattr(STDIN_FILENO, TCSANOW, _raw_termios);
+    if (!_is_windows) {
+        ptr_write_u8(_raw_termios + _CC_OFFSET + _VMIN_IDX, 0);
+        ptr_write_u8(_raw_termios + _CC_OFFSET + _VTIME_IDX, 0);
+        tcsetattr(STDIN_FILENO, TCSANOW, _raw_termios);
+    }
 
     let result = { char: null, code: KEY_NONE, name: "Timeout" };
 
     while (time_ms() - start < timeout_ms) {
-        let byte1 = read_byte();
+        let byte1 = -1;
+        if (_is_windows) {
+            byte1 = __term_read_byte(10);
+        } else {
+            byte1 = read_byte();
+        }
         if (byte1 != -1) {
             // Restore blocking mode for escape sequence parsing
-            ptr_write_u8(_raw_termios + _CC_OFFSET + _VMIN_IDX, 1);
-            ptr_write_u8(_raw_termios + _CC_OFFSET + _VTIME_IDX, 0);
-            tcsetattr(STDIN_FILENO, TCSANOW, _raw_termios);
+            if (!_is_windows) {
+                ptr_write_u8(_raw_termios + _CC_OFFSET + _VMIN_IDX, 1);
+                ptr_write_u8(_raw_termios + _CC_OFFSET + _VTIME_IDX, 0);
+                tcsetattr(STDIN_FILENO, TCSANOW, _raw_termios);
+            }
 
             // Re-process the byte
             if (byte1 == 27) {
@@ -446,13 +490,17 @@ export fn read_key_timeout(timeout_ms: i32): object {
             }
             return result;
         }
-        sleep(0.01);  // Sleep 10ms between polls
+        if (!_is_windows) {
+            sleep(0.01);  // Sleep 10ms between polls (__term_read_byte already waited)
+        }
     }
 
     // Restore blocking mode: VMIN=1, VTIME=0
-    ptr_write_u8(_raw_termios + _CC_OFFSET + _VMIN_IDX, 1);
-    ptr_write_u8(_raw_termios + _CC_OFFSET + _VTIME_IDX, 0);
-    tcsetattr(STDIN_FILENO, TCSANOW, _raw_termios);
+    if (!_is_windows) {
+        ptr_write_u8(_raw_termios + _CC_OFFSET + _VMIN_IDX, 1);
+        ptr_write_u8(_raw_termios + _CC_OFFSET + _VTIME_IDX, 0);
+        tcsetattr(STDIN_FILENO, TCSANOW, _raw_termios);
+    }
 
     return result;
 }

@@ -1,0 +1,38 @@
+// Regression: `for k in obj.keys()` leaked the entire keys array +
+// every key string on every iteration. Two compounding bugs:
+//   - codegen for-in retained the iterable then released once, never
+//     consuming the owned +1 from the .keys() call (the array,
+//     elements, and backing store leaked)            [fixed 2.4.7]
+//   - hml_object_keys() pushed hml_val_string() temps into an array
+//     whose push() retains, orphaning each string's creation ref
+//     (key strings leaked even after the array was freed) [fixed 2.4.7]
+//
+// A dashboard render calling caps_data.keys() / binaries.keys() /
+// flags.keys() per request bled multiple MB/min this way. Bounded +
+// finite so LeakSanitizer reports at exit; run via `run_stress.sh
+// lsan`. Must leak nothing per-iteration.
+
+let m = {};
+let i = 0;
+while (i < 12) {
+	m["field_" + i] = { a: "v" + i, b: ["x-" + i, "y-" + i] };
+	i = i + 1;
+}
+
+fn touch(o): i64 {
+	let c = 0;
+	for (k in o.keys()) {
+		let v = o[k];
+		for (bk in v.keys()) { c = c + 1; }
+		c = c + 1;
+	}
+	return c;
+}
+
+let n = 0;
+let total = 0;
+while (n < 3000) {
+	total = total + touch(m);
+	n = n + 1;
+}
+print("keys_leak: ok total=" + total);

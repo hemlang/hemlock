@@ -1,0 +1,33 @@
+// Regression test: an exception thrown inside a method call unwinds past the
+// callee's epilogue; catching it must restore `self` to the enclosing
+// method's receiver (compiled binaries used to leave `self` bound to the
+// innermost throwing object).
+
+let inner = {
+    name: "inner",
+    fn boom() {
+        throw "kaboom";
+    },
+};
+
+let outer = {
+    name: "outer",
+    fn run(): string {
+        try {
+            inner.boom();
+        } catch (e) {}
+        return self.name;
+    },
+    fn run_finally(): string {
+        try {
+            inner.boom();
+        } catch (e) {
+        } finally {
+            let unused = 1;
+        }
+        return self.name;
+    },
+};
+
+print(outer.run());
+print(outer.run_finally());

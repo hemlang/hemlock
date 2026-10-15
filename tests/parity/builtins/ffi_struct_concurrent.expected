@@ -1,5 +1,5 @@
-Result 1: 41
-Result 2: 205
-Result 3: 337
-Result 4: 689
+Result 1: 41.0
+Result 2: 205.0
+Result 3: 337.0
+Result 4: 689.0
 All concurrent FFI struct operations succeeded

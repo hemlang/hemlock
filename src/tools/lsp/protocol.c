@@ -3,6 +3,7 @@
  */
 
 #include "protocol.h"
+#include "hemlock_compat.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

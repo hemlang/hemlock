@@ -1,0 +1,25 @@
+// Regression test: passing a socket to a spawned task must not corrupt
+// its reference count. Previously value_deep_copy shared the handle
+// without retaining it, while task cleanup released it - so each spawn
+// dropped one reference and the socket was freed while still in use
+// (use-after-free / double-free crash).
+
+async fn use_sock(s) {
+    return typeof(s);
+}
+
+let sock = __socket_create(__AF_INET, __SOCK_DGRAM, 0);
+
+let i = 0;
+while (i < 10) {
+    let t = spawn(use_sock, sock);
+    let result = join(t);
+    if (result != "socket") {
+        print("FAIL: expected socket, got " + result);
+    }
+    i = i + 1;
+}
+
+// The socket must still be alive and usable after all tasks released it
+sock.close();
+print("ok");

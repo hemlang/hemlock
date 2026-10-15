@@ -1,0 +1,5 @@
+fn main() {
+    let b = buffer(64);
+    free(b);
+    let n = b.length;
+}

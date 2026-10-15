@@ -7,6 +7,8 @@
  * Extracted from expressions.c to reduce file size.
  */
 
+#include <stdio.h>
+
 #include "internal.h"
 #include "expressions_internal.h"
 
@@ -91,9 +93,10 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
             case OP_DIV:
                 if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
-                return val_f64((double)l / (double)r);  // Always float division
+                return val_f64((double)l / (double)r);  // Division always returns float
             case OP_MOD:
                 if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
+                if (r == -1) { return val_i32(0); }  // Avoid INT32_MIN % -1 trap; remainder is 0
                 return val_i32(l % r);
             case OP_LESS: return val_bool(l < r);
             case OP_LESS_EQUAL: return val_bool(l <= r);
@@ -145,9 +148,10 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
             case OP_DIV:
                 if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
-                return val_f64((double)l / (double)r);  // Always float division
+                return val_f64((double)l / (double)r);  // Division always returns float
             case OP_MOD:
                 if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
+                if (r == -1) { return val_i64(0); }  // Avoid INT64_MIN % -1 trap; remainder is 0
                 return val_i64(l % r);
             case OP_LESS: return val_bool(l < r);
             case OP_LESS_EQUAL: return val_bool(l <= r);
@@ -224,6 +228,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 return val_f64((double)l / (double)r);  // Always float division
             case OP_MOD:
                 if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
+                if (r == -1) { return val_i64(0); }  // Avoid INT64_MIN % -1 trap; remainder is 0
                 return val_i64(l % r);
             case OP_LESS: return val_bool(l < r);
             case OP_LESS_EQUAL: return val_bool(l <= r);
@@ -518,6 +523,22 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     // Cross-type equality comparisons (before numeric type check)
     // If types are different and not both numeric, == returns false, != returns true
     if (expr->as.binary.op == OP_EQUAL || expr->as.binary.op == OP_NOT_EQUAL) {
+        // Comparing a rune to a string is almost always a bug: string[i] returns
+        // a rune, but `s[i] == "x"` silently evaluates to false because the
+        // types differ. Match hemlockc's compile-time warning so the mistake
+        // isn't silent at runtime either.
+        if ((left.type == VAL_RUNE && right.type == VAL_STRING) ||
+            (left.type == VAL_STRING && right.type == VAL_RUNE)) {
+            const char *file = (ctx && ctx->current_source_file)
+                ? ctx->current_source_file
+                : get_current_source_file();
+            const char *left_name = left.type == VAL_RUNE ? "rune" : "string";
+            const char *right_name = right.type == VAL_RUNE ? "rune" : "string";
+            fprintf(stderr,
+                    "%s:%d: warning: equality comparison between different types '%s' and '%s'\n",
+                    file ? file : "<unknown>", expr->line, left_name, right_name);
+        }
+
         int left_is_numeric = is_numeric(left);
         int right_is_numeric = is_numeric(right);
 
@@ -654,7 +675,8 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             goto binary_cleanup;
                         }
                         if (expr->as.binary.op == OP_MOD) {
-                            binary_result = val_i32(l % r);
+                            // Avoid INT32_MIN % -1 trap; remainder is 0
+                            binary_result = (r == -1) ? val_i32(0) : val_i32(l % r);
                             goto binary_cleanup;
                         }
                         int32_t result;
@@ -676,7 +698,8 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             goto binary_cleanup;
                         }
                         if (expr->as.binary.op == OP_MOD) {
-                            binary_result = val_i64(l % r);
+                            // Avoid INT64_MIN % -1 trap; remainder is 0
+                            binary_result = (r == -1) ? val_i64(0) : val_i64(l % r);
                             goto binary_cleanup;
                         }
                         int64_t result;
@@ -752,7 +775,9 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     }
                     default:
                         runtime_error(ctx, "Invalid integer type for arithmetic");
-                        return val_null();
+                        // Fall through to the shared cleanup so the promoted
+                        // operands are released (a bare return leaked them)
+                        goto binary_cleanup;
                 }
             }
 

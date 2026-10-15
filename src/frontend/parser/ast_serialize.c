@@ -165,6 +165,7 @@ static void dctx_init(DeserializeContext *ctx, const uint8_t *data, size_t size)
     ctx->strings = NULL;
     ctx->string_count = 0;
     ctx->flags = 0;
+    ctx->depth = 0;
 }
 
 static void dctx_free(DeserializeContext *ctx) {
@@ -205,6 +206,20 @@ static uint32_t read_u32(DeserializeContext *ctx) {
     return val;
 }
 
+// Read a u32 element/array count, capped at the number of bytes remaining in
+// the blob. Every serialized element occupies at least one byte, so a count
+// larger than the remaining input is corrupt or hostile; capping it bounds the
+// subsequent allocation and loop to the actual input size instead of trusting
+// the field (prevents a tiny blob from claiming a multi-million element count).
+static uint32_t read_count(DeserializeContext *ctx) {
+    uint32_t count = read_u32(ctx);
+    size_t remaining = ctx->data_size - ctx->offset;
+    if ((size_t)count > remaining) {
+        count = (uint32_t)remaining;
+    }
+    return count;
+}
+
 static int64_t read_i64(DeserializeContext *ctx) {
     if (!dctx_has_bytes(ctx, 8)) return 0;
     uint64_t val = 0;
@@ -240,9 +255,37 @@ static void serialize_type(SerializeContext *ctx, Type *type);
 static void serialize_expr(SerializeContext *ctx, Expr *expr);
 static void serialize_stmt(SerializeContext *ctx, Stmt *stmt);
 
-static Type* deserialize_type(DeserializeContext *ctx);
-static Expr* deserialize_expr(DeserializeContext *ctx);
-static Stmt* deserialize_stmt(DeserializeContext *ctx);
+static Type* deserialize_type_inner(DeserializeContext *ctx);
+static Expr* deserialize_expr_inner(DeserializeContext *ctx);
+static Stmt* deserialize_stmt_inner(DeserializeContext *ctx);
+
+// Depth-guarded entry points. A serialized AST blob is untrusted input (the
+// header checksum is integrity-only, not a security control), so a deeply
+// nested chain of nodes could otherwise overflow the C stack. Returning NULL
+// past the limit is safe: all callers already handle NULL children.
+static Type* deserialize_type(DeserializeContext *ctx) {
+    if (ctx->depth >= HML_MAX_AST_DESERIALIZE_DEPTH) return NULL;
+    ctx->depth++;
+    Type *t = deserialize_type_inner(ctx);
+    ctx->depth--;
+    return t;
+}
+
+static Expr* deserialize_expr(DeserializeContext *ctx) {
+    if (ctx->depth >= HML_MAX_AST_DESERIALIZE_DEPTH) return NULL;
+    ctx->depth++;
+    Expr *e = deserialize_expr_inner(ctx);
+    ctx->depth--;
+    return e;
+}
+
+static Stmt* deserialize_stmt(DeserializeContext *ctx) {
+    if (ctx->depth >= HML_MAX_AST_DESERIALIZE_DEPTH) return NULL;
+    ctx->depth++;
+    Stmt *s = deserialize_stmt_inner(ctx);
+    ctx->depth--;
+    return s;
+}
 
 // ========== TYPE SERIALIZATION ==========
 
@@ -273,7 +316,7 @@ static void serialize_type(SerializeContext *ctx, Type *type) {
     }
 }
 
-static Type* deserialize_type(DeserializeContext *ctx) {
+static Type* deserialize_type_inner(DeserializeContext *ctx) {
     uint8_t kind_byte = read_u8(ctx);
     if (kind_byte == NULL_MARKER) return NULL;
 
@@ -282,14 +325,13 @@ static Type* deserialize_type(DeserializeContext *ctx) {
         fprintf(stderr, "Error: Memory allocation failed in deserialize_type\n");
         return NULL;
     }
+    // Zero everything, like the Expr/Stmt deserializers below. Listing the
+    // fields by hand left the function-type members (fn_param_types,
+    // fn_param_names, fn_return_type, ...) holding whatever was on the heap,
+    // and type_free() then walked those as real pointers — running a bundled
+    // .hmlc corrupted the heap during teardown, after producing correct output.
+    memset(type, 0, sizeof(Type));
     type->kind = (TypeKind)kind_byte;
-    type->type_name = NULL;
-    type->element_type = NULL;
-    type->nullable = 0;
-    type->compound_types = NULL;
-    type->num_compound_types = 0;
-    type->type_args = NULL;
-    type->num_type_args = 0;
 
     if (type->kind == TYPE_CUSTOM_OBJECT || type->kind == TYPE_ENUM) {
         type->type_name = read_string_id(ctx);
@@ -522,17 +564,99 @@ static void serialize_expr(SerializeContext *ctx, Expr *expr) {
                             serialize_type(ctx, arm->pattern->as.typed.type_annotation);
                             break;
                         case PATTERN_OR:
-                            // Complex pattern - not fully supported in serialization
-                            write_u32(ctx, 0);  // Write 0 alternatives
+                            write_u32(ctx, (uint32_t)arm->pattern->as.or_pattern.num_alternatives);
+                            for (int j = 0; j < arm->pattern->as.or_pattern.num_alternatives; j++) {
+                                Pattern *alt = arm->pattern->as.or_pattern.alternatives[j];
+                                if (alt) {
+                                    write_u8(ctx, (uint8_t)alt->type);
+                                    switch (alt->type) {
+                                        case PATTERN_LITERAL:
+                                            serialize_expr(ctx, alt->as.literal);
+                                            break;
+                                        case PATTERN_WILDCARD:
+                                            break;
+                                        case PATTERN_BINDING:
+                                            write_string_id(ctx, alt->as.binding.name);
+                                            break;
+                                        case PATTERN_TYPED:
+                                            write_string_id(ctx, alt->as.typed.name);
+                                            serialize_type(ctx, alt->as.typed.type_annotation);
+                                            break;
+                                        default:
+                                            // Nested OR/object/array in OR not supported
+                                            write_u32(ctx, 0);
+                                            break;
+                                    }
+                                } else {
+                                    write_u8(ctx, NULL_MARKER);
+                                }
+                            }
                             break;
                         case PATTERN_OBJECT:
-                            // Complex pattern - not fully supported in serialization
-                            write_u32(ctx, 0);  // Write 0 fields
-                            write_u8(ctx, 0);   // has_rest = false
+                            write_u32(ctx, (uint32_t)arm->pattern->as.object.num_fields);
+                            for (int j = 0; j < arm->pattern->as.object.num_fields; j++) {
+                                ObjectFieldPattern *fp = &arm->pattern->as.object.fields[j];
+                                write_string_id(ctx, fp->name);
+                                if (fp->pattern) {
+                                    write_u8(ctx, 1);  // has sub-pattern
+                                    write_u8(ctx, (uint8_t)fp->pattern->type);
+                                    switch (fp->pattern->type) {
+                                        case PATTERN_LITERAL:
+                                            serialize_expr(ctx, fp->pattern->as.literal);
+                                            break;
+                                        case PATTERN_WILDCARD:
+                                            break;
+                                        case PATTERN_BINDING:
+                                            write_string_id(ctx, fp->pattern->as.binding.name);
+                                            break;
+                                        case PATTERN_TYPED:
+                                            write_string_id(ctx, fp->pattern->as.typed.name);
+                                            serialize_type(ctx, fp->pattern->as.typed.type_annotation);
+                                            break;
+                                        default:
+                                            write_u32(ctx, 0);
+                                            break;
+                                    }
+                                } else {
+                                    write_u8(ctx, 0);  // no sub-pattern (shorthand bind)
+                                }
+                            }
+                            write_u8(ctx, arm->pattern->as.object.has_rest ? 1 : 0);
+                            if (arm->pattern->as.object.has_rest && arm->pattern->as.object.rest_name) {
+                                write_string_id(ctx, arm->pattern->as.object.rest_name);
+                            }
                             break;
                         case PATTERN_ARRAY:
-                            // Complex pattern - not fully supported in serialization
-                            write_u32(ctx, 0);  // Write 0 elements
+                            write_u32(ctx, (uint32_t)arm->pattern->as.array.num_elements);
+                            for (int j = 0; j < arm->pattern->as.array.num_elements; j++) {
+                                ArrayElementPattern *ep = &arm->pattern->as.array.elements[j];
+                                write_u8(ctx, ep->is_rest ? 1 : 0);
+                                if (ep->is_rest) {
+                                    write_string_id(ctx, ep->rest_name);
+                                } else if (ep->pattern) {
+                                    write_u8(ctx, 1);  // has pattern
+                                    write_u8(ctx, (uint8_t)ep->pattern->type);
+                                    switch (ep->pattern->type) {
+                                        case PATTERN_LITERAL:
+                                            serialize_expr(ctx, ep->pattern->as.literal);
+                                            break;
+                                        case PATTERN_WILDCARD:
+                                            break;
+                                        case PATTERN_BINDING:
+                                            write_string_id(ctx, ep->pattern->as.binding.name);
+                                            break;
+                                        case PATTERN_TYPED:
+                                            write_string_id(ctx, ep->pattern->as.typed.name);
+                                            serialize_type(ctx, ep->pattern->as.typed.type_annotation);
+                                            break;
+                                        default:
+                                            write_u32(ctx, 0);
+                                            break;
+                                    }
+                                } else {
+                                    write_u8(ctx, 0);  // no pattern
+                                }
+                            }
                             break;
                     }
                 } else {
@@ -546,7 +670,7 @@ static void serialize_expr(SerializeContext *ctx, Expr *expr) {
     }
 }
 
-static Expr* deserialize_expr(DeserializeContext *ctx) {
+static Expr* deserialize_expr_inner(DeserializeContext *ctx) {
     uint8_t type_byte = read_u8(ctx);
     if (type_byte == NULL_MARKER) return NULL;
 
@@ -620,7 +744,7 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
 
         case EXPR_CALL:
             expr->as.call.func = deserialize_expr(ctx);
-            expr->as.call.num_args = (int)read_u32(ctx);
+            expr->as.call.num_args = (int)read_count(ctx);
             if (expr->as.call.num_args > 0) {
                 expr->as.call.args = malloc(expr->as.call.num_args * sizeof(Expr*));
                 if (!expr->as.call.args) {
@@ -664,7 +788,7 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
 
         case EXPR_FUNCTION: {
             expr->as.function.is_async = read_u8(ctx);
-            expr->as.function.num_params = (int)read_u32(ctx);
+            expr->as.function.num_params = (int)read_count(ctx);
             if (expr->as.function.num_params > 0) {
                 expr->as.function.param_names = malloc(expr->as.function.num_params * sizeof(char*));
                 expr->as.function.param_types = malloc(expr->as.function.num_params * sizeof(Type*));
@@ -697,7 +821,7 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
         }
 
         case EXPR_ARRAY_LITERAL:
-            expr->as.array_literal.num_elements = (int)read_u32(ctx);
+            expr->as.array_literal.num_elements = (int)read_count(ctx);
             if (expr->as.array_literal.num_elements > 0) {
                 expr->as.array_literal.elements = malloc(expr->as.array_literal.num_elements * sizeof(Expr*));
                 if (!expr->as.array_literal.elements) {
@@ -713,7 +837,7 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
             break;
 
         case EXPR_OBJECT_LITERAL:
-            expr->as.object_literal.num_fields = (int)read_u32(ctx);
+            expr->as.object_literal.num_fields = (int)read_count(ctx);
             if (expr->as.object_literal.num_fields > 0) {
                 expr->as.object_literal.field_names = malloc(expr->as.object_literal.num_fields * sizeof(char*));
                 expr->as.object_literal.field_values = malloc(expr->as.object_literal.num_fields * sizeof(Expr*));
@@ -754,7 +878,7 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
             break;
 
         case EXPR_STRING_INTERPOLATION: {
-            expr->as.string_interpolation.num_parts = (int)read_u32(ctx);
+            expr->as.string_interpolation.num_parts = (int)read_count(ctx);
             int n = expr->as.string_interpolation.num_parts;
             expr->as.string_interpolation.string_parts = malloc((n + 1) * sizeof(char*));
             expr->as.string_interpolation.expr_parts = (n > 0) ? malloc(n * sizeof(Expr*)) : NULL;
@@ -785,7 +909,7 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
             } else if (expr->as.optional_chain.is_call) {
                 expr->as.optional_chain.property = NULL;
                 expr->as.optional_chain.index = NULL;
-                expr->as.optional_chain.num_args = (int)read_u32(ctx);
+                expr->as.optional_chain.num_args = (int)read_count(ctx);
                 if (expr->as.optional_chain.num_args > 0) {
                     expr->as.optional_chain.args = malloc(expr->as.optional_chain.num_args * sizeof(Expr*));
                     if (!expr->as.optional_chain.args) {
@@ -814,7 +938,7 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
 
         case EXPR_MATCH: {
             expr->as.match_expr.scrutinee = deserialize_expr(ctx);
-            expr->as.match_expr.num_arms = (int)read_u32(ctx);
+            expr->as.match_expr.num_arms = (int)read_count(ctx);
             if (expr->as.match_expr.num_arms > 0) {
                 expr->as.match_expr.arms = malloc(expr->as.match_expr.num_arms * sizeof(MatchArm));
                 if (!expr->as.match_expr.arms) {
@@ -856,20 +980,140 @@ static Expr* deserialize_expr(DeserializeContext *ctx) {
                                 arm->pattern->as.typed.name = read_string_id(ctx);
                                 arm->pattern->as.typed.type_annotation = deserialize_type(ctx);
                                 break;
-                            case PATTERN_OR:
-                                arm->pattern->as.or_pattern.num_alternatives = (int)read_u32(ctx);
-                                arm->pattern->as.or_pattern.alternatives = NULL;
+                            case PATTERN_OR: {
+                                int num_alts = (int)read_count(ctx);
+                                arm->pattern->as.or_pattern.num_alternatives = num_alts;
+                                if (num_alts > 0) {
+                                    arm->pattern->as.or_pattern.alternatives = malloc(sizeof(Pattern*) * num_alts);
+                                    for (int j = 0; j < num_alts; j++) {
+                                        uint8_t alt_marker = read_u8(ctx);
+                                        if (alt_marker == NULL_MARKER) {
+                                            arm->pattern->as.or_pattern.alternatives[j] = NULL;
+                                        } else {
+                                            Pattern *alt = malloc(sizeof(Pattern));
+                                            memset(alt, 0, sizeof(Pattern));
+                                            alt->type = (PatternType)alt_marker;
+                                            alt->line = expr->line;
+                                            switch (alt->type) {
+                                                case PATTERN_LITERAL:
+                                                    alt->as.literal = deserialize_expr(ctx);
+                                                    break;
+                                                case PATTERN_WILDCARD:
+                                                    break;
+                                                case PATTERN_BINDING:
+                                                    alt->as.binding.name = read_string_id(ctx);
+                                                    break;
+                                                case PATTERN_TYPED:
+                                                    alt->as.typed.name = read_string_id(ctx);
+                                                    alt->as.typed.type_annotation = deserialize_type(ctx);
+                                                    break;
+                                                default:
+                                                    read_u32(ctx);  // consume placeholder
+                                                    break;
+                                            }
+                                            arm->pattern->as.or_pattern.alternatives[j] = alt;
+                                        }
+                                    }
+                                } else {
+                                    arm->pattern->as.or_pattern.alternatives = NULL;
+                                }
                                 break;
-                            case PATTERN_OBJECT:
-                                arm->pattern->as.object.num_fields = (int)read_u32(ctx);
-                                arm->pattern->as.object.fields = NULL;
+                            }
+                            case PATTERN_OBJECT: {
+                                int num_fields = (int)read_count(ctx);
+                                arm->pattern->as.object.num_fields = num_fields;
+                                if (num_fields > 0) {
+                                    arm->pattern->as.object.fields = malloc(sizeof(ObjectFieldPattern) * num_fields);
+                                    for (int j = 0; j < num_fields; j++) {
+                                        arm->pattern->as.object.fields[j].name = read_string_id(ctx);
+                                        uint8_t has_sub = read_u8(ctx);
+                                        if (has_sub) {
+                                            Pattern *fp = malloc(sizeof(Pattern));
+                                            memset(fp, 0, sizeof(Pattern));
+                                            uint8_t fp_type = read_u8(ctx);
+                                            fp->type = (PatternType)fp_type;
+                                            fp->line = expr->line;
+                                            switch (fp->type) {
+                                                case PATTERN_LITERAL:
+                                                    fp->as.literal = deserialize_expr(ctx);
+                                                    break;
+                                                case PATTERN_WILDCARD:
+                                                    break;
+                                                case PATTERN_BINDING:
+                                                    fp->as.binding.name = read_string_id(ctx);
+                                                    break;
+                                                case PATTERN_TYPED:
+                                                    fp->as.typed.name = read_string_id(ctx);
+                                                    fp->as.typed.type_annotation = deserialize_type(ctx);
+                                                    break;
+                                                default:
+                                                    read_u32(ctx);
+                                                    break;
+                                            }
+                                            arm->pattern->as.object.fields[j].pattern = fp;
+                                        } else {
+                                            arm->pattern->as.object.fields[j].pattern = NULL;
+                                        }
+                                    }
+                                } else {
+                                    arm->pattern->as.object.fields = NULL;
+                                }
                                 arm->pattern->as.object.has_rest = read_u8(ctx);
-                                arm->pattern->as.object.rest_name = NULL;
+                                if (arm->pattern->as.object.has_rest) {
+                                    arm->pattern->as.object.rest_name = read_string_id(ctx);
+                                } else {
+                                    arm->pattern->as.object.rest_name = NULL;
+                                }
                                 break;
-                            case PATTERN_ARRAY:
-                                arm->pattern->as.array.num_elements = (int)read_u32(ctx);
-                                arm->pattern->as.array.elements = NULL;
+                            }
+                            case PATTERN_ARRAY: {
+                                int num_elems = (int)read_count(ctx);
+                                arm->pattern->as.array.num_elements = num_elems;
+                                if (num_elems > 0) {
+                                    arm->pattern->as.array.elements = malloc(sizeof(ArrayElementPattern) * num_elems);
+                                    for (int j = 0; j < num_elems; j++) {
+                                        uint8_t is_rest = read_u8(ctx);
+                                        arm->pattern->as.array.elements[j].is_rest = is_rest;
+                                        if (is_rest) {
+                                            arm->pattern->as.array.elements[j].rest_name = read_string_id(ctx);
+                                            arm->pattern->as.array.elements[j].pattern = NULL;
+                                        } else {
+                                            arm->pattern->as.array.elements[j].rest_name = NULL;
+                                            uint8_t has_pat = read_u8(ctx);
+                                            if (has_pat) {
+                                                Pattern *ep = malloc(sizeof(Pattern));
+                                                memset(ep, 0, sizeof(Pattern));
+                                                uint8_t ep_type = read_u8(ctx);
+                                                ep->type = (PatternType)ep_type;
+                                                ep->line = expr->line;
+                                                switch (ep->type) {
+                                                    case PATTERN_LITERAL:
+                                                        ep->as.literal = deserialize_expr(ctx);
+                                                        break;
+                                                    case PATTERN_WILDCARD:
+                                                        break;
+                                                    case PATTERN_BINDING:
+                                                        ep->as.binding.name = read_string_id(ctx);
+                                                        break;
+                                                    case PATTERN_TYPED:
+                                                        ep->as.typed.name = read_string_id(ctx);
+                                                        ep->as.typed.type_annotation = deserialize_type(ctx);
+                                                        break;
+                                                    default:
+                                                        read_u32(ctx);
+                                                        break;
+                                                }
+                                                arm->pattern->as.array.elements[j].pattern = ep;
+                                            } else {
+                                                arm->pattern->as.array.elements[j].pattern = NULL;
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    arm->pattern->as.array.elements = NULL;
+                                }
                                 break;
+                            }
                         }
                     }
 
@@ -1055,7 +1299,7 @@ static void serialize_stmt(SerializeContext *ctx, Stmt *stmt) {
     }
 }
 
-static Stmt* deserialize_stmt(DeserializeContext *ctx) {
+static Stmt* deserialize_stmt_inner(DeserializeContext *ctx) {
     uint8_t type_byte = read_u8(ctx);
     if (type_byte == NULL_MARKER) return NULL;
 
@@ -1126,7 +1370,7 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
             break;
 
         case STMT_BLOCK:
-            stmt->as.block.count = (int)read_u32(ctx);
+            stmt->as.block.count = (int)read_count(ctx);
             if (stmt->as.block.count > 0) {
                 stmt->as.block.statements = malloc(stmt->as.block.count * sizeof(Stmt*));
                 if (!stmt->as.block.statements) {
@@ -1147,7 +1391,7 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
 
         case STMT_DEFINE_OBJECT: {
             stmt->as.define_object.name = read_string_id(ctx);
-            stmt->as.define_object.num_fields = (int)read_u32(ctx);
+            stmt->as.define_object.num_fields = (int)read_count(ctx);
             int n = stmt->as.define_object.num_fields;
             if (n > 0) {
                 stmt->as.define_object.field_names = malloc(n * sizeof(char*));
@@ -1180,7 +1424,7 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
 
         case STMT_ENUM: {
             stmt->as.enum_decl.name = read_string_id(ctx);
-            stmt->as.enum_decl.num_variants = (int)read_u32(ctx);
+            stmt->as.enum_decl.num_variants = (int)read_count(ctx);
             int n = stmt->as.enum_decl.num_variants;
             if (n > 0) {
                 stmt->as.enum_decl.variant_names = malloc(n * sizeof(char*));
@@ -1215,7 +1459,7 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
 
         case STMT_SWITCH: {
             stmt->as.switch_stmt.expr = deserialize_expr(ctx);
-            stmt->as.switch_stmt.num_cases = (int)read_u32(ctx);
+            stmt->as.switch_stmt.num_cases = (int)read_count(ctx);
             int n = stmt->as.switch_stmt.num_cases;
             if (n > 0) {
                 stmt->as.switch_stmt.case_values = malloc(n * sizeof(Expr*));
@@ -1245,7 +1489,7 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
             stmt->as.import_stmt.is_namespace = read_u8(ctx);
             stmt->as.import_stmt.namespace_name = read_string_id(ctx);
             stmt->as.import_stmt.module_path = read_string_id(ctx);
-            stmt->as.import_stmt.num_imports = (int)read_u32(ctx);
+            stmt->as.import_stmt.num_imports = (int)read_count(ctx);
             int n = stmt->as.import_stmt.num_imports;
             if (n > 0) {
                 stmt->as.import_stmt.import_names = malloc(n * sizeof(char*));
@@ -1272,7 +1516,7 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
             stmt->as.export_stmt.is_reexport = read_u8(ctx);
             stmt->as.export_stmt.declaration = deserialize_stmt(ctx);
             stmt->as.export_stmt.module_path = read_string_id(ctx);
-            stmt->as.export_stmt.num_exports = (int)read_u32(ctx);
+            stmt->as.export_stmt.num_exports = (int)read_count(ctx);
             int n = stmt->as.export_stmt.num_exports;
             if (n > 0) {
                 stmt->as.export_stmt.export_names = malloc(n * sizeof(char*));
@@ -1300,7 +1544,7 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
 
         case STMT_EXTERN_FN: {
             stmt->as.extern_fn.function_name = read_string_id(ctx);
-            stmt->as.extern_fn.num_params = (int)read_u32(ctx);
+            stmt->as.extern_fn.num_params = (int)read_count(ctx);
             int n = stmt->as.extern_fn.num_params;
             if (n > 0) {
                 stmt->as.extern_fn.param_types = malloc(n * sizeof(Type*));
@@ -1320,7 +1564,7 @@ static Stmt* deserialize_stmt(DeserializeContext *ctx) {
 
         case STMT_TYPE_ALIAS: {
             stmt->as.type_alias.name = read_string_id(ctx);
-            stmt->as.type_alias.num_type_params = (int)read_u32(ctx);
+            stmt->as.type_alias.num_type_params = (int)read_count(ctx);
             int n = stmt->as.type_alias.num_type_params;
             if (n > 0) {
                 stmt->as.type_alias.type_params = malloc(n * sizeof(char*));
@@ -1425,8 +1669,12 @@ Stmt** ast_deserialize(const uint8_t *data, size_t data_size, int *out_count) {
     }
 
     ctx.flags = read_u16(&ctx);
-    ctx.string_count = read_u32(&ctx);
-    uint32_t stmt_count = read_u32(&ctx);
+    // Cap the table/statement counts at the remaining input size: each string
+    // (>=4 bytes for its length field) and each statement (>=1 byte) consumes
+    // input, so a count exceeding the remaining bytes is corrupt/hostile.
+    // Without this a tiny blob could request a multi-gigabyte allocation.
+    ctx.string_count = read_count(&ctx);
+    uint32_t stmt_count = read_count(&ctx);
     uint32_t stored_checksum = read_u32(&ctx);
 
     // Validate checksum
@@ -1447,8 +1695,11 @@ Stmt** ast_deserialize(const uint8_t *data, size_t data_size, int *out_count) {
         }
     }
     for (uint32_t i = 0; i < ctx.string_count; i++) {
-        uint32_t len = read_u32(&ctx);
-        char *str = malloc(len + 1);
+        // Cap the length at the remaining bytes: this both bounds the allocation
+        // and prevents `len + 1` from wrapping to 0 (which would make str[len]
+        // a wild out-of-bounds write) when len is near UINT32_MAX.
+        uint32_t len = read_count(&ctx);
+        char *str = malloc((size_t)len + 1);
         if (!str) {
             fprintf(stderr, "Error: Memory allocation failed for string\n");
             dctx_free(&ctx);

@@ -12,6 +12,7 @@
 #include <stddef.h>
 #include <stdatomic.h>
 #include <pthread.h>
+#include <math.h>  // INFINITY/NAN for non-finite float literals in generated code
 
 // Forward declarations for heap-allocated types
 typedef struct HmlString HmlString;
@@ -96,6 +97,26 @@ typedef struct HmlValue {
 // Small String Optimization threshold (strings up to this size are stored inline)
 #define HML_SSO_THRESHOLD 23
 
+// Immortal-refcount sentinel. Objects whose ref_count is set to this are
+// "frozen": hml_retain / hml_release must never modify the count and never
+// free them. Used for the pre-allocated single-char ASCII string pool,
+// which is shared process-wide and must outlive everything.
+//
+// Why a sentinel + threshold instead of the old bare 1000000: the pool
+// strings were set to ref_count = 1000000 but retain/release still did the
+// normal atomic add/sub. A long-running program that releases single-char
+// strings ~1e6 times (trivially reached by a busy HTTP server: every
+// `"x" + s` materializes the pooled "x" then releases it) drove the count
+// to 0 and string_free()'d a pooled string the global cache still points
+// at — heap-use-after-free in hml_string_concat, crashing the process.
+// Freezing at a sentinel that's checked *before* the atomic op makes the
+// count permanently immovable, so it can neither underflow (crash) nor
+// drift upward. The threshold is far above any real live-reference count
+// (a string with 256M simultaneous references is not a real scenario) and
+// at/below the sentinel, so a frozen string always reads as immortal.
+#define HML_REFCOUNT_IMMORTAL   (1 << 28)   // 268435456
+#define HML_REFCOUNT_IMMORTAL_MIN (1 << 27) // anything >= this is "frozen"
+
 // String struct (UTF-8, with Small String Optimization)
 // Small strings (<=23 bytes) are stored inline in inline_data to reduce allocations.
 // The `data` pointer always points to valid string data (either inline_data or heap).
@@ -104,7 +125,7 @@ struct HmlString {
     int length;              // Byte length
     int char_length;         // Codepoint length (-1 if uncalculated)
     int capacity;            // For heap: allocated size; for SSO: HML_SSO_THRESHOLD+1
-    int ref_count;
+    _Atomic int ref_count;
     int is_sso;              // 1 if using inline storage, 0 if heap allocated
     char inline_data[HML_SSO_THRESHOLD + 1];  // Inline storage for small strings
 };
@@ -114,9 +135,12 @@ struct HmlBuffer {
     void *data;
     int length;
     int capacity;
-    int ref_count;
+    _Atomic int ref_count;
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
     HmlBuffer *parent;   // Non-NULL for zero-copy slice views (keeps parent alive)
+    _Atomic int view_count; // Roots only: number of live slice views into this
+                            // buffer. free() refuses while > 0, so a view can
+                            // never dangle into a freed root allocation.
 };
 
 // Array struct (dynamic array)
@@ -124,7 +148,7 @@ struct HmlArray {
     HmlValue *elements;
     int length;
     int capacity;
-    int ref_count;
+    _Atomic int ref_count;
     HmlValueType element_type;  // HML_VAL_NULL for untyped
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
 };
@@ -141,7 +165,7 @@ struct HmlObject {
     HmlFieldEntry *fields;  // Unified array of field entries (reduces fragmentation)
     int num_fields;
     int capacity;
-    int ref_count;
+    _Atomic int ref_count;
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
     int is_pooled;          // 1 if allocated from object pool
     // Hash table for O(1) field lookup (lazy initialization)
@@ -159,7 +183,9 @@ struct HmlFunction {
     int num_required;       // Number of required parameters (for arity checking)
     int is_async;
     int has_rest_param;     // Has rest parameter (...args) - accepts unlimited extra args
-    int ref_count;
+    int has_bound_self;     // 1 if this is a method extracted from an object (bound_self valid)
+    HmlValue bound_self;    // Object bound as 'self' for extracted methods
+    _Atomic int ref_count;
 };
 
 // File handle
@@ -186,12 +212,14 @@ struct HmlTask {
     int joined;
     int detached;
     HmlTaskSync *sync;      // Single allocation for all sync primitives (reduces fragmentation)
-    int ref_count;
+    _Atomic int ref_count;
     // For storing function and args to call
     HmlValue function;
     HmlValue *args;
     int num_args;
     char *name;             // Optional debug name (from spawn_with)
+    int has_exception;      // 1 if task threw an exception
+    HmlValue exception_value; // Exception value for propagation on join()
 };
 
 // Channel synchronization block - all pthread objects in one allocation
@@ -212,11 +240,18 @@ struct HmlChannel {
     int count;
     int closed;
     HmlChannelSync *sync;        // Single allocation for all sync primitives (reduces fragmentation)
-    int ref_count;
+    _Atomic int ref_count;
     // Unbuffered channel support (rendezvous)
     HmlValue unbuffered_value;   // Value being transferred in rendezvous (inline, no separate alloc)
     int sender_waiting;          // Flag: sender is blocked waiting for receiver
     int receiver_waiting;        // Flag: receiver is blocked waiting for sender
+    // Count of completed rendezvous handoffs. A staged sender records the
+    // current value and waits until it changes: with multiple senders, a
+    // bare "sender_waiting == 0" check can't tell "my value was consumed"
+    // from "another sender has staged a new value", and a signal() wakeup
+    // can go to the wrong sender (lost wakeup -> deadlock). Consumers bump
+    // this and broadcast `rendezvous`.
+    unsigned long long rendezvous_gen;
 };
 
 // Socket (TCP/UDP networking)
@@ -229,6 +264,7 @@ struct HmlSocket {
     int closed;             // 1 if closed
     int listening;          // 1 if in listening mode
     int nonblocking;        // 1 if in non-blocking mode
+    _Atomic int ref_count;  // Reference count (handle freed when it reaches 0)
 };
 
 // Type definition for duck typing
@@ -294,6 +330,16 @@ HmlValue hml_val_socket(HmlSocket *sock);
 void hml_retain(HmlValue *val);
 void hml_release(HmlValue *val);
 
+// ========== STATIC VARIABLE CLEANUP (for compiled binaries) ==========
+
+// Break circular references in a set of static global variables.
+// Must be called before hml_release_statics() to prevent use-after-free
+// in self-referential closures (e.g., objects containing closures that capture self).
+void hml_break_cycles(HmlValue *statics[], int count);
+
+// Release all static global variables, setting them to null.
+void hml_release_statics(HmlValue *statics[], int count);
+
 // ========== VALUE DEEP COPY (for thread isolation) ==========
 
 // Deep copy a value for passing to spawned tasks.
@@ -345,8 +391,8 @@ static inline int hml_both_i32(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i32_add(HmlValue left, HmlValue right) {
     int32_t result;
     if (__builtin_add_overflow(left.as.as_i32, right.as.as_i32, &result)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Integer overflow: i32 addition");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Integer overflow: i32 addition");
     }
     return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = result };
 }
@@ -355,8 +401,8 @@ static inline HmlValue hml_i32_add(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i32_sub(HmlValue left, HmlValue right) {
     int32_t result;
     if (__builtin_sub_overflow(left.as.as_i32, right.as.as_i32, &result)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Integer overflow: i32 subtraction");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Integer overflow: i32 subtraction");
     }
     return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = result };
 }
@@ -365,26 +411,33 @@ static inline HmlValue hml_i32_sub(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i32_mul(HmlValue left, HmlValue right) {
     int32_t result;
     if (__builtin_mul_overflow(left.as.as_i32, right.as.as_i32, &result)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Integer overflow: i32 multiplication");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Integer overflow: i32 multiplication");
     }
     return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = result };
 }
 
-// Fast path: i32 division (with zero check)
+// Fast path: i32 division (with zero and INT32_MIN / -1 checks)
 static inline HmlValue hml_i32_div(HmlValue left, HmlValue right) {
     if (right.as.as_i32 == 0) {
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Division by zero");
+    }
+    if (right.as.as_i32 == -1 && left.as.as_i32 == INT32_MIN) {
         extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Division by zero");
+        hml_runtime_error("Integer overflow: i32 division");
     }
     return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 / right.as.as_i32 };
 }
 
-// Fast path: i32 modulo (with zero check)
+// Fast path: i32 modulo (with zero check; MIN % -1 is 0, not a trap)
 static inline HmlValue hml_i32_mod(HmlValue left, HmlValue right) {
     if (right.as.as_i32 == 0) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Division by zero");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Division by zero");
+    }
+    if (right.as.as_i32 == -1) {
+        return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = 0 };
     }
     return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 % right.as.as_i32 };
 }
@@ -430,8 +483,8 @@ static inline HmlValue hml_i32_bit_xor(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i32_lshift(HmlValue left, HmlValue right) {
     int32_t r = right.as.as_i32;
     if (__builtin_expect(r < 0, 0)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Shift amount must be non-negative");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Shift amount must be non-negative");
     }
     if (__builtin_expect(r >= 32, 0)) return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = 0 };
     return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = (int32_t)((uint32_t)left.as.as_i32 << r) };
@@ -440,8 +493,8 @@ static inline HmlValue hml_i32_lshift(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i32_rshift(HmlValue left, HmlValue right) {
     int32_t r = right.as.as_i32;
     if (__builtin_expect(r < 0, 0)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Shift amount must be non-negative");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Shift amount must be non-negative");
     }
     if (__builtin_expect(r >= 32, 0)) return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 < 0 ? -1 : 0 };
     return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = left.as.as_i32 >> r };
@@ -459,8 +512,8 @@ static inline int hml_both_i64(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i64_add(HmlValue left, HmlValue right) {
     int64_t result;
     if (__builtin_add_overflow(left.as.as_i64, right.as.as_i64, &result)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Integer overflow: i64 addition");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Integer overflow: i64 addition");
     }
     return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = result };
 }
@@ -468,8 +521,8 @@ static inline HmlValue hml_i64_add(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i64_sub(HmlValue left, HmlValue right) {
     int64_t result;
     if (__builtin_sub_overflow(left.as.as_i64, right.as.as_i64, &result)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Integer overflow: i64 subtraction");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Integer overflow: i64 subtraction");
     }
     return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = result };
 }
@@ -477,24 +530,31 @@ static inline HmlValue hml_i64_sub(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i64_mul(HmlValue left, HmlValue right) {
     int64_t result;
     if (__builtin_mul_overflow(left.as.as_i64, right.as.as_i64, &result)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Integer overflow: i64 multiplication");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Integer overflow: i64 multiplication");
     }
     return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = result };
 }
 
 static inline HmlValue hml_i64_div(HmlValue left, HmlValue right) {
     if (right.as.as_i64 == 0) {
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Division by zero");
+    }
+    if (right.as.as_i64 == -1 && left.as.as_i64 == INT64_MIN) {
         extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Division by zero");
+        hml_runtime_error("Integer overflow: i64 division");
     }
     return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = left.as.as_i64 / right.as.as_i64 };
 }
 
 static inline HmlValue hml_i64_mod(HmlValue left, HmlValue right) {
     if (right.as.as_i64 == 0) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Division by zero");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Division by zero");
+    }
+    if (right.as.as_i64 == -1) {
+        return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = 0 };
     }
     return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = left.as.as_i64 % right.as.as_i64 };
 }
@@ -540,8 +600,8 @@ static inline HmlValue hml_i64_bit_xor(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i64_lshift(HmlValue left, HmlValue right) {
     int64_t r = right.as.as_i64;
     if (__builtin_expect(r < 0, 0)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Shift amount must be non-negative");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Shift amount must be non-negative");
     }
     if (__builtin_expect(r >= 64, 0)) return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = 0 };
     return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = (int64_t)((uint64_t)left.as.as_i64 << r) };
@@ -550,8 +610,8 @@ static inline HmlValue hml_i64_lshift(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i64_rshift(HmlValue left, HmlValue right) {
     int64_t r = right.as.as_i64;
     if (__builtin_expect(r < 0, 0)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Shift amount must be non-negative");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Shift amount must be non-negative");
     }
     if (__builtin_expect(r >= 64, 0)) return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = left.as.as_i64 < 0 ? -1 : 0 };
     return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = left.as.as_i64 >> r };
@@ -559,11 +619,15 @@ static inline HmlValue hml_i64_rshift(HmlValue left, HmlValue right) {
 
 // Fast path: Check if value needs refcounting (primitives don't)
 // Defined early so it can be used by array_get_i32_fast
+// MUST stay in sync with the switches in hml_retain()/hml_release() (value.c).
+// A type listed in one place but not the other causes asymmetric
+// retain/release (leak or use-after-free) for values of that type stored in
+// arrays/objects/closures.
 static inline int hml_needs_refcount(HmlValue val) {
     return val.type == HML_VAL_STRING || val.type == HML_VAL_BUFFER ||
            val.type == HML_VAL_ARRAY || val.type == HML_VAL_OBJECT ||
            val.type == HML_VAL_FUNCTION || val.type == HML_VAL_TASK ||
-           val.type == HML_VAL_CHANNEL;
+           val.type == HML_VAL_CHANNEL || val.type == HML_VAL_SOCKET;
 }
 
 // Fast path: array[i32] access (bounds checked, skip retain for primitives)
@@ -577,8 +641,8 @@ static inline HmlValue hml_array_get_i32_fast(HmlArray *arr, int32_t index) {
         return result;
     }
     // Fall through to bounds error
-    extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-    hml_runtime_error("Array index %d out of bounds (length %d)", index, arr->length);
+    extern __attribute__((noreturn)) void hml_runtime_error_loc(const char *fmt, ...);
+    hml_runtime_error_loc("Array index %d out of bounds (length %d)", index, arr->length);
 }
 
 // Fast path: Conditional retain (skip for primitives)
@@ -597,7 +661,16 @@ static inline void hml_release_if_needed(HmlValue *val) {
 
 // Fast path: array[i32] = value (bounds checked, handles refcounting)
 static inline void hml_array_set_i32_fast(HmlArray *arr, int32_t index, HmlValue val) {
+    extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
+
     if (index >= 0 && index < arr->length) {
+        // Keep the optimized i32-index path behaviorally identical to
+        // hml_array_set(): typed arrays must reject mismatched values before
+        // mutating or changing reference counts.
+        if (arr->element_type != HML_VAL_NULL && val.type != arr->element_type) {
+            hml_runtime_error("Type mismatch in typed array - expected element of specific type");
+        }
+
         HmlValue old = arr->elements[index];
         // Retain new value FIRST to prevent use-after-free when old == new
         if (hml_needs_refcount(val)) {
@@ -610,21 +683,24 @@ static inline void hml_array_set_i32_fast(HmlArray *arr, int32_t index, HmlValue
         arr->elements[index] = val;
         return;
     }
-    // Bounds error
-    extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-    hml_runtime_error("Array index %d out of bounds (length %d)", index, arr->length);
+    // Out-of-range write: delegate to the slow path, which grows the array
+    // (filling with nulls) for index >= length and errors on negative index,
+    // matching the interpreter.
+    extern void hml_array_set(HmlValue arr, HmlValue index, HmlValue val);
+    hml_array_set((HmlValue){ .type = HML_VAL_ARRAY, .as.as_array = arr },
+                  (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = index }, val);
 }
 
 // Fast path: Increment i32 variable in-place
-// Returns the new value
+// Returns the new value (wraps at INT32_MAX; computed unsigned to avoid UB)
 static inline HmlValue hml_i32_inc(HmlValue val) {
-    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = val.as.as_i32 + 1 };
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = (int32_t)((uint32_t)val.as.as_i32 + 1u) };
 }
 
 // Fast path: Decrement i32 variable in-place
-// Returns the new value
+// Returns the new value (wraps at INT32_MIN; computed unsigned to avoid UB)
 static inline HmlValue hml_i32_dec(HmlValue val) {
-    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = val.as.as_i32 - 1 };
+    return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = (int32_t)((uint32_t)val.as.as_i32 - 1u) };
 }
 
 #endif // HEMLOCK_VALUE_H

@@ -1,4 +1,6 @@
 // L3-E-02: Binary Search
+import { divi } from "@stdlib/math";
+
 fn binary_search(arr, target) {
     let low = 0;
     let high = arr.length - 1;

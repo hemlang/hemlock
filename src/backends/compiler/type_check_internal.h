@@ -24,6 +24,9 @@ void type_check_function_body(TypeCheckContext *ctx, Expr *func, const char *nam
 // First pass: collect all function signatures, object definitions, and enums
 void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int count);
 
+// Infer the type of an expression for compile-time type checking.
+CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr);
+
 // ========== INTERNAL HELPERS (type_check_expr.c) ==========
 
 // Check method call arguments for built-in types (array, string)
@@ -41,6 +44,19 @@ void type_check_validate_object_literal(TypeCheckContext *ctx, Expr *expr,
 // Validate an object literal against a compound type (A & B & C)
 void type_check_validate_compound_object(TypeCheckContext *ctx, Expr *expr,
                                          Type *compound_type, int line);
+
+// Build a stable key for expressions that can be narrowed by null checks.
+char* type_check_expr_key(Expr *expr);
+
+// Record and query flow-sensitive non-null expression narrowings.
+void type_check_add_narrowing(TypeCheckContext *ctx, const char *key, CheckedType *type);
+void type_check_remove_narrowing(TypeCheckContext *ctx, const char *key);
+void type_check_clear_narrowings_for_assignment(TypeCheckContext *ctx, const char *name);
+CheckedType* type_check_lookup_narrowing(TypeCheckContext *ctx, const char *key);
+
+// Infer declared custom-object property types.
+CheckedType* type_check_infer_property_type(TypeCheckContext *ctx, CheckedType *obj_type,
+                                            const char *property);
 
 // ========== INTERNAL HELPERS (type_errors.c) ==========
 

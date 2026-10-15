@@ -1,6 +1,9 @@
 #include "internal.h"
 #include "hemlock_limits.h"
+#ifndef _WIN32
 #include <poll.h>
+#include <sys/mman.h>
+#endif
 
 // Structure to hold builtin function info
 typedef struct {
@@ -83,6 +86,8 @@ static BuiltinInfo builtins[] = {
     {"__time_ms", builtin_time_ms},
     {"__sleep", builtin_sleep},
     {"__clock", builtin_clock},
+    {"__main_loop", builtin_main_loop},
+    {"__main_loop_stop", builtin_main_loop_stop},
     {"__localtime", builtin_localtime},
     {"__gmtime", builtin_gmtime},
     {"__mktime", builtin_mktime},
@@ -104,7 +109,14 @@ static BuiltinInfo builtins[] = {
     {"__fork", builtin_fork},
     {"__wait", builtin_wait},
     {"__waitpid", builtin_waitpid},
+    {"__posix_spawn", builtin_posix_spawn},
     {"__abort", builtin_abort},
+    // Pipe operations (use @stdlib/ipc for public API)
+    {"__pipe", builtin_pipe},
+    {"__close_fd", builtin_close_fd},
+    {"__read_fd", builtin_read_fd},
+    {"__write_fd", builtin_write_fd},
+    {"__dup2", builtin_dup2},
     // Internal helper builtins
     {"__read_u32", builtin_read_u32},
     {"__read_u64", builtin_read_u64},
@@ -127,6 +139,8 @@ static BuiltinInfo builtins[] = {
     {"__remove_file", builtin_remove_file},
     {"__rename", builtin_rename},
     {"__copy_file", builtin_copy_file},
+    {"__open_fd", builtin_open_fd},
+    {"__fileno", builtin_fileno},
     // Internal file info (use stdlib/fs.hml module for public API)
     {"__is_file", builtin_is_file},
     {"__is_dir", builtin_is_dir},
@@ -153,6 +167,7 @@ static BuiltinInfo builtins[] = {
     // Streaming HTTP builtins
     {"__lws_http_stream_start", builtin_lws_http_stream_start},
     {"__lws_http_stream_read", builtin_lws_http_stream_read},
+    {"__lws_http_stream_read_binary", builtin_lws_http_stream_read_binary},
     {"__lws_http_stream_status", builtin_lws_http_stream_status},
     {"__lws_http_stream_headers", builtin_lws_http_stream_headers},
     {"__lws_http_stream_close", builtin_lws_http_stream_close},
@@ -180,6 +195,8 @@ static BuiltinInfo builtins[] = {
     {"__zlib_compress_bound", builtin_zlib_compress_bound},
     {"__crc32", builtin_crc32},
     {"__adler32", builtin_adler32},
+    // CSPRNG builtin (use stdlib/crypto.hml random_bytes for public API)
+    {"__random_bytes", builtin_random_bytes},
     // Cryptographic hash builtins (use stdlib/hash.hml module for public API)
     {"__sha1", builtin_sha1},
     {"__sha256", builtin_sha256},
@@ -211,6 +228,11 @@ static BuiltinInfo builtins[] = {
     {"__os_name", builtin_os_name},
     {"__tmpdir", builtin_tmpdir},
     {"__uptime", builtin_uptime},
+    // Terminal control (use stdlib/termios.hml + terminal.hml for public API)
+    {"__term_is_tty", builtin_term_is_tty},
+    {"__term_raw", builtin_term_raw},
+    {"__term_read_byte", builtin_term_read_byte},
+    {"__term_size", builtin_term_size},
     // NOTE: Math functions (sin, cos, sqrt, etc.), environment functions
     // (getenv, setenv, etc.), and random functions (rand, seed) are no
     // longer registered as unprefixed global builtins. Users must import
@@ -303,6 +325,14 @@ static BuiltinInfo builtins[] = {
     {"__write_u32_le", builtin_write_u32_le},
     {"__write_u64_be", builtin_write_u64_be},
     {"__write_u64_le", builtin_write_u64_le},
+    // Memory-mapped file I/O builtins (use @stdlib/mmap for public API)
+    {"__mmap_open", builtin_mmap_open},
+    {"__mmap_open_anon", builtin_mmap_open_anon},
+    {"__mmap_sync", builtin_mmap_sync},
+    {"__mmap_close", builtin_mmap_close},
+    {"__mmap_size", builtin_mmap_size},
+    {"__mmap_advise", builtin_mmap_advise},
+    {"__mmap_protect", builtin_mmap_protect},
     {NULL, NULL}  // Sentinel
 };
 
@@ -391,6 +421,7 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
     // Internal socket constants for stdlib use (__ prefixed)
     env_set(env, "__AF_INET", val_i32(AF_INET), ctx);
     env_set(env, "__AF_INET6", val_i32(AF_INET6), ctx);
+    env_set(env, "__AF_UNIX", val_i32(AF_UNIX), ctx);
     env_set(env, "__SOCK_STREAM", val_i32(SOCK_STREAM), ctx);
     env_set(env, "__SOCK_DGRAM", val_i32(SOCK_DGRAM), ctx);
     env_set(env, "__IPPROTO_TCP", val_i32(IPPROTO_TCP), ctx);
@@ -406,6 +437,22 @@ void register_builtins(Environment *env, int argc, char **argv, ExecutionContext
     env_set(env, "__POLLHUP", val_i32(POLLHUP), ctx);
     env_set(env, "__POLLNVAL", val_i32(POLLNVAL), ctx);
     env_set(env, "__POLLPRI", val_i32(POLLPRI), ctx);
+
+    // Standard file descriptor constants for pipe/IPC operations (__ prefixed)
+    env_set(env, "__STDIN_FILENO", val_i32(STDIN_FILENO), ctx);
+    env_set(env, "__STDOUT_FILENO", val_i32(STDOUT_FILENO), ctx);
+    env_set(env, "__STDERR_FILENO", val_i32(STDERR_FILENO), ctx);
+
+    // Internal mmap constants for stdlib use (__ prefixed)
+    env_set(env, "__PROT_NONE", val_i32(PROT_NONE), ctx);
+    env_set(env, "__PROT_READ", val_i32(PROT_READ), ctx);
+    env_set(env, "__PROT_WRITE", val_i32(PROT_WRITE), ctx);
+    env_set(env, "__PROT_EXEC", val_i32(PROT_EXEC), ctx);
+    env_set(env, "__MADV_NORMAL", val_i32(MADV_NORMAL), ctx);
+    env_set(env, "__MADV_SEQUENTIAL", val_i32(MADV_SEQUENTIAL), ctx);
+    env_set(env, "__MADV_RANDOM", val_i32(MADV_RANDOM), ctx);
+    env_set(env, "__MADV_WILLNEED", val_i32(MADV_WILLNEED), ctx);
+    env_set(env, "__MADV_DONTNEED", val_i32(MADV_DONTNEED), ctx);
 
     // Register builtin functions (may overwrite some type names if there are conflicts)
     for (int i = 0; builtins[i].name != NULL; i++) {

@@ -24,12 +24,12 @@ Hemlock is a **systems scripting language** with manual memory management and ex
 ### 1. Explicit Over Implicit
 - Semicolons mandatory (no ASI)
 - Manual memory management (alloc/free)
-- Type annotations optional but checked at runtime
+- Type annotations optional but checked: statically by the compiler (`hemlockc`, on by default) and at runtime by the interpreter
 
 ### 2. Dynamic by Default, Typed by Choice
 - Every value has a runtime type tag
 - Literals infer types: `42` → i32, `5000000000` → i64, `3.14` → f64
-- Optional type annotations enforce runtime checks
+- Optional type annotations are enforced by the compiler at compile time and by the interpreter at runtime
 
 ### 3. Unsafe is a Feature
 - Pointer arithmetic allowed (user's responsibility)
@@ -64,6 +64,8 @@ Aliases:  integer (i32), number (f64), byte (u8)
 ```
 
 **Type promotion:** i8 → u8 → i16 → u16 → i32 → u32 → i64 → u64 → f32 → f64 (floats always win, but i64/u64 + f32 → f64 to preserve precision)
+
+**Overflow policy:** i32/i64 `+` `-` `*` and unary `-` throw a catchable "Integer overflow" error; i8/i16 same-type arithmetic and all unsigned types wrap; `++`/`--` always wrap in-type; signed `MIN % -1` is 0. Constant expressions follow the same rules (no separate compile-time arithmetic). See docs/language-guide/types.md § Integer Overflow Policy.
 
 ### Literals
 ```hemlock
@@ -177,6 +179,14 @@ let p: Person = { name: "Alice", age: 30 };
 let person = { name, age };             // shorthand syntax
 let config = { ...defaults, size: "large" }; // spread operator
 
+// Method shorthand in object literals (sugar for name: fn() {...});
+// `self` is bound implicitly on method calls
+let counter = {
+    count: 0,
+    fn inc() { self.count = self.count + 1; },
+    fn get(): i32 => self.count,
+};
+
 // Bracket notation with key coercion (non-string keys auto-coerce to string)
 let map = {};
 map[42] = "value";              // integer key → "42"
@@ -222,6 +232,8 @@ ch.send(value); let val = ch.recv(); ch.close();
 
 ### I/O
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let name = read_line();          // stdin (returns null on EOF)
 print("hello"); write("no newline"); eprint("stderr");
 let f = open("file.txt", "r");  // modes: r, w, a, r+, w+, a+
@@ -230,15 +242,17 @@ f.read(); f.write("data"); f.close();
 
 ---
 
-## String Methods (22)
+## String Methods (23)
 
-`substr`, `slice`, `find`, `contains`, `split`, `trim`, `trim_start`, `trim_end`,
+`substr`, `slice`, `find`, `rfind`, `contains`, `split`, `trim`, `trim_start`, `trim_end`,
 `to_upper`, `to_lower`, `starts_with`, `ends_with`, `replace`, `replace_all`,
 `repeat`, `char_at`, `byte_at`, `chars`, `bytes`, `to_bytes`, `byte_ptr`, `deserialize`
 
 Template strings: `` `Hello ${name}!` ``
 
 **String mutability:** Strings are mutable via index assignment (`s[0] = 'H'`), but all string methods return new strings.
+
+**Indexes are codepoints:** `find`/`rfind` return codepoint indexes that compose with `substr`/`slice`/`char_at`. `substr(start)` with one argument takes everything to the end. Use `byte_length`/`byte_at` for byte-oriented work, and `@stdlib/strings` `from_bytes()` to build a string from raw bytes.
 
 ## Array Methods (28)
 
@@ -250,9 +264,11 @@ Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
 ---
 
-## Standard Library (48 modules)
+## Standard Library (53 modules)
 
 Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
+
+Side-effect imports (no bindings, module top-level runs): `import "./suite.hml";` or `import "@stdlib/module";` — bare imports of anything else (e.g. `import "libc.so.6";`) load FFI shared libraries.
 
 | Module | Description |
 |--------|-------------|
@@ -260,20 +276,21 @@ Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 | `args` | Command-line argument parsing |
 | `assert` | Assertion utilities |
 | `async` | ThreadPool, parallel_map |
+| `async_fs` | Async file I/O operations |
 | `atomic` | Atomic operations (load, store, add, CAS, fence) |
 | `bytes` | Byte order utils (bswap, hton/ntoh, endian-aware I/O) |
-| `async_fs` | Async file I/O operations |
 | `collections` | HashMap, Queue, Stack, Set, LinkedList, LRUCache |
 | `compression` | gzip, gunzip, deflate |
 | `crypto` | aes_encrypt, rsa_sign, random_bytes |
 | `csv` | CSV parsing and generation |
 | `debug` | Task inspection and stack management |
 | `datetime` | DateTime class, formatting, parsing |
+| `decimal` | to_fixed, to_hex, parse_int, parse_float, StringBuilder |
 | `encoding` | base64_encode, hex_encode, url_encode |
 | `env` | getenv, setenv, exit, get_pid |
 | `ffi` | FFI callback management |
 | `fmt` | String formatting utilities |
-| `fs` | open, read_file, write_file, list_dir, exists |
+| `fs` | open, open_fd, fileno, read_file, write_file, list_dir, exists |
 | `glob` | File pattern matching |
 | `hash` | sha1, sha256, sha512, md5, djb2, crc32, adler32 |
 | `http` | http_get, http_post, http_request |
@@ -283,10 +300,12 @@ Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 | `json` | parse, stringify, pretty, get, set |
 | `logging` | Logger with levels |
 | `math` | sin, cos, sqrt, pow, rand, PI, E |
+| `matrix` | Dense matrix operations (add, multiply, transpose, determinant, inverse) |
+| `mmap` | Memory-mapped file I/O (mmap, munmap, msync) |
 | `net` | TcpListener, TcpStream, UdpSocket |
 | `os` | platform, arch, cpu_count, hostname |
 | `path` | File path manipulation |
-| `process` | fork, exec, wait, kill |
+| `process` | fork, exec, wait, kill, posix_spawn |
 | `random` | Random number generation |
 | `regex` | compile, test (POSIX ERE) |
 | `retry` | Retry logic with backoff |
@@ -301,27 +320,43 @@ Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 | `time` | now, time_ms, sleep, clock |
 | `toml` | TOML parsing and generation |
 | `url` | URL parsing and manipulation |
+| `unix_socket` | Unix domain sockets (AF_UNIX stream/datagram) |
 | `uuid` | UUID generation |
 | `vector` | Vector similarity search (USearch ANN) |
 | `websocket` | WebSocket client |
+| `yaml` | YAML parsing and generation |
 
 See `stdlib/docs/` for detailed module documentation.
+
+**Complete API surface in one file:** `docs/reference/stdlib-api-index.md` is a
+generated one-line-per-symbol index of every stdlib export (signature +
+description). Consult it before calling a stdlib function you have not used in
+this session — do not guess API names. Regenerate with `make stdlib-api` after
+changing stdlib exports (`make docs-check` verifies freshness in CI).
 
 ---
 
 ## FFI (Foreign Function Interface)
 
 ```hemlock
-import "libc.so.6";
+import "libc.so.6";  // Linux; use "libc.dylib" on macOS
+import { callback, callback_free } from "@stdlib/ffi";
 extern fn strlen(s: string): i32;
+extern fn qsort(base: ptr, n: u64, size: u64, cmp: ptr): void;
 let len = strlen("Hello!");  // 6
 
-// Dynamic FFI
-let lib = ffi_open("libc.so.6");
-let puts = ffi_bind(lib, "puts", [FFI_POINTER], FFI_INT);
-puts("Hello from C!");
-ffi_close(lib);
+// Callbacks: pass a Hemlock function to C as a function pointer
+fn cmp_i32(a: ptr, b: ptr): i32 { return ptr_deref_i32(a) - ptr_deref_i32(b); }
+let cb = callback(cmp_i32, ["ptr", "ptr"], "i32");
+let arr = alloc(12);
+ptr_write_i32(arr, 3); ptr_write_i32(ptr_offset(arr, 1, 4), 1); ptr_write_i32(ptr_offset(arr, 2, 4), 2);
+qsort(arr, 3, 4, cb);        // arr is now [1, 2, 3]
+callback_free(cb);
+free(arr);
 ```
+
+There is no runtime `ffi_open`/`ffi_bind` API: libraries are loaded with
+`import "lib"` and functions declared with `extern fn` (both backends).
 
 See `docs/advanced/ffi.md` for full documentation.
 
@@ -336,15 +371,23 @@ hemlock/
 │   ├── backends/
 │   │   ├── interpreter/  # hemlock: tree-walking interpreter
 │   │   └── compiler/     # hemlockc: C code generator
+│   ├── modules/          # Native module implementations
+│   ├── runtime/          # Runtime-related C code
+│   ├── shared/           # Shared utilities (type promotion, etc.)
 │   ├── tools/
 │   │   ├── lsp/          # Language Server Protocol
-│   │   └── bundler/      # Bundle/package tools
+│   │   ├── bundler/      # Bundle/package tools
+│   │   └── formatter/    # Code formatter
 ├── runtime/              # Compiled program runtime (libhemlock_runtime.a)
 ├── stdlib/               # Standard library
 │   └── docs/             # Module documentation
+├── include/              # C header files (hemlock_limits.h, etc.)
 ├── docs/                 # Full documentation
-├── tests/                # 897+ tests
-└── examples/             # Example programs
+├── tests/                # 978+ tests
+├── examples/             # Example programs
+├── benchmark/            # Benchmarks
+├── editors/              # Editor integrations
+└── wasm/                 # WebAssembly support
 ```
 
 ### Compiler/Interpreter Architecture
@@ -379,6 +422,12 @@ make test-compiler     # Run compiler tests
 make parity            # Run parity tests (both must match)
 make test-all          # Run all test suites
 ```
+
+**Static checking without execution:** `hemlock check [--json] file.hml` runs
+all static passes (syntax with multi-error recovery, lint, type check, borrow
+check) and reports every diagnostic. Use it to validate code you just wrote
+before running it; `--json` gives structured diagnostics
+(see `docs/advanced/static-checking.md`).
 
 **Important:** Always use a timeout when running tests (async tests may hang):
 ```bash

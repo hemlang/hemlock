@@ -28,6 +28,14 @@ int codegen_call_async(CodegenContext *ctx, Expr *expr, char *result,
             }
             codegen_writeln(ctx, "HmlValue %s = hml_spawn(%s, _spawn_args%d, %d);",
                           result, fn_val, args_counter, num_spawn_args);
+            // hml_spawn() deep-copies each arg (the task owns the copy);
+            // the original arg temporaries are still owned here and must
+            // be released, exactly like fn_val below. Omitting this leaks
+            // every heap spawn() argument once per spawn — the dominant
+            // Witchgrid per-connection bleed (spawn(handler, request…)).
+            for (int i = 0; i < num_spawn_args; i++) {
+                codegen_writeln(ctx, "hml_release(&_spawn_args%d[%d]);", args_counter, i);
+            }
         } else {
             codegen_writeln(ctx, "HmlValue %s = hml_spawn(%s, NULL, 0);", result, fn_val);
         }
@@ -52,6 +60,12 @@ int codegen_call_async(CodegenContext *ctx, Expr *expr, char *result,
             }
             codegen_writeln(ctx, "HmlValue %s = hml_spawn_with(%s, %s, _spawn_with_args%d, %d);",
                           result, opts_val, fn_val, args_counter, num_spawn_args);
+            // Same ownership rule as spawn(): hml_spawn_with() deep-copies
+            // each arg, so the original temporaries are still owned here
+            // and must be released (cf. opts_val / fn_val below).
+            for (int i = 0; i < num_spawn_args; i++) {
+                codegen_writeln(ctx, "hml_release(&_spawn_with_args%d[%d]);", args_counter, i);
+            }
         } else {
             codegen_writeln(ctx, "HmlValue %s = hml_spawn_with(%s, %s, NULL, 0);",
                           result, opts_val, fn_val);
@@ -139,7 +153,16 @@ int codegen_call_async(CodegenContext *ctx, Expr *expr, char *result,
     // Handle channel builtin
     if (strcmp(func_name, "channel") == 0 && num_args == 1) {
         char *cap = codegen_expr(ctx, call_args[0]);
-        codegen_writeln(ctx, "HmlValue %s = hml_channel(%s.as.as_i32);", result, cap);
+        // Validate the capacity like the interpreter: only i32/u32 accepted,
+        // must be non-negative. Reading .as.as_i32 unchecked reinterpreted
+        // e.g. an f64's low bits as the capacity and never threw.
+        codegen_writeln(ctx, "if (%s.type != HML_VAL_I32 && %s.type != HML_VAL_U32) "
+                             "hml_runtime_error_loc(\"channel() capacity must be an integer\");",
+                        cap, cap);
+        codegen_writeln(ctx, "if (hml_to_i32(%s) < 0) "
+                             "hml_runtime_error_loc(\"channel() capacity cannot be negative\");",
+                        cap);
+        codegen_writeln(ctx, "HmlValue %s = hml_channel(hml_to_i32(%s));", result, cap);
         codegen_writeln(ctx, "hml_release(&%s);", cap);
         free(cap);
         return 1;

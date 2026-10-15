@@ -1,0 +1,107 @@
+// Parity test: error handling behavior must match between interpreter and compiler
+
+// 1. Division by zero is catchable
+try {
+    let x = 10 % 0;
+    print("should not reach");
+} catch (e) {
+    print("caught div by zero");
+}
+
+// 2. Nested try/catch
+try {
+    try {
+        throw "inner error";
+    } catch (e) {
+        print("inner caught: " + e);
+        throw "re-thrown";
+    }
+} catch (e) {
+    print("outer caught");
+}
+
+// 3. Finally runs even with exception
+let ran_finally = false;
+try {
+    throw "test";
+} catch (e) {
+    print("caught");
+} finally {
+    ran_finally = true;
+}
+print("finally ran: " + ran_finally);
+
+// 4. Finally runs without exception
+let finally2 = false;
+try {
+    print("no error");
+} finally {
+    finally2 = true;
+}
+print("finally2 ran: " + finally2);
+
+// 5. Try-finally propagates exception
+try {
+    try {
+        throw "propagated";
+    } finally {
+        print("finally before propagate");
+    }
+} catch (e) {
+    print("caught propagated");
+}
+
+// 6. Exception in finally overrides original
+try {
+    try {
+        throw "original";
+    } finally {
+        throw "from finally";
+    }
+} catch (e) {
+    print("caught: from finally");
+}
+
+// 7. Return in try with finally
+fn test_return() {
+    try {
+        return "from try";
+    } finally {
+        print("finally with return");
+    }
+}
+print(test_return());
+
+// 8. Catch scope isolation
+let e = "outer";
+try {
+    throw "inner";
+} catch (e) {
+    print("catch e: " + e);
+}
+print("outer e: " + e);
+
+// 9. Throw any type
+try { throw 42; } catch (e) { print("caught: " + e); }
+try { throw true; } catch (e) { print("caught: " + e); }
+try { throw null; } catch (e) { print("caught: " + e); }
+
+// 10. Array out of bounds is catchable
+try {
+    let arr = [1, 2, 3];
+    let x = arr[10];
+    print("should not reach");
+} catch (e) {
+    print("caught array oob");
+}
+
+// 11. Object field access error is catchable
+try {
+    let obj = { x: 1 };
+    let y = obj.z;
+    print("should not reach");
+} catch (e) {
+    print("caught missing field");
+}
+
+print("done");

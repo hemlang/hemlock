@@ -1,14 +1,18 @@
 #include "internal.h"
+#ifndef _WIN32
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <poll.h>
+#endif
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
 #include <stdarg.h>
-#include <poll.h>
+#include <stddef.h>
 #include <stdatomic.h>
 
 // ========== SOCKET BUILTINS ==========
@@ -25,7 +29,6 @@ static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...)
     va_end(args);
 
     ctx->exception_state.exception_value = val_string(buffer);
-    value_retain(ctx->exception_state.exception_value);
     ctx->exception_state.is_throwing = 1;
     return val_null();
 }
@@ -46,7 +49,7 @@ void socket_free(SocketHandle *sock) {
 
     // Close socket if still open
     if (!sock->closed && sock->fd >= 0) {
-        close(sock->fd);
+        hml_closesocket(sock->fd);
     }
 
     // Free allocated strings
@@ -55,6 +58,18 @@ void socket_free(SocketHandle *sock) {
     }
 
     free(sock);
+}
+
+void socket_retain(SocketHandle *sock) {
+    if (!sock) return;
+    __atomic_add_fetch(&sock->ref_count, 1, __ATOMIC_SEQ_CST);
+}
+
+void socket_release(SocketHandle *sock) {
+    if (!sock) return;
+    if (__atomic_sub_fetch(&sock->ref_count, 1, __ATOMIC_SEQ_CST) == 0) {
+        socket_free(sock);
+    }
 }
 
 // ========== SOCKET CREATION ==========
@@ -81,7 +96,8 @@ Value builtin_socket_create(Value *args, int num_args, ExecutionContext *ctx) {
 
     // Normalize protocol=0 to appropriate protocol for socket type
     // This is required on macOS where protocol=0 creates broken sockets
-    if (protocol == 0) {
+    // Only for inet domains - AF_UNIX must use protocol=0
+    if (protocol == 0 && (domain == AF_INET || domain == AF_INET6)) {
         if (type == SOCK_STREAM) {
             protocol = IPPROTO_TCP;
         } else if (type == SOCK_DGRAM) {
@@ -89,14 +105,15 @@ Value builtin_socket_create(Value *args, int num_args, ExecutionContext *ctx) {
         }
     }
 
+    hml_platform_init();  // WSAStartup on Windows; no-op elsewhere
     int fd = socket(domain, type, protocol);
     if (fd < 0) {
-        return throw_runtime_error(ctx, "Failed to create socket: %s", strerror(errno));
+        return throw_runtime_error(ctx, "Failed to create socket: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
     SocketHandle *sock = malloc(sizeof(SocketHandle));
     if (!sock) {
-        close(fd);
+        hml_closesocket(fd);
         return throw_runtime_error(ctx, "Memory allocation failed");
     }
 
@@ -108,6 +125,7 @@ Value builtin_socket_create(Value *args, int num_args, ExecutionContext *ctx) {
     sock->closed = 0;
     sock->listening = 0;
     sock->nonblocking = 0;
+    sock->ref_count = 1;
 
     return val_socket(sock);
 }
@@ -146,7 +164,7 @@ static Value socket_method_bind(SocketHandle *sock, Value *args, int num_args, E
         }
 
         if (bind(sock->fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-            return throw_runtime_error(ctx, "bind() failed: %s", strerror(errno));
+            return throw_runtime_error(ctx, "bind() failed: %s", hml_sock_strerror(hml_sock_errno()));
         }
     } else if (sock->domain == AF_INET6) {
         // IPv6
@@ -163,10 +181,25 @@ static Value socket_method_bind(SocketHandle *sock, Value *args, int num_args, E
         }
 
         if (bind(sock->fd, (struct sockaddr *)&addr6, sizeof(addr6)) < 0) {
-            return throw_runtime_error(ctx, "bind() failed: %s", strerror(errno));
+            return throw_runtime_error(ctx, "bind() failed: %s", hml_sock_strerror(hml_sock_errno()));
+        }
+    } else if (sock->domain == AF_UNIX) {
+        // Unix domain socket - address is the socket path, port is ignored
+        struct sockaddr_un addr_un;
+        memset(&addr_un, 0, sizeof(addr_un));
+        addr_un.sun_family = AF_UNIX;
+
+        if (strlen(address) >= sizeof(addr_un.sun_path)) {
+            return throw_runtime_error(ctx, "Unix socket path too long (max %zu): %s",
+                    sizeof(addr_un.sun_path) - 1, address);
+        }
+        strncpy(addr_un.sun_path, address, sizeof(addr_un.sun_path) - 1);
+
+        if (bind(sock->fd, (struct sockaddr *)&addr_un, sizeof(addr_un)) < 0) {
+            return throw_runtime_error(ctx, "bind() failed: %s", hml_sock_strerror(hml_sock_errno()));
         }
     } else {
-        return throw_runtime_error(ctx, "Unsupported socket domain (use AF_INET or AF_INET6)");
+        return throw_runtime_error(ctx, "Unsupported socket domain (use AF_INET, AF_INET6, or AF_UNIX)");
     }
 
     // Store address and port
@@ -197,7 +230,7 @@ static Value socket_method_listen(SocketHandle *sock, Value *args, int num_args,
     int backlog = value_to_int(args[0]);
 
     if (listen(sock->fd, backlog) < 0) {
-        return throw_runtime_error(ctx, "Failed to listen on socket: %s", strerror(errno));
+        return throw_runtime_error(ctx, "Failed to listen on socket: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
     sock->listening = 1;
@@ -223,19 +256,22 @@ static Value socket_method_accept(SocketHandle *sock, Value *args, int num_args,
     struct sockaddr_storage client_addr;
     socklen_t client_len = sizeof(client_addr);
 
-    int client_fd = accept(sock->fd, (struct sockaddr *)&client_addr, &client_len);
+    int client_fd;
+    do {
+        client_fd = accept(sock->fd, (struct sockaddr *)&client_addr, &client_len);
+    } while (client_fd < 0 && hml_sock_errno() == HML_SOCK_EINTR);
     if (client_fd < 0) {
         // In non-blocking mode, EAGAIN/EWOULDBLOCK means no pending connections
-        if (sock->nonblocking && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        if (sock->nonblocking && HML_SOCK_WOULDBLOCK(hml_sock_errno())) {
             return val_null();  // No connection available
         }
-        return throw_runtime_error(ctx, "Failed to accept connection: %s", strerror(errno));
+        return throw_runtime_error(ctx, "Failed to accept connection: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
     // Create new socket for client connection
     SocketHandle *client_sock = malloc(sizeof(SocketHandle));
     if (!client_sock) {
-        close(client_fd);
+        hml_closesocket(client_fd);
         return throw_runtime_error(ctx, "Memory allocation failed");
     }
 
@@ -245,15 +281,29 @@ static Value socket_method_accept(SocketHandle *sock, Value *args, int num_args,
     client_sock->closed = 0;
     client_sock->listening = 0;
     client_sock->nonblocking = 0;
+    client_sock->ref_count = 1;
 
     // Get client address and port based on address family
-    if (sock->domain == AF_INET6) {
+    if (sock->domain == AF_UNIX) {
+        struct sockaddr_un *addr_un = (struct sockaddr_un *)&client_addr;
+        if (client_len > offsetof(struct sockaddr_un, sun_path) && addr_un->sun_path[0] != '\0') {
+            client_sock->address = strdup(addr_un->sun_path);
+        } else {
+            client_sock->address = strdup("");
+        }
+        if (!client_sock->address) {
+            hml_closesocket(client_fd);
+            free(client_sock);
+            return throw_runtime_error(ctx, "Memory allocation failed for client address");
+        }
+        client_sock->port = 0;
+    } else if (sock->domain == AF_INET6) {
         struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&client_addr;
         char addr_str[INET6_ADDRSTRLEN];
         inet_ntop(AF_INET6, &addr6->sin6_addr, addr_str, sizeof(addr_str));
         client_sock->address = strdup(addr_str);
         if (!client_sock->address) {
-            close(client_fd);
+            hml_closesocket(client_fd);
             free(client_sock);
             return throw_runtime_error(ctx, "Memory allocation failed for client address");
         }
@@ -264,7 +314,7 @@ static Value socket_method_accept(SocketHandle *sock, Value *args, int num_args,
         inet_ntop(AF_INET, &addr4->sin_addr, addr_str, sizeof(addr_str));
         client_sock->address = strdup(addr_str);
         if (!client_sock->address) {
-            close(client_fd);
+            hml_closesocket(client_fd);
             free(client_sock);
             return throw_runtime_error(ctx, "Memory allocation failed for client address");
         }
@@ -293,26 +343,44 @@ static Value socket_method_connect(SocketHandle *sock, Value *args, int num_args
     const char *address = args[0].as.as_string->data;
     int port = value_to_int(args[1]);
 
-    // Use getaddrinfo for both IPv4 and IPv6 resolution
-    struct addrinfo hints, *result;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = sock->domain;  // AF_INET or AF_INET6
-    hints.ai_socktype = sock->type;
+    if (sock->domain == AF_UNIX) {
+        // Unix domain socket - address is the socket path, port is ignored
+        struct sockaddr_un addr_un;
+        memset(&addr_un, 0, sizeof(addr_un));
+        addr_un.sun_family = AF_UNIX;
 
-    char port_str[16];
-    snprintf(port_str, sizeof(port_str), "%d", port);
+        if (strlen(address) >= sizeof(addr_un.sun_path)) {
+            return throw_runtime_error(ctx, "Unix socket path too long (max %zu): %s",
+                    sizeof(addr_un.sun_path) - 1, address);
+        }
+        strncpy(addr_un.sun_path, address, sizeof(addr_un.sun_path) - 1);
 
-    int gai_err = getaddrinfo(address, port_str, &hints, &result);
-    if (gai_err != 0) {
-        return throw_runtime_error(ctx, "Failed to resolve '%s': %s", address, gai_strerror(gai_err));
-    }
+        if (connect(sock->fd, (struct sockaddr *)&addr_un, sizeof(addr_un)) < 0) {
+            return throw_runtime_error(ctx, "Failed to connect to unix socket '%s': %s",
+                    address, hml_sock_strerror(hml_sock_errno()));
+        }
+    } else {
+        // Use getaddrinfo for both IPv4 and IPv6 resolution
+        struct addrinfo hints, *result;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = sock->domain;  // AF_INET or AF_INET6
+        hints.ai_socktype = sock->type;
 
-    int connect_result = connect(sock->fd, result->ai_addr, result->ai_addrlen);
-    freeaddrinfo(result);
+        char port_str[16];
+        snprintf(port_str, sizeof(port_str), "%d", port);
 
-    if (connect_result < 0) {
-        return throw_runtime_error(ctx, "Failed to connect to %s:%d: %s",
-                address, port, strerror(errno));
+        int gai_err = getaddrinfo(address, port_str, &hints, &result);
+        if (gai_err != 0) {
+            return throw_runtime_error(ctx, "Failed to resolve '%s': %s", address, gai_strerror(gai_err));
+        }
+
+        int connect_result = connect(sock->fd, result->ai_addr, result->ai_addrlen);
+        freeaddrinfo(result);
+
+        if (connect_result < 0) {
+            return throw_runtime_error(ctx, "Failed to connect to %s:%d: %s",
+                    address, port, hml_sock_strerror(hml_sock_errno()));
+        }
     }
 
     // Store address and port
@@ -350,13 +418,16 @@ static Value socket_method_send(SocketHandle *sock, Value *args, int num_args, E
         return throw_runtime_error(ctx, "send() expects string or buffer argument");
     }
 
-    ssize_t sent = send(sock->fd, data, len, 0);
+    ssize_t sent;
+    do {
+        sent = send(sock->fd, data, len, 0);
+    } while (sent < 0 && hml_sock_errno() == HML_SOCK_EINTR);
     if (sent < 0) {
         // In non-blocking mode, EAGAIN/EWOULDBLOCK means socket buffer is full
-        if (sock->nonblocking && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        if (sock->nonblocking && HML_SOCK_WOULDBLOCK(hml_sock_errno())) {
             return val_i32(0);  // No bytes sent (would block)
         }
-        return throw_runtime_error(ctx, "Failed to send data: %s", strerror(errno));
+        return throw_runtime_error(ctx, "Failed to send data: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
     return val_i32((int32_t)sent);
@@ -400,15 +471,18 @@ static Value socket_method_recv(SocketHandle *sock, Value *args, int num_args, E
         return throw_runtime_error(ctx, "Memory allocation failed");
     }
 
-    ssize_t received = recv(sock->fd, data, size, 0);
+    ssize_t received;
+    do {
+        received = recv(sock->fd, data, size, 0);
+    } while (received < 0 && hml_sock_errno() == HML_SOCK_EINTR);
     if (received < 0) {
         // In non-blocking mode, EAGAIN/EWOULDBLOCK means no data available (not an error)
-        if (sock->nonblocking && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        if (sock->nonblocking && HML_SOCK_WOULDBLOCK(hml_sock_errno())) {
             free(data);
             return val_null();  // No data available
         }
         free(data);
-        return throw_runtime_error(ctx, "Failed to receive data: %s", strerror(errno));
+        return throw_runtime_error(ctx, "Failed to receive data: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
     // received == 0 means connection closed by peer
@@ -480,7 +554,22 @@ static Value socket_method_sendto(SocketHandle *sock, Value *args, int num_args,
     }
 
     ssize_t sent;
-    if (sock->domain == AF_INET) {
+    if (sock->domain == AF_UNIX) {
+        struct sockaddr_un dest_un;
+        memset(&dest_un, 0, sizeof(dest_un));
+        dest_un.sun_family = AF_UNIX;
+
+        if (strlen(address) >= sizeof(dest_un.sun_path)) {
+            return throw_runtime_error(ctx, "Unix socket path too long (max %zu): %s",
+                    sizeof(dest_un.sun_path) - 1, address);
+        }
+        strncpy(dest_un.sun_path, address, sizeof(dest_un.sun_path) - 1);
+
+        do {
+            sent = sendto(sock->fd, data, len, 0,
+                    (struct sockaddr *)&dest_un, sizeof(dest_un));
+        } while (sent < 0 && hml_sock_errno() == HML_SOCK_EINTR);
+    } else if (sock->domain == AF_INET) {
         struct sockaddr_in dest_addr;
         memset(&dest_addr, 0, sizeof(dest_addr));
         dest_addr.sin_family = AF_INET;
@@ -490,8 +579,10 @@ static Value socket_method_sendto(SocketHandle *sock, Value *args, int num_args,
             return throw_runtime_error(ctx, "Invalid IPv4 address: %s", address);
         }
 
-        sent = sendto(sock->fd, data, len, 0,
-                (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+        do {
+            sent = sendto(sock->fd, data, len, 0,
+                    (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+        } while (sent < 0 && hml_sock_errno() == HML_SOCK_EINTR);
     } else if (sock->domain == AF_INET6) {
         struct sockaddr_in6 dest_addr6;
         memset(&dest_addr6, 0, sizeof(dest_addr6));
@@ -502,15 +593,17 @@ static Value socket_method_sendto(SocketHandle *sock, Value *args, int num_args,
             return throw_runtime_error(ctx, "Invalid IPv6 address: %s", address);
         }
 
-        sent = sendto(sock->fd, data, len, 0,
-                (struct sockaddr *)&dest_addr6, sizeof(dest_addr6));
+        do {
+            sent = sendto(sock->fd, data, len, 0,
+                    (struct sockaddr *)&dest_addr6, sizeof(dest_addr6));
+        } while (sent < 0 && hml_sock_errno() == HML_SOCK_EINTR);
     } else {
-        return throw_runtime_error(ctx, "Unsupported socket domain (use AF_INET or AF_INET6)");
+        return throw_runtime_error(ctx, "Unsupported socket domain (use AF_INET, AF_INET6, or AF_UNIX)");
     }
 
     if (sent < 0) {
         return throw_runtime_error(ctx, "Failed to sendto %s:%d: %s",
-                address, port, strerror(errno));
+                address, port, hml_sock_strerror(hml_sock_errno()));
     }
 
     return val_i32((int32_t)sent);
@@ -549,7 +642,7 @@ static Value socket_method_recvfrom(SocketHandle *sock, Value *args, int num_arg
 
     if (received < 0) {
         free(data);
-        return throw_runtime_error(ctx, "Failed to recvfrom: %s", strerror(errno));
+        return throw_runtime_error(ctx, "Failed to recvfrom: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
     // Create buffer with received data
@@ -561,9 +654,18 @@ static Value socket_method_recvfrom(SocketHandle *sock, Value *args, int num_arg
     atomic_store(&buf->freed, 0);  // Not freed
 
     // Get source address and port based on address family
-    char addr_str[INET6_ADDRSTRLEN];
+    char addr_str[256];
     int src_port;
-    if (sock->domain == AF_INET6) {
+    if (sock->domain == AF_UNIX) {
+        struct sockaddr_un *addr_un = (struct sockaddr_un *)&src_addr;
+        if (addr_len > offsetof(struct sockaddr_un, sun_path) && addr_un->sun_path[0] != '\0') {
+            strncpy(addr_str, addr_un->sun_path, sizeof(addr_str) - 1);
+            addr_str[sizeof(addr_str) - 1] = '\0';
+        } else {
+            addr_str[0] = '\0';
+        }
+        src_port = 0;
+    } else if (sock->domain == AF_INET6) {
         struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&src_addr;
         inet_ntop(AF_INET6, &addr6->sin6_addr, addr_str, sizeof(addr_str));
         src_port = ntohs(addr6->sin6_port);
@@ -624,6 +726,7 @@ static Value socket_method_recvfrom(SocketHandle *sock, Value *args, int num_arg
 
 // dns_resolve(hostname: string) -> string (IP address)
 Value builtin_dns_resolve(Value *args, int num_args, ExecutionContext *ctx) {
+    hml_platform_init();  // WSAStartup on Windows; no-op elsewhere
     if (num_args != 1) {
         return throw_runtime_error(ctx, "dns_resolve() expects 1 argument (hostname)");
     }
@@ -634,13 +737,28 @@ Value builtin_dns_resolve(Value *args, int num_args, ExecutionContext *ctx) {
 
     const char *hostname = args[0].as.as_string->data;
 
-    struct hostent *host = gethostbyname(hostname);
-    if (!host) {
-        return throw_runtime_error(ctx, "Failed to resolve hostname '%s'", hostname);
+    // Use getaddrinfo (thread-safe) instead of gethostbyname, which uses
+    // static storage and can return entries with no addresses.
+    struct addrinfo hints, *result = NULL;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    int gai_err = getaddrinfo(hostname, NULL, &hints, &result);
+    if (gai_err != 0 || !result) {
+        if (result) freeaddrinfo(result);
+        return throw_runtime_error(ctx, "Failed to resolve hostname '%s': %s",
+                hostname, gai_err != 0 ? gai_strerror(gai_err) : "no addresses");
     }
 
-    // Return first IPv4 address
-    char *ip = inet_ntoa(*(struct in_addr *)host->h_addr_list[0]);
+    char ip[INET_ADDRSTRLEN];
+    struct sockaddr_in *addr = (struct sockaddr_in *)result->ai_addr;
+    if (!inet_ntop(AF_INET, &addr->sin_addr, ip, sizeof(ip))) {
+        freeaddrinfo(result);
+        return throw_runtime_error(ctx, "Failed to resolve hostname '%s'", hostname);
+    }
+    freeaddrinfo(result);
+
     return val_string(ip);
 }
 
@@ -664,8 +782,9 @@ static Value socket_method_setsockopt(SocketHandle *sock, Value *args, int num_a
     int option = value_to_int(args[1]);
     int value = value_to_int(args[2]);
 
-    if (setsockopt(sock->fd, level, option, &value, sizeof(value)) < 0) {
-        return throw_runtime_error(ctx, "Failed to set socket option: %s", strerror(errno));
+    // winsock declares optval as const char *
+    if (setsockopt(sock->fd, level, option, (const void *)&value, sizeof(value)) < 0) {
+        return throw_runtime_error(ctx, "Failed to set socket option: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
     return val_null();
@@ -687,17 +806,22 @@ static Value socket_method_set_timeout(SocketHandle *sock, Value *args, int num_
 
     double seconds = value_to_float(args[0]);
 
+#ifdef _WIN32
+    // Windows expects the timeout as a DWORD in milliseconds
+    DWORD timeout = (DWORD)(seconds * 1000.0);
+#else
     struct timeval timeout;
     timeout.tv_sec = (long)seconds;
     timeout.tv_usec = (long)((seconds - timeout.tv_sec) * 1000000);
+#endif
 
     // Set both recv and send timeouts
-    if (setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-        return throw_runtime_error(ctx, "Failed to set receive timeout: %s", strerror(errno));
+    if (setsockopt(sock->fd, SOL_SOCKET, SO_RCVTIMEO, (const void *)&timeout, sizeof(timeout)) < 0) {
+        return throw_runtime_error(ctx, "Failed to set receive timeout: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
-    if (setsockopt(sock->fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0) {
-        return throw_runtime_error(ctx, "Failed to set send timeout: %s", strerror(errno));
+    if (setsockopt(sock->fd, SOL_SOCKET, SO_SNDTIMEO, (const void *)&timeout, sizeof(timeout)) < 0) {
+        return throw_runtime_error(ctx, "Failed to set send timeout: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
     return val_null();
@@ -719,9 +843,15 @@ static Value socket_method_set_nonblocking(SocketHandle *sock, Value *args, int 
 
     int enable = args[0].as.as_bool;
 
+#ifdef _WIN32
+    u_long nonblocking_mode = enable ? 1 : 0;
+    if (ioctlsocket(sock->fd, FIONBIO, &nonblocking_mode) != 0) {
+        return throw_runtime_error(ctx, "Failed to set socket flags: %s", hml_sock_strerror(hml_sock_errno()));
+    }
+#else
     int flags = fcntl(sock->fd, F_GETFL, 0);
     if (flags < 0) {
-        return throw_runtime_error(ctx, "Failed to get socket flags: %s", strerror(errno));
+        return throw_runtime_error(ctx, "Failed to get socket flags: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
     if (enable) {
@@ -731,8 +861,9 @@ static Value socket_method_set_nonblocking(SocketHandle *sock, Value *args, int 
     }
 
     if (fcntl(sock->fd, F_SETFL, flags) < 0) {
-        return throw_runtime_error(ctx, "Failed to set socket flags: %s", strerror(errno));
+        return throw_runtime_error(ctx, "Failed to set socket flags: %s", hml_sock_strerror(hml_sock_errno()));
     }
+#endif
 
     sock->nonblocking = enable;
     return val_null();
@@ -749,7 +880,7 @@ static Value socket_method_close(SocketHandle *sock, Value *args, int num_args, 
 
     // Idempotent - safe to call multiple times
     if (!sock->closed && sock->fd >= 0) {
-        close(sock->fd);
+        hml_closesocket(sock->fd);
         sock->fd = -1;
         sock->closed = 1;
     }
@@ -859,21 +990,18 @@ static int get_fd_from_value(Value val) {
 Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 2) {
         ctx->exception_state.exception_value = val_string("poll() expects 2 arguments (fds, timeout_ms)");
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
 
     if (args[0].type != VAL_ARRAY) {
         ctx->exception_state.exception_value = val_string("poll() first argument must be array");
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
 
     if (!is_integer(args[1])) {
         ctx->exception_state.exception_value = val_string("poll() second argument must be integer (timeout_ms)");
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
@@ -890,7 +1018,6 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
     struct pollfd *pfds = malloc(sizeof(struct pollfd) * fds_arr->length);
     if (!pfds) {
         ctx->exception_state.exception_value = val_string("poll() memory allocation failed");
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
@@ -900,7 +1027,6 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
     if (!original_fds) {
         free(pfds);
         ctx->exception_state.exception_value = val_string("poll() memory allocation failed");
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }
@@ -912,7 +1038,6 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
             free(pfds);
             free(original_fds);
             ctx->exception_state.exception_value = val_string("poll() array elements must be objects with 'fd' and 'events'");
-            value_retain(ctx->exception_state.exception_value);
             ctx->exception_state.is_throwing = 1;
             return val_null();
         }
@@ -935,7 +1060,6 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
             free(pfds);
             free(original_fds);
             ctx->exception_state.exception_value = val_string("poll() fd must be a socket or file");
-            value_retain(ctx->exception_state.exception_value);
             ctx->exception_state.is_throwing = 1;
             return val_null();
         }
@@ -944,7 +1068,6 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
             free(pfds);
             free(original_fds);
             ctx->exception_state.exception_value = val_string("poll() events must be an integer");
-            value_retain(ctx->exception_state.exception_value);
             ctx->exception_state.is_throwing = 1;
             return val_null();
         }
@@ -966,9 +1089,8 @@ Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx) {
         free(pfds);
         free(original_fds);
         char err_msg[256];
-        snprintf(err_msg, sizeof(err_msg), "poll() failed: %s", strerror(errno));
+        snprintf(err_msg, sizeof(err_msg), "poll() failed: %s", hml_sock_strerror(hml_sock_errno()));
         ctx->exception_state.exception_value = val_string(err_msg);
-        value_retain(ctx->exception_state.exception_value);
         ctx->exception_state.is_throwing = 1;
         return val_null();
     }

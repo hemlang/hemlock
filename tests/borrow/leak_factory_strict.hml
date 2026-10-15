@@ -1,0 +1,9 @@
+// Strict mode: a resource obtained from a factory function is owned by the
+// caller and leaks like any direct acquisition if never released.
+fn make_scratch(): buffer {
+    return buffer(32);
+}
+fn main() {
+    let b = make_scratch();
+    b[0] = 1;
+}

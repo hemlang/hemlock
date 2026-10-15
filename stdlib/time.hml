@@ -9,3 +9,23 @@ export let clock = __clock;  // CPU time used by process in seconds as f64
 // ========== DELAY FUNCTIONS ==========
 
 export let sleep = __sleep;  // Sleep for specified seconds (accepts f64 for sub-second precision)
+
+// ========== FRAME LOOP ==========
+//
+// main_loop(callback, fps) runs `callback` once per frame until
+// main_loop_stop() is called. `fps` of 0 means "let the host pick the rate"
+// (requestAnimationFrame in the browser, uncapped natively).
+//
+// Prefer this over `while (true) { frame(); sleep(1.0 / 60.0); }` for
+// anything that draws. Natively the two are equivalent; when compiled with
+// `hemlockc --target wasm` the sleep version forces Emscripten Asyncify onto
+// the entire module, which instruments every call in the program, while
+// main_loop() uses the browser's own frame scheduler and can be linked with
+// `--no-asyncify`.
+//
+// WASM note: under `--target wasm`, main_loop() does not return -- the
+// browser owns the event loop from that point on, so statements after the
+// call never run. Put shutdown work at the end of the callback instead.
+
+export let main_loop = __main_loop;       // Run callback each frame: main_loop(fn, fps)
+export let main_loop_stop = __main_loop_stop;  // Stop the running main_loop()

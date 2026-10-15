@@ -1,0 +1,33 @@
+// CONTRACT: Shift and modulo semantics.
+// - Shifts operate in the promoted type's width: i32 shifts wrap in 32 bits,
+//   shifting by >= the type width gives 0 (<<) or the sign fill (>>),
+//   negative shift amounts throw a catchable error.
+// - % truncates toward zero (C semantics): the result has the sign of the
+//   dividend. Signed MIN % -1 is 0. Float % is fmod.
+
+let one: i32 = 1;
+print(one << 31);          // -2147483648 (wraps in i32)
+print(one << 32);          // 0 (shift >= width)
+let neg: i32 = -8;
+print(neg >> 1);           // -4 (arithmetic shift)
+print(neg >> 40);          // -1 (sign fill)
+let pos: i32 = 8;
+print(pos >> 40);          // 0
+let u: u32 = 4294967288;
+print(u >> 1);             // 2147483644 (logical shift)
+let l64: i64 = 1;
+print(l64 << 63);          // -9223372036854775808
+
+try { print(one << -1); } catch (e) {
+    if (e.contains("Shift amount must be non-negative")) { print("negative shift error"); }
+}
+
+// Modulo sign rules
+print(-7 % 3);             // -1
+print(7 % -3);             // 1
+print(-7 % -3);            // -1
+print(7 % 3);              // 1
+print(7.5 % 2.0);          // 1.5
+print(-7.5 % 2.0);         // -1.5
+let um: u32 = 7;
+print(um % 3);             // 1

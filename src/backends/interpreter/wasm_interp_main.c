@@ -466,6 +466,7 @@ int hemlock_context_set(int handle, const char *varname, const char *json) {
     JSONParser jp;
     jp.input = json;
     jp.pos   = 0;
+    jp.depth = 0;
 
     Value val = json_parse_value(&jp, wc->ctx);
 

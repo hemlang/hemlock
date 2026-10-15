@@ -1,0 +1,32 @@
+// Regression: every `spawn(fn, args…)` / `spawn_with(opts, fn, args…)`
+// leaked each heap argument once per spawn. codegen_call_async.c built
+// each arg via codegen_expr (owned +1) into _spawn_args[], passed them
+// to hml_spawn() — which DEEP-COPIES args (the task owns the copies;
+// task_free releases them) — but never released the original arg
+// temporaries, while fn_val/opts_val WERE released. So every heap
+// spawn argument (strings, arrays, objects, request data) leaked.
+// A server doing `spawn(handler, request…)` per accepted connection
+// (the Witchgrid CP/agent shape) bled per connection, unbounded.
+//                                                        [fixed 2.5.4]
+//
+// Fire-and-forget (result discarded, no await) is the CP pattern and
+// the case spawn_join_leak missed — it passes a non-heap i64 arg, so
+// the orphaned-arg release is a no-op there. Bounded + finite so
+// LeakSanitizer reports at exit; run via `run_stress.sh lsan`. The
+// final sleep drains all workers so a correctly-released task is fully
+// reclaimed before the leak check (no in-flight false positives).
+import { sleep } from "@stdlib/time";
+
+async fn handler(req: string): i64 {
+	let parts = [req + "-a", req + "-b", req + "-c"];
+	let o = { path: req, tags: parts, n: parts.length };
+	return o.n;
+}
+
+let round = 0;
+while (round < 200) {
+	spawn(handler, "conn-" + round);
+	round = round + 1;
+}
+sleep(2.0);
+print("spawn_fireforget_leak: ok rounds=" + round);

@@ -1,0 +1,4 @@
+// @expect-compile-fail
+import { sin } from
+export { x } from
+import * as m from

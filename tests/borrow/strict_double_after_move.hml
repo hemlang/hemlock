@@ -1,0 +1,6 @@
+fn main() {
+    let p = alloc(64);
+    let q = p;
+    free(q);
+    free(p);
+}

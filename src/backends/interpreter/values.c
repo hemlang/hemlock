@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <limits.h>
+#include <math.h>
 
 // ========== OBJECT POOL ==========
 // Pre-allocate Object structs + FieldEntry arrays to avoid malloc/free overhead
@@ -366,7 +367,9 @@ Value val_rune(uint32_t codepoint) {
 void buffer_free(Buffer *buf) {
     if (buf) {
         if (buf->parent) {
-            // Zero-copy view: release parent instead of freeing data
+            // Zero-copy view: the root becomes freeable again once its last
+            // view is gone, then release the parent instead of freeing data
+            atomic_fetch_sub(&buf->parent->view_count, 1);
             buffer_release(buf->parent);
         } else {
             free(buf->data);
@@ -390,7 +393,7 @@ void buffer_release(Buffer *buf) {
 }
 
 Value val_buffer(int size) {
-    if (size <= 0) {
+    if (size < 0) {
         fprintf(stderr, "Runtime error: buffer size must be positive\n");
         exit(1);
     }
@@ -399,7 +402,11 @@ Value val_buffer(int size) {
     if (!buf) {
         return val_null();
     }
-    buf->data = malloc(size);
+    // Zero-initialized for deterministic contents and parity with the
+    // compiled runtime. size == 0 (internal callers: empty reads,
+    // read_bytes(off, 0), deep copies of freed buffers) still gets a valid
+    // 1-byte allocation so data is never NULL.
+    buf->data = calloc(size > 0 ? size : 1, 1);
     if (buf->data == NULL) {
         free(buf);
         return val_null();
@@ -412,6 +419,7 @@ Value val_buffer(int size) {
     buf->ref_count = 1;  // Start with 1 - caller owns the first reference
     atomic_store(&buf->freed, 0);  // Not freed
     buf->parent = NULL;            // Not a view
+    atomic_store(&buf->view_count, 0);
     v.as.as_buffer = buf;
     return v;
 }
@@ -498,9 +506,9 @@ static void array_grow(Array *arr) {
 }
 
 // Helper function to check if value matches array element type
-static void check_array_element_type(Array *arr, Value val) {
+static int array_element_type_matches(Array *arr, Value val) {
     if (!arr->element_type) {
-        return;  // Untyped array, allow any value
+        return 1;  // Untyped array, allow any value
     }
 
     TypeKind expected = arr->element_type->kind;
@@ -527,7 +535,11 @@ static void check_array_element_type(Array *arr, Value val) {
             exit(1);
     }
 
-    if (!type_matches) {
+    return type_matches;
+}
+
+static void check_array_element_type(Array *arr, Value val) {
+    if (!array_element_type_matches(arr, val)) {
         fprintf(stderr, "Runtime error: Type mismatch in typed array - expected element of specific type\n");
         exit(1);
     }
@@ -570,6 +582,7 @@ Value array_get(Array *arr, int index, ExecutionContext *ctx) {
 void array_set(Array *arr, int index, Value val, ExecutionContext *ctx) {
     if (index < 0) {
         runtime_error(ctx, "Negative array index not supported");
+        return;  // runtime_error does not unwind - writing elements[-1] corrupts the heap
     }
 
     // Fast path: in-bounds assignment to untyped array
@@ -580,12 +593,19 @@ void array_set(Array *arr, int index, Value val, ExecutionContext *ctx) {
         return;
     }
 
-    // Check type constraint for typed arrays
-    check_array_element_type(arr, val);
+    // Check type constraint for typed arrays (catchable)
+    if (!array_element_type_matches(arr, val)) {
+        runtime_error(ctx, "Type mismatch in typed array - expected element of specific type");
+        return;
+    }
 
-    // Extend array if needed, filling with nulls
+    // Extend array if needed, filling with nulls (the gap is untyped
+    // padding, as in the compiled runtime - don't type-check it)
     while (index >= arr->length) {
-        array_push(arr, val_null());
+        if (arr->length >= arr->capacity) {
+            array_grow(arr);
+        }
+        arr->elements[arr->length++] = val_null();
     }
 
     // Release old value, retain new value (reference counting)
@@ -732,15 +752,8 @@ void function_release(Function *fn) {
     }
 }
 
-// DJB2 hash function for strings (fast and good distribution)
-static uint32_t djb2_hash(const char *str) {
-    uint32_t hash = HML_DJB2_HASH_SEED;
-    int c;
-    while ((c = *str++)) {
-        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
-    }
-    return hash;
-}
+#include "shared/hash.h"
+#define djb2_hash hml_hash_string
 
 // Rebuild hash table (called when fields are added and hash table needs rehashing)
 static void object_hash_rebuild(Object *obj) {
@@ -775,29 +788,44 @@ static void object_hash_rebuild(Object *obj) {
 
 // Look up field index by name, returns -1 if not found
 int object_lookup_field(Object *obj, const char *name) {
-    // Lazy hash table creation: if no hash table and we have fields, build it
-    if ((!obj->hash_table || obj->hash_capacity == 0) && obj->num_fields > 0) {
-        object_hash_rebuild(obj);
+    if (obj->num_fields <= 0) {
+        return -1;  // Empty object
     }
 
-    if (!obj->hash_table || obj->hash_capacity == 0) {
-        // Still no hash table (empty object) - return not found
-        return -1;
-    }
+    // Fast path: hash table already built. Read-only — safe under
+    // concurrent reads.
+    if (obj->hash_table && obj->hash_capacity > 0) {
+        uint32_t hash = djb2_hash(name);
+        int slot = hash % obj->hash_capacity;
+        int start_slot = slot;
 
-    uint32_t hash = djb2_hash(name);
-    int slot = hash % obj->hash_capacity;
-    int start_slot = slot;
-
-    // Linear probing (using unified field storage)
-    while (obj->hash_table[slot] != -1) {
-        int idx = obj->hash_table[slot];
-        if (strcmp(obj->fields[idx].name, name) == 0) {
-            return idx;  // Found
+        // Linear probing (using unified field storage)
+        while (obj->hash_table[slot] != -1) {
+            int idx = obj->hash_table[slot];
+            if (strcmp(obj->fields[idx].name, name) == 0) {
+                return idx;  // Found
+            }
+            slot = (slot + 1) % obj->hash_capacity;
+            if (slot == start_slot) {
+                break;  // Full circle, not found
+            }
         }
-        slot = (slot + 1) % obj->hash_capacity;
-        if (slot == start_slot) {
-            break;  // Full circle, not found
+        return -1;  // Not found
+    }
+
+    // No hash table: lock-free linear scan. Does NOT mutate obj, so it
+    // is safe under concurrent reads. Deliberately does NOT lazily call
+    // object_hash_rebuild() here: object literals / JSON reach readers
+    // with hash_table == NULL, so N spawned task threads reading the
+    // same shared object would all enter object_hash_rebuild() and race
+    // on free(obj->hash_table)+malloc() — heap corruption surfacing as a
+    // bogus "key not found" (then "X has no properties") deep in a
+    // worker. This mirrors the 2.4.5 fix already applied to the compiled
+    // runtime; the interpreter copy was missed. The hash table is still
+    // built eagerly by the mutation path for the fast lookups above.
+    for (int i = 0; i < obj->num_fields; i++) {
+        if (strcmp(obj->fields[i].name, name) == 0) {
+            return i;
         }
     }
     return -1;  // Not found
@@ -806,28 +834,37 @@ int object_lookup_field(Object *obj, const char *name) {
 // Look up field index by name with pre-computed hash (for inline cache)
 // Returns field index or -1 if not found
 int object_lookup_field_with_hash(Object *obj, const char *name, uint32_t hash) {
-    // Lazy hash table creation: if no hash table and we have fields, build it
-    if ((!obj->hash_table || obj->hash_capacity == 0) && obj->num_fields > 0) {
-        object_hash_rebuild(obj);
+    if (obj->num_fields <= 0) {
+        return -1;  // Empty object
     }
 
-    if (!obj->hash_table || obj->hash_capacity == 0) {
-        // Still no hash table (empty object) - return not found
-        return -1;
-    }
+    // Fast path: hash table already built. Read-only — safe under
+    // concurrent reads.
+    if (obj->hash_table && obj->hash_capacity > 0) {
+        int slot = hash % obj->hash_capacity;
+        int start_slot = slot;
 
-    int slot = hash % obj->hash_capacity;
-    int start_slot = slot;
-
-    // Linear probing (using unified field storage)
-    while (obj->hash_table[slot] != -1) {
-        int idx = obj->hash_table[slot];
-        if (strcmp(obj->fields[idx].name, name) == 0) {
-            return idx;  // Found
+        // Linear probing (using unified field storage)
+        while (obj->hash_table[slot] != -1) {
+            int idx = obj->hash_table[slot];
+            if (strcmp(obj->fields[idx].name, name) == 0) {
+                return idx;  // Found
+            }
+            slot = (slot + 1) % obj->hash_capacity;
+            if (slot == start_slot) {
+                break;  // Full circle, not found
+            }
         }
-        slot = (slot + 1) % obj->hash_capacity;
-        if (slot == start_slot) {
-            break;  // Full circle, not found
+        return -1;  // Not found
+    }
+
+    // No hash table: lock-free linear scan — see object_lookup_field()
+    // for why we must NOT lazily object_hash_rebuild() on the read path
+    // (concurrent-reader heap corruption; the 2.4.5 compiled-runtime fix
+    // mirrored here).
+    for (int i = 0; i < obj->num_fields; i++) {
+        if (strcmp(obj->fields[i].name, name) == 0) {
+            return i;
         }
     }
     return -1;  // Not found
@@ -981,6 +1018,12 @@ void task_free(Task *task) {
             exec_context_free(task->ctx);
         }
         if (task->thread) {
+            // If the thread was never joined or detached (e.g. the caller
+            // dropped its handle racing with the worker's auto-detach check),
+            // detach it now so the pthread's resources are reclaimed.
+            if (!task->joined && !task->detached) {
+                pthread_detach(*(pthread_t*)task->thread);
+            }
             free(task->thread);
         }
         if (task->task_mutex) {
@@ -1073,6 +1116,7 @@ Channel* channel_new(int capacity) {
     }
     ch->sender_waiting = 0;
     ch->receiver_waiting = 0;
+    ch->rendezvous_gen = 0;
 
     return ch;
 }
@@ -1253,140 +1297,184 @@ Value val_null(void) {
     return v;
 }
 
-void print_value(Value val) {
+// Arrays currently being printed/stringified on this thread, as a linked
+// list of frames on the C stack. A self-referential array (`a.push(a)`)
+// would otherwise recurse until the stack overflows; a back-reference
+// prints as "[...]" instead.
+typedef struct ArrayPrintFrame {
+    const void *arr;
+    const struct ArrayPrintFrame *prev;
+} ArrayPrintFrame;
+
+static __thread const ArrayPrintFrame *g_array_print_frames = NULL;
+
+static int array_print_in_progress(const void *arr) {
+    for (const ArrayPrintFrame *f = g_array_print_frames; f; f = f->prev) {
+        if (f->arr == arr) return 1;
+    }
+    return 0;
+}
+
+void fprint_value(FILE *out, Value val) {
     switch (val.type) {
         case VAL_I8:
-            printf("%d", val.as.as_i8);
+            fprintf(out, "%d", val.as.as_i8);
             break;
         case VAL_I16:
-            printf("%d", val.as.as_i16);
+            fprintf(out, "%d", val.as.as_i16);
             break;
         case VAL_I32:
-            printf("%d", val.as.as_i32);
+            fprintf(out, "%d", val.as.as_i32);
             break;
         case VAL_I64:
-            printf("%" PRId64, val.as.as_i64);
+            fprintf(out, "%" PRId64, val.as.as_i64);
             break;
         case VAL_U8:
-            printf("%u", val.as.as_u8);
+            fprintf(out, "%u", val.as.as_u8);
             break;
         case VAL_U16:
-            printf("%u", val.as.as_u16);
+            fprintf(out, "%u", val.as.as_u16);
             break;
         case VAL_U32:
-            printf("%u", val.as.as_u32);
+            fprintf(out, "%u", val.as.as_u32);
             break;
         case VAL_U64:
-            printf("%" PRIu64, val.as.as_u64);
+            fprintf(out, "%" PRIu64, val.as.as_u64);
             break;
         case VAL_F32:
-            printf("%g", val.as.as_f32);
+            fprintf(out, "%g", val.as.as_f32);
             break;
         case VAL_F64:
-            printf("%g", val.as.as_f64);
+            fprintf(out, "%g", val.as.as_f64);
             break;
         case VAL_BOOL:
-            printf("%s", val.as.as_bool ? "true" : "false");
+            fprintf(out, "%s", val.as.as_bool ? "true" : "false");
             break;
         case VAL_STRING:
-            printf("%s", val.as.as_string->data);
+            fprintf(out, "%s", val.as.as_string->data);
             break;
         case VAL_RUNE: {
             // Print rune as character if printable, otherwise as U+XXXX
             uint32_t r = val.as.as_rune;
             if (r >= HML_ASCII_PRINTABLE_START && r < HML_ASCII_PRINTABLE_END) {
-                printf("'%c'", (char)r);
+                fprintf(out, "'%c'", (char)r);
             } else {
-                printf("U+%04X", r);
+                fprintf(out, "U+%04X", r);
             }
             break;
         }
         case VAL_PTR:
-            printf("%p", val.as.as_ptr);
+            fprintf(out, "%p", val.as.as_ptr);
             break;
         case VAL_BUFFER:
-            printf("<buffer %p length=%d capacity=%d>",
+            fprintf(out, "<buffer %p length=%d capacity=%d>",
                    val.as.as_buffer->data,
                    val.as.as_buffer->length,
                    val.as.as_buffer->capacity);
             break;
         case VAL_ARRAY: {
             Array *arr = val.as.as_array;
-            printf("[");
-            for (int i = 0; i < arr->length; i++) {
-                if (i > 0) printf(", ");
-                print_value(arr->elements[i]);
+            if (array_print_in_progress(arr)) {
+                fprintf(out, "[...]");
+                break;
             }
-            printf("]");
+            ArrayPrintFrame frame = { arr, g_array_print_frames };
+            g_array_print_frames = &frame;
+            fprintf(out, "[");
+            for (int i = 0; i < arr->length; i++) {
+                if (i > 0) fprintf(out, ", ");
+                fprint_value(out, arr->elements[i]);
+            }
+            fprintf(out, "]");
+            g_array_print_frames = frame.prev;
             break;
         }
         case VAL_FILE: {
             FileHandle *file = val.as.as_file;
             if (file->closed) {
-                printf("<file (closed)>");
+                fprintf(out, "<file (closed)>");
             } else {
-                printf("<file '%s' mode='%s'>", file->path, file->mode);
+                fprintf(out, "<file '%s' mode='%s'>", file->path, file->mode);
             }
             break;
         }
         case VAL_SOCKET: {
             SocketHandle *sock = val.as.as_socket;
             if (sock->closed) {
-                printf("<socket (closed)>");
+                fprintf(out, "<socket (closed)>");
             } else if (sock->address) {
-                printf("<socket %s:%d fd=%d%s>",
+                fprintf(out, "<socket %s:%d fd=%d%s>",
                        sock->address, sock->port, sock->fd,
                        sock->listening ? " listening" : "");
             } else {
-                printf("<socket fd=%d>", sock->fd);
+                fprintf(out, "<socket fd=%d>", sock->fd);
             }
             break;
         }
         case VAL_WEBSOCKET: {
             WebSocketHandle *ws = val.as.as_websocket;
             if (ws->closed) {
-                printf("<websocket (closed)>");
+                fprintf(out, "<websocket (closed)>");
             } else if (ws->is_server) {
-                printf("<websocket-server %s:%d>", ws->host ? ws->host : "0.0.0.0", ws->port);
+                fprintf(out, "<websocket-server %s:%d>", ws->host ? ws->host : "0.0.0.0", ws->port);
             } else {
-                printf("<websocket %s>", ws->url ? ws->url : "?");
+                fprintf(out, "<websocket %s>", ws->url ? ws->url : "?");
             }
             break;
         }
         case VAL_OBJECT:
             if (val.as.as_object->type_name) {
-                printf("<object:%s>", val.as.as_object->type_name);
+                fprintf(out, "<object:%s>", val.as.as_object->type_name);
             } else {
-                printf("<object>");
+                fprintf(out, "<object>");
             }
             break;
         case VAL_TYPE:
-            printf("<type>");
+            fprintf(out, "<type>");
             break;
         case VAL_BUILTIN_FN:
-            printf("<builtin function>");
+            fprintf(out, "<builtin function>");
             break;
         case VAL_FUNCTION:
-            printf("<function>");
+            fprintf(out, "<function>");
             break;
         case VAL_FFI_FUNCTION:
-            printf("<ffi function>");
+            fprintf(out, "<ffi function>");
             break;
         case VAL_TASK:
-            printf("<task id=%d state=%d>", val.as.as_task->id, val.as.as_task->state);
+            fprintf(out, "<task id=%d state=%d>", val.as.as_task->id, val.as.as_task->state);
             break;
         case VAL_CHANNEL:
-            printf("<channel capacity=%d count=%d%s>",
+            fprintf(out, "<channel capacity=%d count=%d%s>",
                    val.as.as_channel->capacity,
                    val.as.as_channel->count,
                    val.as.as_channel->closed ? " closed" : "");
             break;
         case VAL_REF:
-            printf("<ref>");
+            fprintf(out, "<ref>");
             break;
         case VAL_NULL:
-            printf("null");
+            fprintf(out, "null");
             break;
+    }
+}
+
+void print_value(Value val) {
+    fprint_value(stdout, val);
+}
+
+
+
+static void format_float_for_string(char *buffer, size_t size, double value, int precision) {
+    snprintf(buffer, size, precision == 9 ? "%.9g" : "%.15g", value);
+    if (isfinite(value) && floor(value) == value &&
+        !strchr(buffer, '.') && !strchr(buffer, 'e') && !strchr(buffer, 'E')) {
+        size_t len = strlen(buffer);
+        if (len + 2 < size) {
+            buffer[len] = '.';
+            buffer[len + 1] = '0';
+            buffer[len + 2] = '\0';
+        }
     }
 }
 
@@ -1420,10 +1508,10 @@ char* value_to_string(Value val) {
             snprintf(buffer, sizeof(buffer), "%" PRIu64, val.as.as_u64);
             return strdup(buffer);
         case VAL_F32:
-            snprintf(buffer, sizeof(buffer), "%g", val.as.as_f32);
+            format_float_for_string(buffer, sizeof(buffer), val.as.as_f32, 9);
             return strdup(buffer);
         case VAL_F64:
-            snprintf(buffer, sizeof(buffer), "%g", val.as.as_f64);
+            format_float_for_string(buffer, sizeof(buffer), val.as.as_f64, 15);
             return strdup(buffer);
         case VAL_BOOL:
             return strdup(val.as.as_bool ? "true" : "false");
@@ -1464,6 +1552,11 @@ char* value_to_string(Value val) {
         case VAL_ARRAY: {
             // Simple array representation
             Array *arr = val.as.as_array;
+            if (array_print_in_progress(arr)) {
+                return strdup("[...]");
+            }
+            ArrayPrintFrame frame = { arr, g_array_print_frames };
+            g_array_print_frames = &frame;
             size_t total_len = 2;  // [ and ]
             char **parts = malloc(sizeof(char*) * (arr->length > 0 ? arr->length : 1));
             size_t *part_lens = malloc(sizeof(size_t) * (arr->length > 0 ? arr->length : 1));
@@ -1473,6 +1566,7 @@ char* value_to_string(Value val) {
                 total_len += part_lens[i];
                 if (i > 0) total_len += 2;  // ", "
             }
+            g_array_print_frames = frame.prev;
 
             // SECURITY: Use memcpy with explicit position tracking instead of strcat
             char *result = malloc(total_len + 1);
@@ -1621,9 +1715,6 @@ void visited_set_add(VisitedSet *set, void *ptr) {
     set->pointers[set->count++] = ptr;
 }
 
-// Forward declarations for internal versions
-static void value_free_internal(Value val, VisitedSet *visited);
-
 // Internal version of object_free with cycle detection
 static void object_free_internal(Object *obj, VisitedSet *visited) {
     if (!obj) return;
@@ -1700,114 +1791,13 @@ static void array_free_internal(Array *arr, VisitedSet *visited) {
     free(arr);
 }
 
-// Internal version of value_free with cycle detection
-static void value_free_internal(Value val, VisitedSet *visited) {
-    switch (val.type) {
-        case VAL_STRING:
-            if (val.as.as_string) {
-                string_free(val.as.as_string);
-            }
-            break;
-        case VAL_RUNE:
-            // No cleanup needed for rune (primitive value)
-            break;
-        case VAL_BUFFER:
-            if (val.as.as_buffer) {
-                buffer_free(val.as.as_buffer);
-            }
-            break;
-        case VAL_ARRAY:
-            if (val.as.as_array) {
-                array_free_internal(val.as.as_array, visited);
-            }
-            break;
-        case VAL_FILE:
-            if (val.as.as_file) {
-                file_free(val.as.as_file);
-            }
-            break;
-        case VAL_SOCKET:
-            if (val.as.as_socket) {
-                socket_free(val.as.as_socket);
-            }
-            break;
-        case VAL_WEBSOCKET:
-            if (val.as.as_websocket) {
-                websocket_free(val.as.as_websocket);
-            }
-            break;
-        case VAL_OBJECT:
-            if (val.as.as_object) {
-                object_free_internal(val.as.as_object, visited);
-            }
-            break;
-        case VAL_FUNCTION:
-            if (val.as.as_function) {
-                // Use function_release to respect reference counting
-                // This is critical for async tasks that may retain function references
-                function_release(val.as.as_function);
-            }
-            break;
-        case VAL_FFI_FUNCTION:
-            if (val.as.as_ffi_function) {
-                ffi_free_function((FFIFunction*)val.as.as_ffi_function);
-            }
-            break;
-        case VAL_TASK:
-            if (val.as.as_task) {
-                task_release(val.as.as_task);
-            }
-            break;
-        case VAL_CHANNEL:
-            if (val.as.as_channel) {
-                channel_free(val.as.as_channel);
-            }
-            break;
-        case VAL_REF:
-            if (val.as.as_ref) {
-                reference_free(val.as.as_ref);
-            }
-            break;
-        case VAL_PTR:
-            // Raw pointers are user-managed - do not free
-            break;
-        case VAL_I8:
-        case VAL_I16:
-        case VAL_I32:
-        case VAL_I64:
-        case VAL_U8:
-        case VAL_U16:
-        case VAL_U32:
-        case VAL_U64:
-        case VAL_F32:
-        case VAL_F64:
-        case VAL_BOOL:
-        case VAL_NULL:
-        case VAL_TYPE:
-        case VAL_BUILTIN_FN:
-            // These types have no heap allocation
-            break;
-    }
-}
-
-// Public API - recursively free a Value and all its heap-allocated contents
-// Now handles circular references safely
-void value_free(Value val) {
-    VisitedSet *visited = visited_set_new();
-    if (!visited) {
-        fprintf(stderr, "Runtime error: Failed to allocate visited set for value_free\n");
-        exit(1);
-    }
-    value_free_internal(val, visited);
-    visited_set_free(visited);
-}
-
-// Fast path check - most values don't need refcounting
+// Fast path check - most values don't need refcounting.
+// Delegates to the VALUE_NEEDS_REFCOUNT macro (internal.h) so the macro fast
+// path and the function-call path can never disagree about which types are
+// refcounted — historical desyncs (VAL_SOCKET, VAL_WEBSOCKET missing from the
+// macro) caused over-releases and use-after-free.
 static inline int value_needs_refcount(ValueType type) {
-    // Only heap-allocated types need refcounting
-    return type == VAL_STRING || type == VAL_BUFFER || type == VAL_ARRAY ||
-           type == VAL_OBJECT || type == VAL_FUNCTION || type == VAL_TASK ||
-           type == VAL_CHANNEL || type == VAL_REF;
+    return VALUE_NEEDS_REFCOUNT(type);
 }
 
 // Public API - increment reference count for heap-allocated values
@@ -1844,6 +1834,16 @@ void value_retain(Value val) {
         case VAL_TASK:
             if (val.as.as_task) {
                 task_retain(val.as.as_task);
+            }
+            break;
+        case VAL_SOCKET:
+            if (val.as.as_socket) {
+                socket_retain(val.as.as_socket);
+            }
+            break;
+        case VAL_WEBSOCKET:
+            if (val.as.as_websocket) {
+                websocket_retain(val.as.as_websocket);
             }
             break;
         case VAL_CHANNEL:
@@ -1896,6 +1896,16 @@ void value_release(Value val) {
         case VAL_TASK:
             if (val.as.as_task) {
                 task_release(val.as.as_task);
+            }
+            break;
+        case VAL_SOCKET:
+            if (val.as.as_socket) {
+                socket_release(val.as.as_socket);
+            }
+            break;
+        case VAL_WEBSOCKET:
+            if (val.as.as_websocket) {
+                websocket_release(val.as.as_websocket);
             }
             break;
         case VAL_CHANNEL:
@@ -1953,8 +1963,12 @@ Value value_deep_copy(Value val) {
         case VAL_BUFFER:
             if (val.as.as_buffer) {
                 Buffer *src = val.as.as_buffer;
+                // A freed source has data == NULL and length == 0; the copy
+                // degenerates to a valid empty buffer without touching data.
                 result = val_buffer(src->length);
-                memcpy(result.as.as_buffer->data, src->data, src->length);
+                if (result.type == VAL_BUFFER && src->length > 0) {
+                    memcpy(result.as.as_buffer->data, src->data, src->length);
+                }
             } else {
                 result = val_null();
             }
@@ -2020,9 +2034,10 @@ Value value_deep_copy(Value val) {
                         }
                     }
                     dst->fields[dst->num_fields].name = strdup(src->fields[i].name);
-                    Value field_copy = value_deep_copy(src->fields[i].value);
-                    value_retain(field_copy);
-                    dst->fields[dst->num_fields].value = field_copy;
+                    // value_deep_copy returns an owned reference; storing it
+                    // transfers ownership to the field (released in
+                    // object_free), so no extra retain here.
+                    dst->fields[dst->num_fields].value = value_deep_copy(src->fields[i].value);
                     dst->num_fields++;
                 }
                 result.type = VAL_OBJECT;
@@ -2033,10 +2048,10 @@ Value value_deep_copy(Value val) {
             break;
 
         case VAL_PTR:
-            // Raw pointers cannot be deep copied safely - this is intentional
-            // Tasks should not share raw pointers; use channels or buffers instead
-            fprintf(stderr, "Runtime error: Cannot pass raw pointer to spawned task (use buffer or channel instead)\n");
-            exit(1);
+            // Share raw pointers by reference - the programmer is responsible
+            // for synchronization, matching Hemlock's "unsafe is a feature" philosophy.
+            // This enables FFI handles (e.g. WebSocket ptrs) inside objects passed to tasks.
+            return val;
 
         case VAL_FILE:
             // File handles are OS resources - kernel handles concurrent access
@@ -2045,12 +2060,20 @@ Value value_deep_copy(Value val) {
 
         case VAL_SOCKET:
             // Socket handles are OS resources - kernel handles concurrent access
-            // We share by reference (no deep copy needed)
+            // We share by reference, but must retain: the copy is an owned
+            // reference (task_free releases task arguments)
+            if (val.as.as_socket) {
+                socket_retain(val.as.as_socket);
+            }
             return val;
 
         case VAL_WEBSOCKET:
             // WebSocket handles are OS resources - kernel handles concurrent access
-            // We share by reference (no deep copy needed)
+            // We share by reference, but must retain: the copy is an owned
+            // reference (task_free releases task arguments)
+            if (val.as.as_websocket) {
+                websocket_retain(val.as.as_websocket);
+            }
             return val;
 
         case VAL_FUNCTION:

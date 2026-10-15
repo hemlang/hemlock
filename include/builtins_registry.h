@@ -284,7 +284,11 @@ typedef struct {
     X("__os_version",   0,  HML_BUILTIN_INTERNAL | HML_BUILTIN_PURE, HML_RET_STRING) \
     X("__os_name",      0,  HML_BUILTIN_INTERNAL | HML_BUILTIN_PURE, HML_RET_STRING) \
     X("__tmpdir",       0,  HML_BUILTIN_INTERNAL, HML_RET_STRING) \
-    X("__uptime",       0,  HML_BUILTIN_INTERNAL, HML_RET_F64)
+    X("__uptime",       0,  HML_BUILTIN_INTERNAL, HML_RET_F64) \
+    X("__term_is_tty",    0,  HML_BUILTIN_INTERNAL, HML_RET_BOOL) \
+    X("__term_raw",       1,  HML_BUILTIN_INTERNAL, HML_RET_BOOL) \
+    X("__term_read_byte", 1,  HML_BUILTIN_INTERNAL, HML_RET_I32) \
+    X("__term_size",      0,  HML_BUILTIN_INTERNAL, HML_RET_OBJECT)
 
 #define HML_BUILTINS_NET(X) \
     X("socket_create",  2,  HML_BUILTIN_PUBLIC, HML_RET_I32) \
@@ -292,6 +296,7 @@ typedef struct {
     X("poll",           2,  HML_BUILTIN_PUBLIC, HML_RET_ARRAY)
 
 #define HML_BUILTINS_CRYPTO(X) \
+    X("__random_bytes", 1, HML_BUILTIN_INTERNAL, HML_RET_BUFFER) \
     X("__sha256",   1,  HML_BUILTIN_INTERNAL | HML_BUILTIN_PURE, HML_RET_STRING) \
     X("__sha512",   1,  HML_BUILTIN_INTERNAL | HML_BUILTIN_PURE, HML_RET_STRING) \
     X("__md5",      1,  HML_BUILTIN_INTERNAL | HML_BUILTIN_PURE, HML_RET_STRING) \

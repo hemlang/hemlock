@@ -1,0 +1,128 @@
+// Basic matrix creation and element access tests
+
+import { Matrix, from_array, from_rows, identity, zeros, ones, diagonal, col_vector, row_vector } from "@stdlib/matrix";
+
+print("=== Testing Matrix Constructor ===");
+let m = Matrix(3, 4);
+assert(m.rows == 3, "Matrix should have 3 rows");
+assert(m.cols == 4, "Matrix should have 4 columns");
+assert(m.get(0, 0) == 0.0, "Initial values should be 0");
+assert(m.get(2, 3) == 0.0, "Initial values should be 0");
+
+m.set(1, 2, 42.0);
+assert(m.get(1, 2) == 42.0, "set/get should work");
+print("Constructor tests passed!");
+
+print("=== Testing from_array ===");
+let a = from_array(2, 3, [1, 2, 3, 4, 5, 6]);
+assert(a.rows == 2, "from_array rows");
+assert(a.cols == 3, "from_array cols");
+assert(a.get(0, 0) == 1, "from_array [0,0]");
+assert(a.get(0, 2) == 3, "from_array [0,2]");
+assert(a.get(1, 0) == 4, "from_array [1,0]");
+assert(a.get(1, 2) == 6, "from_array [1,2]");
+print("from_array tests passed!");
+
+print("=== Testing from_rows ===");
+let r = from_rows([[10, 20], [30, 40], [50, 60]]);
+assert(r.rows == 3, "from_rows rows");
+assert(r.cols == 2, "from_rows cols");
+assert(r.get(0, 0) == 10, "from_rows [0,0]");
+assert(r.get(2, 1) == 60, "from_rows [2,1]");
+print("from_rows tests passed!");
+
+print("=== Testing identity ===");
+let I = identity(3);
+assert(I.rows == 3, "identity rows");
+assert(I.cols == 3, "identity cols");
+assert(I.get(0, 0) == 1, "identity diagonal");
+assert(I.get(1, 1) == 1, "identity diagonal");
+assert(I.get(2, 2) == 1, "identity diagonal");
+assert(I.get(0, 1) == 0, "identity off-diagonal");
+assert(I.get(1, 0) == 0, "identity off-diagonal");
+print("identity tests passed!");
+
+print("=== Testing zeros ===");
+let z = zeros(2, 3);
+assert(z.rows == 2, "zeros rows");
+assert(z.get(0, 0) == 0, "zeros element");
+assert(z.get(1, 2) == 0, "zeros element");
+print("zeros tests passed!");
+
+print("=== Testing ones ===");
+let o = ones(2, 2);
+assert(o.get(0, 0) == 1, "ones element");
+assert(o.get(0, 1) == 1, "ones element");
+assert(o.get(1, 0) == 1, "ones element");
+assert(o.get(1, 1) == 1, "ones element");
+print("ones tests passed!");
+
+print("=== Testing diagonal ===");
+let d = diagonal([2, 3, 4]);
+assert(d.rows == 3, "diagonal rows");
+assert(d.cols == 3, "diagonal cols");
+assert(d.get(0, 0) == 2, "diagonal [0,0]");
+assert(d.get(1, 1) == 3, "diagonal [1,1]");
+assert(d.get(2, 2) == 4, "diagonal [2,2]");
+assert(d.get(0, 1) == 0, "diagonal off");
+print("diagonal tests passed!");
+
+print("=== Testing col_vector ===");
+let cv = col_vector([1, 2, 3]);
+assert(cv.rows == 3, "col_vector rows");
+assert(cv.cols == 1, "col_vector cols");
+assert(cv.get(0, 0) == 1, "col_vector [0]");
+assert(cv.get(2, 0) == 3, "col_vector [2]");
+print("col_vector tests passed!");
+
+print("=== Testing row_vector ===");
+let rv = row_vector([4, 5, 6]);
+assert(rv.rows == 1, "row_vector rows");
+assert(rv.cols == 3, "row_vector cols");
+assert(rv.get(0, 0) == 4, "row_vector [0]");
+assert(rv.get(0, 2) == 6, "row_vector [2]");
+print("row_vector tests passed!");
+
+print("=== Testing row/col extraction ===");
+let e = from_rows([[1, 2, 3], [4, 5, 6]]);
+let row0 = e.row(0);
+assert(row0[0] == 1, "row extraction [0]");
+assert(row0[1] == 2, "row extraction [1]");
+assert(row0[2] == 3, "row extraction [2]");
+let col1 = e.col(1);
+assert(col1[0] == 2, "col extraction [0]");
+assert(col1[1] == 5, "col extraction [1]");
+print("row/col extraction tests passed!");
+
+print("=== Testing to_array ===");
+let ta = from_rows([[1, 2], [3, 4]]);
+let flat = ta.to_array();
+assert(flat.length == 4, "to_array length");
+assert(flat[0] == 1, "to_array [0]");
+assert(flat[1] == 2, "to_array [1]");
+assert(flat[2] == 3, "to_array [2]");
+assert(flat[3] == 4, "to_array [3]");
+print("to_array tests passed!");
+
+print("=== Testing clone ===");
+let orig = from_rows([[1, 2], [3, 4]]);
+let copy = orig.clone();
+assert(copy.get(0, 0) == 1, "clone preserves values");
+copy.set(0, 0, 99.0);
+assert(orig.get(0, 0) == 1, "clone is independent");
+assert(copy.get(0, 0) == 99, "clone can be modified");
+print("clone tests passed!");
+
+print("=== Testing bounds checking ===");
+let bc = Matrix(2, 2);
+let caught = false;
+try {
+	bc.get(5, 0);
+} catch (err) {
+	caught = true;
+}
+assert(caught == true, "Out of bounds should throw");
+print("bounds checking tests passed!");
+
+print("");
+print("All basic matrix tests passed!");

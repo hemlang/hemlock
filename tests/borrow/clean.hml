@@ -1,0 +1,10 @@
+// A well-behaved program: acquire, use, release exactly once. No diagnostics.
+fn main() {
+    let p = alloc(64);
+    memset(p, 0, 64);
+    free(p);
+
+    let b = buffer(32);
+    let view = b;          // aliasing is fine in default mode (values are shared)
+    free(b);
+}

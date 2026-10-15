@@ -1,0 +1,13 @@
+// Runes compare equal only to runes; == never coerces a rune
+// to its integer codepoint.
+print('a' == 'a');
+print('a' == 'b');
+print('a' != 'b');
+print('d' == 0);
+print('d' == 100);
+print('A' == 65);
+print(65 == 'A');
+print('a' < 'b');
+print('b' <= 'b');
+print(2 == 2.0);
+print(2 != 2.0);

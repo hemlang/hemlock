@@ -1,0 +1,4 @@
+fn main() {
+    let p = alloc(64);
+    let holder = { data: p };
+}

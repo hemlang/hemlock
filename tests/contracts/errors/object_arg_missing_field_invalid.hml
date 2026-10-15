@@ -1,0 +1,14 @@
+// CONTRACT: Passing an object literal that is missing a required field of a
+// custom-typed parameter is an error in BOTH backends. The interpreter rejects
+// it at runtime ("Object missing required field"); the compiler rejects it at
+// compile time (structural validation of object-literal call arguments). The
+// program must never run to completion.
+
+define P { name: string, age: i32 }
+
+fn describe(p: P): string {
+    return p.name;
+}
+
+print(describe({ name: "Alice" }));
+print("unreachable");

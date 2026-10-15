@@ -62,6 +62,13 @@ export fn WebSocket(url: string) {
 			let msg_ptr = __lws_ws_recv(self.handle, timeout_ms);
 
 			if (msg_ptr == null) {
+				// Sync our cached closed flag with the handle's actual
+				// state.  This is important when the object was deep-
+				// copied by spawn() -- the copy's boolean field won't
+				// reflect close() calls made on the original.
+				if (__lws_ws_is_closed(self.handle) == 1) {
+					self.closed = true;
+				}
 				return null;  // Timeout or closed
 			}
 
@@ -157,6 +164,10 @@ export fn WebSocketServer(host: string, port: i32) {
 
 					let msg_ptr = __lws_ws_recv(self.handle, timeout_ms);
 					if (msg_ptr == null) {
+						// Sync cached closed flag (important for deep-copied objects)
+						if (__lws_ws_is_closed(self.handle) == 1) {
+							self.closed = true;
+						}
 						return null;
 					}
 

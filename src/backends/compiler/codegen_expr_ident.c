@@ -13,6 +13,42 @@
 char* codegen_expr(CodegenContext *ctx, Expr *expr);
 
 /*
+ * Detect a top-level (main file) name that is present in the locals list only
+ * because it leaked in from the enclosing main scope when generating a closure
+ * body. Closures are emitted after the main function body, which leaves its
+ * locals in the array, so those names appear "local" inside main-file closures
+ * even though they are not declared as C variables in the generated closure
+ * function.
+ *
+ * Such a leaked name must resolve to its `_main_`-prefixed static global, not a
+ * bare C identifier. A name is a leaked main local when, inside a closure, it is
+ * a main variable that is NOT a genuine local of this closure: not a parameter,
+ * not one of the closure's captured variables, and not declared in the body
+ * (its most recent locals entry sits below locals_body_start, i.e. in the
+ * params/captures/leaked region rather than the body region).
+ */
+static int codegen_is_leaked_main_local(CodegenContext *ctx, const char *name) {
+    if (!ctx->current_closure) return 0;
+    if (!codegen_is_main_var(ctx, name)) return 0;
+    if (codegen_is_func_param(ctx, name)) return 0;
+
+    // Most recent declaration wins (matches C shadowing). If the latest entry is
+    // a body-local, this is a genuine local that shadows the leaked name.
+    int last = -1;
+    for (int i = 0; i < ctx->num_locals; i++) {
+        if (ctx->local_vars[i] && strcmp(ctx->local_vars[i], name) == 0) last = i;
+    }
+    if (last < 0 || last >= ctx->locals_body_start) return 0;
+
+    // Below locals_body_start: a captured variable is genuinely declared (read
+    // from the closure environment), so it should keep its bare name.
+    for (int i = 0; i < ctx->current_closure->num_captured; i++) {
+        if (strcmp(ctx->current_closure->captured_vars[i], name) == 0) return 0;
+    }
+    return 1;
+}
+
+/*
  * Handle EXPR_IDENT - generates code for identifier expressions.
  * This includes:
  * - Signal constants (SIGINT, SIGTERM, etc.)
@@ -91,14 +127,16 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SIGTTOU);", result);
     // Handle signal functions (__prefixed - moved to @stdlib/signal)
     } else if (strcmp(expr->as.ident.name, "__signal") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_signal, 2, 2, 0);", result);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_signal, 2, 2, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__raise") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_raise, 1, 1, 0);", result);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_raise, 1, 1, 0);", result);
     // Handle socket constants (__prefixed only - unprefixed moved to stdlib)
     } else if (strcmp(expr->as.ident.name, "__AF_INET") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(AF_INET);", result);
     } else if (strcmp(expr->as.ident.name, "__AF_INET6") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(AF_INET6);", result);
+    } else if (strcmp(expr->as.ident.name, "__AF_UNIX") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(AF_UNIX);", result);
     } else if (strcmp(expr->as.ident.name, "__SOCK_STREAM") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(SOCK_STREAM);", result);
     } else if (strcmp(expr->as.ident.name, "__SOCK_DGRAM") == 0) {
@@ -130,6 +168,32 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(POLLNVAL);", result);
     } else if (strcmp(expr->as.ident.name, "__POLLPRI") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(POLLPRI);", result);
+    // Handle standard file descriptor constants
+    } else if (strcmp(expr->as.ident.name, "__STDIN_FILENO") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(0);", result);
+    } else if (strcmp(expr->as.ident.name, "__STDOUT_FILENO") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(1);", result);
+    } else if (strcmp(expr->as.ident.name, "__STDERR_FILENO") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(2);", result);
+    // Mmap constants
+    } else if (strcmp(expr->as.ident.name, "__PROT_NONE") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(PROT_NONE);", result);
+    } else if (strcmp(expr->as.ident.name, "__PROT_READ") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(PROT_READ);", result);
+    } else if (strcmp(expr->as.ident.name, "__PROT_WRITE") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(PROT_WRITE);", result);
+    } else if (strcmp(expr->as.ident.name, "__PROT_EXEC") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(PROT_EXEC);", result);
+    } else if (strcmp(expr->as.ident.name, "__MADV_NORMAL") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(MADV_NORMAL);", result);
+    } else if (strcmp(expr->as.ident.name, "__MADV_SEQUENTIAL") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(MADV_SEQUENTIAL);", result);
+    } else if (strcmp(expr->as.ident.name, "__MADV_RANDOM") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(MADV_RANDOM);", result);
+    } else if (strcmp(expr->as.ident.name, "__MADV_WILLNEED") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(MADV_WILLNEED);", result);
+    } else if (strcmp(expr->as.ident.name, "__MADV_DONTNEED") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(MADV_DONTNEED);", result);
     // Handle TYPEID constants for typeid() builtin
     } else if (strcmp(expr->as.ident.name, "TYPEID_I8") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(0);", result);
@@ -256,6 +320,10 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_clock, 0, 0, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__sleep") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_sleep, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__main_loop") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_main_loop, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__main_loop_stop") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_main_loop_stop, 0, 0, 0);", result);
     // Handle datetime functions (builtins)
     } else if (strcmp(expr->as.ident.name, "__localtime") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_localtime, 1, 1, 0);", result);
@@ -289,7 +357,7 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     } else if (strcmp(expr->as.ident.name, "__exec") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec, 1, 2, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__exec_argv") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec_argv, 1, 1, 0);", result);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec_argv, 2, 1, 0);", result);
     // Handle process functions (builtins)
     } else if (strcmp(expr->as.ident.name, "__kill") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_kill, 2, 2, 0);", result);
@@ -299,8 +367,21 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_wait, 0, 0, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__waitpid") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_waitpid, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__posix_spawn") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_posix_spawn, 2, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__abort") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_abort, 0, 0, 0);", result);
+    // Handle pipe functions (builtins)
+    } else if (strcmp(expr->as.ident.name, "__pipe") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_pipe, 0, 0, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__close_fd") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_close_fd, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__read_fd") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_read_fd, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__write_fd") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_write_fd, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__dup2") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_dup2, 2, 2, 0);", result);
     // Handle filesystem functions (builtins)
     } else if (strcmp(expr->as.ident.name, "__exists") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exists, 1, 1, 0);", result);
@@ -423,12 +504,26 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_start, 5, 5, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_http_stream_read") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_read, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__lws_http_stream_read_binary") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_read_binary, 2, 2, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_http_stream_status") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_status, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_http_stream_headers") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_headers, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__lws_http_stream_close") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_lws_http_stream_close, 1, 1, 0);", result);
+    // Terminal control builtins
+    } else if (strcmp(expr->as.ident.name, "__term_is_tty") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_term_is_tty, 0, 0, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__term_raw") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_term_raw, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__term_read_byte") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_term_read_byte, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__term_size") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_term_size, 0, 0, 0);", result);
+    // CSPRNG builtin
+    } else if (strcmp(expr->as.ident.name, "__random_bytes") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_random_bytes, 1, 1, 0);", result);
     // Cryptographic hash builtins
     } else if (strcmp(expr->as.ident.name, "__sha1") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hash_sha1, 1, 1, 0);", result);
@@ -440,7 +535,7 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_hash_md5, 1, 1, 0);", result);
     // ECDSA signature builtins
     } else if (strcmp(expr->as.ident.name, "__ecdsa_generate_key") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ecdsa_generate_key, 0, 1, 0);", result);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ecdsa_generate_key, 1, 0, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__ecdsa_free_key") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ecdsa_free_key, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__ecdsa_sign") == 0) {
@@ -480,32 +575,39 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     } else if (strcmp(expr->as.ident.name, "__socket_create") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_socket_create, 3, 3, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__poll") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_poll, 2, 2, 0);", result);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_poll, 2, 2, 0);", result);
     // File I/O builtins
     } else if (strcmp(expr->as.ident.name, "__open") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_open, 2, 2, 0);", result);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_open, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__open_fd") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_open_fd, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__fileno") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_fileno, 1, 1, 0);", result);
     // Debug builtins
     } else if (strcmp(expr->as.ident.name, "__task_debug_info") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_task_debug_info, 1, 1, 0);", result);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_task_debug_info, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__set_stack_limit") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_set_stack_limit, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__get_stack_limit") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_get_stack_limit, 0, 0, 0);", result);
     // FFI builtins
     } else if (strcmp(expr->as.ident.name, "__callback") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_callback, 2, 2, 0);", result);
+        // 3 params (fn, param_types, optional return_type), 2 required -
+        // registering it as (2, 2) made a 3-argument call through the value
+        // (e.g. the @stdlib/ffi `callback` re-export) fail its arity check.
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_callback, 3, 2, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__callback_free") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_callback_free, 1, 1, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__ffi_sizeof") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_ffi_sizeof, 1, 1, 0);", result);
     // String builtins
     } else if (strcmp(expr->as.ident.name, "__string_concat_many") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_string_concat_many, 1, 1, 0);", result);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_string_concat_many, 1, 1, 0);", result);
     // Exec builtins
     } else if (strcmp(expr->as.ident.name, "__exec") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec, 1, 2, 0);", result);
     } else if (strcmp(expr->as.ident.name, "__exec_argv") == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec_argv, 1, 1, 0);", result);
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_exec_argv, 2, 1, 0);", result);
     // Atomic operations (i32)
     } else if (strcmp(expr->as.ident.name, "atomic_load_i32") == 0 || strcmp(expr->as.ident.name, "__atomic_load_i32") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_load_i32, 1, 1, 0);", result);
@@ -547,6 +649,22 @@ char* codegen_expr_ident(CodegenContext *ctx, Expr *expr, char *result) {
     // Memory fence
     } else if (strcmp(expr->as.ident.name, "atomic_fence") == 0 || strcmp(expr->as.ident.name, "__atomic_fence") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_atomic_fence, 0, 0, 0);", result);
+    // Memory-mapped file I/O operations
+    } else if (strcmp(expr->as.ident.name, "__mmap_open") == 0) {
+        // (num_params=2, num_required=1): mode is optional
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_open, 2, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__mmap_open_anon") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_open_anon, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__mmap_sync") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_sync, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__mmap_close") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_close, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__mmap_size") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_size, 1, 1, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__mmap_advise") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_advise, 2, 2, 0);", result);
+    } else if (strcmp(expr->as.ident.name, "__mmap_protect") == 0) {
+        codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_mmap_protect, 2, 2, 0);", result);
     // Byte order operations
     } else if (strcmp(expr->as.ident.name, "bswap16") == 0 || strcmp(expr->as.ident.name, "__bswap16") == 0) {
         codegen_writeln(ctx, "HmlValue %s = hml_val_function((void*)hml_builtin_bswap16, 1, 1, 0);", result);
@@ -624,6 +742,19 @@ handle_variable:
         }
         }
 
+        // Captured locals: the shared environment is the source of truth
+        // (closures and defers write through it), so reads must come from it
+        // - the C local can be stale after a closure call.
+        {
+            int cap_idx = codegen_captured_var_env_index(ctx, expr->as.ident.name);
+            if (cap_idx >= 0) {
+                codegen_writeln(ctx, "HmlValue %s = hml_closure_env_get(%s, %d);",
+                              result, ctx->shared_env_name, cap_idx);
+                // hml_closure_env_get already retains - skip the common retain below
+                return result;
+            }
+        }
+
         // Check if this is an imported symbol
         ImportBinding *import_binding = NULL;
         if (ctx->current_module) {
@@ -648,6 +779,10 @@ handle_variable:
             char *safe_ident = codegen_sanitize_ident(expr->as.ident.name);
             codegen_writeln(ctx, "HmlValue %s = %s;", result, safe_ident);
             free(safe_ident);
+        } else if (codegen_is_leaked_main_local(ctx, expr->as.ident.name)) {
+            // Top-level name that only leaked into this closure's locals from the
+            // main scope - resolve to its static global, not a bare identifier.
+            codegen_writeln(ctx, "HmlValue %s = _main_%s;", result, expr->as.ident.name);
         } else if (codegen_is_local(ctx, expr->as.ident.name)) {
             // Local variable - locals always shadow main vars and module exports
             if (ctx->in_function) {

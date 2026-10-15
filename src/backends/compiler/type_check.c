@@ -114,6 +114,7 @@ void type_check_free(TypeCheckContext *ctx) {
         TypeAliasDef *next = a->next;
         free(a->name);
         checked_type_free(a->aliased_type);
+        // a->aliased_ast is borrowed from the parser AST; do not free.
         if (a->type_params) {
             for (int i = 0; i < a->num_type_params; i++) {
                 free(a->type_params[i]);
@@ -122,6 +123,16 @@ void type_check_free(TypeCheckContext *ctx) {
         }
         free(a);
         a = next;
+    }
+
+    // Free flow-sensitive narrowing facts
+    TypeCheckNarrowing *n = ctx->narrowings;
+    while (n) {
+        TypeCheckNarrowing *next = n->next;
+        free(n->key);
+        checked_type_free(n->type);
+        free(n);
+        n = next;
     }
 
     // Free unboxable variable list
@@ -138,7 +149,37 @@ void type_check_free(TypeCheckContext *ctx) {
 
     free(ctx->current_function_name);
     checked_type_free(ctx->current_return_type);
+    for (int i = 0; i < ctx->num_module_level_names; i++) {
+        free(ctx->module_level_names[i]);
+    }
+    free(ctx->module_level_names);
     free(ctx);
+}
+
+// Record a name declared by a top-level let/const. See the field comment in
+// TypeCheckContext: function bodies may reference these before the checker
+// reaches the declaration in source order.
+void type_check_note_module_level(TypeCheckContext *ctx, const char *name) {
+    if (!ctx || !name) return;
+    for (int i = 0; i < ctx->num_module_level_names; i++) {
+        if (strcmp(ctx->module_level_names[i], name) == 0) return;
+    }
+    if (ctx->num_module_level_names == ctx->cap_module_level_names) {
+        int cap = ctx->cap_module_level_names ? ctx->cap_module_level_names * 2 : 16;
+        char **grown = realloc(ctx->module_level_names, (size_t)cap * sizeof(char *));
+        if (!grown) return;
+        ctx->module_level_names = grown;
+        ctx->cap_module_level_names = cap;
+    }
+    ctx->module_level_names[ctx->num_module_level_names++] = strdup(name);
+}
+
+int type_check_is_module_level(TypeCheckContext *ctx, const char *name) {
+    if (!ctx || !name) return 0;
+    for (int i = 0; i < ctx->num_module_level_names; i++) {
+        if (strcmp(ctx->module_level_names[i], name) == 0) return 1;
+    }
+    return 0;
 }
 
 // ========== ENVIRONMENT OPERATIONS ==========
@@ -147,6 +188,7 @@ void type_check_push_scope(TypeCheckContext *ctx) {
     TypeCheckEnv *env = calloc(1, sizeof(TypeCheckEnv));
     env->parent = ctx->current_env;
     ctx->current_env = env;
+    ctx->scope_depth++;
 }
 
 void type_check_pop_scope(TypeCheckContext *ctx) {
@@ -154,6 +196,20 @@ void type_check_pop_scope(TypeCheckContext *ctx) {
 
     TypeCheckEnv *env = ctx->current_env;
     ctx->current_env = env->parent;
+
+    TypeCheckNarrowing **pn = &ctx->narrowings;
+    while (*pn) {
+        TypeCheckNarrowing *cur = *pn;
+        if (cur->depth >= ctx->scope_depth) {
+            *pn = cur->next;
+            free(cur->key);
+            checked_type_free(cur->type);
+            free(cur);
+        } else {
+            pn = &cur->next;
+        }
+    }
+    if (ctx->scope_depth > 0) ctx->scope_depth--;
 
     TypeCheckBinding *b = env->bindings;
     while (b) {
@@ -169,7 +225,7 @@ void type_check_pop_scope(TypeCheckContext *ctx) {
 void type_check_bind(TypeCheckContext *ctx, const char *name, CheckedType *type,
                      int is_const, int is_param, int line) {
     // Check for variable shadowing in parent scopes
-    if (ctx->current_env->parent) {
+    if (!ctx->suppress_shadow_warnings && ctx->current_env->parent) {
         for (TypeCheckEnv *env = ctx->current_env->parent; env; env = env->parent) {
             for (TypeCheckBinding *b = env->bindings; b; b = b->next) {
                 if (strcmp(b->name, name) == 0) {
@@ -212,6 +268,104 @@ int type_check_is_const(TypeCheckContext *ctx, const char *name) {
         }
     }
     return 0;
+}
+
+static char* join_expr_key(const char *base, const char *op, const char *suffix) {
+    if (!base || !op || !suffix) return NULL;
+    size_t len = strlen(base) + strlen(op) + strlen(suffix) + 1;
+    char *key = malloc(len);
+    if (!key) return NULL;
+    snprintf(key, len, "%s%s%s", base, op, suffix);
+    return key;
+}
+
+char* type_check_expr_key(Expr *expr) {
+    if (!expr) return NULL;
+
+    switch (expr->type) {
+        case EXPR_IDENT:
+            return expr->as.ident.name ? strdup(expr->as.ident.name) : NULL;
+
+        case EXPR_GET_PROPERTY: {
+            char *base = type_check_expr_key(expr->as.get_property.object);
+            char *key = join_expr_key(base, ".", expr->as.get_property.property);
+            free(base);
+            return key;
+        }
+
+        case EXPR_OPTIONAL_CHAIN: {
+            if (!expr->as.optional_chain.is_property || !expr->as.optional_chain.property) {
+                return NULL;
+            }
+            char *base = type_check_expr_key(expr->as.optional_chain.object);
+            char *key = join_expr_key(base, "?.", expr->as.optional_chain.property);
+            free(base);
+            return key;
+        }
+
+        default:
+            return NULL;
+    }
+}
+
+void type_check_add_narrowing(TypeCheckContext *ctx, const char *key, CheckedType *type) {
+    if (!ctx || !key || !type) return;
+
+    TypeCheckNarrowing *n = calloc(1, sizeof(TypeCheckNarrowing));
+    if (!n) return;
+    n->key = strdup(key);
+    n->type = checked_type_clone(type);
+    n->depth = ctx->scope_depth;
+    n->next = ctx->narrowings;
+    ctx->narrowings = n;
+}
+
+void type_check_remove_narrowing(TypeCheckContext *ctx, const char *key) {
+    if (!ctx || !key) return;
+
+    TypeCheckNarrowing **pn = &ctx->narrowings;
+    while (*pn) {
+        TypeCheckNarrowing *cur = *pn;
+        if (cur->depth == ctx->scope_depth && strcmp(cur->key, key) == 0) {
+            *pn = cur->next;
+            free(cur->key);
+            checked_type_free(cur->type);
+            free(cur);
+            return;
+        }
+        pn = &cur->next;
+    }
+}
+
+void type_check_clear_narrowings_for_assignment(TypeCheckContext *ctx, const char *name) {
+    if (!ctx || !name) return;
+    size_t name_len = strlen(name);
+
+    TypeCheckNarrowing **pn = &ctx->narrowings;
+    while (*pn) {
+        TypeCheckNarrowing *cur = *pn;
+        int matches = strcmp(cur->key, name) == 0 ||
+            (strncmp(cur->key, name, name_len) == 0 &&
+             (cur->key[name_len] == '.' || cur->key[name_len] == '?' || cur->key[name_len] == '['));
+        if (matches) {
+            *pn = cur->next;
+            free(cur->key);
+            checked_type_free(cur->type);
+            free(cur);
+        } else {
+            pn = &cur->next;
+        }
+    }
+}
+
+CheckedType* type_check_lookup_narrowing(TypeCheckContext *ctx, const char *key) {
+    if (!ctx || !key) return NULL;
+    for (TypeCheckNarrowing *n = ctx->narrowings; n; n = n->next) {
+        if (strcmp(n->key, key) == 0) {
+            return n->type;
+        }
+    }
+    return NULL;
 }
 
 // ========== FUNCTION REGISTRATION ==========
@@ -355,11 +509,16 @@ EnumDef* type_check_lookup_enum(TypeCheckContext *ctx, const char *name) {
 // ========== TYPE ALIAS REGISTRATION ==========
 
 void type_check_register_type_alias(TypeCheckContext *ctx, const char *name,
-                                     CheckedType *aliased_type,
+                                     Type *aliased_ast,
                                      char **type_params, int num_type_params) {
     TypeAliasDef *def = calloc(1, sizeof(TypeAliasDef));
     def->name = strdup(name);
-    def->aliased_type = aliased_type;
+    // Stored unresolved; lowered lazily in checked_type_from_ast_ctx once
+    // user-defined objects/enums have been collected (see type_construction.c).
+    // The AST is borrowed from the parser and must not be freed here.
+    def->aliased_ast = aliased_ast;
+    def->aliased_type = NULL;
+    def->resolving = 0;
     def->num_type_params = num_type_params;
 
     if (num_type_params > 0 && type_params) {

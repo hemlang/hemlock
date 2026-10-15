@@ -1,0 +1,19 @@
+// CONTRACT: Division semantics (CLAUDE.md, docs/language-guide/operators.md)
+// `/` ALWAYS returns a float, even for evenly dividing integers.
+// Integer division is opt-in via divi() from @stdlib/math.
+// `%` stays in the integer domain under normal promotion rules.
+
+import { divi } from "@stdlib/math";
+
+print(7 / 2);
+print(typeof(7 / 2));
+print(6 / 3);
+print(typeof(6 / 3));
+
+print(divi(7, 2));
+print(typeof(divi(7, 2)));
+print(divi(-7, 2));
+
+print(7 % 3);
+print(typeof(7 % 3));
+print(-7 % 3);

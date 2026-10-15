@@ -1,0 +1,22 @@
+// __term_* builtins (raw mode, size, tty detection) and the stdlib
+// modules on top of them. The test runner pipes stdio, so everything
+// here must behave identically with or without a real terminal.
+print(typeof(__term_is_tty()));
+print(typeof(__term_read_byte(0)) == "i32");
+
+// Disabling raw mode when it was never enabled is a successful no-op
+print(__term_raw(false));
+
+// Either no terminal (null) or a sane geometry
+let s = __term_size();
+print(s == null || (s.rows > 0 && s.cols > 0));
+
+// @stdlib/terminal size() falls back to 24x80 when detached
+import { size } from "@stdlib/terminal";
+let sz = size();
+print(sz.rows > 0 && sz.cols > 0);
+
+// @stdlib/termios loads and reports state without a terminal
+import { is_raw_mode, disable_raw_mode } from "@stdlib/termios";
+print(is_raw_mode());
+print(disable_raw_mode());

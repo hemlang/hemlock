@@ -1,0 +1,57 @@
+// Test: String-literal field names in object literals,
+// and obj?[key] safe-indexing.
+
+// === String-literal keys in object literals ===
+// Required when the key contains characters that are not valid in a
+// bare identifier (hyphens, leading digits, spaces, etc.).
+let m = {
+    "chat-mahou": "anime",
+    "user-id": 42,
+    "1st-place": "gold",
+    "with space": "x",
+    plain_id: "ok",  // bare identifiers still work
+};
+print(m["chat-mahou"]);
+print(m["user-id"]);
+print(m["1st-place"]);
+print(m["with space"]);
+print(m.plain_id);
+
+// String keys mix with spread and shorthand
+let name = "Alice";
+let extra = { age: 30 };
+let combined = { ...extra, name, "full-name": "Alice X" };
+print(combined.age);
+print(combined.name);
+print(combined["full-name"]);
+
+// === obj?[key] safe indexing ===
+// On a non-null object, behaves like obj[key].
+let obj = { foo: "bar", "weird-key": 99 };
+print(obj?["foo"]);
+print(obj?["weird-key"]);
+
+// Missing key returns null (same as obj[key] on objects).
+print(obj?["missing"]);
+
+// Null receiver short-circuits to null without erroring.
+let nothing = null;
+print(nothing?["anything"]);
+
+// Chained safe-index across multiple levels.
+let data = { users: { alice: { age: 30 } } };
+print(data?["users"]?["alice"]?["age"]);
+print(data?["users"]?["bob"]?["age"]);
+print(data?["nope"]?["x"]?["y"]);
+
+// Safe index also works on arrays (integer indexing) and strings.
+let arr = [10, 20, 30];
+print(arr?[1]);
+let s = "hi";
+print(s?[0]);
+
+// Ternary expressions with array literals are unaffected
+// (TOK_QUESTION_LBRACKET only fires when '[' immediately follows '?').
+let cond = true;
+let pick = cond ? [1, 2, 3] : [4, 5, 6];
+print(pick);

@@ -23,8 +23,8 @@
 
 int g_argc = 0;
 char **g_argv = NULL;
-HmlExceptionContext *g_exception_stack = NULL;
-DeferEntry *g_defer_stack = NULL;
+__thread HmlExceptionContext *g_exception_stack = NULL;
+__thread DeferEntry *g_defer_stack = NULL;
 
 // Sandbox state
 static int g_sandbox_flags = 0;
@@ -112,7 +112,137 @@ void hml_sandbox_error(const char *operation) {
 
 // ========== RUNTIME INITIALIZATION ==========
 
+// Pin /dev/null to fds 0/1/2 if any of them are closed at process start.
+// macOS-only motivation: libwebsockets' Homebrew build pulls in
+// LWS_WITH_PLUGINS_BUILTIN, whose sshd / raw-test demo plugins close
+// stdin during their first lws_create_context() init. After that, every
+// open(), socket(), pipe() etc. that returns the lowest free fd lands
+// on fd 0 — which any code that thinks "fd 0 is stdin, ignore it"
+// (libwebsockets does this for /dev/urandom, emitting "ZERO RANDOM FD"
+// and falling back to a degraded-randomness path that intermittently
+// stalls SSL handshakes for minutes) silently mishandles. Worse, the
+// next thing that closes "stdin" obliterates whatever real fd landed
+// there. Pinning /dev/null on 0/1/2 makes the lowest free fd always be
+// >= 3, so the trap never closes.
+//
+// No-op when fds are already open (the common case under nohup / a TTY).
+// Linux unaffected — its libwebsockets is built without the demo
+// plugins, so stdin stays where it is.
+#if !defined(__EMSCRIPTEN__) && !defined(_WIN32)
+#include <fcntl.h>
+#include <unistd.h>
+#include <signal.h>
+#include <execinfo.h>
+#include <string.h>
+#ifdef __APPLE__
+#include <pthread.h>
+#include <sys/resource.h>
+#endif
+void hml_runtime_pin_stdio(void) {
+    for (int fd = 0; fd <= 2; fd++) {
+        if (fcntl(fd, F_GETFD) != -1) continue;  // already open
+        int devnull = open("/dev/null", (fd == 0) ? O_RDONLY : O_WRONLY);
+        if (devnull < 0) continue;
+        if (devnull != fd) {
+            dup2(devnull, fd);
+            close(devnull);
+        }
+    }
+}
+
+// Fatal-signal backtrace handler. Hemlock binaries are built with
+// debug_info and not stripped, so glibc's backtrace_symbols_fd()
+// resolves to real function names with zero external tooling — the
+// difference between "status=11/SEGV, no idea where" and a stack on
+// the very first crash, which matters for long-running daemons on
+// boxes without gdb/valgrind installed.
+//
+// The handler is intentionally minimal and async-signal-safe-ish:
+// backtrace()/backtrace_symbols_fd() are documented safe to call from
+// a signal handler. After dumping, it restores the default disposition
+// and re-raises so the original signal still produces the normal
+// exit status / core-dump behavior (systemd still sees 11/SEGV or
+// 6/ABRT, restart policy unaffected).
+//
+// Opt out with HML_NO_CRASH_HANDLER=1 (e.g. if a program installs its
+// own SIGSEGV handler via the signal() builtin and they'd conflict).
+static void hml_fatal_signal_handler(int sig) {
+    static volatile sig_atomic_t in_handler = 0;
+    if (in_handler) { _exit(128 + sig); }  // crashed inside the handler
+    in_handler = 1;
+
+    const char *name = "signal";
+    switch (sig) {
+        case SIGSEGV: name = "SIGSEGV (invalid memory access)"; break;
+        case SIGABRT: name = "SIGABRT (abort / heap corruption detected)"; break;
+        case SIGBUS:  name = "SIGBUS (bad memory alignment/access)"; break;
+        case SIGFPE:  name = "SIGFPE (arithmetic exception)"; break;
+        case SIGILL:  name = "SIGILL (illegal instruction)"; break;
+        default: break;
+    }
+    char hdr[160];
+    int n = snprintf(hdr, sizeof(hdr),
+        "\n*** Hemlock runtime: fatal %s — backtrace follows ***\n", name);
+    if (n > 0) { ssize_t w = write(STDERR_FILENO, hdr, (size_t)n); (void)w; }
+
+    void *frames[64];
+    int nframes = backtrace(frames, 64);
+    backtrace_symbols_fd(frames, nframes, STDERR_FILENO);
+
+    // Restore default and re-raise so the real exit status is preserved.
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+static void hml_runtime_install_crash_handler(void) {
+    const char *off = getenv("HML_NO_CRASH_HANDLER");
+    if (off && off[0] == '1') return;
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = hml_fatal_signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESETHAND;  // one-shot; re-raise hits default
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGABRT, &sa, NULL);
+    sigaction(SIGBUS,  &sa, NULL);
+    sigaction(SIGFPE,  &sa, NULL);
+    sigaction(SIGILL,  &sa, NULL);
+}
+#elif defined(_WIN32)
+// Windows: no fd-0 trap (no libwebsockets plugins close stdin there) and
+// no glibc backtrace machinery — both are POSIX-only concerns. Keep the
+// exported symbol so callers (builtins_http.c) link unchanged.
+//
+// It does have one job here: force binary mode on stdout/stderr. The
+// constructor in src/shared/platform_win32.c does this too, but calling it
+// from the startup path is what guarantees the linker pulls that object out
+// of libhemlock_runtime.a for a program that references nothing else in it.
+void hml_runtime_pin_stdio(void) {
+    hml_win32_set_binary_stdio();
+}
+#endif
+
 void hml_runtime_init(int argc, char **argv) {
+#ifndef __EMSCRIPTEN__
+    hml_runtime_pin_stdio();
+#ifndef _WIN32
+    hml_runtime_install_crash_handler();
+#endif
+#endif
+#if defined(__APPLE__) && !defined(__EMSCRIPTEN__)
+    // macOS auto-downgrades the QoS of any process whose nice value
+    // is positive — and `nohup` raises nice by 5, which silently
+    // pushes a daemonized Hemlock program into a coalesced-timer
+    // class where sleep(30) routinely runs 4-7 minutes long. Reset
+    // nice to 0 BEFORE pinning QoS so the QoS choice actually
+    // sticks. Errors ignored: setpriority() to a non-negative value
+    // can't fail in practice (a positive nice can always be lowered;
+    // we don't try to go negative which would need root). See the
+    // task_thread_wrapper comment for why this matters for any
+    // long-running heartbeat / poll loop.
+    setpriority(PRIO_PROCESS, 0, 0);
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
+#endif
     g_argc = argc;
     g_argv = argv;
     g_exception_stack = NULL;
@@ -145,6 +275,17 @@ void hml_wasm_fs_sync(void) {
     );
 }
 #endif
+
+int32_t hml_iter_length(HmlValue v) {
+    switch (v.type) {
+        case HML_VAL_OBJECT:
+            return hml_object_num_fields(v);
+        case HML_VAL_STRING:
+            return hml_string_char_count(v).as.as_i32;
+        default:
+            return hml_array_length(v).as.as_i32;
+    }
+}
 
 void hml_runtime_cleanup(void) {
 #ifdef __EMSCRIPTEN__
@@ -190,6 +331,8 @@ int encode_utf8(uint32_t cp, char *out) {
 // ========== PRINT IMPLEMENTATION ==========
 
 // Helper to print a value to a file
+__thread const HmlArrayPrintFrame *hml_array_print_frames = NULL;
+
 void print_value_to(FILE *out, HmlValue val) {
     switch (val.type) {
         case HML_VAL_I8:
@@ -256,7 +399,11 @@ void print_value_to(FILE *out, HmlValue val) {
             }
             break;
         case HML_VAL_ARRAY:
-            if (val.as.as_array) {
+            if (val.as.as_array && hml_array_print_in_progress(val.as.as_array)) {
+                fprintf(out, "[...]");
+            } else if (val.as.as_array) {
+                HmlArrayPrintFrame frame = { val.as.as_array, hml_array_print_frames };
+                hml_array_print_frames = &frame;
                 fprintf(out, "[");
                 for (int i = 0; i < val.as.as_array->length; i++) {
                     if (i > 0) fprintf(out, ", ");
@@ -264,6 +411,7 @@ void print_value_to(FILE *out, HmlValue val) {
                     print_value_to(out, val.as.as_array->elements[i]);
                 }
                 fprintf(out, "]");
+                hml_array_print_frames = frame.prev;
             } else {
                 fprintf(out, "[]");
             }
@@ -360,40 +508,37 @@ HmlValue hml_builtin_eprint(HmlClosureEnv *env, HmlValue val) {
 
 // ========== VALUE COMPARISON ==========
 
+// Strict per-type equality used by array search methods (contains, indexOf,
+// lastIndexOf). Matches the interpreter's values_equal: values of different
+// types are never equal (2 != 2.0 here), runes only equal runes, and
+// arrays/objects compare by reference.
 int hml_values_equal(HmlValue left, HmlValue right) {
-    // Null comparison
-    if (left.type == HML_VAL_NULL || right.type == HML_VAL_NULL) {
-        return (left.type == HML_VAL_NULL && right.type == HML_VAL_NULL);
+    if (left.type != right.type) {
+        return 0;
     }
 
-    // Boolean comparison
-    if (left.type == HML_VAL_BOOL && right.type == HML_VAL_BOOL) {
-        return (left.as.as_bool == right.as.as_bool);
+    switch (left.type) {
+        case HML_VAL_I8:   return left.as.as_i8 == right.as.as_i8;
+        case HML_VAL_I16:  return left.as.as_i16 == right.as.as_i16;
+        case HML_VAL_I32:  return left.as.as_i32 == right.as.as_i32;
+        case HML_VAL_I64:  return left.as.as_i64 == right.as.as_i64;
+        case HML_VAL_U8:   return left.as.as_u8 == right.as.as_u8;
+        case HML_VAL_U16:  return left.as.as_u16 == right.as.as_u16;
+        case HML_VAL_U32:  return left.as.as_u32 == right.as.as_u32;
+        case HML_VAL_U64:  return left.as.as_u64 == right.as.as_u64;
+        case HML_VAL_F32:  return left.as.as_f32 == right.as.as_f32;
+        case HML_VAL_F64:  return left.as.as_f64 == right.as.as_f64;
+        case HML_VAL_BOOL: return left.as.as_bool == right.as.as_bool;
+        case HML_VAL_RUNE: return left.as.as_rune == right.as.as_rune;
+        case HML_VAL_STRING:
+            if (!left.as.as_string || !right.as.as_string) return 0;
+            return strcmp(left.as.as_string->data, right.as.as_string->data) == 0;
+        case HML_VAL_PTR:    return left.as.as_ptr == right.as.as_ptr;
+        case HML_VAL_OBJECT: return left.as.as_object == right.as.as_object;
+        case HML_VAL_ARRAY:  return left.as.as_array == right.as.as_array;
+        case HML_VAL_NULL:   return 1;
+        default:             return 0;  // Functions and other types never compare equal
     }
-
-    // String comparison
-    if (left.type == HML_VAL_STRING && right.type == HML_VAL_STRING) {
-        if (!left.as.as_string || !right.as.as_string) return 0;
-        return (strcmp(left.as.as_string->data, right.as.as_string->data) == 0);
-    }
-
-    // Numeric comparison
-    if (hml_is_numeric(left) && hml_is_numeric(right)) {
-        double l = hml_to_f64(left);
-        double r = hml_to_f64(right);
-        return (l == r);
-    }
-
-    // Reference equality for arrays/objects
-    if (left.type == HML_VAL_ARRAY && right.type == HML_VAL_ARRAY) {
-        return (left.as.as_array == right.as.as_array);
-    }
-    if (left.type == HML_VAL_OBJECT && right.type == HML_VAL_OBJECT) {
-        return (left.as.as_object == right.as.as_object);
-    }
-
-    // Different types are not equal
-    return 0;
 }
 
 // ========== TYPE CHECKING ==========
@@ -823,7 +968,10 @@ void hml_assert(HmlValue condition, HmlValue message) {
         // Throw catchable exception (match interpreter behavior)
         HmlValue exception_msg;
         if (message.type == HML_VAL_STRING && message.as.as_string) {
+            // hml_throw consumes its argument, but `message` is a borrowed
+            // builtin parameter - take our own reference to hand over.
             exception_msg = message;
+            hml_retain(&exception_msg);
         } else {
             exception_msg = hml_val_string("assertion failed");
         }

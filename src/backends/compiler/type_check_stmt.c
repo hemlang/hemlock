@@ -7,6 +7,45 @@
 
 #include "type_check_internal.h"
 
+// Report an error if `name` is already declared in the current (innermost)
+// scope. Matches the interpreter, which throws "Variable '%s' already defined
+// in this scope" from env_define() for a let/const redeclaration in the same
+// scope. Shadowing in a nested scope remains legal (handled by type_check_bind).
+static void type_check_redeclaration(TypeCheckContext *ctx, const char *name, int line) {
+    if (!ctx->current_env) return;
+    for (TypeCheckBinding *b = ctx->current_env->bindings; b; b = b->next) {
+        if (strcmp(b->name, name) == 0) {
+            type_error(ctx, line,
+                "Variable '%s' already defined in this scope", name);
+            return;
+        }
+    }
+}
+
+// Convert a method's AST type to a CheckedType. checked_type_from_ast() does
+// not model TYPE_FUNCTION (it yields CHECKED_ANY), which would drop the return
+// type needed to validate method signatures. Handle the function case here,
+// locally, so we don't change the global conversion's behavior elsewhere.
+static CheckedType *type_check_method_type_from_ast(TypeCheckContext *ctx, Type *mt) {
+    if (mt && mt->kind == TYPE_FUNCTION) {
+        CheckedType *ft = calloc(1, sizeof(CheckedType));
+        ft->kind = CHECKED_FUNCTION;
+        ft->num_params = mt->fn_num_params;
+        if (mt->fn_num_params > 0 && mt->fn_param_types) {
+            ft->param_types = calloc(mt->fn_num_params, sizeof(CheckedType*));
+            for (int i = 0; i < mt->fn_num_params; i++) {
+                ft->param_types[i] = checked_type_from_ast_ctx(ctx, mt->fn_param_types[i]);
+            }
+        }
+        ft->return_type = mt->fn_return_type
+            ? checked_type_from_ast_ctx(ctx, mt->fn_return_type)
+            : checked_type_primitive(CHECKED_VOID);
+        ft->has_rest_param = (mt->fn_rest_param_name != NULL);
+        return ft;
+    }
+    return checked_type_from_ast_ctx(ctx, mt);
+}
+
 // ========== FUNCTION BODY CHECKING ==========
 
 void type_check_function_body(TypeCheckContext *ctx, Expr *func, const char *name) {
@@ -32,7 +71,7 @@ void type_check_function_body(TypeCheckContext *ctx, Expr *func, const char *nam
         } else {
             param_type = checked_type_primitive(CHECKED_ANY);
         }
-        type_check_bind(ctx, func->as.function.param_names[i], param_type, 0, 1, 0);  // is_param=1
+        type_check_bind(ctx, func->as.function.param_names[i], param_type, 0, 1, func->line);  // is_param=1
     }
 
     // Bind rest parameter if present
@@ -42,7 +81,7 @@ void type_check_function_body(TypeCheckContext *ctx, Expr *func, const char *nam
                 ? checked_type_from_ast_ctx(ctx, func->as.function.rest_param_type)
                 : checked_type_primitive(CHECKED_ANY)
         );
-        type_check_bind(ctx, func->as.function.rest_param, rest_type, 0, 1, 0);  // is_param=1
+        type_check_bind(ctx, func->as.function.rest_param, rest_type, 0, 1, func->line);  // is_param=1
     }
 
     // Check body
@@ -138,6 +177,45 @@ void type_check_validate_object_literal(TypeCheckContext *ctx, Expr *expr,
             checked_type_free(actual_type);
         }
     }
+
+    // Check method signatures: a provided method's return type must match the
+    // one declared in the `define`. The interpreter enforces this at runtime;
+    // the compiler catches it at compile time (consistent with how it already
+    // rejects other invalid declarations, e.g. typed-array push mismatches).
+    for (int i = 0; i < def->num_methods; i++) {
+        CheckedType *method_type = def->method_types ? def->method_types[i] : NULL;
+        if (!method_type || method_type->kind != CHECKED_FUNCTION || !method_type->return_type) {
+            continue;
+        }
+        CheckedType *expected_ret = method_type->return_type;
+        // Only flag when the declared return type is a concrete primitive
+        // (i8..rune, incl. bool/string), where a mismatch is unambiguous.
+        // Skip custom types (e.g. Self), generics, objects, and any — those
+        // need structural/substitution reasoning and would false-positive.
+        if (expected_ret->kind < CHECKED_I8 || expected_ret->kind > CHECKED_RUNE) {
+            continue;
+        }
+
+        const char *method_name = def->method_names[i];
+        for (int j = 0; j < expr->as.object_literal.num_fields; j++) {
+            const char *fname = expr->as.object_literal.field_names[j];
+            if (!fname || strcmp(fname, method_name) != 0) continue;
+
+            Expr *mval = expr->as.object_literal.field_values[j];
+            if (!mval || mval->type != EXPR_FUNCTION) break;  // not a fn literal — skip
+            CheckedType *actual = type_check_infer_expr(ctx, mval);
+            if (actual && actual->kind == CHECKED_FUNCTION && actual->return_type &&
+                !type_is_assignable(expected_ret, actual->return_type)) {
+                type_error(ctx, line,
+                    "method '%s' of type '%s' must return '%s', got '%s'",
+                    method_name, type_name,
+                    checked_type_name(expected_ret),
+                    checked_type_name(actual->return_type));
+            }
+            checked_type_free(actual);
+            break;
+        }
+    }
 }
 
 // Validate an object literal against a compound type (A & B & C)
@@ -153,6 +231,74 @@ void type_check_validate_compound_object(TypeCheckContext *ctx, Expr *expr,
         if (constituent->kind == TYPE_CUSTOM_OBJECT && constituent->type_name) {
             type_check_validate_object_literal(ctx, expr, constituent->type_name, line);
         }
+    }
+}
+
+
+static int stmt_definitely_returns(Stmt *stmt) {
+    if (!stmt) return 0;
+
+    switch (stmt->type) {
+        case STMT_RETURN:
+        case STMT_THROW:
+            return 1;
+        case STMT_BLOCK:
+            if (stmt->as.block.count == 0) return 0;
+            return stmt_definitely_returns(stmt->as.block.statements[stmt->as.block.count - 1]);
+        case STMT_IF:
+            return stmt->as.if_stmt.then_branch && stmt->as.if_stmt.else_branch &&
+                   stmt_definitely_returns(stmt->as.if_stmt.then_branch) &&
+                   stmt_definitely_returns(stmt->as.if_stmt.else_branch);
+        default:
+            return 0;
+    }
+}
+
+static Expr* null_checked_expr(Expr *condition, int *non_null_when_false) {
+    if (!condition || condition->type != EXPR_BINARY) return NULL;
+
+    BinaryOp op = condition->as.binary.op;
+    if (op != OP_EQUAL && op != OP_NOT_EQUAL) return NULL;
+
+    Expr *left = condition->as.binary.left;
+    Expr *right = condition->as.binary.right;
+    Expr *checked = NULL;
+
+    if (left && left->type == EXPR_NULL) {
+        checked = right;
+    } else if (right && right->type == EXPR_NULL) {
+        checked = left;
+    } else {
+        return NULL;
+    }
+
+    *non_null_when_false = (op == OP_EQUAL);
+    return checked;
+}
+
+static char* add_non_null_narrowing(TypeCheckContext *ctx, Expr *expr) {
+    char *key = type_check_expr_key(expr);
+    if (!key) return NULL;
+
+    CheckedType *type = type_check_infer_expr(ctx, expr);
+    if (type && type->kind != CHECKED_ANY && type->kind != CHECKED_NULL) {
+        type->nullable = 0;
+        type_check_add_narrowing(ctx, key, type);
+        checked_type_free(type);
+        return key;
+    }
+
+    checked_type_free(type);
+    free(key);
+    return NULL;
+}
+
+static void type_check_stmt_with_non_null_narrowing(TypeCheckContext *ctx, Stmt *stmt, Expr *expr) {
+    char *key = add_non_null_narrowing(ctx, expr);
+    type_check_stmt(ctx, stmt);
+    if (key) {
+        type_check_remove_narrowing(ctx, key);
+        free(key);
     }
 }
 
@@ -200,6 +346,7 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
                 declared_type = checked_type_primitive(CHECKED_ANY);
             }
 
+            type_check_redeclaration(ctx, stmt->as.let.name, stmt->line);
             type_check_bind(ctx, stmt->as.let.name, declared_type, 0, 0, stmt->line);
             break;
         }
@@ -241,6 +388,7 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
                 declared_type = checked_type_primitive(CHECKED_ANY);
             }
 
+            type_check_redeclaration(ctx, stmt->as.const_stmt.name, stmt->line);
             type_check_bind(ctx, stmt->as.const_stmt.name, declared_type, 1, 0, stmt->line);
             break;
         }
@@ -249,13 +397,36 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
             type_check_expr(ctx, stmt->as.expr);
             break;
 
-        case STMT_IF:
+        case STMT_IF: {
             type_check_expr(ctx, stmt->as.if_stmt.condition);
-            type_check_stmt(ctx, stmt->as.if_stmt.then_branch);
+
+            int non_null_when_false = 0;
+            Expr *checked = null_checked_expr(stmt->as.if_stmt.condition, &non_null_when_false);
+            int then_returns = stmt_definitely_returns(stmt->as.if_stmt.then_branch);
+            int else_returns = stmt->as.if_stmt.else_branch &&
+                stmt_definitely_returns(stmt->as.if_stmt.else_branch);
+
+            if (checked && !non_null_when_false) {
+                type_check_stmt_with_non_null_narrowing(ctx, stmt->as.if_stmt.then_branch, checked);
+            } else {
+                type_check_stmt(ctx, stmt->as.if_stmt.then_branch);
+            }
+
             if (stmt->as.if_stmt.else_branch) {
-                type_check_stmt(ctx, stmt->as.if_stmt.else_branch);
+                if (checked && non_null_when_false) {
+                    type_check_stmt_with_non_null_narrowing(ctx, stmt->as.if_stmt.else_branch, checked);
+                } else {
+                    type_check_stmt(ctx, stmt->as.if_stmt.else_branch);
+                }
+            }
+
+            if (checked && then_returns && non_null_when_false) {
+                add_non_null_narrowing(ctx, checked);
+            } else if (checked && else_returns && !non_null_when_false) {
+                add_non_null_narrowing(ctx, checked);
             }
             break;
+        }
 
         case STMT_WHILE:
             type_check_expr(ctx, stmt->as.while_stmt.condition);
@@ -359,7 +530,7 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
                 method_types = calloc(stmt->as.define_object.num_methods, sizeof(CheckedType*));
                 for (int i = 0; i < stmt->as.define_object.num_methods; i++) {
                     if (stmt->as.define_object.method_types[i]) {
-                        method_types[i] = checked_type_from_ast_ctx(ctx, stmt->as.define_object.method_types[i]);
+                        method_types[i] = type_check_method_type_from_ast(ctx, stmt->as.define_object.method_types[i]);
                     } else {
                         method_types[i] = checked_type_primitive(CHECKED_ANY);
                     }
@@ -432,6 +603,35 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
             }
             break;
 
+        case STMT_IMPORT: {
+            // Bind every imported name so it resolves during inference.
+            // Modules are type-checked separately (type_check_program only
+            // ever sees the entry file's statements), so we cannot know the
+            // exported type here -- bind ANY. Without this the bindings are
+            // simply absent, and any inference over an imported symbol
+            // (notably `"" + IMPORTED` in a concat) reported it as an
+            // unknown identifier under --strict-types.
+            if (stmt->as.import_stmt.is_namespace) {
+                if (stmt->as.import_stmt.namespace_name) {
+                    type_check_bind(ctx, stmt->as.import_stmt.namespace_name,
+                                    checked_type_primitive(CHECKED_ANY), 0, 0, stmt->line);
+                }
+            } else if (stmt->as.import_stmt.import_names) {
+                for (int i = 0; i < stmt->as.import_stmt.num_imports; i++) {
+                    // An alias shadows the original name at the use site.
+                    const char *bound = stmt->as.import_stmt.import_aliases
+                                     && stmt->as.import_stmt.import_aliases[i]
+                                      ? stmt->as.import_stmt.import_aliases[i]
+                                      : stmt->as.import_stmt.import_names[i];
+                    if (bound) {
+                        type_check_bind(ctx, bound,
+                                        checked_type_primitive(CHECKED_ANY), 0, 0, stmt->line);
+                    }
+                }
+            }
+            break;
+        }
+
         default:
             break;
     }
@@ -446,9 +646,11 @@ void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int count)
         if (!stmt) continue;
 
         if (stmt->type == STMT_TYPE_ALIAS) {
-            CheckedType *aliased = checked_type_from_ast(stmt->as.type_alias.aliased_type);
+            // Registered unresolved; the target is lowered lazily on first
+            // use (see checked_type_from_ast_ctx), after user-defined
+            // objects/enums have been collected.
             type_check_register_type_alias(ctx, stmt->as.type_alias.name,
-                aliased,
+                stmt->as.type_alias.aliased_type,
                 stmt->as.type_alias.type_params,
                 stmt->as.type_alias.num_type_params);
         }
@@ -457,9 +659,8 @@ void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int count)
         if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_declaration) {
             Stmt *decl = stmt->as.export_stmt.declaration;
             if (decl && decl->type == STMT_TYPE_ALIAS) {
-                CheckedType *aliased = checked_type_from_ast(decl->as.type_alias.aliased_type);
                 type_check_register_type_alias(ctx, decl->as.type_alias.name,
-                    aliased,
+                    decl->as.type_alias.aliased_type,
                     decl->as.type_alias.type_params,
                     decl->as.type_alias.num_type_params);
             }
@@ -575,7 +776,7 @@ void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int count)
                 method_types = calloc(stmt->as.define_object.num_methods, sizeof(CheckedType*));
                 for (int j = 0; j < stmt->as.define_object.num_methods; j++) {
                     if (stmt->as.define_object.method_types[j]) {
-                        method_types[j] = checked_type_from_ast_ctx(ctx, stmt->as.define_object.method_types[j]);
+                        method_types[j] = type_check_method_type_from_ast(ctx, stmt->as.define_object.method_types[j]);
                     } else {
                         method_types[j] = checked_type_primitive(CHECKED_ANY);
                     }
@@ -605,6 +806,25 @@ void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int count)
 // ========== MAIN ENTRY POINT ==========
 
 int type_check_program(TypeCheckContext *ctx, Stmt **stmts, int stmt_count) {
+    // Note every top-level let/const name before checking anything, so a
+    // function body that references a module-level binding declared later in
+    // the file is not reported as an unknown identifier. Names only -- the
+    // bindings themselves are still created in source order, so genuine
+    // redeclaration and shadowing checks are unaffected.
+    for (int i = 0; i < stmt_count; i++) {
+        Stmt *s = stmts[i];
+        if (!s) continue;
+        if (s->type == STMT_EXPORT && s->as.export_stmt.is_declaration
+            && s->as.export_stmt.declaration) {
+            s = s->as.export_stmt.declaration;
+        }
+        if (s->type == STMT_LET) {
+            type_check_note_module_level(ctx, s->as.let.name);
+        } else if (s->type == STMT_CONST) {
+            type_check_note_module_level(ctx, s->as.const_stmt.name);
+        }
+    }
+
     // First pass: collect all function signatures, object definitions, enums
     collect_function_signatures(ctx, stmts, stmt_count);
 

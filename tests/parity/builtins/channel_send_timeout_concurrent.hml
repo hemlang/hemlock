@@ -1,0 +1,36 @@
+// Two concurrent send_timeout() senders on an unbuffered channel.
+// A second sender must wait for the first sender's rendezvous to complete
+// before staging its own value. If it overwrites the staged value instead,
+// one message is silently dropped (and its reference leaked): both sends
+// report success but only one value is ever received.
+
+import { sleep } from "@stdlib/time";
+
+let ch = channel(0);
+
+async fn sender(c, v: i32): bool {
+    return c.send_timeout(v, 5000);
+}
+
+let t1 = spawn(sender, ch, 1);
+let t2 = spawn(sender, ch, 2);
+
+// Let both senders reach the channel before we start receiving, so with
+// the overwrite bug the second stager clobbers the first reliably.
+sleep(0.2);
+
+let a = ch.recv_timeout(5000);
+let b = ch.recv_timeout(5000);
+
+let ok1 = join(t1);
+let ok2 = join(t2);
+
+print(ok1);
+print(ok2);
+
+// Order of arrival is scheduler-dependent; the sum is not.
+if (a == null || b == null) {
+    print("lost a message");
+} else {
+    print(a + b);
+}

@@ -5,6 +5,7 @@ import { signal, raise } from "@stdlib/signal";
 import { socket_create } from "@stdlib/net";
 import { open } from "@stdlib/fs";
 import { exec } from "@stdlib/process";
+import { get_pid } from "@stdlib/env";
 
 print("Testing sandbox restrictions...\n");
 

@@ -1,0 +1,15 @@
+defer sees x=2
+inner body
+inner defer
+after inner
+outer defer
+unwind defer
+caught boom
+handled err
+after catch
+try-scoped defer
+fn-level defer
+cleanup positive
+1
+cleanup negative
+-1

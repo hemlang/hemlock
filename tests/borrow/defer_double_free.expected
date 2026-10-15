@@ -1,0 +1,1 @@
+defer_double_free.hml:5: warning: double free: 'p' is already scheduled to be freed via defer

@@ -1,0 +1,48 @@
+// Integer width and signedness semantics must match between the boxed
+// (dynamic) path and typed fast paths.
+
+// u64 values above INT64_MAX compare correctly
+let big: u64 = 18446744073709551615;
+print(big > 0);
+print(big | 1);
+print(big & 1);
+print(big ^ big);
+
+// Mixed-sign comparison follows type promotion (i32 -> u32)
+let neg: i32 = -1;
+let one: u32 = 1;
+print(neg < one);
+print(typeof(neg + one));
+
+// u64 equality is exact (not via double)
+let f = fn(a, b) { return a == b; };
+print(f(18446744073709551615, 18446744073709551614));
+print(f(18446744073709551615, 18446744073709551615));
+
+// Overflow through a dynamic (untyped) path still throws
+let sub = fn(a, b) { return a - b; };
+try { print(sub(-2147483648, 1)); } catch (e) { print("i32 overflow caught"); }
+let add = fn(a, b) { return a + b; };
+try { print(add(9223372036854775807, 1)); } catch (e) { print("i64 overflow caught"); }
+
+// ++/-- preserve the operand's own width
+let m: u16 = 65535;
+m++;
+print(m);
+let b8: u8 = 255;
+b8++;
+print(b8);
+let i64v: i64 = 5000000000;
+i64v++;
+print(i64v);
+let u64v: u64 = 18446744073709551614;
+u64v++;
+print(u64v);
+let f32v: f32 = 1.5;
+f32v++;
+print(f32v);
+
+// Mixed equality across numeric and non-numeric is false, not an error
+print(1 == "1");
+print('A' == 65);
+print(null == 0);

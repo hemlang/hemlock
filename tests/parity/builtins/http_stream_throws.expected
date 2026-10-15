@@ -1,0 +1,3 @@
+read: threw
+close: not thrown
+done

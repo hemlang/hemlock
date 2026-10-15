@@ -34,6 +34,10 @@ fi
 
 cd "$PROJECT_ROOT"
 
+# Windows (MSYS2/MinGW or Git Bash) needs a different link line than POSIX
+IS_WINDOWS=0
+case "$(uname)" in MINGW*|MSYS*|CYGWIN*) IS_WINDOWS=1;; esac
+
 # Build compiler and runtime
 echo -e "${BLUE}Building compiler and runtime...${NC}"
 if make compiler > /tmp/compiler_build.log 2>&1; then
@@ -102,21 +106,38 @@ for test_file in "$TEST_DIR"/*.hml; do
         continue
     fi
 
-    # Compile C to executable
-    # Check if zlib is available (same check as runtime Makefile)
-    ZLIB_FLAG=""
-    if echo 'int main(){return 0;}' | gcc -x c - -lz -o /dev/null 2>/dev/null; then
-        ZLIB_FLAG="-lz"
+    # Compile C to executable, with the same libraries hemlockc links (see
+    # the link commands in src/backends/compiler/main.c)
+    if [ "$IS_WINDOWS" = "1" ]; then
+        # No -ldl/-lcrypto: hashes come from CNG (-lbcrypt), sockets from
+        # ws2_32. -Iinclude is where generated C finds hemlock_platform.h.
+        # zlib/libffi are probed by asking the toolchain for the archive —
+        # a native MinGW gcc cannot write to -o /dev/null, so the
+        # compile-and-link probe below always fails on Windows.
+        ZLIB_FLAG=""
+        case "$(gcc --print-file-name=libz.a)" in */*|*\\*) ZLIB_FLAG="-lz";; esac
+        FFI_FLAG=""
+        case "$(gcc --print-file-name=libffi.a)" in */*|*\\*) FFI_FLAG="-lffi";; esac
+        EXTRA_FLAGS="-Iinclude -static -lws2_32 -lbcrypt $FFI_FLAG"
+        LWS_FLAG=""
+        CRYPTO_FLAG=""
+    else
+        # Check if zlib is available (same check as runtime Makefile)
+        ZLIB_FLAG=""
+        if echo 'int main(){return 0;}' | gcc -x c - -lz -o /dev/null 2>/dev/null; then
+            ZLIB_FLAG="-lz"
+        fi
+        # Check if libwebsockets is available
+        LWS_FLAG=""
+        if echo 'int main(){return 0;}' | gcc -x c - -lwebsockets -o /dev/null 2>/dev/null; then
+            LWS_FLAG="-lwebsockets"
+        fi
+        # libcrypto is always required for hash functions
+        CRYPTO_FLAG="-lcrypto"
+        EXTRA_FLAGS="-lffi -ldl"
     fi
-    # Check if libwebsockets is available
-    LWS_FLAG=""
-    if echo 'int main(){return 0;}' | gcc -x c - -lwebsockets -o /dev/null 2>/dev/null; then
-        LWS_FLAG="-lwebsockets"
-    fi
-    # libcrypto is always required for hash functions
-    CRYPTO_FLAG="-lcrypto"
     exe_file="$TEMP_DIR/${test_name}"
-    if ! gcc -o "$exe_file" "$c_file" -I./runtime/include ./libhemlock_runtime.a -lm -lpthread -lffi -ldl $ZLIB_FLAG $LWS_FLAG $CRYPTO_FLAG > /tmp/gcc_err.log 2>&1; then
+    if ! gcc -o "$exe_file" "$c_file" -I./runtime/include ./libhemlock_runtime.a -lm -lpthread $EXTRA_FLAGS $ZLIB_FLAG $LWS_FLAG $CRYPTO_FLAG > /tmp/gcc_err.log 2>&1; then
         echo -e "${RED}✗${NC} $test_name ${RED}(C compilation failed)${NC}"
         cat /tmp/gcc_err.log
         ((FAIL_COUNT++))

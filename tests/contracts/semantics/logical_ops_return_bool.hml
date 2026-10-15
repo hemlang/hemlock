@@ -1,0 +1,27 @@
+// CONTRACT: && and || always evaluate to a bool (docs/reference/operators.md:
+// "True if both are true" / "True if either is true"). They do NOT return
+// the deciding operand (no JavaScript-style value leaking), regardless of
+// whether operands are literals or variables, and short-circuit evaluation
+// skips the right operand only when the left decides.
+
+let x = 5;
+print(x && true);
+print(typeof(x && true));
+print(true && "yes");
+print(typeof(true && "yes"));
+print(false || "fallback");
+print(x || false);
+print(0 && true);
+print("" || false);
+
+// Value substitution is ?? / ?.'s job, not ||'s
+print(null ?? "default");
+print(0 ?? "not used");
+
+// Short-circuit evaluation order and side effects
+fn t(n) { print("eval " + n); return true; }
+fn f(n) { print("eval " + n); return false; }
+print(f(1) && t(2));   // right not evaluated
+print(t(3) || f(4));   // right not evaluated
+print(t(5) && f(6));
+print(f(7) || t(8));

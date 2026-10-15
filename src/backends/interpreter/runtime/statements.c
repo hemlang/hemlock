@@ -22,6 +22,10 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 }
             }
             env_define(env, stmt->as.let.name, value, 0, ctx);  // 0 = mutable
+            // Remember the annotation so reassignments enforce it too
+            if (stmt->as.let.type_annotation != NULL && !ctx->exception_state.is_throwing) {
+                env_set_declared_type_last(env, stmt->as.let.type_annotation);
+            }
             VALUE_RELEASE(value);  // Release original reference (env_define retains)
             break;
         }
@@ -379,7 +383,9 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
                     // Define variables in iter_env (not env_set, which walks up scope chain)
                     if (stmt->as.for_in.key_var) {
-                        env_define(iter_env, stmt->as.for_in.key_var, val_string(obj->fields[i].name), 0, ctx);
+                        Value key_val = val_string(obj->fields[i].name);
+                        env_define(iter_env, stmt->as.for_in.key_var, key_val, 0, ctx);
+                        VALUE_RELEASE(key_val);  // env_define retained it
                         if (ctx->exception_state.is_throwing) {
                             env_release(iter_env);
                             break;
@@ -699,6 +705,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             atomic_store(&obj->freed, 0);  // Not freed
             obj->hash_table = NULL;  // No hash table - use linear search fallback
             obj->hash_capacity = 0;
+            obj->is_pooled = 0;  // Heap-allocated, not from the object pool
 
             for (int i = 0; i < type->num_variants; i++) {
                 obj->fields[i].name = strdup(type->variant_names[i]);
@@ -716,6 +723,14 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
         }
 
         case STMT_TRY: {
+            // Remember the stack-trace depth at try entry: unwinding to the
+            // catch block abandons every frame pushed inside the try body
+            // (including the <throw> marker frames pushed by STMT_THROW).
+            // Without truncating, each caught exception permanently leaked
+            // its frames, and enough caught throws made every later call
+            // fail with "Maximum call stack depth exceeded".
+            int try_entry_stack_depth = ctx->call_stack.count;
+
             // Execute try block
             eval_stmt(stmt->as.try_stmt.try_block, env, ctx);
 
@@ -723,6 +738,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             if (ctx->exception_state.is_throwing) {
                 // Exception thrown - execute catch block if present
                 if (stmt->as.try_stmt.catch_block != NULL) {
+                    // The exception is being caught: discard the stale
+                    // stack-trace frames from the unwound try body. (When
+                    // there is no catch block the exception keeps
+                    // propagating and the frames stay for the final trace.)
+                    ctx->call_stack.count = try_entry_stack_depth;
                     // Create new scope for catch parameter
                     Environment *catch_env = env_new(env);
                     // Use env_define (not env_set) to create a new variable that shadows outer scope
@@ -768,6 +788,15 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     ctx->exception_state.exception_value = saved_exception;
                     ctx->loop_state.is_breaking = was_breaking;
                     ctx->loop_state.is_continuing = was_continuing;
+                } else {
+                    // Finally overrode the saved state (e.g. threw its own
+                    // exception) - release the discarded values it owned
+                    if (was_throwing) {
+                        VALUE_RELEASE(saved_exception);
+                    }
+                    if (was_returning) {
+                        VALUE_RELEASE(saved_return);
+                    }
                 }
             }
             break;
@@ -812,7 +841,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                         break;
                     }
 
-                    if (values_equal(switch_value, case_value)) {
+                    if (values_equal_loose(switch_value, case_value)) {
                         VALUE_RELEASE(case_value);  // Release case value after comparison
                         matched_case = i;
                         break;
@@ -837,7 +866,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
                     // Check for break, return, continue, or exception
                     if (ctx->loop_state.is_breaking) {
-                        ctx->loop_state.is_breaking = 0;
+                        // A plain `break` ends the switch; `break label`
+                        // propagates to the labeled enclosing loop.
+                        if (ctx->loop_state.target_label == NULL) {
+                            ctx->loop_state.is_breaking = 0;
+                        }
                         break;
                     }
                     if (ctx->loop_state.is_continuing) {
@@ -925,6 +958,26 @@ void eval_program(Stmt **stmts, int count, Environment *env, ExecutionContext *c
             call_stack_free(&ctx->call_stack);
             // Release exception value before exiting
             VALUE_RELEASE(ctx->exception_state.exception_value);
+            exit(1);
+        }
+    }
+
+    // Execute any top-level defers at normal program end. Compiled programs
+    // drain the remaining defer stack in hml_runtime_cleanup(); doing the
+    // same here keeps `defer` usable for cleanup in top-level scripts.
+    if (ctx->defer_stack.count > 0) {
+        DeferStack pending = ctx->defer_stack;
+        // Detach first so re-entrant pushes don't grow the stack being drained
+        defer_stack_init(&ctx->defer_stack);
+        defer_stack_execute(&pending, ctx);
+        free(pending.calls);
+        free(pending.envs);
+        if (ctx->exception_state.is_throwing) {
+            char *error_msg = value_to_string(ctx->exception_state.exception_value);
+            fprintf(stderr, "Uncaught exception: %s\n", error_msg);
+            free(error_msg);
+            VALUE_RELEASE(ctx->exception_state.exception_value);
+            ctx->exception_state.is_throwing = 0;
             exit(1);
         }
     }

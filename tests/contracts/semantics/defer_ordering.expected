@@ -1,0 +1,7 @@
+body
+defer last-registered
+defer first-registered
+early
+cleanup
+late
+cleanup

@@ -1,0 +1,14 @@
+// Single construct: string builtins (concat / substr / split) in a
+// loop, results dropped. Each returns an owned string/array temp the
+// caller must release. A missing release on any leaks per iteration.
+// Nothing live at exit.
+let round = 0;
+let sink = 0;
+while (round < 3000) {
+	let s = "row-" + round + "-" + (round * 2) + "-payloaddata";
+	let sub = s.substr(0, 6);
+	let parts = s.split("-");
+	sink = sink + sub.length + parts.length;
+	round = round + 1;
+}
+print("string_ops_leak: ok sink=" + sink);

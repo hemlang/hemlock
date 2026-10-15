@@ -1,0 +1,15 @@
+// String + array/object concatenation JSON-serializes the collection;
+// template interpolation and join() use display formatting instead.
+print("x" + [1, 2]);
+print([1, 2] + "y");
+print("o:" + {a: 1});
+let nested = [1, [2, "s"]];
+print("n:" + nested);
+let arr = [1, 2];
+print(`tpl: ${arr}`);
+print([[1, 2], [3]].join("|"));
+print([["a", 1.5], 'x'].join("|"));
+print([2.0].join(""));
+let acc = "acc:";
+acc = acc + [7, 8];
+print(acc);

@@ -1,0 +1,6 @@
+fn use_it(p) { ptr_write_i32(p, 1); }
+fn main() {
+    let p = alloc(64);
+    use_it(p);
+    free(p);
+}

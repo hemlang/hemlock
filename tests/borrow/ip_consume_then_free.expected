@@ -1,0 +1,1 @@
+ip_consume_then_free.hml:7: warning: double free: 'p' was already freed (line 5)

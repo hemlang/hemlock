@@ -1,0 +1,24 @@
+// Test that a signal handler declared with NO parameters works.
+// The signal builtin invokes handlers with the signal number, but handlers
+// are allowed to ignore it by declaring zero parameters (e.g. cleanup hooks
+// like on_shutdown(fn() { ... })). The handler must be invoked with an arity
+// the function accepts, otherwise it would throw "expects 0 arguments, got 1"
+// and crash the process. Both backends must agree.
+import { SIGUSR1, signal, raise } from "@stdlib/signal";
+
+let ran = false;
+
+// Zero-parameter handler - must not receive the signal argument
+fn cleanup() {
+    ran = true;
+    print("cleanup ran");
+}
+
+signal(SIGUSR1, cleanup);
+raise(SIGUSR1);
+
+print("ran = " + ran);
+
+// Reset to default
+signal(SIGUSR1, null);
+print("done");

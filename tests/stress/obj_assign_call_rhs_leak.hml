@@ -1,0 +1,31 @@
+// Single construct: assigning an owned function CALL RESULT (array)
+// into an object field, via property-assign `o.f = call()` and
+// index-assign `o[k] = call()` — the Witchgrid samples_for_dashboard
+// shape (`bundle.ram = fetch_samples(...)`,
+// `bundle.gpu[k] = fetch_samples(...)`). codegen_expr returns the
+// call result owned (+1); set_field/index-set RETAIN it, so the
+// creation ref must be released after the store. 2.4.11 fixed this
+// for indexed assignment; if the property-assign (or this exact
+// nested shape) still orphans the RHS temp, every returned array
+// leaks once per assignment — the dominant post-routes-fix CP
+// residual (LSan: hml_val_array <- fetch_samples, 711 leaked).
+// Bounded; nothing live at exit.
+
+fn mk_samples(seed: i64): array {
+	let out = [];
+	let i = 0;
+	while (i < 8) { out.push(seed + i); i = i + 1; }
+	return out;
+}
+
+let round = 0;
+while (round < 1500) {
+	let bundle = { gpu: {}, ram: [], disk: {} };
+	bundle.ram = mk_samples(round);                 // property-assign, call RHS
+	bundle.gpu["" + (round % 3)] = mk_samples(round); // index-assign, call RHS
+	bundle.disk["/d" + (round % 2)] = mk_samples(round);
+	let agg = {};
+	agg["n" + (round % 4)] = bundle;                  // nest one level
+	round = round + 1;
+}
+print("obj_assign_call_rhs_leak: ok rounds=" + round);

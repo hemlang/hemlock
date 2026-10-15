@@ -26,6 +26,10 @@ normalize a/b/../c: a/c
 normalize a/./b: a/b
 normalize /a//b/c: /a/b/c
 normalize ../a: ../a
+normalize ../..: ../..
+normalize ../../a: ../../a
+normalize ../a/../..: ../..
+normalize /../..: /
 === Is_absolute tests ===
 is_absolute /home: true
 is_absolute home: false

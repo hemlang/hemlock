@@ -1,0 +1,26 @@
+// Regression: `string.split(delim)` leaked every result piece. The
+// hml_string_split builtin created each part via hml_val_string_owned
+// (refcount 1 = creation ref) then hml_array_push'd it into the
+// result array — and push() retains (builtins_array.c:49), taking the
+// string to refcount 2 — but split never released the creation ref.
+// When the result array was later freed and released its elements
+// (2 -> 1), the orphaned creation +1 remained, so every split piece
+// leaked even after the array was gone. Exact same orphaned-creation-
+// ref class as the earlier hml_object_keys bug. All three push sites
+// (empty-delim char split, delimiter match, trailing remainder) had
+// it. Fixed by hml_release(&part_val) after each push.
+//
+// Found by the per-construct leakhunt harness (tests/leakhunt). A
+// `for p in line.split(",")` per request bled in the Witchgrid CP.
+// Bounded + finite so LeakSanitizer reports at exit; run via
+// `run_stress.sh lsan`. Must leak nothing per-iteration.
+let round = 0;
+let sink = 0;
+while (round < 3000) {
+	let s = "row-" + round + "-" + (round * 2) + "-payloaddata";
+	let parts = s.split("-");
+	let chars = ("ab" + round).split("");
+	sink = sink + parts.length + chars.length + s.substr(0, 6).length;
+	round = round + 1;
+}
+print("string_split_leak: ok sink=" + sink);

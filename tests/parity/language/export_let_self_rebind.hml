@@ -1,0 +1,12 @@
+// `export let X = X;` is shorthand for `export { X };`. Without the
+// shortcut, the let binding tries to define X again and triggers a
+// "Variable 'X' already defined" error. Both backends accept the
+// pattern as a re-export of the existing local name.
+
+fn helper(): i32 {
+    return 42;
+}
+
+export let helper = helper;
+
+print(helper());

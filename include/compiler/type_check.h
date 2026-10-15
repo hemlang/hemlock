@@ -88,6 +88,14 @@ typedef struct TypeCheckEnv {
     struct TypeCheckEnv *parent;
 } TypeCheckEnv;
 
+// Flow-sensitive expression narrowing (for repeated null-checked expressions)
+typedef struct TypeCheckNarrowing {
+    char *key;
+    CheckedType *type;
+    int depth;
+    struct TypeCheckNarrowing *next;
+} TypeCheckNarrowing;
+
 // Function signature for checking calls
 typedef struct FunctionSig {
     char *name;
@@ -130,7 +138,9 @@ typedef struct EnumDef {
 // Type alias definition (from 'type Name = OtherType' statements)
 typedef struct TypeAliasDef {
     char *name;
-    struct CheckedType *aliased_type;  // The type this alias resolves to
+    struct CheckedType *aliased_type;  // The type this alias resolves to (resolved lazily on first use)
+    struct Type *aliased_ast;          // Unresolved target AST (borrowed from the parser; not owned)
+    int resolving;                     // Cycle guard for lazy resolution
     char **type_params;       // Type parameters (e.g., ["T"] for type List<T> = ...)
     int num_type_params;      // Number of type parameters
     struct TypeAliasDef *next;
@@ -177,6 +187,10 @@ typedef struct {
     char *current_function_name;
     int in_async_function;
 
+    // Flow-sensitive narrowing facts scoped with the type environment.
+    TypeCheckNarrowing *narrowings;
+    int scope_depth;
+
     // Error tracking
     int error_count;
     int warning_count;
@@ -194,9 +208,25 @@ typedef struct {
     TypeCheckError *errors_tail; // Tail pointer for O(1) append
     const char *source;         // Source code (for column calculation)
     int collect_errors;         // If true, collect errors instead of printing
+    int suppress_shadow_warnings; // If true, skip shadow warnings (e.g. during codegen inlining)
+
+    // Names declared by a top-level let/const anywhere in the entry file.
+    // Statements are checked in source order, but a function body may legally
+    // reference a module-level binding declared further down (the body only
+    // runs after module init). Collected up front so such a forward reference
+    // is not misreported as an unknown identifier.
+    char **module_level_names;
+    int num_module_level_names;
+    int cap_module_level_names;
 } TypeCheckContext;
 
 // ========== CONTEXT MANAGEMENT ==========
+
+// Record / query a name declared by a top-level let or const. Used to keep a
+// forward reference from inside a function body from being reported as an
+// unknown identifier.
+void type_check_note_module_level(TypeCheckContext *ctx, const char *name);
+int type_check_is_module_level(TypeCheckContext *ctx, const char *name);
 
 // Create a new type check context
 TypeCheckContext* type_check_new(const char *filename);
@@ -259,9 +289,11 @@ EnumDef* type_check_lookup_enum(TypeCheckContext *ctx, const char *name);
 
 // ========== TYPE ALIAS REGISTRATION ==========
 
-// Register a type alias
+// Register a type alias (target is stored unresolved and lowered lazily on
+// first use, so user-defined objects/enums can shadow builtin type names
+// through aliases)
 void type_check_register_type_alias(TypeCheckContext *ctx, const char *name,
-                                     CheckedType *aliased_type,
+                                     struct Type *aliased_ast,
                                      char **type_params, int num_type_params);
 
 // Look up a type alias (returns the aliased type, or NULL if not found)

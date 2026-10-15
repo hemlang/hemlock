@@ -1,0 +1,231 @@
+// Test assert.hml type assertion functions
+
+import {
+    assert_truthy, assert_falsy, assert_strict_eq,
+    assert_type, assert_null, assert_not_null,
+    assert_string, assert_number, assert_bool,
+    assert_array, assert_object, assert_function
+} from "@stdlib/assert";
+
+// === assert_truthy ===
+assert_truthy(1, "1 is truthy");
+assert_truthy("hello", "non-empty string truthy");
+assert_truthy(true, "true is truthy");
+assert_truthy([1], "non-empty array truthy");
+
+let caught = false;
+try {
+    assert_truthy(false);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_truthy(false) throws");
+
+caught = false;
+try {
+    assert_truthy(null);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_truthy(null) throws");
+
+caught = false;
+try {
+    assert_truthy(0);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_truthy(0) throws");
+
+// === assert_falsy ===
+assert_falsy(false, "false is falsy");
+assert_falsy(null, "null is falsy");
+assert_falsy(0, "0 is falsy");
+
+caught = false;
+try {
+    assert_falsy(true);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_falsy(true) throws");
+
+caught = false;
+try {
+    assert_falsy(42);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_falsy(42) throws");
+
+caught = false;
+try {
+    assert_falsy("hi");
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_falsy('hi') throws");
+
+// === assert_strict_eq ===
+assert_strict_eq(42, 42, "same i32");
+assert_strict_eq("hello", "hello", "same string");
+assert_strict_eq(true, true, "same bool");
+
+// Different types should fail
+caught = false;
+try {
+    assert_strict_eq(42, "42");
+} catch (e) {
+    caught = true;
+}
+assert(caught, "strict_eq different types throws");
+
+// Same type different value should fail
+caught = false;
+try {
+    assert_strict_eq(1, 2);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "strict_eq different values throws");
+
+// === assert_type ===
+assert_type(42, "i32");
+assert_type("hello", "string");
+assert_type(true, "bool");
+assert_type([1, 2], "array");
+assert_type({x: 1}, "object");
+assert_type(fn() {}, "function");
+assert_type(null, "null");
+
+caught = false;
+try {
+    assert_type(42, "string");
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_type wrong type throws");
+
+// === assert_null ===
+assert_null(null, "null is null");
+
+caught = false;
+try {
+    assert_null(0);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_null(0) throws");
+
+caught = false;
+try {
+    assert_null("");
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_null('') throws");
+
+// === assert_not_null ===
+assert_not_null(0, "0 is not null");
+assert_not_null("", "empty string is not null");
+assert_not_null(false, "false is not null");
+
+caught = false;
+try {
+    assert_not_null(null);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_not_null(null) throws");
+
+// === assert_string ===
+assert_string("hello");
+assert_string("");
+
+caught = false;
+try {
+    assert_string(42);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_string(42) throws");
+
+// === assert_number ===
+assert_number(42);
+assert_number(3.14);
+let big: i64 = 5000000000;
+assert_number(big);
+
+caught = false;
+try {
+    assert_number("42");
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_number('42') throws");
+
+caught = false;
+try {
+    assert_number(true);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_number(true) throws");
+
+// === assert_bool ===
+assert_bool(true);
+assert_bool(false);
+
+caught = false;
+try {
+    assert_bool(0);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_bool(0) throws");
+
+caught = false;
+try {
+    assert_bool(1);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_bool(1) throws");
+
+// === assert_array ===
+assert_array([]);
+assert_array([1, 2, 3]);
+
+caught = false;
+try {
+    assert_array("not array");
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_array(string) throws");
+
+// === assert_object ===
+assert_object({});
+assert_object({x: 1});
+
+caught = false;
+try {
+    assert_object([]);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_object(array) throws");
+
+// === assert_function ===
+assert_function(fn() {});
+assert_function(fn(x) { return x; });
+
+caught = false;
+try {
+    assert_function(42);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "assert_function(42) throws");
+
+print("All type assertion tests passed!");

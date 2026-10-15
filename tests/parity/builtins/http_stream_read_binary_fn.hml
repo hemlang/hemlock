@@ -1,0 +1,11 @@
+// Test: __lws_http_stream_read_binary builtin is registered and callable.
+// Just verify the function exists; actual streamed-binary fetch happens
+// in the runtime smoke tests since parity runs without network.
+
+let f = __lws_http_stream_read_binary;
+let t = typeof(f);
+if (t == "function" || t == "builtin") {
+    print("ok");
+} else {
+    print("error: " + t);
+}

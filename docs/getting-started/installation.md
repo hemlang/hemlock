@@ -102,11 +102,25 @@ Required only for `@stdlib/http` and `@stdlib/websocket`. Without it those modul
 # Install Xcode Command Line Tools
 xcode-select --install
 
-# Install dependencies via Homebrew
-brew install libffi openssl@3 libwebsockets
+# Install build + runtime dependencies via Homebrew
+brew install pkg-config libffi openssl@3 libwebsockets
 ```
 
-**Note for macOS users**: The Makefile automatically detects Homebrew installations and sets the correct include/library paths. Hemlock supports both Intel (x86_64) and Apple Silicon (arm64) architectures.
+**Notes for macOS users**:
+
+- `pkg-config` is required even though it's not always listed as a Hemlock
+  dependency. The Makefile uses it to detect libwebsockets; the brew bottle
+  ships the headers at `/opt/homebrew/include/libwebsockets.h` (Apple
+  Silicon) or `/usr/local/include/libwebsockets.h` (Intel), and the
+  Makefile's fallback only checks `/usr/include/libwebsockets.h`. Without
+  `pkg-config`, the build silently compiles the runtime *without* HTTP
+  streaming support, then fails to link with `Undefined symbols: _hml_lws_http_*`.
+- Make sure `/opt/homebrew/bin` is on your `PATH` when you run `make`. SSH
+  non-interactive sessions inherit a stripped `PATH` that excludes it; the
+  Makefile's `brew --prefix …` calls then return empty and the linker
+  can't find the libs. `PATH=/opt/homebrew/bin:$PATH make` is a quick
+  one-shot fix.
+- Hemlock supports both Intel (x86_64) and Apple Silicon (arm64) architectures.
 
 **Ubuntu/Debian:**
 ```bash
@@ -311,7 +325,7 @@ This produces two files in the `wasm/` directory:
 
 ```bash
 node -- wasm/hemlock.js -e 'print("Hello from WASM!");'
-node -- wasm/hemlock.js examples/fibonacci.hml
+node -- wasm/hemlock.js examples/01-basics/fibonacci.hml
 ```
 
 ### Running in a Browser
@@ -347,6 +361,9 @@ Some features are unavailable in the WASM environment:
 
 - **FFI** - No shared library loading (`dlopen`/`dlsym`)
 - **Crypto** - No OpenSSL (`sha256`, `md5`, etc. return errors)
+- **Raw pointers** - Available. `alloc`, `buffer`, `ptr_offset`, `ptr_read_*`,
+  `ptr_write_*` and `ptr_deref_*` all work: they are arithmetic and
+  loads/stores over the module's linear memory, not FFI
 - **File I/O** - No native filesystem access (Emscripten virtual FS only)
 - **Networking** - No raw sockets or HTTP client
 - **Signals** - No POSIX signal handling
@@ -368,6 +385,38 @@ make wasm-compile-threaded FILE=program.hml
 ```
 
 This uses `hemlockc` to generate C code, then Emscripten to compile it to WASM.
+
+Or call the compiler directly:
+
+```bash
+./hemlockc --target wasm -o game.js game.hml       # game.js + game.wasm
+./hemlockc --target wasm -o game.html game.hml     # also emits an HTML shell
+```
+
+#### Frame loops and Asyncify
+
+`--target wasm` links with Emscripten's `-sASYNCIFY` by default. `sleep()`
+compiles to `emscripten_sleep()`, which only exists when Asyncify is on;
+without it the program dies the first time it sleeps with:
+
+```
+Please compile your program with async support in order to use
+asynchronous operations like emscripten_sleep
+```
+
+Asyncify is not free — it instruments the module so it can unwind and rewind
+the WASM stack at any suspend point, which costs both speed and `.wasm` size.
+Programs that only need `sleep()` to pace a frame loop should use
+[`main_loop()`](../../stdlib/docs/time.md#main_loopcallback-fps) instead, which
+drives frames from the host's own scheduler (`requestAnimationFrame`), and then
+drop Asyncify entirely:
+
+```bash
+./hemlockc --target wasm --no-asyncify -o game.js game.hml
+```
+
+`--no-asyncify` is only valid with `--target wasm`, and it makes `sleep()`
+unusable in the resulting binary — that is the trade being made.
 
 ## Build Options
 

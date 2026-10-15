@@ -1,0 +1,2 @@
+strict_unused.hml:2: warning: variable 'unused' is declared but never used [lint]
+0 errors, 1 warning (1 file checked)

@@ -1,0 +1,7 @@
+// argv round-trip with quoting hazards: spaces, embedded quotes,
+// backslashes (including trailing), empty args, and shell
+// metacharacters that must arrive literally (no shell involved).
+// printf repeats its format once per argument.
+let r = __exec_argv(["printf", "%s|", "a b", "c\"d", "e\\", "", "$HOME", "*", "two  spaces"]);
+print(r.output);
+print(r.exit_code);

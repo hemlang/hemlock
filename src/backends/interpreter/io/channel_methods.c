@@ -13,7 +13,6 @@ static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...)
     va_end(args);
 
     ctx->exception_state.exception_value = val_string(buffer);
-    value_retain(ctx->exception_state.exception_value);
     ctx->exception_state.is_throwing = 1;
     return val_null();
 }
@@ -43,21 +42,38 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
         }
 
         if (ch->capacity == 0) {
-            // Unbuffered channel - rendezvous with receiver
+            // Unbuffered channel - rendezvous with receiver.
+            // If another sender already staged a value, wait for its
+            // rendezvous to complete first: overwriting unbuffered_value
+            // here would leak the other sender's retained value and
+            // silently drop its message.
+            while (ch->sender_waiting && !ch->closed) {
+                pthread_cond_wait(not_full, mutex);
+            }
+            if (ch->closed) {
+                pthread_mutex_unlock(mutex);
+                return throw_runtime_error(ctx, "cannot send to closed channel");
+            }
+
             value_retain(msg);
             *(ch->unbuffered_value) = msg;
             ch->sender_waiting = 1;
+            // Remember the handoff generation at staging time. "My value was
+            // consumed" is detected as a generation bump, NOT as
+            // sender_waiting == 0: with multiple senders another sender may
+            // have re-staged (setting the flag back to 1) before we wake.
+            unsigned long long my_gen = ch->rendezvous_gen;
 
             // Signal any waiting receiver that data is available
             pthread_cond_signal(not_empty);
 
             // Wait for receiver to pick up the value
-            while (ch->sender_waiting && !ch->closed) {
+            while (ch->rendezvous_gen == my_gen && !ch->closed) {
                 pthread_cond_wait(rendezvous, mutex);
             }
 
-            // Check if we were woken because channel closed
-            if (ch->closed && ch->sender_waiting) {
+            // Woken because channel closed with our value still staged
+            if (ch->closed && ch->rendezvous_gen == my_gen) {
                 ch->sender_waiting = 0;
                 value_release(*(ch->unbuffered_value));
                 *(ch->unbuffered_value) = val_null();
@@ -120,9 +136,14 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
             Value msg = *(ch->unbuffered_value);
             *(ch->unbuffered_value) = val_null();
             ch->sender_waiting = 0;
+            ch->rendezvous_gen++;
 
-            // Signal sender that value was received
-            pthread_cond_signal(rendezvous);
+            // Wake the sender whose value was consumed (broadcast: signal()
+            // could deliver the wakeup to a different staged-and-waiting
+            // sender, leaving the right one asleep), and wake any sender
+            // queued waiting for the rendezvous slot to free up
+            pthread_cond_broadcast(rendezvous);
+            pthread_cond_signal(not_full);
             pthread_mutex_unlock(mutex);
 
             return msg;
@@ -198,9 +219,13 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
             Value msg = *(ch->unbuffered_value);
             *(ch->unbuffered_value) = val_null();
             ch->sender_waiting = 0;
+            ch->rendezvous_gen++;
 
-            // Signal sender that value was received
-            pthread_cond_signal(rendezvous);
+            // Wake the sender whose value was consumed (broadcast - see
+            // recv()), and wake any sender queued waiting for the
+            // rendezvous slot to free up
+            pthread_cond_broadcast(rendezvous);
+            pthread_cond_signal(not_full);
             pthread_mutex_unlock(mutex);
 
             return msg;
@@ -266,31 +291,55 @@ Value call_channel_method(Channel *ch, const char *method, Value *args, int num_
         }
 
         if (ch->capacity == 0) {
-            // Unbuffered channel with timeout - rendezvous with receiver
+            // Unbuffered channel with timeout - rendezvous with receiver.
+            // If another sender already staged a value, wait for its
+            // rendezvous to complete first (same guard as send()):
+            // overwriting unbuffered_value here would leak the other
+            // sender's retained value and silently drop its message.
             pthread_cond_t *rendezvous = (pthread_cond_t*)ch->rendezvous;
+
+            while (ch->sender_waiting && !ch->closed) {
+                int rc = pthread_cond_timedwait(not_full, mutex, &deadline);
+                if (rc == ETIMEDOUT) {
+                    pthread_mutex_unlock(mutex);
+                    return val_bool(0);  // Timeout - send failed
+                }
+            }
+            if (ch->closed) {
+                pthread_mutex_unlock(mutex);
+                return throw_runtime_error(ctx, "cannot send to closed channel");
+            }
 
             value_retain(msg);
             *(ch->unbuffered_value) = msg;
             ch->sender_waiting = 1;
+            // Generation at staging time - see send() for why success is
+            // detected as a generation bump rather than sender_waiting == 0.
+            unsigned long long my_gen = ch->rendezvous_gen;
 
             // Signal any waiting receiver that data is available
             pthread_cond_signal(not_empty);
 
             // Wait for receiver to pick up the value (with timeout)
-            while (ch->sender_waiting && !ch->closed) {
+            while (ch->rendezvous_gen == my_gen && !ch->closed) {
                 int rc = pthread_cond_timedwait(rendezvous, mutex, &deadline);
                 if (rc == ETIMEDOUT) {
-                    // Timeout - clean up and return failure
+                    if (ch->rendezvous_gen != my_gen) {
+                        break;  // Consumed right at the deadline - success
+                    }
+                    // Timeout with our value still staged - withdraw it and
+                    // free the slot for any sender queued behind us
                     ch->sender_waiting = 0;
                     value_release(*(ch->unbuffered_value));
                     *(ch->unbuffered_value) = val_null();
+                    pthread_cond_signal(not_full);
                     pthread_mutex_unlock(mutex);
                     return val_bool(0);  // Timeout - send failed
                 }
             }
 
-            // Check if we were woken because channel closed
-            if (ch->closed && ch->sender_waiting) {
+            // Woken because channel closed with our value still staged
+            if (ch->closed && ch->rendezvous_gen == my_gen) {
                 ch->sender_waiting = 0;
                 value_release(*(ch->unbuffered_value));
                 *(ch->unbuffered_value) = val_null();

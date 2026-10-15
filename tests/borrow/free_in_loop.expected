@@ -1,0 +1,1 @@
+free_in_loop.hml:3: warning: 'p' is freed inside a loop; a later iteration may double free it

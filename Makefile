@@ -1,15 +1,94 @@
 CC = gcc
+
+# ---- Windows (MinGW-w64) detection ----
+# Set when building natively under MSYS2/MinGW (uname reports MINGW*/MSYS*)
+# or when cross-compiling with a *-mingw32 toolchain, e.g.:
+#   make mingw                                (convenience target, see below)
+#   make CC=x86_64-w64-mingw32-gcc-posix all  (explicit toolchain)
+# Requires the POSIX-threads flavor of MinGW-w64 (winpthreads).
+ifneq (,$(findstring mingw,$(CC))$(findstring MINGW,$(shell uname))$(findstring MSYS,$(shell uname)))
+    HEMLOCK_WINDOWS = 1
+    EXE = .exe
+endif
+
+# Building ON Windows, as opposed to cross-compiling for it from a POSIX host.
+# The difference matters wherever a probe asks the host about a library: a
+# cross build's pkg-config describes the Linux copy, which is worse than no
+# answer at all.
+ifeq ($(HEMLOCK_WINDOWS),1)
+ifneq (,$(findstring MINGW,$(shell uname))$(findstring MSYS,$(shell uname)))
+    HEMLOCK_WINDOWS_NATIVE = 1
+endif
+endif
+
+# -MMD -MP: emit a .d file alongside each .o that lists every (non-system)
+# header the .c file pulled in. Without these, `make` only rebuilds .o files
+# when their .c source changes — touching a header silently produces a
+# binary linked from objects compiled against different versions of the same
+# header, which surfaces as cryptic runtime breakage (e.g. parser objects
+# expecting one AST struct layout, builtin objects expecting another).
 # Use _DARWIN_C_SOURCE on macOS for BSD types, _POSIX_C_SOURCE on Linux
-ifeq ($(shell uname),Darwin)
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
+ifeq ($(HEMLOCK_WINDOWS),1)
+    # FFI on Windows: enabled when the MinGW toolchain can link libffi
+    # (MSYS2: pacman -S mingw-w64-ucrt-x86_64-libffi; cross builds: build
+    # libffi from source with --host=x86_64-w64-mingw32, see
+    # docs/advanced/windows.md). Without it, FFI builtins throw at runtime.
+    # --print-file-name echoes the bare name back when the lib is missing
+    MINGW_FFI_PATH := $(shell $(CC) --print-file-name=libffi.a 2>/dev/null)
+    ifneq ($(MINGW_FFI_PATH),libffi.a)
+        HAS_MINGW_FFI = 1
+    else
+        HAS_MINGW_FFI = 0
+    endif
+    ifeq ($(HAS_MINGW_FFI),1)
+        WIN_FFI_CFLAGS =
+        WIN_FFI_LIB = -lffi
+    else
+        WIN_FFI_CFLAGS = -DHEMLOCK_NO_FFI
+        WIN_FFI_LIB =
+    endif
+    # __USE_MINGW_ANSI_STDIO: C99 printf (%zu, %lld) instead of msvcrt's.
+    # HEMLOCK_NO_OPENSSL: OpenSSL is typically not available for MinGW
+    # cross builds; the hash builtins (sha1/sha256/sha512/md5) fall back
+    # to Windows CNG (bcrypt.dll) and only ECDSA throws at runtime (see
+    # wasm_interp_shim.c). Override with EXTRA_CFLAGS/EXTRA_LDFLAGS on
+    # MSYS2 where OpenSSL is installable via pacman.
+    # Implicit declarations are hard errors so older cross toolchains
+    # (GCC <= 13) catch what GCC 14+ on native Windows rejects by default.
+    # src/shared/regex_win32 supplies <regex.h> (bundled musl/TRE engine —
+    # MinGW has none), so the regex builtins use their POSIX code path.
+    CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -g -MMD -MP -Werror=implicit-function-declaration -Werror=int-conversion -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared -Isrc/shared/regex_win32 $(EXTRA_CFLAGS)
+else ifeq ($(shell uname),Darwin)
+    CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -g -MMD -MP -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
 else
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
+    CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -g -MMD -MP -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared $(EXTRA_CFLAGS)
 endif
 SRC_DIR = src
 BUILD_DIR = build
+# Cross-compiling for Windows from a POSIX host: keep PE objects out of the
+# native build tree
+ifeq ($(HEMLOCK_WINDOWS),1)
+ifeq (,$(findstring MINGW,$(shell uname))$(findstring MSYS,$(shell uname)))
+    BUILD_DIR = build-mingw
+endif
+endif
 
 # Detect libffi, OpenSSL, and libwebsockets (Homebrew on macOS puts them in non-standard locations)
-ifeq ($(shell uname),Darwin)
+ifeq ($(HEMLOCK_WINDOWS),1)
+    # A native MSYS2 build can ask its own pkg-config, so @stdlib/websocket and
+    # @stdlib/http work on Windows when libwebsockets is installed
+    # (pacman -S mingw-w64-ucrt-x86_64-libwebsockets). Cross builds get no
+    # probe: the host's pkg-config would answer about the Linux copy.
+    ifeq ($(HEMLOCK_WINDOWS_NATIVE),1)
+        HAS_LIBWEBSOCKETS := $(shell pkg-config --exists libwebsockets 2>/dev/null && echo 1 || echo 0)
+        ifeq ($(HAS_LIBWEBSOCKETS),1)
+            CFLAGS += $(shell pkg-config --cflags libwebsockets)
+            LDFLAGS_LIBWEBSOCKETS := $(shell pkg-config --libs-only-L libwebsockets)
+        endif
+    else
+        HAS_LIBWEBSOCKETS := 0
+    endif
+else ifeq ($(shell uname),Darwin)
     # On macOS, prefer Homebrew's libffi (system pkg-config points to SDK without headers)
     BREW_LIBFFI := $(shell brew --prefix libffi 2>/dev/null)
     ifneq ($(BREW_LIBFFI),)
@@ -51,12 +130,63 @@ else
 endif
 
 # Base libraries (always required)
+ifeq ($(HEMLOCK_WINDOWS),1)
+# winpthreads for threading, ws2_32 for sockets, bcrypt for CNG hashing;
+# no -ldl/-lcrypto. winpthreads, zlib, and (when present) libffi are
+# linked statically so hemlock.exe is self-contained (ws2_32/bcrypt are
+# system DLLs present on every Windows install).
+#
+# --stack raises the main thread's reserved stack from the PE default
+# (2 MB) so the tree-walking interpreter reaches its own
+# HML_DEFAULT_MAX_STACK_DEPTH (8000 frames) guard and throws a catchable
+# "Maximum call stack depth exceeded" instead of dying on a
+# STATUS_STACK_OVERFLOW with no output — the guard is what POSIX builds
+# hit first, and 8000 eval frames need well over 8 MB here. Reserve is
+# address space, not commit, so unused pages cost nothing.
+WIN_STACK_RESERVE = 67108864
+LDFLAGS = -static-libgcc -Wl,--stack,$(WIN_STACK_RESERVE) -Wl,-Bstatic -lpthread -lz $(WIN_FFI_LIB) -Wl,-Bdynamic -lm -lws2_32 -lbcrypt $(EXTRA_LDFLAGS)
+
+# make WIN_LWS_STATIC=1 links libwebsockets (and its TLS/event-loop deps) into
+# hemlock.exe and hemlockc.exe instead of leaning on the DLLs. Costs ~7.6 MB
+# (4.6 -> 12.2 MB measured on UCRT64) and buys binaries that run from cmd.exe
+# or PowerShell: a dynamic build needs libwebsockets.dll, libssl-3-x64.dll and
+# libuv-1.dll on PATH, so outside an MSYS2 shell it exits without a word.
+#
+# The winsock/system libraries have to come AFTER the archives that reference
+# them -- the -lws2_32 already in LDFLAGS above is long past by the time the
+# linker scans libwebsockets_static.a. MSYS2 names the static archive
+# libwebsockets_static.a, not libwebsockets.a, which is also why a plain
+# -static -lwebsockets fails with "have you installed the static version".
+# Ask only for the archives that are actually present. Which ones libwebsockets
+# needs depends on how the local package was built -- an MSYS2 libwebsockets is
+# not always linked against libuv or OpenSSL -- and naming a -l for a static
+# archive that does not exist fails the whole link ("cannot find -luv: have you
+# installed the static version of the uv library ?") rather than being ignored.
+# --print-file-name echoes a full path when found and the bare name when not.
+win_static_lib = $(if $(findstring /,$(shell $(CC) --print-file-name=lib$(1).a)),-l$(1),)
+ifeq ($(WIN_LWS_STATIC),1)
+ifeq (,$(findstring /,$(shell $(CC) --print-file-name=libwebsockets_static.a)))
+$(error WIN_LWS_STATIC=1 needs libwebsockets_static.a, which this toolchain does not have. On MSYS2: pacman -S mingw-w64-ucrt-x86_64-libwebsockets)
+endif
+endif
+WIN_LWS_STATIC_LIBS = -Wl,-Bstatic -lwebsockets_static \
+                      $(call win_static_lib,ssl) $(call win_static_lib,crypto) \
+                      $(call win_static_lib,uv) $(call win_static_lib,ev) \
+                      -Wl,-Bdynamic -lws2_32 -lmswsock -liphlpapi -lcrypt32 \
+                      -lsecur32 -lbcrypt -ladvapi32 -luser32 -lgdi32 -lpsapi \
+                      -luserenv -ldbghelp -lole32 -lshell32 -lsynchronization
+else
 LDFLAGS = $(LDFLAGS_LIBFFI) $(LDFLAGS_OPENSSL) -lm -lpthread -lffi -ldl -lz -lcrypto $(EXTRA_LDFLAGS)
+endif
 
 # Conditionally add libwebsockets
 ifeq ($(HAS_LIBWEBSOCKETS),1)
-LDFLAGS += $(LDFLAGS_LIBWEBSOCKETS) -lwebsockets
 CFLAGS += -DHAVE_LIBWEBSOCKETS=1
+ifeq ($(WIN_LWS_STATIC),1)
+LDFLAGS += $(LDFLAGS_LIBWEBSOCKETS) $(WIN_LWS_STATIC_LIBS)
+else
+LDFLAGS += $(LDFLAGS_LIBWEBSOCKETS) -lwebsockets
+endif
 endif
 
 # ========== SOURCE FILES (New Structure) ==========
@@ -92,7 +222,13 @@ TOOL_SRCS = $(wildcard $(SRC_DIR)/tools/lsp/*.c) \
 # Shared compiler utilities (used by LSP)
 TYPECHECK_SRCS = $(wildcard $(SRC_DIR)/backends/compiler/type_*.c)
 
-COMMON_SRCS = $(FRONTEND_SRCS) $(MODULES_SRCS) $(TYPECHECK_SRCS) $(SHARED_SRCS)
+# Borrow/ownership checker — shared so the LSP can surface its diagnostics
+BORROWCHECK_SRCS = $(SRC_DIR)/backends/compiler/borrow_check.c
+
+# Static lint / diagnostics pass — shared so `hemlock check` can run it
+LINTCHECK_SRCS = $(SRC_DIR)/backends/compiler/lint.c
+
+COMMON_SRCS = $(FRONTEND_SRCS) $(MODULES_SRCS) $(TYPECHECK_SRCS) $(BORROWCHECK_SRCS) $(LINTCHECK_SRCS) $(SHARED_SRCS)
 SRCS = $(COMMON_SRCS) $(TOOL_SRCS) $(INTERP_SRCS)
 
 COMMON_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(COMMON_SRCS))
@@ -102,7 +238,7 @@ INTERP_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(INTERP_SRCS))
 LIBCOMMON = $(BUILD_DIR)/libcommon.a
 LIBTOOLS = $(BUILD_DIR)/libtools.a
 
-TARGET = hemlock
+TARGET = hemlock$(EXE)
 
 # Build directories
 BUILD_DIRS = $(BUILD_DIR) \
@@ -143,13 +279,19 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIRS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf $(BUILD_DIR) $(TARGET) stdlib/c/*.so
+	rm -rf $(BUILD_DIR) build-mingw $(TARGET) hemlock.exe hemlockc.exe stdlib/c/*.so
+	$(MAKE) -C runtime clean
+	rm -f $(RUNTIME_LIB) $(RUNTIME_SHARED) libhemlock_runtime.dll
 
 run: $(TARGET)
 	./$(TARGET)
 
 test: $(TARGET) stdlib
 	@bash tests/run_tests.sh
+
+# Portable `timeout` for recipes: uses GNU timeout on Linux, gtimeout or a
+# perl fallback on macOS (which ships no `timeout`). See tests/lib/timeout.sh.
+HML_TIMEOUT = tests/lib/hml-timeout
 
 # Test the persistent WASM context API (native, no Emscripten needed)
 TEST_WASM_CTX_SRC = tests/wasm/test_persistent_context.c
@@ -165,10 +307,30 @@ test-wasm-context: $(INTERP_OBJS) $(LIBTOOLS) $(LIBCOMMON)
 	@$(CC) $(CFLAGS) $(TEST_WASM_CTX_SRC) $(TEST_WASM_CTX_OBJS) $(LIBTOOLS) $(LIBCOMMON) \
 		-o $(TEST_WASM_CTX_BIN) $(LDFLAGS)
 	@echo "Running persistent context API test..."
-	@timeout 30 $(TEST_WASM_CTX_BIN)
+	@$(HML_TIMEOUT) 30 $(TEST_WASM_CTX_BIN)
 
 test-formatter: $(TARGET)
 	@bash tests/formatter/run_tests.sh
+
+.PHONY: test-cli
+test-cli: $(TARGET)
+	@bash tests/cli/run_cli_tests.sh
+
+# Run `hemlock check` static-checker tests
+.PHONY: test-check
+test-check: $(TARGET)
+	@bash tests/check/run_check_tests.sh
+
+# Regenerate the stdlib API index (docs/reference/stdlib-api-index.md)
+.PHONY: stdlib-api
+stdlib-api:
+	@python3 tests/gen_stdlib_api.py
+
+# Documentation audit: link/doc pairing checks + stdlib API index freshness
+.PHONY: docs-check
+docs-check:
+	@python3 tests/check_docs.py
+	@python3 tests/gen_stdlib_api.py --check
 
 # ========== STDLIB C MODULES ==========
 
@@ -292,7 +454,7 @@ asan-test: asan
 	@echo "Running test suite with AddressSanitizer (leak detection enabled)..."
 	@echo "This will report any memory leaks in the runtime."
 	@echo ""
-	ASAN_OPTIONS="detect_leaks=1:halt_on_error=0:print_stats=1" timeout 120 $(MAKE) test || true
+	ASAN_OPTIONS="detect_leaks=1:halt_on_error=0:print_stats=1" $(HML_TIMEOUT) 120 $(MAKE) test || true
 	@echo ""
 	@echo "✓ ASAN test run complete. Check output above for leak reports."
 
@@ -355,6 +517,45 @@ leak-regression: asan
 leak-regression-quick: asan
 	@echo ""
 	@./tests/memory/regression/run_leak_tests.sh --quick
+
+# ========== CONCURRENCY / LIFETIME STRESS HARNESS ==========
+#
+# tests/stress/*.hml are compiled as NATIVE binaries (these bugs —
+# refcount exhaustion, concurrent object/string heap corruption —
+# only exist in the compiled runtime, not the interpreter) and run
+# under an optional sanitizer. Each .hml is a regression test for a
+# concrete crash diagnosed from a long-running Hemlock service.
+#
+#   make stress        plain build, crash/exit check (fast)
+#   make stress-asan    AddressSanitizer: use-after-free / double-free
+#   make stress-tsan    ThreadSanitizer: data races
+#   make stress-all     all three
+#
+# Requires the compiler (hemlockc + stdlib). The harness builds its
+# own sanitizer runtime into a temp dir; it never touches the normal
+# ./libhemlock_runtime.a.
+
+.PHONY: stress
+stress: compiler stdlib
+	@bash tests/stress/run_stress.sh none
+
+.PHONY: stress-asan
+stress-asan: compiler stdlib
+	@bash tests/stress/run_stress.sh asan
+
+.PHONY: stress-tsan
+stress-tsan: compiler stdlib
+	@bash tests/stress/run_stress.sh tsan
+
+# Leak regression guard. Runs only the dedicated *_leak.hml tests
+# under LeakSanitizer (the broader concurrency tests have separate
+# pre-existing leaks under audit and would mask a real regression).
+.PHONY: stress-lsan
+stress-lsan: compiler stdlib
+	@bash tests/stress/run_stress.sh lsan
+
+.PHONY: stress-all
+stress-all: stress stress-asan stress-lsan stress-tsan
 
 # ========== CLANG STATIC ANALYSIS ==========
 
@@ -463,18 +664,29 @@ analyze-clean:
 # Modular codegen: core, expr, stmt, closure, program, module
 COMPILER_SRCS = $(SRC_DIR)/backends/compiler/main.c \
                 $(wildcard $(SRC_DIR)/backends/compiler/codegen*.c) \
+                $(BORROWCHECK_SRCS) \
+                $(LINTCHECK_SRCS) \
                 $(TYPECHECK_SRCS) \
                 $(SHARED_SRCS) \
                 $(FRONTEND_COMPILER_SRCS)
 
 COMPILER_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(COMPILER_SRCS))
 
-COMPILER_TARGET = hemlockc
+COMPILER_TARGET = hemlockc$(EXE)
 
 # Runtime library
 RUNTIME_DIR = runtime
+# Mirrors the BUILD_DIR override above: cross builds keep their objects in
+# runtime/build-mingw (runtime/Makefile applies the same rule)
+ifeq ($(BUILD_DIR),build-mingw)
+    RUNTIME_BUILD = $(RUNTIME_DIR)/build-mingw
+else
+    RUNTIME_BUILD = $(RUNTIME_DIR)/build
+endif
 RUNTIME_LIB = libhemlock_runtime.a
-ifeq ($(shell uname),Darwin)
+ifeq ($(HEMLOCK_WINDOWS),1)
+    RUNTIME_SHARED = libhemlock_runtime.dll
+else ifeq ($(shell uname),Darwin)
     RUNTIME_SHARED = libhemlock_runtime.dylib
 else
     RUNTIME_SHARED = libhemlock_runtime.so
@@ -485,8 +697,28 @@ endif
 # Compiler target
 compiler: $(BUILD_DIRS) runtime $(COMPILER_TARGET)
 
-$(COMPILER_TARGET): $(COMPILER_OBJS) $(RUNTIME_LIB)
-	$(CC) $(COMPILER_OBJS) -o $(COMPILER_TARGET) -lm
+# The driver itself needs no extra libs; on Windows platform_win32.o pulls
+# in winsock (WSAStartup) and CNG (BCrypt*) so ws2_32/bcrypt must be linked
+ifeq ($(HEMLOCK_WINDOWS),1)
+# -static keeps winpthreads/libgcc out of the DLL deps (the POSIX-flavor
+# toolchain appends a dynamic -lpthread on its own otherwise); system DLLs
+# (msvcrt, ws2_32, bcrypt) stay dynamic regardless
+COMPILER_LDFLAGS = -static -lm -lws2_32 -lbcrypt
+else
+COMPILER_LDFLAGS = -lm
+endif
+
+# Cross builds must not overwrite the native runtime lib in the repo root
+# (hemlockc auto-detects ./libhemlock_runtime.a); they keep theirs in
+# runtime/build-mingw and pass it via `hemlockc --runtime`
+ifeq ($(BUILD_DIR),build-mingw)
+    RUNTIME_DEP = $(RUNTIME_BUILD)/$(RUNTIME_LIB)
+else
+    RUNTIME_DEP = $(RUNTIME_LIB)
+endif
+
+$(COMPILER_TARGET): $(COMPILER_OBJS) $(RUNTIME_DEP)
+	$(CC) $(COMPILER_OBJS) -o $(COMPILER_TARGET) $(COMPILER_LDFLAGS)
 
 # Compiler objects get LIBDIR defined for runtime auto-detection
 $(BUILD_DIR)/backends/compiler/%.o: $(SRC_DIR)/backends/compiler/%.c | $(BUILD_DIRS)
@@ -496,15 +728,25 @@ $(BUILD_DIR)/backends/compiler/%.o: $(SRC_DIR)/backends/compiler/%.c | $(BUILD_D
 runtime:
 	@echo "Building Hemlock runtime library..."
 	$(MAKE) -C $(RUNTIME_DIR) static shared
-	cp $(RUNTIME_DIR)/build/$(RUNTIME_LIB) ./
-	cp $(RUNTIME_DIR)/build/$(RUNTIME_SHARED) ./
+ifeq ($(BUILD_DIR),build-mingw)
+	@echo "✓ Windows runtime library built: $(RUNTIME_BUILD)/$(RUNTIME_LIB) + $(RUNTIME_BUILD)/$(RUNTIME_SHARED)"
+else
+	cp $(RUNTIME_BUILD)/$(RUNTIME_LIB) ./
+	cp $(RUNTIME_BUILD)/$(RUNTIME_SHARED) ./
 	@echo "✓ Runtime library built: $(RUNTIME_LIB) + $(RUNTIME_SHARED)"
+endif
 
-# File target for runtime library (used as dependency)
-$(RUNTIME_LIB):
-	$(MAKE) -C $(RUNTIME_DIR) static shared
-	cp $(RUNTIME_DIR)/build/$(RUNTIME_LIB) ./
-	cp $(RUNTIME_DIR)/build/$(RUNTIME_SHARED) ./
+# File targets funnel through the phony `runtime` target (order-only), so
+# a parallel make never runs two `make -C runtime` invocations at once —
+# the phony target and these file rules used to each spawn their own
+# sub-make, and the two concurrent shared-library links raced on the same
+# output file (surfaced on Windows as ld: "final link failed: file
+# truncated"; Linux had the same race and just never happened to lose it)
+$(RUNTIME_LIB): | runtime
+	@:
+
+$(RUNTIME_BUILD)/$(RUNTIME_LIB): | runtime
+	@:
 
 runtime-clean:
 	$(MAKE) -C $(RUNTIME_DIR) clean
@@ -512,6 +754,28 @@ runtime-clean:
 
 compiler-clean:
 	rm -f $(COMPILER_TARGET) $(COMPILER_OBJS)
+
+# ========== WINDOWS (MinGW-w64) CROSS-COMPILATION ==========
+# Cross-compile hemlock.exe, hemlockc.exe, and libhemlock_runtime.a from a
+# POSIX host. Requirements (Debian/Ubuntu):
+#   apt-get install gcc-mingw-w64-x86-64 libz-mingw-w64-dev
+# The POSIX-threads flavor of MinGW-w64 (winpthreads) is required for the
+# async runtime. Hash builtins use Windows CNG (bcrypt.dll); FFI (without
+# libffi) and ECDSA are stubbed out (HEMLOCK_NO_FFI / HEMLOCK_NO_OPENSSL);
+# see docs/advanced/windows.md.
+# Native builds on MSYS2/MinGW are auto-detected via uname instead.
+MINGW_CC ?= x86_64-w64-mingw32-gcc-posix
+
+.PHONY: mingw mingw-interpreter mingw-clean
+mingw:
+	$(MAKE) CC=$(MINGW_CC) all
+
+mingw-interpreter:
+	$(MAKE) CC=$(MINGW_CC) hemlock.exe
+
+# Removes only cross-build artifacts; native build products are untouched
+mingw-clean:
+	rm -rf build-mingw $(RUNTIME_DIR)/build-mingw hemlock.exe hemlockc.exe
 
 # ========== WASM TARGET (Emscripten) ==========
 
@@ -683,6 +947,17 @@ fullclean: clean compiler-clean runtime-clean release-clean release-static-clean
 .PHONY: test-compiler
 test-compiler: compiler
 	@bash tests/compiler/run_compiler_tests.sh
+	@bash tests/compiler/annotations/loop_pragma_codegen.sh
+
+# Run borrow / ownership checker diagnostic tests
+.PHONY: test-borrow
+test-borrow: compiler
+	@bash tests/borrow/run_borrow_tests.sh
+
+# Run static lint / diagnostics tests
+.PHONY: test-lint
+test-lint: compiler
+	@bash tests/lint/run_lint_tests.sh
 
 # Check that interpreter tests compile (does not check output parity)
 .PHONY: compile-check
@@ -698,6 +973,11 @@ parity: $(TARGET) compiler stdlib
 .PHONY: parity-full
 parity-full: $(TARGET) compiler stdlib
 	@bash tests/run_full_parity.sh
+
+# Run contract test suite (documented behavior pinned on both backends)
+.PHONY: test-contracts
+test-contracts: $(TARGET) compiler stdlib
+	@bash tests/contracts/run_contract_tests.sh
 
 # Run bundler test suite
 .PHONY: test-bundler
@@ -716,15 +996,15 @@ test-memory: compiler
 
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler parity test-bundler test-lsp test-memory
+test-all: test test-compiler test-borrow test-lint parity test-contracts test-bundler test-lsp test-memory test-formatter test-cli test-check docs-check
 
 # ========== RELEASE BUILD ==========
 
 # Release flags: optimize for performance, no debug symbols
 ifeq ($(shell uname),Darwin)
-    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -O3 -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared
+    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -MMD -MP -D_DARWIN_C_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared
 else
-    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -O3 -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared
+    RELEASE_CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -MMD -MP -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -Isrc -Isrc/frontend -Isrc/backends -Isrc/shared
 endif
 
 # Add the same conditional flags as regular build
@@ -944,6 +1224,7 @@ install: $(TARGET) $(COMPILER_TARGET) $(RUNTIME_LIB)
 		echo "Installing runtime headers to $(DESTDIR)$(LIBDIR)/include..."; \
 		install -d $(DESTDIR)$(LIBDIR)/include; \
 		cp -r $(RUNTIME_DIR)/include/* $(DESTDIR)$(LIBDIR)/include/; \
+		cp include/hemlock_platform.h include/hemlock_compat.h $(DESTDIR)$(LIBDIR)/include/; \
 		echo "  Headers: $(DESTDIR)$(LIBDIR)/include/"; \
 	fi
 	@echo ""
@@ -964,6 +1245,7 @@ install-compiler: compiler
 		echo "Installing runtime headers to $(DESTDIR)$(LIBDIR)/include..."; \
 		install -d $(DESTDIR)$(LIBDIR)/include; \
 		cp -r $(RUNTIME_DIR)/include/* $(DESTDIR)$(LIBDIR)/include/; \
+		cp include/hemlock_platform.h include/hemlock_compat.h $(DESTDIR)$(LIBDIR)/include/; \
 	fi
 	@echo ""
 	@echo "✓ Hemlock compiler installed successfully"
@@ -976,3 +1258,10 @@ uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(COMPILER_TARGET)
 	rm -rf $(DESTDIR)$(LIBDIR)
 	@echo "✓ Hemlock uninstalled"
+
+# ========== AUTO HEADER DEPS ==========
+# Pull in the per-object .d files emitted by `gcc -MMD -MP`. The leading `-`
+# on `include` makes a missing .d non-fatal (first build, fresh checkout, etc).
+# Globbing across the build tree picks up debug, release, static, and runtime
+# objects without having to enumerate the OBJS lists explicitly.
+-include $(shell find $(BUILD_DIR) $(RELEASE_BUILD_DIR) $(STATIC_BUILD_DIR) -name '*.d' 2>/dev/null)

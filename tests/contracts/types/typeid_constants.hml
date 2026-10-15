@@ -1,0 +1,37 @@
+// CONTRACT: typeid() values and TYPEID_* constants (CLAUDE.md, docs/reference)
+// These integer values are stable public API: user code branches on them and
+// they must never be renumbered.
+
+print(TYPEID_I8);
+print(TYPEID_I16);
+print(TYPEID_I32);
+print(TYPEID_I64);
+print(TYPEID_U8);
+print(TYPEID_U16);
+print(TYPEID_U32);
+print(TYPEID_U64);
+print(TYPEID_F32);
+print(TYPEID_F64);
+print(TYPEID_BOOL);
+print(TYPEID_STRING);
+print(TYPEID_RUNE);
+print(TYPEID_PTR);
+print(TYPEID_BUFFER);
+print(TYPEID_ARRAY);
+print(TYPEID_OBJECT);
+print(TYPEID_FILE);
+print(TYPEID_FUNCTION);
+print(TYPEID_TASK);
+print(TYPEID_CHANNEL);
+print(TYPEID_NULL);
+
+// typeid() agrees with the constants
+print(typeid(42) == TYPEID_I32);
+print(typeid(5000000000) == TYPEID_I64);
+print(typeid(3.14) == TYPEID_F64);
+print(typeid(true) == TYPEID_BOOL);
+print(typeid("s") == TYPEID_STRING);
+print(typeid('A') == TYPEID_RUNE);
+print(typeid([1]) == TYPEID_ARRAY);
+print(typeid({ a: 1 }) == TYPEID_OBJECT);
+print(typeid(null) == TYPEID_NULL);

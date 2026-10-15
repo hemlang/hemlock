@@ -1,6 +1,6 @@
 # String API Reference
 
-Complete reference for Hemlock's string type and all 20 string methods.
+Complete reference for Hemlock's string type and all 23 string methods.
 
 ---
 
@@ -12,7 +12,7 @@ Strings in Hemlock are **UTF-8 encoded, mutable, heap-allocated** sequences with
 - UTF-8 encoding (U+0000 to U+10FFFF)
 - Mutable (can modify characters in place)
 - Codepoint-based indexing
-- 20 built-in methods
+- 23 built-in methods
 - Automatic concatenation with `+` operator
 
 ---
@@ -61,7 +61,7 @@ s[0] = 'H';             // Mutate with rune (now "Hello")
 let text = "Hi🚀!";
 print(text[0]);         // 'H'
 print(text[1]);         // 'i'
-print(text[2]);         // '🚀' (one codepoint)
+print(text[2]);         // U+1F680 (one codepoint; non-ASCII runes print as U+XXXX)
 print(text[3]);         // '!'
 ```
 
@@ -74,7 +74,7 @@ Use the `+` operator to concatenate strings and runes:
 **String + String:**
 ```hemlock
 let s = "hello" + " " + "world";  // "hello world"
-let msg = "Count: " + typeof(42); // "Count: 42"
+let msg = "Count: " + 42; // "Count: 42"
 ```
 
 **String + Rune:**
@@ -148,12 +148,13 @@ Extract substring by position and length.
 
 **Signature:**
 ```hemlock
-string.substr(start: i32, length: i32): string
+string.substr(start: i32, length?: i32): string
 ```
 
 **Parameters:**
 - `start` - Starting codepoint index (0-based)
-- `length` - Number of codepoints to extract
+- `length` - Number of codepoints to extract. Defaults to everything from
+  `start` to the end of the string if omitted.
 
 **Returns:** New string
 
@@ -162,6 +163,9 @@ string.substr(start: i32, length: i32): string
 let s = "hello world";
 let sub = s.substr(6, 5);       // "world"
 let first = s.substr(0, 5);     // "hello"
+
+// Single-arg: from index to end
+let tail = s.substr(6);         // "world"
 
 // UTF-8 example
 let text = "Hi🚀!";
@@ -215,7 +219,9 @@ string.find(needle: string): i32
 **Parameters:**
 - `needle` - Substring to search for
 
-**Returns:** Codepoint index of first occurrence, or `-1` if not found
+**Returns:** Codepoint index of first occurrence, or `-1` if not found.
+The index composes with `substr()`/`slice()`/`char_at()`, which all take
+codepoint positions.
 
 **Examples:**
 ```hemlock
@@ -223,6 +229,35 @@ let s = "hello world";
 let pos = s.find("world");      // 6
 let pos2 = s.find("foo");       // -1 (not found)
 let pos3 = s.find("l");         // 2 (first 'l')
+
+// Codepoint indexes on multibyte strings
+let m = "héllo";
+print(m.find("l"));             // 2 (codepoint index, not byte index)
+```
+
+---
+
+#### rfind
+
+Find last occurrence of substring.
+
+**Signature:**
+```hemlock
+string.rfind(needle: string): i32
+```
+
+**Parameters:**
+- `needle` - Substring to search for
+
+**Returns:** Codepoint index of last occurrence, or `-1` if not found.
+An empty needle is found at the end of the string (index `string.length`).
+
+**Examples:**
+```hemlock
+let path = "/models/llama/model.gguf";
+let pos = path.rfind("/");                  // 13
+let base = path.substr(path.rfind("/") + 1); // "model.gguf"
+let none = path.rfind("zz");                // -1
 ```
 
 ---
@@ -300,6 +335,46 @@ let text = "\n\t  world  \n";
 let clean2 = text.trim();       // "world"
 ```
 
+#### trim_start
+
+Remove leading whitespace only.
+
+**Signature:**
+```hemlock
+string.trim_start(): string
+```
+
+**Returns:** New string with leading whitespace removed
+
+**Examples:**
+```hemlock
+let s = "  hello  ";
+let clean = s.trim_start();     // "hello  "
+
+let text = "\n\t  world  \n";
+let clean2 = text.trim_start(); // "world  \n"
+```
+
+#### trim_end
+
+Remove trailing whitespace only.
+
+**Signature:**
+```hemlock
+string.trim_end(): string
+```
+
+**Returns:** New string with trailing whitespace removed
+
+**Examples:**
+```hemlock
+let s = "  hello  ";
+let clean = s.trim_end();       // "  hello"
+
+let text = "\n\t  world  \n";
+let clean2 = text.trim_end();   // "\n\t  world"
+```
+
 ---
 
 ### Case Conversion
@@ -311,6 +386,7 @@ Convert string to uppercase.
 **Signature:**
 ```hemlock
 string.to_upper(): string
+string.upper(): string      // alias
 ```
 
 **Returns:** New string in uppercase
@@ -319,6 +395,7 @@ string.to_upper(): string
 ```hemlock
 let s = "hello world";
 let upper = s.to_upper();       // "HELLO WORLD"
+let upper_alias = s.upper();    // "HELLO WORLD"
 
 let mixed = "HeLLo";
 let upper2 = mixed.to_upper();  // "HELLO"
@@ -333,6 +410,7 @@ Convert string to lowercase.
 **Signature:**
 ```hemlock
 string.to_lower(): string
+string.lower(): string      // alias
 ```
 
 **Returns:** New string in lowercase
@@ -341,6 +419,7 @@ string.to_lower(): string
 ```hemlock
 let s = "HELLO WORLD";
 let lower = s.to_lower();       // "hello world"
+let lower_alias = s.lower();    // "hello world"
 
 let mixed = "HeLLo";
 let lower2 = mixed.to_lower();  // "hello"
@@ -729,11 +808,16 @@ let cleaned = "  HELLO  "
 | `substr`       | `(start: i32, length: i32)`                  | `string`  | Extract substring by position/length  |
 | `slice`        | `(start: i32, end: i32)`                     | `string`  | Extract substring by range            |
 | `find`         | `(needle: string)`                           | `i32`     | Find first occurrence (-1 if not found)|
+| `rfind`        | `(needle: string)`                           | `i32`     | Find last occurrence (-1 if not found) |
 | `contains`     | `(needle: string)`                           | `bool`    | Check if contains substring           |
 | `split`        | `(delimiter: string)`                        | `array`   | Split into array                      |
 | `trim`         | `()`                                         | `string`  | Remove whitespace                     |
+| `trim_start`   | `()`                                         | `string`  | Remove leading whitespace             |
+| `trim_end`     | `()`                                         | `string`  | Remove trailing whitespace            |
 | `to_upper`     | `()`                                         | `string`  | Convert to uppercase                  |
+| `upper`        | `()`                                         | `string`  | Alias for `to_upper`                  |
 | `to_lower`     | `()`                                         | `string`  | Convert to lowercase                  |
+| `lower`        | `()`                                         | `string`  | Alias for `to_lower`                  |
 | `starts_with`  | `(prefix: string)`                           | `bool`    | Check if starts with prefix           |
 | `ends_with`    | `(suffix: string)`                           | `bool`    | Check if ends with suffix             |
 | `replace`      | `(old: string, new: string)`                 | `string`  | Replace first occurrence              |

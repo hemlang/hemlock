@@ -69,7 +69,7 @@ buf[0] = 42;             // Safe indexing
 free(buf);               // Still needs explicit free
 ```
 
-**Key difference:** Buffers provide bounds checking, raw pointers don't.
+**Key difference:** Buffers provide bounds checking for indexing, direct `ptr_read_*`/`ptr_write_*` access, and `memset()`/`memcpy()` buffer operands; raw pointers do not.
 
 ---
 
@@ -98,9 +98,9 @@ let s2 = s1;             // s2 shares s1, refcount = 2
 The runtime handles cycles in object graphs:
 
 ```hemlock
-let a = { ref: null };
-let b = { ref: a };
-a.ref = b;               // Cycle: a → b → a
+let a = { next: null };
+let b = { next: a };
+a.next = b;              // Cycle: a → b → a
 // Runtime uses visited sets to detect and break cycles during cleanup
 ```
 
@@ -136,11 +136,18 @@ b = "world";             // a still has "hello", b has "world"
 
 ```hemlock
 let ch = channel(10);
-ch.send("message");      // Value copied into channel buffer
-                         // Original still valid
+ch.send(msg);            // Reference transferred into the channel
+                         // (retained - NOT copied). For compound values
+                         // the sender now aliases the receiver: stop
+                         // touching msg's interior after sending it.
 
 let msg = ch.recv();     // Receives ownership from channel
 ```
+
+Primitives (integers, floats, bools, runes, null) are copied by value.
+Strings, arrays, objects, and buffers cross by reference - the sanctioned
+discipline is ownership transfer. See
+[The Hemlock Memory Model](memory-model.md).
 
 ### Task Spawning
 
@@ -226,16 +233,22 @@ let copy = strdup("hello");  // C allocated this memory
 free(copy);                   // Your responsibility to free
 ```
 
-### Struct Passing (Compiler Only)
+### Struct Passing
+
+A `define` whose fields all have FFI-compatible type annotations doubles as a
+C struct layout (see [FFI Structs](ffi.md#ffi-structs)). Works in both the
+interpreter and the compiler.
 
 ```hemlock
+import "libpoint.so";              // any library exporting make_point()
+
 // Define C struct layout
-ffi_struct Point { x: f64, y: f64 }
+define Point { x: f64, y: f64 }
 
 extern fn make_point(x: f64, y: f64): Point;
 
-let p = make_point(1.0, 2.0);  // Returned by value, copied
-                                // No cleanup needed for stack structs
+let p = make_point(1.0, 2.0);  // Returned by value, copied into a Hemlock object
+                                // No cleanup needed for by-value structs
 ```
 
 ### Callback Memory
@@ -271,6 +284,8 @@ foo(a(), b(), c());         // Previously evaluated args released
 ### Defer for Cleanup
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 fn process_file() {
     let f = open("data.txt", "r");
     defer f.close();         // Runs on return OR exception

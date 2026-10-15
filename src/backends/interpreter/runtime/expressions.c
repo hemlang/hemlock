@@ -39,15 +39,17 @@ const char* get_value_type_name(Value val) {
     }
 }
 
-// Helper to add two values (for increment operations)
+// Helper to add two values (for increment operations).
+// Computes in 64-bit and truncates to the operand's own type, so i64 values
+// above 32 bits increment correctly (previously truncated through int32) and
+// narrow types wrap at their own width (u16 65535++ -> 0).
 Value value_add_one(Value val, ExecutionContext *ctx) {
     if (is_float(val)) {
         double v = value_to_float(val);
         return (val.type == VAL_F32) ? val_f32((float)(v + 1.0)) : val_f64(v + 1.0);
     } else if (is_integer(val)) {
-        int64_t v = value_to_int(val);
-        ValueType result_type = val.type;
-        return promote_value(val_i32((int32_t)(v + 1)), result_type);
+        uint64_t v = (uint64_t)value_to_int64(val);
+        return promote_value(val_i64((int64_t)(v + 1)), val.type);
     } else {
         runtime_error(ctx, "Can only increment numeric values");
         return val_null();  // Unreachable
@@ -60,9 +62,8 @@ Value value_sub_one(Value val, ExecutionContext *ctx) {
         double v = value_to_float(val);
         return (val.type == VAL_F32) ? val_f32((float)(v - 1.0)) : val_f64(v - 1.0);
     } else if (is_integer(val)) {
-        int64_t v = value_to_int(val);
-        ValueType result_type = val.type;
-        return promote_value(val_i32((int32_t)(v - 1)), result_type);
+        uint64_t v = (uint64_t)value_to_int64(val);
+        return promote_value(val_i64((int64_t)(v - 1)), val.type);
     } else {
         runtime_error(ctx, "Can only decrement numeric values");
         return val_null();  // Unreachable
@@ -114,14 +115,33 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                 case UNARY_NEGATE:
                     if (is_float(operand)) {
-                        unary_result = val_f64(-value_to_float(operand));
+                        // Preserve the float width when negating
+                        if (operand.type == VAL_F32) {
+                            unary_result = val_f32(-operand.as.as_f32);
+                        } else {
+                            unary_result = val_f64(-value_to_float(operand));
+                        }
                     } else if (is_integer(operand)) {
-                        // Preserve the original type when negating
+                        // Preserve the original type when negating.
+                        // Narrow types wrap; i32/i64 MIN negation overflows
+                        // and throws (consistent with checked +,-,*).
                         switch (operand.type) {
-                            case VAL_I8: unary_result = val_i8(-operand.as.as_i8); break;
-                            case VAL_I16: unary_result = val_i16(-operand.as.as_i16); break;
-                            case VAL_I32: unary_result = val_i32(-operand.as.as_i32); break;
-                            case VAL_I64: unary_result = val_i64(-operand.as.as_i64); break;
+                            case VAL_I8: unary_result = val_i8((int8_t)(-(int16_t)operand.as.as_i8)); break;
+                            case VAL_I16: unary_result = val_i16((int16_t)(-(int32_t)operand.as.as_i16)); break;
+                            case VAL_I32:
+                                if (operand.as.as_i32 == INT32_MIN) {
+                                    runtime_error(ctx, "Integer overflow: i32 negation");
+                                } else {
+                                    unary_result = val_i32(-operand.as.as_i32);
+                                }
+                                break;
+                            case VAL_I64:
+                                if (operand.as.as_i64 == INT64_MIN) {
+                                    runtime_error(ctx, "Integer overflow: i64 negation");
+                                } else {
+                                    unary_result = val_i64(-operand.as.as_i64);
+                                }
+                                break;
                             case VAL_U8: unary_result = val_i16(-(int16_t)operand.as.as_u8); break;  // promote to i16
                             case VAL_U16: unary_result = val_i32(-(int32_t)operand.as.as_u16); break; // promote to i32
                             case VAL_U32: unary_result = val_i64(-(int64_t)operand.as.as_u32); break; // promote to i64
@@ -198,6 +218,10 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
         case EXPR_ASSIGN: {
             Value new_value = eval_expr(expr->as.assign.value, env, ctx);
+            if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(new_value);
+                return val_null();
+            }
             // Check if target is a reference (from ref parameter)
             Value target;
             if (expr->as.assign.resolved.is_resolved) {
@@ -212,6 +236,22 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 return new_value;
             }
             VALUE_RELEASE(target);
+            // Enforce the variable's declared type on reassignment using the
+            // same conversion as the declaration (annotations are enforced at
+            // runtime by the interpreter — CLAUDE.md/docs/language-guide/types.md)
+            {
+                Type *declared = expr->as.assign.resolved.is_resolved
+                    ? env_get_declared_type_resolved(env, expr->as.assign.resolved.depth,
+                                                     expr->as.assign.resolved.slot)
+                    : env_get_declared_type(env, expr->as.assign.name);
+                if (declared != NULL) {
+                    new_value = convert_to_type(new_value, declared, env, ctx);
+                    if (ctx->exception_state.is_throwing) {
+                        VALUE_RELEASE(new_value);
+                        return val_null();
+                    }
+                }
+            }
             // Regular assignment
             if (expr->as.assign.resolved.is_resolved) {
                 env_set_resolved(env, expr->as.assign.resolved.depth, expr->as.assign.resolved.slot, new_value, ctx);
@@ -286,51 +326,73 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             } else if (object.type == VAL_OBJECT) {
                 // Look up field in object using inline cache or hash table
                 Object *obj = object.as.as_object;
-                PropertyIC *ic = &expr->as.get_property.ic;
-                int idx = -1;
+                int idx;
 
-                // INLINE CACHE FAST PATH:
-                // If we're accessing the same object and the cache is valid, use cached index
-                if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
-                    ic->cached_object == (void*)obj &&
-                    ic->cached_field_index >= 0) {
-                    // Validate the cached index still points to the correct field
-                    if (object_validate_ic(obj, ic->cached_field_index, property)) {
-                        idx = ic->cached_field_index;  // Cache hit!
-                    } else {
-                        // Cache is stale (object was modified), invalidate
-                        ic->ic_state = HML_IC_STATE_UNINITIALIZED;
-                        ic->cached_object = NULL;
-                        ic->cached_field_index = -1;
+                // The per-AST-node property inline cache (expr->...ic) is
+                // SHARED across every spawned task thread — the interpreter
+                // runs async tasks as real pthreads over one AST — and is
+                // mutated on every access with no synchronization. Concurrent
+                // threads race on the (cached_object, cached_field_index,
+                // ic_state) group and resolve a TORN pair, so
+                // obj->fields[idx] reads the wrong/garbage field; it surfaces
+                // far away as e.g. "Only strings, buffers, arrays, and objects
+                // have properties" inside a worker. Once any task has been
+                // spawned, bypass the cache entirely and do the lock-free
+                // read-only lookup (object_lookup_field_with_hash does not
+                // mutate obj — see the 2.4.5 object-hash thread-safety work);
+                // we neither read nor write the shared IC, so no race.
+                // Single-threaded programs keep the fast path unchanged (no
+                // perf regression — the IC only matters single-threaded, and
+                // correctness wins over a micro-opt that corrupts results).
+                if (__atomic_load_n(&g_interp_has_spawned, __ATOMIC_SEQ_CST)) {
+                    idx = object_lookup_field_with_hash(obj, property, hash_string(property));
+                } else {
+                    PropertyIC *ic = &expr->as.get_property.ic;
+                    idx = -1;
+
+                    // INLINE CACHE FAST PATH:
+                    // If we're accessing the same object and the cache is valid, use cached index
+                    if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                        ic->cached_object == (void*)obj &&
+                        ic->cached_field_index >= 0) {
+                        // Validate the cached index still points to the correct field
+                        if (object_validate_ic(obj, ic->cached_field_index, property)) {
+                            idx = ic->cached_field_index;  // Cache hit!
+                        } else {
+                            // Cache is stale (object was modified), invalidate
+                            ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+                            ic->cached_object = NULL;
+                            ic->cached_field_index = -1;
+                        }
                     }
-                }
 
-                // CACHE MISS: Do full lookup and update cache
-                if (idx < 0) {
-                    // Compute hash if not cached
-                    if (ic->cached_hash == 0) {
-                        ic->cached_hash = hash_string(property);
-                    }
-                    idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
+                    // CACHE MISS: Do full lookup and update cache
+                    if (idx < 0) {
+                        // Compute hash if not cached
+                        if (ic->cached_hash == 0) {
+                            ic->cached_hash = hash_string(property);
+                        }
+                        idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
 
-                    // Update inline cache if not megamorphic
-                    if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
-                        if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
-                            // First access - initialize cache
-                            ic->cached_object = (void*)obj;
-                            ic->cached_field_index = idx;
-                            ic->ic_state = HML_IC_STATE_MONOMORPHIC;
-                            ic->miss_count = 0;
-                        } else if (ic->cached_object != (void*)obj) {
-                            // Different object - this is polymorphic
-                            ic->miss_count++;
-                            if (ic->miss_count >= HML_IC_MAX_MISSES) {
-                                // Too many different objects, go megamorphic
-                                ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
-                            } else {
-                                // Update cache to new object
+                        // Update inline cache if not megamorphic
+                        if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                            if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                                // First access - initialize cache
                                 ic->cached_object = (void*)obj;
                                 ic->cached_field_index = idx;
+                                ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                                ic->miss_count = 0;
+                            } else if (ic->cached_object != (void*)obj) {
+                                // Different object - this is polymorphic
+                                ic->miss_count++;
+                                if (ic->miss_count >= HML_IC_MAX_MISSES) {
+                                    // Too many different objects, go megamorphic
+                                    ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                                } else {
+                                    // Update cache to new object
+                                    ic->cached_object = (void*)obj;
+                                    ic->cached_field_index = idx;
+                                }
                             }
                         }
                     }
@@ -464,7 +526,11 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             // For arrays, strings, and buffers, index must be an integer
             if (!is_integer(index_val)) {
+                // runtime_error does not unwind - return before using the bad index
                 runtime_error(ctx, "Index must be an integer");
+                VALUE_RELEASE(object);
+                VALUE_RELEASE(index_val);
+                return val_null();
             }
 
             int32_t index = value_to_int(index_val);
@@ -479,7 +545,11 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                 // Check bounds using character count (not byte count)
                 if (index < 0 || index >= str->char_length) {
+                    // runtime_error does not unwind - return before the OOB read
                     runtime_error(ctx, "String index %d out of bounds (length=%d)", index, str->char_length);
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    return val_null();
                 }
 
                 // Find byte offset of the i-th codepoint
@@ -493,7 +563,12 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 Buffer *buf = object.as.as_buffer;
 
                 if (index < 0 || index >= buf->length) {
+                    // runtime_error does not unwind - return before the OOB read
+                    // (a freed buffer has data == NULL and length == 0)
                     runtime_error(ctx, "Buffer index %d out of bounds (length %d)", index, buf->length);
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    return val_null();
                 }
 
                 // Return the byte as an integer (u8)
@@ -531,6 +606,15 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             Value object = eval_expr(expr->as.index_assign.object, env, ctx);
             Value index_val = eval_expr(expr->as.index_assign.index, env, ctx);
             Value value = eval_expr(expr->as.index_assign.value, env, ctx);
+
+            // A throw while evaluating any operand must not perform the store
+            // (otherwise `a[k] = f()` with a throwing f() stored null).
+            if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(object);
+                VALUE_RELEASE(index_val);
+                VALUE_RELEASE(value);
+                return val_null();
+            }
 
             // FAST PATH: array[i32] = value - most common assignment case
             if (object.type == VAL_ARRAY && index_val.type == VAL_I32) {
@@ -629,7 +713,12 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             // For arrays, strings, and buffers, index must be an integer
             if (!is_integer(index_val)) {
+                // runtime_error does not unwind - return before using the bad index
                 runtime_error(ctx, "Index must be an integer");
+                VALUE_RELEASE(object);
+                VALUE_RELEASE(index_val);
+                VALUE_RELEASE(value);
+                return val_null();
             }
 
             int32_t index = value_to_int(index_val);
@@ -644,15 +733,30 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
             // For strings and buffers, value must be an integer (byte) or rune
             if (!is_integer(value) && value.type != VAL_RUNE) {
+                // runtime_error does not unwind - return before using the bad value
                 runtime_error(ctx, "Index value must be an integer (byte) or rune for strings/buffers");
+                VALUE_RELEASE(object);
+                VALUE_RELEASE(index_val);
+                VALUE_RELEASE(value);
+                return val_null();
             }
 
             if (object.type == VAL_STRING) {
                 String *str = object.as.as_string;
 
-                if (index < 0 || index >= str->length) {
-                    runtime_error(ctx, "String index %d out of bounds (length %d)", index, str->length);
+                // Indexes are codepoints (same as s[i] reads and char_at)
+                if (str->char_length < 0) {
+                    str->char_length = utf8_count_codepoints(str->data, str->length);
                 }
+                if (index < 0 || index >= str->char_length) {
+                    // runtime_error does not unwind - return before the OOB write
+                    runtime_error(ctx, "String index %d out of bounds (length %d)", index, str->char_length);
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    VALUE_RELEASE(value);
+                    return val_null();
+                }
+                index = utf8_byte_offset(str->data, str->length, index);
 
                 // Get the rune value (either from rune type or integer)
                 uint32_t rune_val;
@@ -720,7 +824,14 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 Buffer *buf = object.as.as_buffer;
 
                 if (index < 0 || index >= buf->length) {
+                    // runtime_error does not unwind - return before the OOB write
+                    // (writing buf->data[-1] would corrupt the heap; a freed buffer
+                    // has data == NULL and length == 0)
                     runtime_error(ctx, "Buffer index %d out of bounds (length %d)", index, buf->length);
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    VALUE_RELEASE(value);
+                    return val_null();
                 }
 
                 // Buffers are mutable - set the byte
@@ -958,6 +1069,14 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             const char *property = expr->as.set_property.property;
             Value value = eval_expr(expr->as.set_property.value, env, ctx);
 
+            // A throw while evaluating the target or value must not store
+            // (otherwise `o.x = f()` with a throwing f() stored null).
+            if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(object);
+                VALUE_RELEASE(value);
+                return val_null();
+            }
+
             if (object.type != VAL_OBJECT) {
                 VALUE_RELEASE(object);
                 VALUE_RELEASE(value);
@@ -966,51 +1085,65 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
 
             Object *obj = object.as.as_object;
-            PropertyIC *ic = &expr->as.set_property.ic;
-            int idx = -1;
+            int idx;
 
-            // INLINE CACHE FAST PATH:
-            // If we're accessing the same object and the cache is valid, use cached index
-            if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
-                ic->cached_object == (void*)obj &&
-                ic->cached_field_index >= 0) {
-                // Validate the cached index still points to the correct field
-                if (object_validate_ic(obj, ic->cached_field_index, property)) {
-                    idx = ic->cached_field_index;  // Cache hit!
-                } else {
-                    // Cache is stale (object was modified), invalidate
-                    ic->ic_state = HML_IC_STATE_UNINITIALIZED;
-                    ic->cached_object = NULL;
-                    ic->cached_field_index = -1;
+            // Same shared-AST-node inline-cache race as the property READ
+            // path above: expr->as.set_property.ic is shared across all
+            // spawned task threads and mutated unsynchronized. Once any
+            // task has been spawned, bypass the cache and do the lock-free
+            // read-only field lookup (the actual field store below is the
+            // caller's responsibility to serialize, exactly as before —
+            // this only removes the torn-IC misresolution). Single-threaded
+            // keeps the fast path unchanged.
+            if (__atomic_load_n(&g_interp_has_spawned, __ATOMIC_SEQ_CST)) {
+                idx = object_lookup_field_with_hash(obj, property, hash_string(property));
+            } else {
+                PropertyIC *ic = &expr->as.set_property.ic;
+                idx = -1;
+
+                // INLINE CACHE FAST PATH:
+                // If we're accessing the same object and the cache is valid, use cached index
+                if (ic->ic_state == HML_IC_STATE_MONOMORPHIC &&
+                    ic->cached_object == (void*)obj &&
+                    ic->cached_field_index >= 0) {
+                    // Validate the cached index still points to the correct field
+                    if (object_validate_ic(obj, ic->cached_field_index, property)) {
+                        idx = ic->cached_field_index;  // Cache hit!
+                    } else {
+                        // Cache is stale (object was modified), invalidate
+                        ic->ic_state = HML_IC_STATE_UNINITIALIZED;
+                        ic->cached_object = NULL;
+                        ic->cached_field_index = -1;
+                    }
                 }
-            }
 
-            // CACHE MISS: Do full lookup and update cache
-            if (idx < 0) {
-                // Compute hash if not cached
-                if (ic->cached_hash == 0) {
-                    ic->cached_hash = hash_string(property);
-                }
-                idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
+                // CACHE MISS: Do full lookup and update cache
+                if (idx < 0) {
+                    // Compute hash if not cached
+                    if (ic->cached_hash == 0) {
+                        ic->cached_hash = hash_string(property);
+                    }
+                    idx = object_lookup_field_with_hash(obj, property, ic->cached_hash);
 
-                // Update inline cache if field exists and not megamorphic
-                if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
-                    if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
-                        // First access - initialize cache
-                        ic->cached_object = (void*)obj;
-                        ic->cached_field_index = idx;
-                        ic->ic_state = HML_IC_STATE_MONOMORPHIC;
-                        ic->miss_count = 0;
-                    } else if (ic->cached_object != (void*)obj) {
-                        // Different object - this is polymorphic
-                        ic->miss_count++;
-                        if (ic->miss_count >= HML_IC_MAX_MISSES) {
-                            // Too many different objects, go megamorphic
-                            ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
-                        } else {
-                            // Update cache to new object
+                    // Update inline cache if field exists and not megamorphic
+                    if (idx >= 0 && ic->ic_state != HML_IC_STATE_MEGAMORPHIC) {
+                        if (ic->ic_state == HML_IC_STATE_UNINITIALIZED) {
+                            // First access - initialize cache
                             ic->cached_object = (void*)obj;
                             ic->cached_field_index = idx;
+                            ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                            ic->miss_count = 0;
+                        } else if (ic->cached_object != (void*)obj) {
+                            // Different object - this is polymorphic
+                            ic->miss_count++;
+                            if (ic->miss_count >= HML_IC_MAX_MISSES) {
+                                // Too many different objects, go megamorphic
+                                ic->ic_state = HML_IC_STATE_MEGAMORPHIC;
+                            } else {
+                                // Update cache to new object
+                                ic->cached_object = (void*)obj;
+                                ic->cached_field_index = idx;
+                            }
                         }
                     }
                 }
@@ -1056,11 +1189,16 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // Insert new field into hash table (grows table if needed, avoids full rebuild)
             object_hash_insert(obj, property, new_field_index);
 
-            // Update inline cache to point to the new field
-            ic->ic_state = HML_IC_STATE_MONOMORPHIC;
-            ic->cached_object = (void*)obj;
-            ic->cached_field_index = new_field_index;
-            ic->miss_count = 0;
+            // Update inline cache to point to the new field (single-threaded
+            // only — see the gate above; the shared IC must not be written
+            // once any task has been spawned).
+            if (!__atomic_load_n(&g_interp_has_spawned, __ATOMIC_SEQ_CST)) {
+                PropertyIC *ic = &expr->as.set_property.ic;
+                ic->ic_state = HML_IC_STATE_MONOMORPHIC;
+                ic->cached_object = (void*)obj;
+                ic->cached_field_index = new_field_index;
+                ic->miss_count = 0;
+            }
 
             // Return the value (retained for caller)
             VALUE_RETAIN(value);
@@ -1483,6 +1621,16 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             char **string_parts = expr->as.string_interpolation.string_parts;
             Expr **expr_parts = expr->as.string_interpolation.expr_parts;
 
+            if (num_parts < 0) {
+                runtime_error(ctx, "Invalid string interpolation");
+                return val_null();
+            }
+
+            // Fast path: no expression parts — just return the static string segment
+            if (num_parts == 0) {
+                return val_string(string_parts[0]);
+            }
+
             // Calculate total length needed
             int total_len = 0;
             for (int i = 0; i <= num_parts; i++) {
@@ -1490,7 +1638,9 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
 
             // Evaluate expression parts and convert to strings
-            char **expr_strings = malloc(sizeof(char*) * num_parts);
+            // Cast to size_t after the num_parts > 0 guard above to avoid
+            // -Walloc-size-larger-than triggering on the signed->size_t multiply.
+            char **expr_strings = malloc(sizeof(char*) * (size_t)num_parts);
             if (!expr_strings) {
                 runtime_error(ctx, "Out of memory in string interpolation");
                 return val_null();
@@ -1710,18 +1860,28 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     // Bind parameters
                     for (int i = 0; i < fn->num_params; i++) {
                         Value arg_value = (i < num_args) ? args[i] : val_null();
+                        // Own a reference: convert_to_type consumes it on failure,
+                        // and args[i] is released by the cleanup below.
+                        VALUE_RETAIN(arg_value);
 
                         // Type check if parameter has type annotation
                         if (fn->param_types[i]) {
                             arg_value = convert_to_type(arg_value, fn->param_types[i], call_env, ctx);
                         }
 
-                        env_set(call_env, fn->param_names[i], arg_value, ctx);
+                        env_set(call_env, fn->param_names[i], arg_value, ctx);  // retains
+                        VALUE_RELEASE(arg_value);
+                        if (ctx->exception_state.is_throwing) {
+                            break;
+                        }
                     }
 
                     // Execute body
                     ctx->return_state.is_returning = 0;
-                    eval_stmt(fn->body, call_env, ctx);
+                    // Skip the body if binding a typed parameter threw
+                    if (!ctx->exception_state.is_throwing) {
+                        eval_stmt(fn->body, call_env, ctx);
+                    }
 
                     // Get return value
                     result = ctx->return_state.is_returning ? ctx->return_state.return_value : val_null();
@@ -1750,8 +1910,32 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 VALUE_RELEASE(object_val);
                 return result;
             } else {
-                // Optional indexing: obj?.[index]
+                // Optional indexing: obj?.[index] or obj?[index]
                 Value index_val = eval_expr(expr->as.optional_chain.index, env, ctx);
+                Value result;
+
+                // Object: string or coerced string-key lookup, returns null on miss
+                if (object_val.type == VAL_OBJECT) {
+                    Object *obj = object_val.as.as_object;
+                    int idx = -1;
+                    if (index_val.type == VAL_STRING) {
+                        idx = object_lookup_field(obj, index_val.as.as_string->data);
+                    } else {
+                        char key_buf[64];
+                        if (value_coerce_to_key(index_val, key_buf, sizeof(key_buf))) {
+                            idx = object_lookup_field(obj, key_buf);
+                        }
+                    }
+                    if (idx >= 0) {
+                        result = obj->fields[idx].value;
+                        VALUE_RETAIN(result);
+                    } else {
+                        result = val_null();
+                    }
+                    VALUE_RELEASE(object_val);
+                    VALUE_RELEASE(index_val);
+                    return result;
+                }
 
                 if (!is_integer(index_val)) {
                     VALUE_RELEASE(object_val);
@@ -1761,7 +1945,6 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 }
 
                 int32_t index = value_to_int(index_val);
-                Value result;
 
                 if (object_val.type == VAL_ARRAY) {
                     result = array_get(object_val.as.as_array, index, ctx);

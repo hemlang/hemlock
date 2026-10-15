@@ -5,6 +5,844 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Type annotations `channel`, `task`, and `file` now work on both
+  backends.** These documented builtin types were rejected as annotations:
+  the interpreter failed with `Unknown type` at call time (killing a
+  spawned producer and hanging the receiver), while the compiler's static
+  checker contradictorily reported `expected 'channel', got 'channel'`.
+  Both backends now accept them, including nullable forms (`channel?`) and
+  `array<channel>`. User-defined types with these names still take
+  precedence in annotations, including through type aliases (alias targets
+  are now resolved after user-defined objects and enums are collected).
+
+- **A WebSocket client now notices when the server closes the connection.**
+  libwebsockets reports a client connection closing as
+  `LWS_CALLBACK_CLIENT_CLOSED`, but the client callback only handled
+  `LWS_CALLBACK_CLOSED` (the server-side reason), so `closed` never became
+  true. A `while (!ws.closed) { ws.recv(...) }` loop ran forever after a
+  server close. Messages that arrived before the close are still delivered:
+  `recv()` drains the queue before reporting the connection closed, and
+  `close()` now clears the queue pointers it frees.
+- **`close()` on a server-side connection now closes it.** It only marked the
+  handle closed and never told libwebsockets, so the client stayed connected.
+  It now wakes the server's service thread (`lws_cancel_service`), which
+  requests a writeable callback and closes the connection from there with a
+  close frame (status 1000), since only that thread may touch the context.
+
+## [2.11.0] - 2026-10-06
+
+A semantics-hardening release: JSON (de)serialization is now exact and strict,
+the borrow checker is substantially more precise, and wasm gains a proper
+frame loop.
+
+### Added
+
+- **`main_loop(callback, fps)` and `main_loop_stop()` in `@stdlib/time`.**
+  Hands the frame callback to the host's scheduler (`emscripten_set_main_loop_arg`
+  under wasm), so a frame loop needs no `sleep()` and the program can be linked
+  with `--no-asyncify`. fps 0 means `requestAnimationFrame` (vsync-locked).
+  Natively it is a paced loop that returns once stopped.
+
+### Changed
+
+- **JSON (de)serialization is exact and strict.** `serialize()` now emits the
+  shortest form that parses back exactly (was `%g`, 6 significant digits), and
+  `NaN`/`Infinity` throw instead of emitting invalid JSON. `deserialize()`
+  rejects trailing commas and trailing text. Programs that relied on the old
+  float output format or parsed non-strict JSON will break.
+- **Borrow checker: transitive summaries, factories, branch-sensitive
+  expressions.** Interprocedural summaries are now computed to a fixpoint,
+  factory functions are recognised, and expression-level branches are
+  flow-sensitive. Substantially reduces false positives while catching more
+  real bugs.
+
+### Fixed
+
+- **A `u32` above 2147483647 keeps its value when mixed with an `i64` or
+  `u64`.** In the interpreter, `u32(4294967295) == 4294967295` was `false` and
+  `u32(3000000000) + i64(1)` gave `-1294967295`: promoting a `u32` to `i64` or
+  `u64` went through `value_to_int()`, which returns `int32_t`, so the value
+  wrapped negative before it was widened. `promote_value()` now uses
+  `value_to_int64()`. The compiler was already correct. This bit any program
+  reading a `u32` from a buffer (`read_u32_le`) and comparing it or doing
+  arithmetic with an integer literal, which defaults to `i64`.
+
+- **A WebSocket program no longer hangs instead of exiting.** Handing a
+  `WebSocketServer` to `spawn()` produced correct output and then left the
+  process alive forever, in the interpreter and in compiled binaries alike. The
+  service thread loops `while (!shutdown) lws_service(ctx, 50)`, and that
+  timeout argument has been ignored since libwebsockets 3.2 — under the libuv
+  event loop it blocks until something happens, so setting `shutdown` was never
+  noticed and the `pthread_join()` in `close()` waited forever. It reproduced
+  with no client connected at all, which ruled out the traffic and the shutdown
+  ordering. Both close paths now call `lws_cancel_service()` before joining, the
+  documented way to interrupt a blocked `lws_service()` from another thread.
+
+  Same root cause as the connect timeout fixed in 2.10.0: that ignored argument
+  is worth suspecting whenever libwebsockets appears to ignore a deadline.
+
+- **Wasm: pointer builtins no longer panic or fail to link.** `builtins_ffi.c`
+  was wrapped entirely in `#ifndef __EMSCRIPTEN__`, which swept up the
+  `ptr_offset`/`ptr_read_*`/`ptr_write_*`/`ptr_deref_*` family. Those need
+  neither `dlopen` nor `libffi` — they are address arithmetic and loads/stores
+  over linear memory — so the guard now closes before them.
+
+- **Wasm: `--target wasm` links with `-sASYNCIFY`.** `hml_sleep()` compiles to
+  `emscripten_sleep()`, which only exists when Asyncify is on. Without the flag
+  Emscripten links a throwing stub, so the program died the first time it slept.
+
+- **Windows: static libuv now links.** `make WIN_LWS_STATIC=1` builds a
+  self-contained binary, but libuv's synchronization functions were missing.
+  The Makefile now links `ws2_32`, `bcrypt`, `ole32`, `oleaut32`, `uuid`,
+  `advapi32`, and `shell32` alongside libuv and libwebsockets.
+
+- **Runtime memory-safety bugs and interpreter/compiler divergences.** A batch
+  of fixes including template string interpolation segfaults, switch case body
+  infinite loops, match arm scope resolution, REPL use-after-free, self-
+  referential array printing, and type-annotation failure handling.
+
+- **Interpreter crashes/hangs and more backend divergences.** Frontend parser
+  guards, resolver scope fixes, and backend consistency improvements.
+
+### Notes
+
+- The UCRT throw-from-a-native-callback crash is **not** fixed. A third
+  mechanism was tried and rejected: calling the CRT's non-`ex` `_setjmp`
+  directly, which survives an isolated 400-frame test and then takes
+  `array_sort` from intermittent to 30-in-30 in the real runtime. The UCRT
+  backtrace (`RtlVirtualUnwind` ← `RtlUnwindEx` ← `ucrtbase!.intrinsic_setjmpex`
+  ← `hml_throw`) and the measurements for all four mechanisms are recorded in
+  `docs/advanced/windows.md`. The evidence points away from a `setjmp` spelling
+  and towards not longjmping out of native frames at all.
+
+## [2.10.3] - 2026-08-08
+
+Patch release. A program that spawned a WebSocket server never exited.
+
+### Fixed
+
+- **A program that `spawn()`s a `WebSocketServer` now exits.** It produced
+  correct output and then stayed alive forever, in the interpreter and in
+  compiled binaries alike. The service thread loops
+  `while (!shutdown) lws_service(ctx, 50)`, but libwebsockets has ignored that
+  timeout argument since 3.2 — under the libuv event loop it blocks until
+  something happens, so `shutdown` was never noticed and the `pthread_join()`
+  in `close()` waited forever. Both close paths now call
+  `lws_cancel_service()` before joining, the documented way to interrupt a
+  blocked `lws_service()` from another thread.
+
+### Changed
+
+- **CI:** WebSocket runs are bounded by a timeout, the standalone check
+  actually relinks, and `ws.hml` is passed its port.
+
+## [2.10.2] - 2026-08-08
+
+Patch release. Every process got the same "random" numbers.
+
+### Fixed
+
+- **The random number generator is seeded at startup.** `rand()`,
+  `randint()`, `randf()`, `shuffle()` and friends (`@stdlib/random`,
+  `@stdlib/math`) are backed by libc `rand()`, which nothing ever seeded, so
+  every fresh process produced the same sequence from its first draw — e.g. two
+  servers picking a "random" port collided every time. `main()` now seeds once
+  from `/dev/urandom`, falling back to `time(NULL) ^ getpid()`. Explicit
+  `seed()`/`set_seed()` calls still give fully reproducible sequences.
+- **Windows static libwebsockets builds request only static libraries that
+  exist.** `WIN_LWS_STATIC_LIBS` hardcoded `-lssl -lcrypto -luv`, so a host
+  whose libwebsockets doesn't pull in libuv failed to link with "cannot find
+  -luv". Each archive is now probed with `--print-file-name`, and
+  `WIN_LWS_STATIC=1` without `libwebsockets_static.a` stops with a message
+  naming the package to install.
+
+### Changed
+
+- **CI:** the Windows jobs compile once instead of five times, use unique
+  ports, have more timeout headroom, and install libuv.
+
+## [2.10.1] - 2026-08-08
+
+Patch release. A use-after-free on HTTP redirects.
+
+### Fixed
+
+- **Use-after-free when an HTTP redirect follows a completed request.**
+  `http_request_binary_with_redirects()` frees the response as soon as it sees
+  a 3xx with a `Location` header, but the request builtins mark a response
+  complete as soon as headers are parsed — before libwebsockets has torn the
+  connection down. The cached per-scheme `lws_context` then kept pumping
+  events for the old connection into the freed response struct (an ASan
+  heap-use-after-free; "realloc(): invalid old size" in non-ASan builds). All
+  six `builtin_lws_http_*` variants now detach the response from the
+  connection with `lws_set_wsi_user(wsi, NULL)` before returning it. Reproduced
+  with `get_binary()` on a GitHub release tarball URL.
+
+### Changed
+
+- **CI:** the Windows job installs pkgconf and asserts that libwebsockets is
+  actually compiled in, and its WebSocket smoke tests are fixed.
+
+## [2.10.0] - 2026-08-08
+
+WebSockets and HTTP now work on Windows, and Windows binaries ship with the
+release alongside Linux, macOS and WASM.
+
+### Added
+
+- **`@stdlib/websocket` and `@stdlib/http` work on native Windows builds.** The
+  WebSocket/HTTP builtins were never Windows-specific — they compile and run
+  there unchanged — but the top-level Makefile hardcoded
+  `HAS_LIBWEBSOCKETS := 0` for every Windows build, so `websockets_ws.c`
+  compiled its "not available" stubs and any program importing those modules
+  threw at runtime. A native MSYS2 build now probes its own pkg-config
+  (`pacman -S mingw-w64-ucrt-x86_64-libwebsockets`). Cross builds still skip the
+  probe: the host's pkg-config would answer about the Linux copy.
+
+- **`make WIN_LWS_STATIC=1`** links libwebsockets and its TLS/event-loop
+  dependencies into the binaries — 4.6 MB → 12.2 MB. Worth it for distribution:
+  a dynamically linked build needs `libwebsockets.dll`, `libssl-3-x64.dll` and
+  `libuv-1.dll` on `PATH` and exits without a word outside an MSYS2 shell.
+
+- **Windows binaries in the release.** The release workflow builds
+  `hemlock-windows-x86_64.zip` with `WIN_LWS_STATIC=1`, verifies the binaries
+  depend on nothing but Windows system DLLs, and round-trips a WebSocket echo on
+  a clean `PATH` before packaging.
+
+
+- `hemlock check --deny-warnings` exits 1 when any warning is reported. Warnings
+  still do not fail the check by default. Without this the borrow checker could
+  diagnose a fault it could not stop: a provable double free exits 0, so no CI
+  step, hook or build could gate on it.
+
+### Fixed
+
+- **A WebSocket client's first connect in a process failed intermittently, on
+  every platform.** The connect wait counted iterations of
+  `lws_service(ctx, 100)` as though that argument were a 100 ms block, but it
+  has been ignored since libwebsockets 3.2 and returns immediately under the
+  libuv event loop — so a documented 10-second timeout could expire in
+  microseconds. The coldest connect lost the race while every warmed-up one won,
+  which is why the failure looked like a server-readiness problem and why
+  sleeping longer made it *worse*. Now paced with `usleep`, matching what
+  `ws_server_accept` in the same file already did correctly, in both backends.
+  Measured on a WebSocket test suite: ~50% of runs failing → 0 in 20. Not a
+  Windows bug — every lws ≥ 3.2, which is every current distro, has the same
+  busy-spin.
+
+- **`hemlockc` now links libwebsockets on Windows.** With the runtime built
+  against lws, any compiled program touching those modules died on
+  `undefined reference to lws_client_connect_via_info`. It is spelled
+  `-Wl,-Bdynamic -lwebsockets` because the link line passes `-static`, under
+  which the linker demands `libwebsockets.a` while MSYS2 ships an import library
+  plus a differently named `libwebsockets_static.a`.
+
+
+- **Windows: `print()` no longer emits CRLF.** `_fmode = _O_BINARY` only covers
+  files opened after startup — stdout and stderr are already open in text mode by
+  then, so every `\n` a Hemlock program wrote became `\r\n`. Byte counts, hashes
+  and diffs of a program's output all differed from the same program on POSIX,
+  which failed the entire parity suite on `\r` alone. Both are now `_setmode()`d
+  to binary; stdin stays in text mode so `read_line()` keeps returning `abc`
+  rather than `abc\r` for console and CRLF-file input.
+
+- **Windows (msvcrt): a `throw` from inside a native callback no longer
+  segfaults intermittently.** mingw-w64 defines `setjmp` so that the CRT's
+  `longjmp` drives a full SEH unwind, and unwinding through generated closure
+  frames crashed inside `RtlVirtualUnwind` on roughly one compiled run in
+  eight — a `throw` from an `array.sort()` comparator died before its `catch`
+  block ran. Hemlock's throw never unwinds (no destructors, no defers, same as
+  POSIX `longjmp`), so the `jmp_buf`'s `Frame` field is now zeroed, which is
+  what makes the CRT skip the unwind: 5/40 crashes becomes 0/60 on msvcrt,
+  covering cross builds and Wine.
+
+  The UCRT unwinds regardless of that field, so this case still fails there
+  about 1 run in 25. That is pre-existing rather than new, and it is now
+  documented with measurements, a repro, and an `HEMLOCK_WIN32_CRT_SETJMP`
+  escape hatch for A/B-ing the mechanisms — see "throw from a native callback
+  on UCRT" in `docs/advanced/windows.md`. Notably GCC's
+  `__builtin_setjmp`/`__builtin_longjmp`, which look like the obvious fix,
+  must not be used: they do not work cross-function on x86_64 SEH targets with
+  a modern GCC and turn the intermittent crash into a deterministic one.
+
+- **Windows: deep recursion in the interpreter throws instead of dying
+  silently.** The PE default 2 MB stack ran out well before the interpreter's
+  8000-frame guard, so infinite recursion exited with no output at all instead
+  of a catchable "Maximum call stack depth exceeded". `hemlock.exe` and
+  `hemlockc.exe` now reserve 64 MB of stack address space.
+
+- **Windows: compiled programs get zlib again.** Both zlib probes shelled out to
+  `gcc ... -o /dev/null`, which a native MinGW gcc cannot write, so the runtime
+  compiled `gzip`/`deflate`/`crc32` as "zlib not installed" stubs and
+  `hemlockc` left `-lz` off the link line. They now ask the toolchain for
+  `libz.a` instead. The old `system("gcc --version >/dev/null 2>NUL")` spelling
+  also made cmd.exe print "The system cannot find the path specified." on every
+  single compile.
+
+- **Windows: `eprint()` output no longer jumps ahead of `print()` output.** The
+  interpreter never flushed stdout before writing to stderr, so with output
+  piped, stderr lines landed out of order relative to the stdout lines around
+  them. The compiled runtime already flushed after every print.
+
+- **Windows: builds work on mingw-w64 header sets that predate `<afunix.h>` and
+  `PROCESSOR_ARCHITECTURE_ARM64`** (for example the toolchain shipped with
+  Strawberry Perl). Both are ABI-fixed values, declared locally when the
+  toolchain's headers lack them, so a native build no longer requires MSYS2
+  specifically.
+
+- **Running a bundled `.hmlc` corrupted the heap on exit.** The AST
+  deserializer initialized a `Type` field by field and never touched the
+  function-type members, so `type_free()` walked whatever the heap had left in
+  `fn_param_types`/`fn_param_names`/`fn_return_type` and freed it. The bundle
+  produced correct output first and then aborted during teardown. It now zeroes
+  the struct, as the `Expr` and `Stmt` deserializers next to it already did.
+
+- **`zlib_decompress()`/`gzip_decompress()`/`zlib_compress_bound()` read the
+  wrong half of their size argument in compiled code.** All three took the
+  documented `i64` straight out of the value union, but callers pass an i32
+  literal — so the limit picked up whatever the union's high half held, and
+  `gzip_decompress(buf, 1000)` failed with "memory allocation failed" from a
+  multi-exabyte `malloc`. They now convert through the type tag and reject
+  non-positive sizes with a clear message.
+
+- **The duplicate-case lint depended on uninitialized memory.** Comparing two
+  integer literals compared both `int_value` and `uint_value`, but a signed
+  literal never sets `uint_value`, so `case 1:` appearing twice could look like
+  two different values and the warning silently vanished. The comparison now
+  follows the type flags, and the number-literal constructors initialize every
+  field.
+
+- The borrow checker now reports a leak when a resource is released on some
+  branches but not all. The branch merge already recorded that state and used it
+  for `possible double free: 'p' may already be freed on some paths`, but the
+  scope-exit leak check only looked at resources freed on no path at all, so
+  `if (retry) { free(p); }` leaked on `!retry` in silence while the mirrored
+  double free had warned since the merge landed.
+
+### Changed
+
+- **Corrected the documented severity of the UCRT throw-from-native-callback
+  crash.** `docs/advanced/windows.md` described it as ~1 in 25, measured from a
+  single sort-comparator fixture. Exception-heavy compiled code fails far more
+  often — `error_catchable` segfaults in 8 of 15 runs on pristine `main` under
+  UCRT64/GCC 16 — so the page now reports the real rate and says plainly that
+  compiled exception-heavy code on UCRT should be treated as unreliable. The
+  crash itself is unchanged and predates this release.
+
+## [2.9.1] - 2026-07-28
+
+Patch release. `array.sort()` was quadratic on inputs programs routinely
+produce, and crashed outright on large ones in compiled code.
+
+### Fixed
+
+- **`array.sort()` no longer degrades to quadratic time, and no longer segfaults on large sorted arrays.** The compiled runtime used a Lomuto-partition quicksort with a last-element pivot, no randomization, recursing on both halves — so sorted or reverse-sorted input hit the worst case in both dimensions at once: O(n²) comparisons *and* O(n) recursion depth. A presorted 200k-element array segfaulted from stack exhaustion, and 2000 elements took ~5 ms instead of ~0 ms. Sorted input is not an exotic case; it is what any incremental workload (re-sorting a mostly-ordered list each frame or each tick) produces by construction. The interpreter used an insertion sort — the mirror image: linear on presorted input, quadratic on shuffled.
+
+  Both backends now use the same **stable bottom-up merge sort**: O(n log n) comparisons on every input with no quadratic worst case, and iterative, so no array size can exhaust the C stack. Each merge first checks whether its two runs are already in order and skips the copy when they are, keeping fully sorted input at O(n) comparisons with no data movement.
+
+  Measured on the compiled backend: presorted 200k now sorts in 1 ms (previously segfaulted); presorted 2000 drops from ~5 ms to ~0 ms. Interpreter: 50k shuffled sorts in 7 ms.
+
+- **`sort()` is stable on both backends.** Quicksort is unstable and insertion sort is stable, so the two backends disagreed on the order of equal-comparing elements and `sort()` had no usable stability contract. Ties now keep their original relative order everywhere, and that is a documented guarantee rather than a backend-dependent accident.
+
+- **A comparator that throws leaves the array intact.** Each merge builds its output in scratch space and copies back only once complete, so an abandoned sort leaves the array a valid permutation of its elements — every element still present exactly once (the ordering is unspecified). The old interpreter path returned mid-shift, duplicating one slot and dropping an element, which corrupted reference counts.
+
+- **A comparator that resizes the array being sorted raises instead of corrupting memory.** Growing the array from inside a comparator reallocates the element storage out from under the in-progress merge. This now raises a catchable `sort() comparator resized the array being sorted` rather than being a use-after-free. Sorting a *different* array from inside a comparator is still fine.
+
+### Notes
+
+- Known limitation, unchanged in kind from `map()`/`filter()`: in compiled code a throwing comparator `longjmp`s past the sort and leaks the scratch buffer, since `hml_throw()` neither unwinds nor runs defers and there is no cleanup hook to attach the `free()` to. The array itself stays intact, which is the property that matters for reference counting.
+- New `tests/parity/methods/array_sort.hml` covers default and custom comparators, stability, presorted/reversed/shuffled input, edge cases, and the throwing-comparator path. Suites: 332/332 parity, 54 compiler; verified clean under valgrind on both backends.
+
+## [2.9.0] - 2026-07-27
+
+Semantics-hardening release. The theme is making the documented contracts
+actually true on both backends: integer arithmetic, type annotations, buffer
+safety, the async memory model, and reference counting were each formalized,
+audited against the implementation, and fixed where they disagreed. Adds
+`hemlock check` and a generated stdlib API index.
+
+### Added
+
+- **`hemlock check [--json] [--strict-types] [--borrow-strict] [--lint-strict] [--no-lint] FILE...`** — the compiler's static analysis as a first-class interpreter subcommand for editors, CI, and coding agents. Runs parse → resolve → lint → optimize → type check → borrow check without executing or generating code, and reports diagnostics from *every* pass instead of stopping at the first failing one (`hemlockc --check` stops). Text output is one gcc-style line per diagnostic (`file:line:col: severity: message [pass]`); `--json` emits a stable-schema object (version 1). Exit codes: 0 clean (warnings don't fail), 1 errors, 2 usage/I/O. The parser gained a structured error-collection mode with panic-mode recovery, so syntax errors carry line/column and multiple errors surface per run. New `tests/check` suite (`make test-check`, wired into `test-all` and CI). Docs: `docs/advanced/static-checking.md`.
+- **Generated stdlib API index — `docs/reference/stdlib-api-index.md`.** One line per exported symbol across all 53 modules (1050 exports), with signatures taken verbatim from source; native re-exports (`export let f = __f`) pull their parameter lists from module docs and are marked `[native]`. A complete, drift-proof map of the importable API surface that fits in a small context window. `make stdlib-api` regenerates; the new `make docs-check` runs `tests/check_docs.py` plus a freshness check and is wired into `test-all` and a no-build CI job (`check_docs.py` previously ran nowhere in CI).
+- **`docs/design/memory-safety-model.md`** — a scaled-down RustBelt-style formalization of "writing unsafe things safely": the invariants `buffer` maintains (B1–B8), a precise definition of the safe fragment, a memory-safety theorem with a proof sketch over the actual implementation, and a per-crossing proof-obligation catalog for every `ptr` operation. Auditing the implementation against it found the buffer soundness holes fixed below.
+- **`docs/advanced/memory-model.md` (normative)** — the cross-thread semantics of tasks and channels: the value taxonomy (copied at spawn vs reference-transferred via channels vs shared), the six happens-before edges, a race-freedom theorem for channel-disciplined programs, and the rule that shared bindings are *not* a communication channel (cross-task writes are data races; compiled module globals are unsynchronized C globals).
+- **Integer overflow policy, written down and pinned by contract tests.** New "Integer Overflow Policy" section in `docs/language-guide/types.md` (summarized in `CLAUDE.md`), plus contract suites covering wrap-vs-checked behavior, literal/variable consistency (constant folding is invisible), mixed-sign comparison, `/` always returning float, `&&`/`||` always returning bool, and shift/modulo width and sign rules.
+- **LSP: real multi-error syntax diagnostics.** Previously one generic "Syntax error" per document, positioned wherever the parser stopped and discarding the parser's message. Every syntax error is now published as its own diagnostic with the parser's real message and a token-accurate range.
+
+### Changed
+
+- **Variable type annotations are enforced on reassignment, in both backends.** `let x: i32 = 7; x = "hello";` used to silently rebind `x` to a string in the interpreter, and dynamic values (e.g. from untyped function returns) bypassed the compiler's static check entirely — only initial declarations were checked, despite the documented promise. Assignment now applies the same `convert_to_type` as the declaration: numeric coercion with range checks, catchable errors for invalid conversions. Environments record each let-binding's annotation (interpreter); codegen records primitive annotations for locals and main-level variables and emits `hml_convert_to_type` before the store, in both the boxed and unboxed paths. **This can turn previously-silent retypes into runtime errors.**
+- **Constant folding preserves runtime semantics exactly.** The frontend optimizer no longer folds i32/i64 overflow (`2147483647 + 1` threw at runtime but folded to an i64 at compile time), folds u64 literals in `uint64`, compares 64-bit ints in integer precision instead of through `double`, and folds shifts with i32 width semantics. Semantics-changing rewrites were removed: `x/1 → x` (returned an int where `/` must return float), `x+0`/`x*1`/`x|0`/`x<<0` (changed `typeof` for narrow operands), `!!x → x` and `-(-x) → x` (leaked non-bool values, skipped negation overflow), `x && true → x` (`&&` always returns bool). Short-circuit folding now only produces bool constants.
+- **Generated C and both build trees compile with `-fwrapv`,** so the documented wrapping semantics for narrow and unsigned types are well-defined rather than C undefined behavior.
+- **`buffer(0)` and negative sizes are a catchable error in both backends,** and buffers are zero-initialized everywhere. Previously the interpreter hard-exited uncatchably on `buffer(0)` while compiled code produced a 0-length buffer (and `null` for negative sizes), and interpreter buffers were `malloc`'d while compiled ones were `calloc`'d — the docs already promised zeroing.
+- **`free()` on a buffer with live slice views raises** instead of leaving the views dangling. Roots carry an atomic `view_count`; `slice()` increments it and view destruction decrements it. `buffer_ptr()` on a freed buffer raises instead of silently returning NULL, and a freed buffer's `.capacity` reports 0 in both backends.
+
+### Fixed
+
+- **`ptr == null` is now true for a NULL pointer in compiled code.** The compiled runtime compared type tags first, so a `ptr` holding NULL vs the `null` literal returned false — every `if (handle == null)` guard on an FFI result was dead code in compiled builds and a failed call was carried forward as a valid handle (this hit real guards in `@stdlib/mmap` and `@stdlib/http`). `switch`/`match` on a NULL ptr follow the same rule in both backends. Parity test: `tests/parity/language/ptr_null_comparison.hml`.
+- **Integer arithmetic is consistent across literals, variables, backends, and string concatenation.** The interpreter had a hidden integer-division mode inside string concatenation (`"x" + 7/2` gave `"x3"` interpreted, `"x3.5"` compiled); `INT_MIN % -1` was a process-killing SIGFPE (now 0); negating `INT32_MIN`/`INT64_MIN` silently wrapped (now throws "Integer overflow"); `hml_unary_op` negation mirrors the interpreter (negating i8 `-128` gave i32 `128` compiled vs i8 `-128` interpreted); native/unboxed fast paths emit overflow-checked code for i32/i64 (raw C signed arithmetic was UB and skipped the throw) and fall back to the runtime path when raw C semantics differ from promoted-type semantics; comparison operands are cast to the promoted operand type (`i8 -1 == u8 255` is true); `f32/f32` division keeps f32. Codegen's private constant folder was removed — after the frontend fix it only re-folded deliberately-unfolded expressions with the old broken semantics.
+- **30+ interpreter/compiler divergences found by a systematic codegen audit.** Expressions: string concat-chain flattening broke left-associativity (`1 + 2 + "x"` compiled to `"12x"`); unsigned/narrow unboxed operands collapsed into the signed fast paths (`u64 >> u64` returned a negative i64); indexing an unindexable type yielded null instead of a catchable error; object-literal string keys were interpolated into C unescaped. Pattern matching: OR-patterns with bindings failed to compile; define-typed patterns (`p: Person`) matched any object; failed sub-matches leaked the owned field value. Control flow: `break` inside a loop nested in a `switch` exited the whole switch; case values were all evaluated eagerly instead of lazily in order; `break`/`continue`/`return` crossing a `try` skipped finally blocks; labeled break/continue jumped over unboxed-accumulator write-back and released the target loop's iterable; enums declared inside functions failed to compile. Unboxing/closures: while-loop accumulator unboxing desynchronized closures reading the same variable; native locals modified in `try` bodies were indeterminate after `longjmp` (now `volatile`); `i = i + 1` counters wrapped where the interpreter throws; rune-typed lets unboxed to i32 (printing `65` for `'A'`); `EXPR_MATCH` was missing from closure free-variable and escape analysis. Calls: named arguments were bound positionally by the inliner and dropped by method calls; `print`/`write`/`eprint` interleaved argument evaluation with output; user bindings now shadow same-named builtins across the whole dispatch; string/file/channel-only methods had no receiver type guard, so user objects with those method names never dispatched (`buffer.to_string()` was missing entirely); `reduce(f, null)` treated an explicit null initial value as absent; `channel()` capacity was unvalidated; `ref` arguments passed `&int32` as `HmlValue*` (stack corruption), lost mutations for array-element and object-property refs, and truncated long identifiers into broken C symbols. Runtime: integer-overflow errors carry the interpreter's `[line N]` prefix.
+- **Reference-counting audit across the interpreter, compiled runtime, and codegen.** Interpreter: `ref` parameters over-released their argument slot (a deterministic use-after-free when the argument was a heap temporary); `defer` leaked the deferred call's result and clobbered the enclosing function's pending return value; `reduce()` on an empty array returned the initial value borrowed; `apply()` leaked defaulted heap parameters; `VAL_WEBSOCKET` was missing from `VALUE_NEEDS_REFCOUNT` (the same over-release class as the historical `VAL_SOCKET` bug); caught exceptions leaked their stack-trace frame until "Maximum call stack depth exceeded"; the dead `value_free()` API was removed. Compiled runtime: `HmlSocket` handles are now refcounted (accepted connections leaked struct, address string, and fd in long-running servers); `hml_free(buffer)` sets the freed flag so double-free is detected; `hml_throw()` consumes its argument instead of leaking one reference per throw (~50 MB per 300k throws); `select()`, `spawn_with`, and `poll()` leak fixes; `s[i] = c` on a pooled one-char ASCII literal mutated the shared static pool entry, rewriting every occurrence of that literal in the process (now copy-on-write). Codegen: parameters are promoted to owned references (assigning to a heap-typed parameter released the caller's reference — use-after-free); closure captures are released on early return; the catch parameter is cleanup-registered and `self` is snapshotted/restored when unwinding into catch or finally; rest-param calls, switch temps, and `free(x)` wrapper temps no longer leak.
+- **Unbuffered-channel rendezvous races.** A second concurrent sender staged its value over an already-staged one, silently dropping the first sender's message and leaking its reference (interpreter `send_timeout`; plain `send` and the compiled runtime already guarded). And multi-sender rendezvous had a lost-wakeup bug: success was detected as `sender_waiting == 0`, but another sender can re-stage before the first re-checks and `pthread_cond_signal` can wake the wrong sender — leaving a sender asleep forever despite its value being delivered. Both backends now use a per-channel rendezvous generation counter.
+- **Buffer use-after-free through slice views, and overlapping copies.** `free(b)` with a live view succeeded (the interpreter's refcount-threshold heuristic did not fire; the compiled runtime had no guard at all), leaving the view dangling with a stale length. `memcpy()`/`write_bytes()` between overlapping views of one root invoked C `memcpy` on overlapping ranges; buffer-to-buffer copies now use `memmove` (raw-`ptr` copies keep `memcpy` and its no-overlap obligation).
+- **Interpreter buffer bounds checks did not stop the access.** `runtime_error()` sets the exception state but does not unwind, and the index read/assign paths fell through and performed the access anyway: `b[-1] = 9` reported the error and still stored to `data[-1]`, smashing the malloc chunk header; `b[0]` after `free(b)` reported the error and still dereferenced NULL. Both paths now return early after every bounds/type check.
+- **`finally` blocks are run when the `catch` body throws (compiled).** The generated code popped the exception context before running `catch`, so a throw inside `catch` longjmp'd straight to the outer handler and skipped the finally code.
+- **Method extraction keeps `self` bound, and nested closures share captured variables (compiled).** `let g = o.get; g();` threw "Property access requires object" because the extracted function read an unset thread-local `self`; function-valued fields now carry their source object. And closures created inside an intermediate nested function captured a snapshot copy of the enclosing variable rather than sharing it (`1 2 0` instead of `1 2 2`); closure environments are now chained by parent link with an additive parent-slot encoding that composes across arbitrary nesting depth.
+- **hemlockc emitted invalid C when an inlined function's parameter name collided with a caller local.** The inline binding `HmlValue s = ...` shadowed a caller local `s` that had been unboxed to a native C type, and the subsequent native arithmetic was emitted against the boxed value — gcc rejected it with "invalid operands to binary +". Two programs differing only in a local variable's *name* would compile or not. Inlining is now declined for the colliding case (alpha-renaming inlined bodies is the tracked follow-up).
+- **`hemlock -e` silently ignored imports.** `run_source()` never routed through the module system, so `import { x } ...` bound nothing and every imported name was "Undefined variable". `-e` code with imports now executes through the module system under a virtual `<cwd>/<command-line>.hml` path, so `@stdlib` and relative imports resolve as they would for a file in the working directory.
+- **Parser segfault on `import`/`export` with a missing module path.** `import { sin } from` at EOF built the statement from a stale/NULL token string and crashed in `strdup` — in every consumer (interpreter, hemlockc, `hemlock check`, LSP).
+- **`codegen_remove_local` corrupted the locals array** by shifting entries; it now punches a NULL hole, fixing a compiler crash when module-function contexts reset and later restored `num_locals`.
+
+## [2.8.2] - 2026-07-25
+
+### Fixed
+
+- **Data race in the single-char ASCII string pool (runtime).** The 128-entry table was filled lazily behind a plain `static int initialized` on a path taken by every single-character string, so two threads could both run the fill, and the flag was published without a release barrier — a third thread could read a not-yet-published entry. ThreadSanitizer flagged it at `src/value.c:253`. The pool is now statically initialized, removing the race by construction along with 128 startup mallocs and a hot-path branch.
+- **`--strict-types` was unusable on multi-file projects.** A ~19k-line codebase produced 96 spurious "identifier has unknown type" warnings, all anchored at line 0. `STMT_IMPORT` was unhandled by the type checker (imported names resolved to nothing; they now bind `ANY`), identifier diagnostics never carried line numbers, and a forward reference from a function body to a module-level `let`/`const` declared later in the file was reported unknown. Same codebase now reports 0.
+- **Unknown named arguments are rejected at compile time.** The interpreter threw while the compiled binary silently bound them positionally — the same program behaved differently on the two backends.
+
+### Added
+
+- **Static lint pass** — unreachable code, dead branches, self-assignment, `% 0`, self-comparison, duplicate fields/cases, infinite loops that never fall through.
+- **Borrow checker: interprocedural consume detection,** container escape, and channel/task/FFI/mmap tracking.
+- **Compile-failure test fixtures self-declare** with `// @expect-compile-fail <reason>` in their first 20 lines instead of being tracked by a hand-kept path list inside the test runner.
+
+### Notes
+
+- This bump also corrected the self-reported version: the 2.6.1/2.6.2 binaries reported "2.6.0" because `version.h` was not bumped per patch tag.
+
+## [2.8.1] - 2026-06-10
+
+### Added
+
+- **Windows: native crypto hashing via CNG.** The `sha1`/`sha256`/`sha512`/`md5` builtins (and `@stdlib/hash` on top of them) now work on Windows in both backends, backed by Windows CNG (`bcrypt.dll` — a system DLL, so binaries stay self-contained) instead of throwing "not available (no OpenSSL)". The implementation is `hml_win32_hash()` in `src/shared/platform_win32.c` (declared in `hemlock_compat.h`), used by the interpreter's hash builtins and the compiled runtime's `hml_hash_*`; `-lbcrypt` is linked on all Windows builds, including hemlockc's generated link commands. Only the ECDSA builtins remain unavailable on Windows (`HEMLOCK_NO_OPENSSL` — CNG produces raw `r||s` signatures where the OpenSSL builtins produce DER, so there is no compatible mapping). Windows CI now asserts known `sha256`/`md5` digests in the interpreter and compiled smoke tests, native and under Wine.
+- **Compiled `@stdlib/mmap` fixed — three compiler bugs found by new gap-hunting tests.** A new `tests/stdlib_imports/import_all_stdlib.hml` (side-effect-imports every stdlib module without optional system-library deps; compiled by the repo-compile-check lane) plus new parity tests for argv quoting hazards, >64K dual-stream exec output, and builtin-method-name shadowing surfaced and led to fixing: (1) calling a `let`-bound module function from an object method emitted a nonexistent `_modN_fn_*` symbol — `@stdlib/mmap` never compiled (the long-standing compile-check failure); its internal calls now use the `__mmap_*` builtins directly. (2) `__mmap_open` as a function value had its `hml_val_function` num_params/num_required arguments swapped, so `mmap_open(path, mode)` failed arity-checking when compiled. (3) Compiled method dispatch routed `.read_u8()`/`.write_u8()`/`.read_bytes()`/`.write_bytes()` unconditionally to the buffer builtins and discarded the object fallback's return value for `.close()` — user objects with those method names (like `MappedFile`) only worked interpreted; the emission now guards on the receiver type and falls back to `hml_call_method`. `tests/stdlib_mmap` now passes identically in both backends. Windows CI gains argv-quoting round-trip (CRT parsing rules: embedded quotes, trailing backslashes, empty args, literal `%VAR%`) and large-output pipe-drain steps.
+- **Windows: `posix_spawn()` / `waitpid()` / `kill()` — background process management.** The detached-spawn trio now works on Windows in both backends, completing the practical process model (only `fork()`, wait-for-any `wait()`, and the uid family remain POSIX-only). `posix_spawn(argv, opts?)` runs on CreateProcess with the same options as POSIX: `env` arrays become an environment block, `cwd` and stdio-fd redirection work, `setsid` maps to `CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS`. Spawned pids keep their process handle in a registry (the Windows analogue of a POSIX zombie: no pid-reuse race, exit codes stay retrievable) until reaped by `waitpid()`, which supports blocking and `WNOHANG` modes and POSIX-encodes the status (`status >> 8` = exit code, same as Linux). `kill(pid, 0)` probes existence; other signals terminate with exit code 128+sig since Windows cannot deliver signals. Also fixed: `@stdlib/process`'s `waitpid` is now a wrapper with a defaulted `options` argument — the bare `__waitpid` re-export had fixed arity 2 in the compiled backend, so the documented one-argument form only worked interpreted (new parity test `tests/parity/modules/process_spawn_wait.hml`). Known pre-existing divergence left as-is: interpreted `kill()` throws on failure while compiled returns -1, on all platforms. Windows CI exercises spawn → WNOHANG probe → kill → reap, native and under Wine.
+- **Windows: `@stdlib/regex` works — bundled POSIX ERE engine.** MinGW has no `<regex.h>`, so Windows builds now vendor musl libc 1.2.5's TRE-based `regcomp`/`regexec`/`regerror`/`regfree` (2-clause BSD, `src/shared/regex_win32/` with local patches marked and documented in its README). The directory is on the include path for Windows builds only and compiled in via `src/shared/regex_compat.c` (a unity TU that is empty on POSIX), so the regex builtins now compile their unmodified POSIX code path on every platform and the Windows stubs are gone. Matching behavior is identical to Linux/macOS (the full regex parity tests pass under Wine in both backends); only error-message wording differs (TRE vs glibc). Both Windows CI jobs exercise named classes, intervals, alternation, and replace_all.
+- **`__term_*` terminal-control builtins; `@stdlib/termios` and `@stdlib/terminal` work on Windows.** Four new builtins in both backends — `__term_is_tty()`, `__term_raw(enable)`, `__term_read_byte(timeout_ms)`, `__term_size()` — backed by `src/shared/term_core.c` (POSIX termios/poll/`TIOCGWINSZ`; Windows console API with virtual-terminal input/output enabled, so arrow keys arrive as the same ESC sequences POSIX terminals send and ANSI output works). `@stdlib/termios` gains a Windows code path (raw mode, `read_key`, escape-sequence parsing unchanged) while its POSIX FFI path is untouched. `@stdlib/terminal` now gets the terminal size from `__term_size()` instead of shelling out to `stty`, and progress bars/spinners/`clear()`/`print_at()` use the `write()` builtin instead of spawning `printf` through a shell per frame — faster everywhere and the only way they could work on Windows. Parity test: `tests/parity/builtins/term_control.hml`.
+- **Compiler: FFI imports nested in platform gates now codegen correctly.** `import "lib"` inside `if`/`else` (how `@stdlib/termios` picks its per-platform libc) emitted `_ffi_lib_<name> = hml_ffi_load(...)` without ever declaring the global, so any program importing such a module failed to compile. The library-handle declaration pass now collects import paths recursively. Also, in builds without FFI support (`HEMLOCK_NO_FFI`, WASM), `import "lib"` statements and `extern fn` declarations now warn instead of throwing, so modules with platform-gated FFI still load; calling the extern still fails. (`ffi_open()` keeps its hard error.)
+- **Windows: `exec()` / `exec_argv()` via CreateProcess.** Command execution now works on Windows in both backends instead of throwing "not supported". Shell mode (`exec(cmd)`) runs through `%COMSPEC% /S /C` the way POSIX popen runs through `/bin/sh` (stdout captured, stderr inherited); argv modes (`exec(cmd, args)`, `exec_argv(argv, opts?)`) run the program directly with stdout and stderr captured and optional `stdin:` feeding, with arguments quoted per the `CommandLineToArgvW` rules so they round-trip intact. Launch failures mirror POSIX execvp: a result object with `exit_code` 127 and the message on `stderr`, so scripts can check exit codes portably. The engine is `hml_win32_run_capture()` in the platform layer (CreateProcess + pipes; stdin writer and stderr reader run on winpthreads threads so large outputs can't deadlock). This unlocks `@stdlib/shell`'s `run()`/`run_capture()` on Windows (with cmd.exe command syntax); the module's Unix-command conveniences (`ls()`, `which()`, …) remain Unix-only. Windows CI exercises shell mode, argv quoting, exit codes, missing-program 127, and stdin feeding, native and under Wine.
+- **`__random_bytes(n)` CSPRNG builtin; `@stdlib/uuid` works on Windows.** New always-available builtin returning a buffer of cryptographically secure random bytes — `BCryptGenRandom` on Windows, `/dev/urandom` everywhere else (Emscripten emulates it) — implemented in both backends. `@stdlib/crypto`'s `random_bytes()` now uses it instead of OpenSSL's `RAND_bytes` (same API, no longer needs libcrypto for this function), and `@stdlib/uuid` calls the builtin directly instead of importing `@stdlib/crypto` — previously UUID generation was broken on Windows because crypto's module-level `import "libcrypto.so.3"` cannot load there. `@stdlib/path`'s `expand_user()` now resolves `~` via the `__homedir()` builtin (`USERPROFILE` on Windows) instead of `$HOME`/`/home/<user>` guessing. Parity test: `tests/parity/modules/random_bytes_uuid.hml`.
+
+## [2.8.0] - 2026-06-10
+
+### Added
+
+- **Windows (MinGW-w64) support.** Both `hemlock` and `hemlockc` (plus `libhemlock_runtime.a`) now build for Windows, cross-compiled from Linux/macOS (`make mingw`, requires `gcc-mingw-w64-x86-64` + `libz-mingw-w64-dev`) or natively under MSYS2 (auto-detected). The binaries are self-contained (only system DLLs). What works on Windows: the full language core, async/`spawn`/channels/atomics (via winpthreads), TCP/UDP/AF_UNIX sockets and DNS (via winsock2/afunix), file/directory I/O (binary mode, no CRLF translation), `mmap` (emulated over `CreateFileMapping`/`VirtualAlloc`), zlib compression, and the stdlib built on those. FFI is fully supported when the MinGW toolchain has libffi (auto-detected; MSYS2 package or a one-time cross build from source — CI does both): `import "foo.dll"` loads via `LoadLibrary`, `extern fn` dispatches through statically-linked libffi, and Linux library names translate automatically (`import "libraylib.so"` finds `libraylib.dll`/`raylib.dll`), so raylib-style bindings build into Windows game executables unmodified. POSIX-only features throw a clear runtime error: `fork`/`exec`/`posix_spawn`/`kill`/uid family, POSIX regex, OpenSSL-backed hashes/ECDSA (`HEMLOCK_NO_OPENSSL`), and FFI only when libffi is absent (`HEMLOCK_NO_FFI`). New platform layer: `include/hemlock_platform.h` + `include/hemlock_compat.h` + `src/shared/platform_win32.c` (dlopen→`LoadLibrary`, `poll`→`WSAPoll`, `realpath`/`strndup`/`getline`/`mkstemps`/`setenv` shims). Module resolution understands `C:/`-style absolute paths. CI: `.github/workflows/windows-mingw.yml` cross-builds and smoke-tests both backends under Wine, and a `windows-native` job builds natively on a real Windows runner (MSYS2/UCRT64) and exercises the full `hemlockc` → gcc subprocess pipeline (whose `system()` invocation goes through cmd.exe — `shell_quote` now emits cmd-compatible double quoting on Windows instead of POSIX single quotes). Docs: `docs/advanced/windows.md`. POSIX builds are unchanged (all platform differences live behind `#ifdef _WIN32` / feature gates).
+
+## [2.7.0] - 2026-06-10
+
+Language-ergonomics and parity batch driven by feedback from production
+consumers (gn.hml, Witchgrid).
+
+### Added
+
+- **Object-literal method shorthand.** `{ fn name(...) { ... } }` is now accepted inside object literals as sugar for `name: fn(...) { ... }`. `async fn` and expression-bodied (`fn get(): i32 => ...`) forms work; entries stay comma-separated; `self` binds implicitly on method calls as before. Previously `fn` in an object literal was a parse error, forcing every callback-style API into the `name: fn() {}` spelling. Parity test: `tests/parity/language/object_method_syntax.hml`.
+- **Side-effect imports.** `import "./suite.hml";` and `import "@stdlib/module";` load, cache, and execute a source module without binding any exports — the test-runner pattern from `docs/proposals/source-side-effect-imports.md` (now implemented as its Option B). Bare imports of anything else (e.g. `import "libc.so.6";`) keep their FFI shared-library semantics; the explicit `.hml` extension (or `@` prefix) is what selects source-module loading. The old `import {} from "path"` workaround still works and the formatter normalizes it to the bare form. Parity test: `tests/parity/modules/import_side_effect.hml`.
+- **`string.rfind(needle)`** — codepoint index of the last occurrence, `-1` if absent, empty needle found at `string.length` (Python/JS behavior). Basename extraction is now `path.substr(path.rfind("/") + 1)` instead of `split("/")` + take-last. Parity test: `tests/parity/methods/string_rfind.hml`.
+- **One-argument `substr(start)`** — everything from `start` to the end of the string, in both backends and the compile-time type checker.
+- **`@stdlib/strings` `from_bytes(src)`** — build a string from a `buffer` or byte array. This is the documented replacement for the internal `__string_from_bytes` dunder that real projects had been reaching for. Parity test: `tests/parity/modules/strings_from_bytes.hml`.
+- **`@stdlib/bytes` float bit casts** — `f32_to_bits`/`f32_from_bits`/`f64_to_bits`/`f64_from_bits` (IEEE 754 reinterpretation). Binary-format parsers (GGUF metadata et al.) previously had no clean way to turn a `u32` read from a file into the `f32` it spells. Parity test: `tests/parity/modules/bytes_float_bits.hml`.
+
+### Fixed
+
+- **Compiled `substr()`/`slice()` used byte offsets where the interpreter uses codepoint offsets.** Any multibyte string diverged between backends and the compiled result could be invalid UTF-8 (`"héllo wörld".substr(2, 3)` returned `�ll` compiled vs `llo` interpreted). The compiled runtime now does the same codepoint-position arithmetic (with the same cached `char_length`) as the interpreter. Parity test: `tests/parity/methods/string_substr_slice_utf8.hml`.
+- **`string.find()` returned a byte index despite being documented as returning a codepoint index.** It now returns the codepoint index, so `s.substr(s.find(x))` composes correctly on multibyte strings (ASCII behavior is unchanged; `rfind` follows the same rule). Code that used `find()` results with byte-oriented APIs on multibyte strings should switch to `byte_at`/`to_bytes`.
+- **Parser infinite loop (then OOM kill) on certain syntax errors inside blocks.** A statement that errored without consuming the offending token — e.g. `let f = fn(self) { ... };`, since `self` is a keyword and not a valid parameter name — made `block_statement()` spin forever while appending error statements until the kernel killed the process with no diagnostic. The block loop now has the same forward-progress guard as `parse_program()`. Regression test: `tests/functions/fn_param_self_invalid.hml`.
+- **Formatter crash formatting star imports.** `import * from "module";` hit a NULL `namespace_name` append; it now formats correctly.
+- **Segfault passing a `buffer` to an FFI `ptr` parameter (interpreter).** `hemlock_to_c_value_fast()` marshaled every `TYPE_PTR` argument via `val.as.as_ptr`, so a `buffer` argument handed C the internal `Buffer` struct pointer instead of its data — `extern fn memset(p: ptr, ...)` called with a buffer wrote over interpreter memory and crashed. Buffers now marshal as `buf->data` (matching `ptr_read`/`ptr_write`, FFI struct-field marshaling, and the compiled runtime, which already did this). Strings passed where `ptr` is expected marshal their data pointer, and `null` marshals as `NULL` for both `ptr` and `string` parameters. Regression test: `tests/ffi/buffer_arg_test.hml`.
+- **Use-after-free passing sockets/websockets to `spawn()` (interpreter).** `value_deep_copy()` shared `VAL_SOCKET`/`VAL_WEBSOCKET` handles by reference *without* retaining them, while `task_free()` releases every task argument — each spawn dropped one reference, freeing the socket while the caller still held it (segfault after a few spawns). Deep copy now retains shared OS-resource handles, matching the channel/task/function cases and the compiled runtime's `hml_value_deep_copy`. Regression test: `tests/async/spawn_socket_arg.hml`.
+- **Memory leak deep-copying objects into spawned tasks (interpreter).** The object branch of `value_deep_copy()` retained each freshly deep-copied field value on top of the owned reference the copy already returned, and nothing released the extra one — every object field passed to `spawn()` leaked. The store now transfers ownership (the array branch was already balanced). Verified with valgrind: object-arg spawn loops now free all blocks.
+- **`VAL_WEBSOCKET` missing from value refcounting (interpreter).** WebSocket handles have an atomic `ref_count` with `websocket_retain`/`websocket_release`, but `value_needs_refcount()` and the `value_retain`/`value_release` switches omitted the type — storing a websocket in an array/object/variable skipped retains while container teardown released, the same class of over-release bug fixed for `VAL_SOCKET` in 2.6.0. Also added the missing `typeof()` names for `socket` (parity with the compiled backend), `websocket`, `ffi function`, and `ref`, which previously reported `"unknown"`.
+- **Data race on the global type registries (interpreter).** `define`/`enum`/`type` statements register types at eval time into global registries with open-addressed hash tables that are freed and rebuilt on growth, while spawned task threads do concurrent lookups (parameter type annotations, `convert_to_type`) — a rebuild racing a lookup is a use-after-free. All three registries are now guarded by a `pthread_rwlock` (write on register, read on lookup; registered type structs are stable until exit so returned pointers remain valid). Regression test: `tests/async/spawn_type_registry.hml`.
+- **Joinable pthread leak for dropped task handles (interpreter).** When the caller dropped a task handle racing the worker's auto-detach check, neither side detached the thread and its resources were never reclaimed. `task_free()` now `pthread_detach()`es a thread that was neither joined nor detached — the same safety net the compiled runtime gained in 2.5.7 (#583).
+- **HTTPS context leak in `http_request`/`*_timeout` builtins (interpreter).** `__lws_http_request`, `__lws_http_get_timeout`, `__lws_http_post_timeout`, and `__lws_http_request_timeout` each created a fresh `lws_context` and only destroyed it for plain HTTP (`if (!ssl)`) — every HTTPS call leaked an entire context. They also skipped `LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT`, unlike the GET/POST builtins. All five entry points now share `get_http_context()` (persistent SSL context, disposable plain-HTTP contexts). Also: a response that completed on the final poll iteration was misreported as a timeout (`timeout <= 0` checked instead of `!resp->complete`), and two error paths in `http_request`/`get_timeout` leaked the parsed custom headers.
+- **HTTP client hardening (interpreter).** Custom request headers containing embedded CR/LF (header injection / request splitting) are rejected; URL ports are validated to 1–65535 (previously `strtol` accepted any value including garbage, negative, or overflowing ports); the response-body accumulator guards its capacity arithmetic against `size_t` overflow.
+- **`dns_resolve()` thread-safety and crash (interpreter).** Replaced deprecated `gethostbyname()` + `inet_ntoa()` (both use static storage, racy across task threads) with `getaddrinfo()` + `inet_ntop()`; also fixes a potential crash dereferencing `h_addr_list[0]` without checking the list is non-empty.
+- **Socket I/O EINTR handling (interpreter).** `send`/`recv`/`sendto`/`recvfrom`/`accept` now retry on `EINTR` instead of surfacing a spurious "Interrupted system call" exception when a signal arrives mid-call (e.g. with `@stdlib/signal` handlers installed).
+
+- **`to_string` / `string_byte_length` as first-class values failed to link.** Their codegen value-wrap path (`__to_string` / `__string_byte_length`) referenced `hml_builtin_to_string` / `hml_builtin_string_byte_length`, which were never defined — any compiled program using either builtin as a first-class value (not a direct call) failed at link time with undefined symbols. Added the missing env-first wrapper shims (matching the sibling `hml_builtin_cstr_to_string` / `hml_builtin_string_from_bytes`). Regression test: `tests/compiler/builtin_value_to_string.hml`.
+- **hemlockc codegen correctness batch from a parity audit** (PR #592): width/signedness-correct integer comparisons and exact integer equality in `hml_binary_op` (u64 comparisons no longer go through int64, mixed-sign comparisons follow type promotion, boxed i32/i64 arithmetic throws on overflow); equality semantics mirror the interpreter (array == array errors, differing non-numeric types compare false); `++`/`--` preserve the operand's type and width in both backends (u16 65535++ wraps to 0, i64 no longer truncates through int32); `defer` evaluates its expression at function exit with current variable values, is scoped to the owning function via per-function defer frames, and runs during exception unwind; `finally` runs when the expression of a `return` inside `try` throws; captured locals are live-shared with closures (writes are visible both ways); escape analysis covers defer/try/for-in/switch/throw; non-finite float constants emit valid C (`INFINITY`/`NAN`); calls to undefined identifiers raise the interpreter's catchable error instead of a GCC failure; `char_at`/`byte_at`/string indexing throw on out-of-bounds; for-in re-checks the live iterable length; interpreter `print`/`write`/`eprint` accept multiple arguments; interpreter `array_set` no longer writes `elements[-1]` on negative-index errors; top-level defers run at normal program exit. 11 parity regression tests.
+
+## [2.6.2] - 2026-06-05
+
+Patch release on top of 2.6.0. Supersedes 2.6.1.
+
+### Fixed
+
+- **`to_string` / `string_byte_length` as first-class values now link in
+  compiled programs.** Their value-wrap path referenced
+  `hml_builtin_to_string` / `hml_builtin_string_byte_length`, which were never
+  defined, so any compiled program using either builtin as a value (not a
+  direct call) failed with undefined symbols. Added the missing env-first
+  wrapper shims.
+- **`HttpServer` no longer crashes on empty or malformed requests.** A
+  connection that sent no data — e.g. a browser's speculative preconnect
+  socket — crashed `handle_one()` and took down the whole server.
+  `handle_one()` now drops empty reads and `_parse_request()` guards against a
+  short request line.
+- **Signals in compiled programs are delivered to the main thread, and
+  zero-parameter handlers no longer crash.** Compiled worker threads didn't
+  mask signals, so SIGTERM/SIGINT/SIGHUP could run the handler on a worker
+  holding a runtime lock; worker threads now block all signals, matching the
+  interpreter. Handlers were also always called with one argument, so a
+  `fn() { ... }` handler (as used by `on_shutdown`) threw "expects 0
+  arguments, got 1"; handlers are now invoked with the arity they declare.
+
+### Notes
+
+- `include/version.h` was not bumped for this release: the 2.6.2 binaries
+  report themselves as **2.6.0**.
+
+## [2.6.1] - 2026-06-04
+
+**Regressed build — do not use.** Use 2.6.2 or later.
+
+### Notes
+
+- The `v2.6.1` tag was created on a stale branch carrying v2.3.1-era code, not
+  on v2.6.0. Relative to 2.6.0 it removes ~3,466 lines across 89 files,
+  reverting every change from 2.4.0 through 2.6.0.
+- `include/version.h` in this build reports **2.3.1**.
+- 2.6.2 was rebuilt correctly on v2.6.0.
+
+## [2.6.0] - 2026-06-03
+
+Static-by-default linking on Linux, so compiled binaries are self-contained and portable across distros.
+
+### Changed
+
+- **`hemlockc` now links statically by default on Linux.** The volatile native libraries (libffi, libwebsockets, libssl, libcrypto, libz) are linked statically (`-Wl,-Bstatic … -Wl,-Bdynamic` for the stable ones — glibc, libcap, libuv, libev); the result is a standalone binary that doesn't depend on the host's versions. macOS continues to link dynamically by default (its system libraries are versioned consistently). Opt out with the new **`--dynamic`** flag.
+
+### Fixed
+
+- **HTTP/WebSocket SIGSEGV when a Hemlock binary meets a different libwebsockets at runtime.** libwebsockets does *not* keep `lws_context_creation_info` ABI-stable across releases — between 4.0 (Ubuntu 22.04) and 4.3 (Ubuntu 24.04) it **reordered** fields (`port` 0→96, `options` 104→440, `protocols` 16→8, …). A dynamically-linked binary built against one version mis-reads the struct against another and crashes in `lws_create_vhost`/`lws_snprintf` on the *first* HTTP/WS call. Confirmed with `offsetof()` across both libraries and reproduced via Witchgrid (whose agent died on its first `/register` POST on a 24.04 runner). Static linking removes the runtime dependency on the host's libwebsockets entirely. (Over-zeroing the struct, attempted in an unreleased build, can't fix *reordered* offsets.)
+- **Use-after-free for sockets stored in arrays/objects (interpreter).** `VAL_SOCKET` was missing from `VALUE_NEEDS_REFCOUNT`, so the `VALUE_RETAIN`/`VALUE_RELEASE` macros were no-ops for sockets — storing a socket in a collection (array push, object literal, variable read) skipped the retain, but `array_free_internal`/`object_free_internal` release fields via the `value_release()` function directly. The net over-release freed sockets that were still in use, e.g. `poll()`'s input/result arrays, causing a flaky `SIGABRT` (`tcache unaligned chunk`) — the actual cause of the macOS CI failure on `async_io/poll_basic`. Fixed by adding `VAL_SOCKET` to the macro so it matches the `value_retain`/`value_release` switch. Regression test: `tests/stdlib_net/socket_refcount.hml`.
+- **Compiled builtins used as first-class values shifted their arguments.** stdlib re-exports like `export let poll = __poll;` route calls through the function-value dispatch path, which invokes `f(env, args...)`. Several raw builtins (`poll`, `open`, `raise`, `signal`, `string_concat_many`, `task_debug_info`) take no `env` parameter, so every argument shifted by one — `env` arrived where the first real arg belonged. `poll([], 0)` then failed with "poll() expects array as first argument". On Linux the uncaught exception exited 0 (silently masking it); on **macOS it aborted (SIGABRT)**, which is how CI surfaced it on the compiled `poll_basic` test. Fixed with env-first wrapper shims (`hml_builtin_poll`, etc.) that the value-dispatch path calls correctly. Builtins invoked by their direct intrinsic name (the common case — e.g. `open(...)` from `@stdlib/fs`) were never affected. Regression test: `tests/async_io/builtin_first_class_value.hml`.
+
+### Notes
+
+- Compile-time FFI (`extern fn`, e.g. `@stdlib/sqlite`) still works under static linking; the linked-by-FFI libraries (libsqlite3, …) stay dynamic, which is fine since they keep stable ABIs. Only **runtime FFI** (`ffi_open`/`ffi_bind`) is unavailable in static builds — use `--dynamic` for those.
+- A release built on one distro still static-links *that build host's* libwebsockets, so building on a host whose libwebsockets matches the release is the current guidance; bundling the release's own static libs (for full build-host independence) is a tracked follow-up.
+
+## [2.5.7] - 2026-06-02
+
+Two resource-leak fixes for long-running concurrent and server programs.
+
+### Fixed
+
+- **`runtime/src/value.c` — `task_free()` leaked joinable pthreads for dropped async tasks (#583).** A task handle dropped without an explicit `join()`/`detach()` left its pthread joinable, so the thread's resources were never reclaimed even after the task completed — a program that `spawn`s tasks and drops their handles slowly bled thread state. `task_free()` now `pthread_detach()`es the thread as a final safety net when it was neither joined nor detached. Applies to the compiled runtime. Surfaced by a ThreadSanitizer leak in the concurrency stress suite.
+- **`SocketHandle` refcount — accepted sockets leaked (#584).** `SocketHandle` had no ownership tracking, so the per-connection sockets returned by `accept()` were never freed. Added an atomic `ref_count` field plus `socket_retain()` / `socket_release()` (`include/runtime/types.h`, `include/runtime/memory.h`, `src/backends/interpreter/builtins/net.c`, `src/backends/interpreter/values.c`) and routed the accept path and socket value lifetimes through them. Closes the ~50 B/connection accepted-socket gap that the 2.4.10 / 2.4.11 notes tracked as "needs a socket-lifetime refcount change." Applies to the interpreter backend.
+
+## [2.5.6] - 2026-05-18
+
+Property-assignment RHS leak — the property-assign twin of the 2.4.11 indexed-assignment leak. `obj.field = <expr>` leaked `<expr>` on every assignment.
+
+### Fixed
+
+- **`src/backends/compiler/codegen_expr.c` — `EXPR_SET_PROPERTY`.** `codegen_expr` returns the RHS owned (+1); `hml_object_set_field()` takes its own reference and the assignment-expression result took an independent `hml_retain`, but the RHS creation reference was never released — so every `obj.field = value` orphaned `value`. 2.4.11 fixed exactly this for the indexed-assignment path (`obj[k] = v`) but the property-assignment path was missed. Added the matching `hml_release_if_needed(&value)`.
+- Real-world impact: Witchgrid's `samples_for_dashboard()` does `bundle.ram = fetch_samples(...)` (and similar) per node per dashboard request, leaking the returned array every time — the dominant residual after the per-connection `routes` deep-copy fix. LSan on the real control-plane binary: the `fetch_samples`-rooted leak (~750 KB / run, ~96% of the post-routes-fix residual) is eliminated by this; rebuilding any Hemlock service on 2.5.6 fixes it with no application change.
+
+### Validated
+
+- New leakhunt + CI stress guard `obj_assign_call_rhs_leak.hml`: property-assign and index-assign of an owned call result into object fields — **leaked 240,000 B / 1500 iters pre-fix → 0 post-fix**. Linux full parity **259/259** (0 interpreter-only, 0 compiler-only); macOS parity at known baseline; stress suite green (lsan/none/asan). Mirrors the 2.4.11 fix + its `objset_leak` guard.
+
+## [2.5.5] - 2026-05-18
+
+Interpreter concurrency fix — corrupted reads of a shared object from spawned tasks. A program that `spawn`s tasks which concurrently read a shared object tree (the Witchgrid dashboard's `render_capabilities()` shape — a stress test models it) intermittently threw `Only strings, buffers, arrays, and objects have properties` deep in a worker.
+
+### Fixed
+
+- **`src/backends/interpreter/values.c` — `object_lookup_field()` / `object_lookup_field_with_hash()` lazily rebuilt the hash table on the READ path.** Object literals / JSON reach readers with `hash_table == NULL`; N spawned task threads first reading the same shared object all entered `object_hash_rebuild()` and raced on `free(obj->hash_table)+malloc()` — heap corruption surfacing as a bogus "key not found", so `obj[key]` returned `null` and the next `.field` access threw. This is exactly the 2.4.5 bug — which was fixed **only in the compiled runtime**; the interpreter's copy was never given the same treatment. Fix: never rebuild on read; fall back to a lock-free, non-mutating linear scan when no hash table is present (the hash table is still built eagerly by the mutation path). Mirrors the 2.4.5 compiled-runtime fix.
+- **`src/backends/interpreter/runtime/expressions.c` (get/set property) — per-AST-node property inline cache (`PropertyIC`) is shared across all spawned task threads and was mutated unsynchronized.** Concurrent threads resolved a torn `(cached_object, cached_field_index, ic_state)` group → wrong field. Added a monotonic `g_interp_has_spawned` flag (set in `builtins/concurrency.c` before any `pthread_create`); once any task has been spawned the inline-cache fast-path is bypassed in favor of the lock-free lookup. Single-threaded programs keep the cache unchanged (no perf regression).
+
+### Validated
+
+- Repro (`tests/stress/concurrent_string_build.hml` via the interpreter): **~10% failure pre-fix → 0/50 post-fix**. Linux full parity **259/259** (0 interpreter-only, 0 compiler-only); macOS full parity at known baseline; stress suite **9/9** (`none` + `asan`). Compiled-runtime path unaffected (it already had the 2.4.5 fix). Process note: 2.5.4 validation ran parity + stress *lsan* only; the full stress suite (all modes) is now part of the gate.
+
+## [2.5.4] - 2026-05-18
+
+Per-spawn argument leak fix — a dominant Witchgrid control-plane per-connection bleed. Every `spawn(fn, args…)` / `spawn_with(opts, fn, args…)` leaked each heap argument once per spawn.
+
+### Fixed
+
+- **`src/backends/compiler/codegen_call_async.c` — `spawn`/`spawn_with` argument ownership.** `codegen_expr` returns an owned (+1) temporary for each argument expression; `hml_spawn()` / `hml_spawn_with()` **deep-copy** their args (the task owns the copies — see `task_free`), so they do **not** consume the caller's references. The codegen released `fn_val` (and `opts_val`) but never released the argument temporaries `_spawn_args[i]` / `_spawn_with_args[i]` — so every heap-typed spawn argument (strings, arrays, objects, request data) leaked once per spawn. For a server that does `spawn(handler, request…)` per accepted connection (the Witchgrid CP/agent pattern) this leaks per connection, unbounded. Fix: release each arg temporary after the `hml_spawn[_with]()` call, mirroring the existing `fn_val`/`opts_val` releases. Safe — `hml_spawn` deep-copies synchronously before returning, so the post-call release cannot race or double-free.
+- Found by the per-construct leakhunt harness: a new `tests/leakhunt/spawn_fireforget_leak.hml` (fire-and-forget spawn with a heap arg, the CP shape) leaked 56 B/spawn (`hml_val_string_owned ← hml_string_concat`, the arg temp) — `spawn_join_leak.hml` missed it only because its argument is a non-heap `i64`. Now PASS; `spawn_join_leak` still PASS. Validated full parity **259/259** on Linux and macOS, 0 interpreter-only / 0 compiler-only.
+
+## [2.5.3] - 2026-05-18
+
+macOS heap-corruption fix. Explicit `free()` of a refcount-managed buffer was a **double-free + use-after-free**: `hml_free()` on a `HML_VAL_BUFFER` freed both the backing data *and* the `HmlBuffer` struct, but the value is still owned by the refcount system — a top-level `let buf = buffer(N)` is released by `hml_release_statics()` at process exit (and locals by ordinary scope cleanup), and that path calls `buffer_free()` on the same struct, freeing `buf->data` and `buf` a second time. glibc silently tolerates it (Linux parity stayed green, masking the bug); macOS `libsystem_malloc` (`find_zone_and_free`) aborts with `SIGABRT`. The 2.5.2 fatal-signal backtrace handler made it loud, so it surfaced as parity divergence: programs printed the correct output, then dumped a crash trace on exit.
+
+### Fixed
+
+- **`runtime/src/builtins_memory.c` — `hml_free()` buffer branch.** Now frees only the backing allocation, sets `data = NULL` / `length = 0`, and leaves the `HmlBuffer` handle to the refcount system. The later `buffer_free()` (and any repeated `free()`) becomes a safe no-op — the struct is freed exactly once, the backing exactly once. No semantic change: explicit `free(buf)` still releases the large allocation immediately; the small handle is reclaimed at end of life.
+- Eliminated all 8 macOS interpreter-only parity divergences (`buffers`, `memory`, `buffer_slice`, `buffer_typed_rw`, `file_read_binary`, `ptr_buffer_direct`, `type_checking`, `write_file_buffer`). Linux full parity unchanged at **259/259, 0 interpreter-only**; macOS interpreter-only **8 → 0**. Found by building 2.5.2 on macOS arm64 and reading the `SIGABRT` backtrace (`buffer_free ← hml_release ← hml_release_statics ← main`).
+
+## [2.5.2] - 2026-05-18
+
+Regression fix. **2.5.0 and 2.5.1 are broken — upgrade to 2.5.2.** The closure-capture (`881b5c1b`) and throw-unwind (`a3f55089`) codegen leak fixes in 2.5.0 were validated only against the leak harness, not the parity/language suite, and generated invalid C (`hml_release(&x)` for identifiers not in lexical scope) for several exception / closure / scope constructs — the compiler **failed to compile** `exceptions`, `error_handling`, `error_catchable`, `nested_exceptions`, `try_early_exit`, `closure_scoping`, `nested_scopes`, `scope_shadowing` (CI red, notably macOS).
+
+### Fixed
+
+- **Reverted both mis-scoped codegen leak fixes** (`881b5c1b`, `a3f55089`). Root cause: both routed capture/local releases through `codegen_emit_local_cleanup`, which is called from many scopes — emitting `hml_release` for variables whose C declarations only exist inside the closure body / a different scope, so the generated C did not compile. Reverted to restore correctness; full parity re-validated at **259/259 (100%)**, zero compile failures, zero output differences.
+
+### Retained (unaffected by the revert)
+
+- The **`@stdlib/sqlite` bind-leak fix** (2.5.1) and the earlier 2.5.0 leak fixes (`for-in`/`obj.keys()`, indexed-assignment RHS temp, `string.split`, JSON `is_pooled`, immortal-string-pool UAF, concurrent `obj[key]` corruption) are stdlib/runtime or independent codegen fixes, not implicated in the compile failures, and remain — parity-clean.
+
+### Known issues
+
+- The closure-capture-on-explicit-return and throw-unwind local leaks are **back to known-issue status** (as before 2.5.0), alongside `throw_indirect`. They need a correctly-scoped reimplementation (release at the closure-body / throwing-function exit where the C vars are in scope, NOT in the universally-called cleanup helper) and **must be validated against the full parity suite**, not just the leak harness, before re-landing.
+
+## [2.5.1] - 2026-05-18
+
+Patch on 2.5.0's memory-correctness work. After 2.5.0 the leakhunt synthetic corpus showed the common per-request *codegen* paths were clean, yet the Witchgrid control plane was still growing. Instrumenting the **real `cp.hml` binary** under LeakSanitizer (the synthetic loop was deliberately set aside as too generic for this) pinpointed the dominant remaining bleed in the stdlib, not codegen.
+
+### Fixed
+
+- **`@stdlib/sqlite` leaked a C string/blob on every parameterized query.** `bind_value` allocated a cstr via `__string_to_cstr` (or a blob via `alloc`) for each string/blob parameter and passed `destructor = null` to `sqlite3_bind_text`/`sqlite3_bind_blob` — that's `SQLITE_STATIC`: SQLite neither copies nor frees the buffer, and the binding never freed it. Every query with a string/blob parameter leaked. With a server hitting sqlite on essentially every request (the Witchgrid CP: `/register` upserts, resolve lookups, dashboard sample fetches) this was the dominant production bleed — LSan on the real CP under representative load showed `hml_string_to_cstr ← bind_value ← exec`/`query` as the top allocation site (~756 KB / ~40 K objects per 600 requests). Fixed by wrapping libc `free` once as a C-callable destructor (`__callback(__sqlite_free_destructor, ["ptr"], "void")`) and passing it as the bind destructor: SQLite now frees each value itself exactly when it's done with it (after step / finalize / reset / rebind). Fixes all six `bind_value` callers — `exec`, `query`, `query_value`, and the prepared-`Statement` API including the cross-call `stmt_bind` — with no caller changes, and ASan-verified to introduce no use-after-free / double-free.
+
+### Known issues (characterized, tracked)
+
+- The real-CP LSan run also pinpointed further **stdlib/runtime** ownership leaks (codegen ruled out — synthetic repros of the same shapes are clean): `@stdlib/http` leaks a string per request, `hml_spawn` leaks the `hml_value_deep_copy` of task args per spawned task, `@stdlib/net`'s `_TcpStream_from_socket` leaks an object per accepted connection, and `getenv` via `shared_secret` leaks per call. These are the subject of an in-progress stdlib-wide leak audit; each is a contained ownership fix in the same vein as the sqlite one. `throw_indirect` (intermediate-frame unwind) remains as in 2.5.0.
+
+## [2.5.0] - 2026-05-17
+
+A memory-correctness release. Driven by the Witchgrid control plane bleeding hundreds of MB over days in production, this is a sustained refcount/ownership audit of the compiled runtime: a per-construct LeakSanitizer harness was built to isolate codegen leaks (generated C has no `#line` info, so whole-program leak reports are unactionable — each micro-repro exercises one construct so a hit maps to one codegen path), and the backlog was drained construct by construct. Net effect: the long-running per-request bleed is root-caused and fixed across the for-in, indexed-assignment, string, exception, and closure-capture paths, plus two concurrency UAF/corruption fixes. One exception-unwind leak remains, characterized and deferred (see Known limitations).
+
+### Added
+
+- **Per-construct leak-hunt harness (`tests/leakhunt/`).** A driver + single-construct `*_leak.hml` micro-repro corpus that compiles each under LSan with a cached instrumented runtime (fast fix-loop verify) and captures the full leak report per construct. `tests/leakhunt/README.md` documents the detect→localize→fix→regression-lock loop and the fix-pattern taxonomy so the audit is repeatable.
+- **Concurrency / lifetime stress harness under ASan / TSan / LSan.** `tests/stress/run_stress.sh` builds every `tests/stress/*.hml` as a native binary (refcount-exhaustion and concurrent heap-corruption bugs only manifest in the compiled runtime, not the interpreter) and runs it under an optional sanitizer; the `lsan` lane is a green regression guard for every leak fixed below.
+- **Fatal-signal backtrace handler** (`-rdynamic`) for in-place crash diagnosis — a SIGSEGV/SIGABRT now prints a symbolized backtrace instead of dying silently.
+
+### Fixed
+
+- **`for k in obj.keys()` / `for x in <call>()` leaked the entire iterable + every element on each execution.** Two compounding bugs: for-in codegen retained the iterable then released it only once, never consuming the owned `+1` the iterating expression returned (the array, its elements, and backing store all leaked); and `hml_object_keys()` pushed `hml_val_string()` temps into an array whose `push()` retains, orphaning each key string's creation ref. A dashboard rendering `caps.keys()` / `flags.keys()` per request bled multiple MB/min. The redundant for-in retain was subsequently dropped for *all* iterable kinds (ident / array-literal / index / member), not just the `obj.keys()` subcase — this was the primary multi-GB Witchgrid control-plane bleed (a `for tk in ts` per request).
+- **Indexed assignment `obj[k] = v` / `arr[i] = v` leaked the RHS temp** on every store — pervasive, since indexed assignment is ubiquitous. Codegen now releases the RHS temporary after the store retains it.
+- **`string.split(delim)` leaked every result piece.** Each part was created via `hml_val_string_owned` (refcount 1) then `hml_array_push`'d — push retains (→2) — but `split` never released the creation ref, so every piece leaked even after the result array was freed. Same orphaned-creation-ref class as the `obj.keys()` bug; all three push sites (empty-delim char split, delimiter match, trailing remainder) fixed.
+- **`throw` leaked every live heap local in the throwing function.** `STMT_THROW` emitted `hml_throw(v)` directly; `hml_throw` longjmps and never returns, so the function's normal-path local releases (the cleanup `return` runs) were skipped — every array/object/string built before the `throw` leaked, per throw, on hot error paths. `throw` codegen now emits the same scope cleanup `return` does before unwinding (the thrown value is a separately-retained copy, so it survives).
+- **Closure captures leaked on every explicit `return`/`throw` from a closure.** The closure-body prologue `hml_closure_env_get`s each capture (which retains); its matching release was emitted only by a loop at the *implicit fall-through* return, leaving it as dead code after any explicit `return`. Capture release is now centralized in the single function-exit cleanup helper that all exit paths (return / throw / fall-through) call — also fixing captures leaking on the exception path — and the redundant explicit loop removed.
+- **Hand-built JSON objects missing `is_pooled` initialization** caused a multi-GB serialization leak — objects constructed directly by the JSON path bypassed pool accounting and were never reclaimed.
+- **Immortal ASCII string pool is now frozen**, fixing a use-after-free after ~1M releases (the shared single-char/short-string pool entries could be driven to refcount 0 and freed while still globally reachable).
+- **`object_lookup_field` is now a lock-free read-only path**, fixing concurrent `obj[key]` heap corruption under multi-threaded reads.
+
+### Known limitations
+
+- **`throw_indirect`: a `throw` propagating through intermediate frames that hold heap locals leaks those frames' locals.** `hml_throw` longjmps straight to the nearest `try`'s `setjmp`, skipping every C frame in between, so a caller frame that is neither the thrower nor the catcher never releases its locals. This is narrower than the fixed leaks (only bites a heap-local-holding frame that is *skipped* by a propagating throw) but is real. It is not a leak fix but an exception-model change: a per-function `setjmp` shim is infeasible (Hemlock declares locals at-use, often in nested scopes — a prologue landing pad cannot reference them), and the correct approach is a runtime cleanup-registration stack walked by `hml_throw` before its `longjmp`. Characterized with a committed repro (`tests/leakhunt/throw_indirect_leak.hml`) and a full corrected design + validation-gate set in `tests/leakhunt/README.md`; deferred to its own reviewed change.
+
+## [2.4.1] - 2026-05-14
+
+Patch release covering three issues surfaced while building Witchgrid's agent-restart adoption path. All three have direct repros and concrete operator pain — fast follow on top of 2.4.0.
+
+### Added
+
+- **`file.read_binary()`** on `@stdlib/fs.open(...)` — returns a buffer instead of going through `val_string`'s strlen-truncate, so reading nul-containing files (e.g. `/proc/<pid>/cmdline`, binary blobs) preserves every byte. Mirrors the `stream.read_binary()` shipped in 2.3.1.
+- **`exec_argv(...)` `stdin` option** — accepts a string that gets piped into the child's stdin via `pipe(2)`. Removes the `sh -c "cmd < file"` wrapper pattern operators were using to feed data into a child without writing a temp file.
+
+### Fixed
+
+- **TCP listener and accepted-client socket fds now set `FD_CLOEXEC`.** Without this, sockets created via `@stdlib/net` (or any direct socket builtin) were inherited by `posix_spawn`'d children. Concrete failure mode: a long-lived child process held the parent's listening socket alive across the parent's death, so after a `kill -9` the listener stayed bound (kernel keeps the fd alive while any process holds a reference) and a fresh parent couldn't restart on the same port until every inheriting child also exited. `fcntl(fd, F_SETFD, FD_CLOEXEC)` runs immediately after `socket(2)` in `hml_socket_create` and after `accept(2)` in `hml_socket_accept`. `dup2` within `posix_spawn`'s file_actions block clears CLOEXEC on the duped fd per POSIX, so the existing "redirect log_fd to stdout" pattern keeps working.
+- **macOS Hemlock build path harden + clearer install docs** (originally on the `mac-build-docs` branch, cherry-picked onto main post-2.4.0). Runtime Makefile now probes `/opt/homebrew/include` and `/usr/local/include` when `pkg-config` is missing, and the install guide names the symptom of the "Undefined symbols: _hml_lws_http_stream_read_binary" link error so future operators on a fresh Apple Silicon checkout recognize it.
+
+## [2.4.0] - 2026-05-13
+
+A batch release driven by ten issues surfaced during Witchgrid's CP↔agent shared-bearer auth bring-up. Most of the fixes unblock real-world HTTP and concurrency patterns; the rest are ergonomics that make the compiler easier to live with.
+
+### Added
+
+- **`string.lower()` / `string.upper()` aliases** for `to_lower` / `to_upper`. Matches the spelling reach of Python/JS/Ruby and removes a runtime "String has no method 'lower'" papercut for anyone porting code in.
+
+### Fixed
+
+- **`@stdlib/http` POST/PUT/DELETE/PATCH now actually send custom headers.** The wrappers accepted a `headers` array but `http_request_with_redirects` and `http_request_timeout_with_redirects` only scanned it for `Content-Type:` and dropped the rest, so `Authorization`, `X-Request-Id`, etc. never reached the wire. GET worked because `__lws_http_get_with_headers` already used the `custom_headers` plumbing in the LWS callback. New `__lws_http_post_with_headers` / `__lws_http_request_with_headers` (and their `_timeout` siblings) thread the full headers array through, and the stdlib wrappers call them when `headers != null && headers.length > 0`.
+- **Interpreter named-module imports are live bindings, not import-time snapshots.** `import { X } from "mod"` used to install a value snapshot of `X` taken at import time, so reassigning the exported `let X` in the source module was invisible to the importer (and to any tasks `spawn`'d from the importing scope). The compiler already used live bindings; the interpreter now matches. Practical impact: code like `let SECRET = ""; fn init() { SECRET = getenv(...); }` in a module now propagates the post-init value to spawned heartbeats / accept workers, instead of those tasks snapshotting `""` at spawn time.
+- **Flow null-narrowing propagates through `?.` field access.** A `if (x == null) { return; }` immediately above a use of `x` (or a value derived from `x?.field`) now narrows correctly, so call sites no longer need a shadow `let nn = x;` rebind purely to satisfy the type checker.
+- **Type error labels name the parameter instead of `'positional'`.** Errors on argument-type mismatches used to read `argument 'positional' to 'fn_name'`, which gave no hint about which arg in a multi-arg call was wrong. Now they identify the parameter by name (or by 1-based index when the callee is anonymous).
+- **`get_binary` follows 3xx redirects.** Previously stopped at the first redirect, which broke pulls of GitHub release tarballs (GitHub redirects to `objects.githubusercontent.com` to S3). Same redirect-chain limit as the text path (10 hops).
+- **C codegen no longer prefixes call symbols with surrounding-scope tokens.** Call sites inside a function whose parameter happened to share a prefix with the called function's name (e.g. calling `cp_post_json(agent_url + ...)` inside `port_free_on_agent(agent_url: string, ...)`) were mangling to `hml_fn_agent_cp_post_json` because the codegen accidentally prepended a token from the parameter name. Symbol generation is now stable regardless of the surrounding identifier set.
+- **macOS libwebsockets startup picks up Homebrew's CA bundle by default.** `lws_create_context` was failing on Apple Silicon with `Failed to create default vhost` unless the user set `SSL_CERT_FILE=/opt/homebrew/etc/openssl@3/cert.pem`. The runtime now probes the Homebrew openssl@3 bundle automatically when running on Darwin, with a clearer error message if the bundle isn't found at all.
+- **Default one-shot LWS HTTP timeout lowered** from ~30000ms to 5000ms across `__lws_http_get`, `__lws_http_post`, `__lws_http_request`, and the `_with_headers` variants. A single failed connect/request used to wedge the caller for half a minute; now it surfaces in 5s. The `_timeout` variants still honor their per-call timeout argument.
+
+### Documentation
+
+- Side-effect imports — using `import "./mod";` for modules that need to run boot code without exporting anything — are now documented as a deliberate pattern, with a worked example. The interpreter and compiler both supported it; only the docs were missing.
+
+## [2.3.1] - 2026-05-12
+
+### Added
+
+- **`@stdlib/http.download_streaming(url, output_path)`** — bounded-memory HTTP download for large artifacts (model weights, archives, anything multi-GB). Opens a stream, reads buffer chunks, writes them straight to disk via `<path>.partial` then atomic-renames on completion. Returns `{status_code, bytes_written}` on success, throws on non-2xx.
+- **`stream.read_binary(timeout_ms)`** on the `stream()` return object — same poll loop as `read()` but returns a buffer using the chunk's actual byte length, preserving 0x00 bytes that would have terminated a string read early. Use for downloading non-text content over a streamed connection.
+- **`__lws_http_stream_read_binary(stream, timeout_ms)`** runtime + interpreter builtin that backs `stream.read_binary`.
+
+### Fixed
+
+- **`@stdlib/http.download(url, output_path)` actually writes the response body now.** The previous implementation called `f.write(response.body)`, which silently no-op'd in the compiled binary (writing a zero-byte file) and threw `"write() expects string argument"` in the interpreter. Now uses `__open(...).write_bytes(buf)` — same pattern `compression.hml`'s gunzip pipeline already uses.
+
+## [2.3.0] - 2026-05-12
+
+### Added
+
+- **Streaming HTTP in `@stdlib/http`** — chunked / SSE-friendly streaming client built on the already-bundled libwebsockets. New exports:
+  - `stream(method, url, body, headers, timeout_ms)` returns an object with `read(timeout_ms)`, `close()`, `status_code`, `headers`, and `done`.
+  - `stream_get(url, headers, timeout_ms)` and `stream_post(url, body, headers, timeout_ms)` convenience wrappers.
+  - `post_json_stream(url, data, timeout_ms)` for streaming LLM-style JSON POSTs.
+  - `stream_sse(url, headers, timeout_ms)` returns a Server-Sent Events parser with `next_event(timeout_ms)`.
+- **Streaming HTTP builtins available to both backends** — `__lws_http_stream_start`, `__lws_http_stream_read`, `__lws_http_stream_status`, `__lws_http_stream_headers`, `__lws_http_stream_close` are now wired identically into the interpreter and compiler/runtime.
+
+### Fixed
+
+- **Streaming HTTP POST/PUT/PATCH bodies in compiled binaries** — the compiler runtime previously discarded the request body and content type, so compiled `stream_post()` / `post_json_stream()` calls sent an empty body. The runtime now attaches and writes the body via `LWS_CALLBACK_CLIENT_HTTP_WRITEABLE`, matching the interpreter.
+- **Interpreter/compiler parity for thrown errors in streaming HTTP** — the compiler runtime now throws the same catchable exceptions as the interpreter for invalid pointer arguments to `__lws_http_stream_read`, `__lws_http_stream_status`, and `__lws_http_stream_headers`, and for missing-libwebsockets builds. Previously the compiler silently returned `null`/`0`/`""`, diverging from interpreter behavior.
+- **Cleanup of streaming request body memory on connect/spawn failures** in the compiler runtime.
+
+## [2.2.3] - 2026-05-12
+
+### Added
+
+- **`@stdlib/fs` `make_dirs(path, mode?)`** — recursive directory creation helper similar to `mkdir -p`, including existing-directory tolerance and file-blocking-component errors.
+
+### Fixed
+
+- **Socket failures are catchable in compiled binaries** — TCP connect-refused and bind/listen failures such as `EADDRINUSE` now throw normal Hemlock exceptions instead of aborting the process.
+- **`File.read()` on `/proc` and `/sys` pseudo-files** — reads no longer return an empty string just because `stat()` reports size 0 for dynamically-generated pseudo-file contents.
+- **Control flow escaping `try` bodies in compiled code** — `return`, `break`, and `continue` inside `try` bodies now unwind compiler exception-handler state correctly instead of triggering longjmp aborts later.
+- **Buffer memory builtins** — `memset()`, `memcpy()`, and direct `ptr_write_*()` operations on buffers now validate full access ranges before writing.
+- **Numeric string concatenation regressions** — string concatenation with `f64` values and integer zeroes now preserves expected textual results in both interpreter and compiler paths.
+- **Optional-chain null guards in the compiler** — values checked by `x != null`/`x == null` guards are narrowed across optional-chain expressions, eliminating false nullable-type errors.
+- **CLI help parsing** — `--help` is honored after inline command flags handled by the interpreter launcher.
+- **Security hardening findings** — tightened checked size conversions, buffer-growth overflow handling, byte-array index validation, and package path length handling.
+- **Rune/string equality diagnostics** — the interpreter now warns on equality comparisons between `rune` and `string`, matching the compiler-side guidance that these are distinct types.
+
+### Changed
+
+- Refreshed filesystem and memory docs to document recursive directory creation and buffer-aware bounds checks in the memory builtins.
+
+## [2.2.2] - 2026-05-11
+
+### Fixed
+
+- **Runtime `file_stat()` failures are catchable** — compiled binaries now throw normal Hemlock exceptions for `file_stat()` errors instead of terminating the process, matching try/catch expectations.
+- **Typed-array fast-path assignment checks** — runtime typed-array assignments now validate values on the optimized path before storing them.
+- **Non-default install prefixes** — compiler/module lookup now finds the stdlib and runtime assets in the install.sh layout even when Hemlock is installed outside the default prefix.
+
+### Changed
+
+- Audited and refreshed documentation for the current v2.2.2 repository state, including README status, stdlib inventory, test documentation, and stale/broken relative links.
+
+### Added
+
+- Added `tests/check_docs.py`, a dependency-free documentation audit that verifies stdlib implementation/documentation parity and relative Markdown links.
+
+## [2.2.1] - 2026-05-10
+
+### Fixed
+
+- **HTTP POST/PUT/PATCH/DELETE bodies in compiled binaries** — the runtime's `hml_lws_http_post` / `hml_lws_http_request` / their `_timeout` variants used to `(void)body_val; (void)content_type_val;` with a "Not fully implemented yet" comment, so compiled binaries silently sent every body-bearing request as method+URL with NO `Content-Type`, NO `Content-Length`, and NO body bytes on the wire. The interpreter went through a separate code path that handled the body via `lws_callback_on_writable`, masking the bug from anyone testing only via `hemlock`. The runtime callback now matches the interpreter: `LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER` emits `Content-Type` (unless caller-supplied) and `Content-Length`; `LWS_CALLBACK_CLIENT_HTTP_WRITEABLE` writes the body bytes once. Regression test at `tests/parity/builtins/http_post_body.hml`.
+- **libwebsockets startup banner in compiled binaries** — every `lws_create_context` call printed a NOTICE-level line (`[ts] N: lws_create_context: LWS: 4.3.3-... NET CLI SRV H1 H2 WS ConMon IPV6-on...`) to stderr from compiled binaries. The interpreter has silenced this since 1.x via `lws_init_logging()` in `src/backends/interpreter/builtins/websockets.c`; the runtime never had an equivalent. Added a static-guarded `hml_lws_init_logging()` to the runtime that drops the log level to `LLL_ERR` by default; set `LWS_VERBOSE=1` to opt back in.
+
+## [2.2.0] - 2026-05-10
+
+### Added
+
+- **`@stdlib/process` `posix_spawn(argv, opts?)`** — detached child-process primitive backed by `posix_spawn(3)`. Returns immediately with `{ pid }`; caller reaps via `waitpid()`. Fills the gap between the racy `fork()`/`exec()` pair and the blocking `exec_argv()`. Options support `env` (`KEY=value` array), `stdin`/`stdout`/`stderr` fd redirections, `cwd` (chdir before exec, glibc 2.29+ / macOS 10.15+), and `setsid` (detach from controlling terminal). Exported as `posix_spawn` rather than `spawn` to avoid shadowing the language-level task `spawn(fn, ...)` builtin in the compiler. Documented in `stdlib/docs/process.md`.
+- **`@stdlib/fs` `open_fd(path, mode?)` and `fileno(file)`** — raw POSIX file-descriptor access. `open_fd` returns an `i32` fd directly (no buffered `File` wrapper), and `fileno` extracts the fd backing an existing `File`. Together they let `posix_spawn` callers redirect a child's stdio into a log file without round-tripping through `["sh", "-c", "exec ... > log 2>&1"]`. `fileno` preserves `File` ownership of the fd; closing the file closes the fd. Sandbox policy mirrors `open()`. Documented in `stdlib/docs/fs.md`.
+- **String-literal object keys** — object literals may now use string literals as field names: `let m = { "chat-mahou": 1, "user-id": 42 };`. Required when the key contains characters that aren't valid in a bare identifier (hyphens, spaces, leading digits). Shorthand is not permitted for string keys; a colon is mandatory. The formatter quotes such keys on output to keep round-trips lossless.
+- **`obj?[key]` safe-index operator** — short form of the existing `obj?.[key]`, parallel to `obj?.field` safe-navigation. Returns `null` when the receiver is `null`; otherwise behaves like `obj[key]`. The lexer only emits the safe-index token when `[` immediately follows `?` (no whitespace), so `a ? [1] : [2]` ternaries are unaffected.
+
+### Fixed
+
+- **FFI two-library import collision** — the compiler used to emit a single shared `_ffi_lib` global plus per-symbol pointer slots, so the second `import "..."` clobbered the first library handle and lazy-resolution of any symbol from the first library failed at runtime. Most common collision: `@stdlib/sqlite` (`libsqlite3.so.0`) plus `@stdlib/uuid` (`libcrypto.so.3`). Codegen now stamps every `extern fn` with the path of its preceding `import_ffi` and emits one `_ffi_lib_<sanitized>` global per unique library path; each wrapper resolves against its own handle.
+- **Compiler/interpreter parity gaps**:
+  - `let xs: array<T> = [...]` now auto-fills optional fields per element when `T` is a registered object type (compiler matches interpreter behavior).
+  - `export let X = X;` is now treated as `export { X };` instead of trying to redefine `X`.
+  - `substr()` is type-checked for arity at compile time, mirroring the interpreter's runtime check; previously single-arg `substr` produced a confusing "String has no method 'substr'" error.
+- **WASM interpreter build** — the new `posix_spawn` primitive is stubbed out under emscripten (which has no `posix_spawn(3)`); calling it in-browser throws a clear runtime error rather than failing to link. `_GNU_SOURCE` define guards prevent redefinition warnings under WASM CI.
+
+### Build / Infrastructure
+
+- **Incremental builds now track header dependencies** — top-level `Makefile` and `runtime/Makefile` add `-MMD -MP` to `CFLAGS` and `-include` the resulting `.d` files. Touching a header (e.g. `include/frontend/ast.h`) now correctly rebuilds the 86 transitively dependent objects instead of leaving them stale; previous behavior produced binaries linked from objects compiled against different versions of the same header.
+- **emsdk bumped 3.1.51 → 4.0.7** — the older zlib port's hardcoded SHA-256 went stale after GitHub re-rolled the upstream tarball, breaking `make wasm-interpreter`.
+
+## [2.1.1] - 2026-04-21
+
+### Fixed
+
+- **Parser no longer hangs on malformed `match` expressions** — when a match arm's body started with `{ <keyword> ... }` (e.g. `1 => { return "x"; }`), the block was parsed as an object-literal expression, which failed because `return` can't be a field name. The pattern/arm parser then looped forever on the problematic token, and the interpreter never returned. Hembench's `L1-M-03 Token Classifier` task triggered this because the model idiomatically writes `_ => { return "x"; }` from other languages. Added forward-progress guards to both the `match` arm loop and `parse_program`: if an iteration finishes still pointing at the same token it started on, force-advance so the parser makes progress toward EOF.
+
+## [2.1.0] - 2026-04-21
+
+### Fixed
+
+- **`@stdlib/http` POST body sent on the wire** — every request path (`post`, `post_json`, `post_json_timeout`, `post_json_stream`, `request`, and friends) accepted a body, serialized it, and then the libwebsockets runtime dropped it on the floor with a `(void)post_body;` comment. Servers received empty bodies and replied with 500s like `"attempting to parse an empty input"`. Both the one-shot (`websockets_http.c`) and streaming (`websockets_stream.c`) clients now:
+  - store the body + content-type on the response/stream struct,
+  - add `Content-Type` (unless the caller supplied one) and `Content-Length` headers in the handshake callback,
+  - signal `lws_client_http_body_pending()` and request a writable callback,
+  - write the body in `LWS_CALLBACK_CLIENT_HTTP_WRITEABLE` with `lws_write(..., LWS_WRITE_HTTP)`,
+  - free the body on every success and failure path.
+- **`@stdlib/json` public API is now actually exported** — `parse`, `stringify`, `pretty`, `get`, `set`, `has`, `delete`, `parse_file`, `stringify_file`, `pretty_file`, `is_valid`, `validate`, `is_object`, `is_array`, `is_string`, `is_number`, `is_bool`, `is_null`, `type_of`, `clone`, `merge` now use `export fn`. Named imports (`import { parse } from "@stdlib/json"`) continued to work through stdlib magic, but namespace imports (`import * as json from "@stdlib/json"; json.parse(...)`) threw `Object has no method 'parse'`. That's fixed.
+
+## [2.0.3] - 2026-04-21
+
+### Fixed
+
+- **Compiler** - Modules that exported a function named `init` produced a C symbol collision with the auto-generated module initializer. The symbol was `_mod<N>_init` in both cases, causing "redeclared as different kind of symbol" errors at C-compile time. The generated initializer now lives in a reserved `_hml_init` compiler namespace (`_mod<N>__hml_init`) so user-exported symbols can't collide. Noticed while releasing hpm 1.2.0.
+
+## [2.0.2] - 2026-04-21
+
+### Fixed
+
+- **`@stdlib/collections` HashMap** - `HashMap.keys()` and related operations crashed with `Integer overflow: i32 addition` for many string keys. The djb2 hash loop accumulated in a checked i32 and threw mid-loop once the running value passed `INT32_MAX`. The accumulator is now an i64 masked to 31 bits each iteration; intermediate overflow is impossible and bucket indices remain positive. Hashes are stable within a run but not identical to 2.0.1.
+
+## [2.0.1] - 2026-04-18
+
+### Added
+
+- **`@stdlib/decimal` module** - Number formatting (`to_fixed`, `to_hex`), parsing (`parse_int`, `parse_float`), and `StringBuilder` utility
+- **`@stdlib/mmap` module** - Memory-mapped file I/O (`mmap`, `munmap`, `msync`) with compiler and runtime support
+- **`@stdlib/matrix` module** - Dense matrix operations (add, multiply, transpose, determinant, inverse, LU decomposition)
+- **`@stdlib/unix_socket` module** - Unix domain sockets (AF_UNIX stream/datagram) with advanced tests
+- **Pipe IPC support** - Low-level fd-based pipe operations in `@stdlib/ipc`
+- **`array.findIndex()` method** - Returns the index of the first element matching a predicate
+- **`array.lastIndexOf()` method** - Returns the last index of a value
+- **`array.flat()` method** - Flattens nested arrays by one level
+- **`string.trim_start()` method** - Trims whitespace from start of string
+- **`string.trim_end()` method** - Trims whitespace from end of string
+- **`sha1`, `crc32`, `adler32` hash functions** in `@stdlib/hash`
+- **Custom HTTP request headers** in `@stdlib/http`
+- **Object key coercion** - Integer, bool, float, and rune keys auto-coerce to strings via bracket notation
+- Expanded `@stdlib/iter` with `map`, `filter`, `reduce` and other core functions
+- Expanded `@stdlib/math` with `sign`, `cbrt`, `hypot`, `gcd`, `lcm`, and hyperbolic functions
+- Expanded `@stdlib/datetime` with `is_leap_year`, `days_in_month`, and validation
+- Expanded `@stdlib/testing` with deep object comparison
+- Expanded stdlib test coverage for 8 under-tested modules
+
+### Fixed
+
+- **OR-pattern bindings in interpreter** - Variable bindings from matched OR pattern arms are now properly propagated to the match body (previously silently discarded)
+- **Typed pattern matching on custom objects** - `match val { Point p => ... }` now checks the object's actual type name instead of matching any object
+- **AST serialization for complex patterns** - `PATTERN_OR`, `PATTERN_OBJECT`, and `PATTERN_ARRAY` are now properly serialized/deserialized in `.hmlc` cache files (previously written as empty stubs)
+- **`divi()` truncation** - Now truncates toward zero consistently across all code paths
+- **Closure scoping** - Fixed correctness in both interpreter and compiler
+- **Type promotion** - Fixed compiler promotion logic for mixed arithmetic
+- **Float-to-int conversion edge cases** - Proper handling of NaN, Inf, and out-of-range values
+- **Shift operation semantics** - Well-defined behavior for signed and oversized shifts
+- **Integer boundary overflow detection** - Catchable errors for hex/bin/oct literals near max values
+- **`@stdlib/testing` callback dispatch** - Fixed method call self-injection
+- **`print()` stdout flushing** - Interpreter now flushes stdout after print output
+- **Data race in ref_count** - Fixed flaky `async_env_stress` test on macOS ARM
+- **Object hash table lazy init race** - Fixed concurrent access during initialization
+- **Compiler memory leaks** - Release local variables at function exit, fix refcount in variable reassignment, block-scope cleanup
+- **Compiler closure environment lifetime** - Proper refcounting for shared closure environments
+- **Clang warnings** - Fixed const-correctness, missing prototypes, strict prototypes
+- Documentation inaccuracies and stdlib compilation errors for `hemlockc`
+
 ## [2.0.0] - 2026-04-05
 
 ### Breaking Changes

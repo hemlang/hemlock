@@ -354,15 +354,15 @@ fn print_chars(s: string) {
     let i = 0;
     while (i < s.length) {
         let ch = s[i];
-        print("Position " + typeof(i) + ": " + typeof(ch));
+        print("Position " + i + ": " + ch);
         i = i + 1;
     }
 }
 
 print_chars("Hi🚀");
-// Position 0: 'H'
-// Position 1: 'i'
-// Position 2: U+1F680
+// Position 0: H
+// Position 1: i
+// Position 2: 🚀
 ```
 
 ### Example: Building Strings from Runes

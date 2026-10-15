@@ -173,6 +173,46 @@ let i: integer = 42;   // Alias for i32
 let b: byte = 255;     // Alias for u8
 ```
 
+### Integer Overflow Policy
+
+Hemlock's overflow behavior is explicit and depends on the (promoted)
+type of the operation:
+
+| Operation type | Behavior on overflow |
+|----------------|----------------------|
+| `i32`, `i64` — `+` `-` `*` and unary `-` | **Throws** a catchable `"Integer overflow: ..."` error |
+| `i8`, `i16` (same-type arithmetic) | Wraps (two's complement) |
+| `u8`, `u16`, `u32`, `u64` | Wraps (standard unsigned behavior) |
+| `++` / `--` (any integer type) | Always wraps, preserving the operand's type |
+
+```hemlock
+let max: i32 = 2147483647;
+try { let x = max + 1; } catch (e) { print(e); }  // Integer overflow: i32 addition
+
+let w: u8 = 255;
+print(w + w);        // 254 (u8 wraps)
+
+let c: i32 = 2147483647;
+c++;                 // ++/-- are the explicit wrapping tool
+print(c);            // -2147483648
+```
+
+Notes:
+
+- The policy follows the operation's *promoted* type: `i8 + 1` promotes to
+  `i32` (the literal's type) and is therefore checked, while `i8 + i8`
+  stays `i8` and wraps.
+- Compound assignment expands to the binary operator, so `x += 1` on an
+  `i32` throws on overflow exactly like `x = x + 1`.
+- Negating `i32`/`i64` MIN throws; negating narrow signed types wraps
+  in-type (`-(-128 as i8)` is `-128`); negating unsigned values promotes
+  to the next signed type wide enough for the result.
+- Signed `MIN % -1` is defined as `0` (the mathematical remainder). It is
+  never a crash.
+- Constant expressions follow the identical rules: `2147483647 + 1`
+  throws at runtime even though both operands are literals. There is no
+  separate compile-time arithmetic.
+
 ### Floating-Point Types
 
 ```hemlock
@@ -250,6 +290,19 @@ let p: ptr = alloc(64);
 // No bounds checking, manual lifetime management
 free(p);
 ```
+
+A `ptr` holding the NULL address compares equal to `null`, which is how you
+check an FFI call that failed:
+
+```hemlock
+let win = SDL_CreateWindow(...);   // returns ptr
+if (win == null) { throw "window creation failed"; }
+```
+
+Two `ptr` values compare by address, so `ptr_null() == ptr_null()` is also
+true. Note that a NULL `ptr` is still *truthy* and is not treated as null by
+`??` or `?.` — only `==`/`!=` (and the `switch`/`match` cases built on them)
+recognize it.
 
 **Safe buffer:**
 ```hemlock
@@ -382,8 +435,8 @@ Represents an open file handle.
 
 ```hemlock
 async fn compute(): i32 { return 42; }
-let task = spawn(compute);
-let result: i32 = join(task);
+let t: task = spawn(compute);
+let result: i32 = join(t);
 ```
 
 Represents an async task handle.
@@ -397,6 +450,10 @@ let value = ch.recv();
 ```
 
 Represents a communication channel between tasks.
+
+> **Note:** `file`, `task`, and `channel` are builtin type names, but a
+> user-defined `define`, `enum`, or `type` with the same name takes
+> precedence in annotations.
 
 ### Void Type
 
@@ -810,12 +867,14 @@ let p: Person = { name: "Alice", age: 30 };
 ### Generic Type Aliases
 
 ```hemlock
-// Generic type alias
-type Pair<T> = { first: T, second: T };
-type Result<T, E> = { value: T?, error: E? };
+// Generic type alias (aliases name a generic define; inline
+// object types like `{ first: T }` are not supported)
+define Pair<A, B> { first: A, second: B }
+type Point2<T> = Pair<T, T>;
 
 // Using generic aliases
-let coords: Pair<f64> = { first: 3.14, second: 2.71 };
+let coords: Point2<f64> = { first: 3.14, second: 2.71 };
+print(coords.first);  // 3.14
 ```
 
 **Note:** Type aliases are transparent - `typeof()` returns the underlying type name, not the alias.
@@ -883,12 +942,14 @@ fn divide(a, b) {
 **Use duck typing for flexibility:**
 ```hemlock
 define Printable {
-    toString: fn,
+    fn toString(): string,
 }
 
 fn print_item(item: Printable) {
     print(item.toString());
 }
+
+print_item({ name: "widget", toString: fn() { return "widget"; } });
 ```
 
 ## Next Steps

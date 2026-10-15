@@ -35,9 +35,55 @@ static const char* get_source_line(const char *source, int line_num, int *line_l
     return line_start;
 }
 
+// Collect a parse error as a structured diagnostic instead of printing it.
+// The token context ("at 'foo'" / "at end") is folded into the message so
+// consumers get one self-contained string per diagnostic.
+static void collect_parse_error(Parser *p, Token *token, const char *message) {
+    ParseError *err = calloc(1, sizeof(ParseError));
+    if (!err) return;
+    err->line = token->line;
+    err->column = token->column;
+
+    if (token->type == TOK_EOF) {
+        size_t len = strlen(message) + sizeof(" (at end)");
+        err->message = malloc(len);
+        if (err->message) {
+            snprintf(err->message, len, "%s (at end)", message);
+        }
+    } else if (token->type == TOK_ERROR || !token->start || token->length <= 0) {
+        err->message = strdup(message);
+    } else {
+        err->length = token->length;
+        size_t len = strlen(message) + (size_t)token->length + sizeof(" (at '')");
+        err->message = malloc(len);
+        if (err->message) {
+            snprintf(err->message, len, "%s (at '%.*s')",
+                     message, token->length, token->start);
+        }
+    }
+    if (!err->message) {
+        free(err);
+        return;
+    }
+
+    if (p->errors_tail) {
+        p->errors_tail->next = err;
+        p->errors_tail = err;
+    } else {
+        p->errors = err;
+        p->errors_tail = err;
+    }
+}
+
 void error_at(Parser *p, Token *token, const char *message) {
     if (p->panic_mode) return;
     p->panic_mode = 1;
+
+    if (p->collect_errors) {
+        collect_parse_error(p, token, message);
+        p->had_error = 1;
+        return;
+    }
 
     fprintf(stderr, "[line %d:%d] Error", token->line, token->column);
 
@@ -249,9 +295,13 @@ void parser_init(Parser *parser, Lexer *lexer) {
     parser->lexer = lexer;
     parser->had_error = 0;
     parser->panic_mode = 0;
+    parser->parse_depth = 0;
     parser->source = lexer->source;  // Store source for error messages
     parser->type_params = NULL;      // No type parameters in scope initially
     parser->num_type_params = 0;
+    parser->collect_errors = 0;
+    parser->errors = NULL;
+    parser->errors_tail = NULL;
 
     // Prime the lookahead: get both current and next tokens
     // First, get the first token into 'next'
@@ -261,8 +311,27 @@ void parser_init(Parser *parser, Lexer *lexer) {
         // Skip error tokens during initialization
     }
 
-    // Now advance to set current = next and get the new next
+    // Now advance to set current = next and get the new next. Seed current
+    // first so `previous` is a real token even if an error is reported
+    // before anything is consumed (e.g. an empty `${}` sub-parse).
+    parser->current = parser->next;
     advance(parser);
+}
+
+void parser_enable_error_collection(Parser *parser) {
+    parser->collect_errors = 1;
+}
+
+void parser_free_errors(Parser *parser) {
+    ParseError *err = parser->errors;
+    while (err) {
+        ParseError *next = err->next;
+        free(err->message);
+        free(err);
+        err = next;
+    }
+    parser->errors = NULL;
+    parser->errors_tail = NULL;
 }
 
 Stmt** parse_program(Parser *parser, int *stmt_count) {
@@ -271,6 +340,11 @@ Stmt** parse_program(Parser *parser, int *stmt_count) {
     *stmt_count = 0;
 
     while (!match(parser, TOK_EOF)) {
+        // Snapshot the current token so we can detect no-progress iterations.
+        // A statement that errors without advancing (and without setting
+        // panic mode) would otherwise spin this loop forever.
+        Token before = parser->current;
+
         if (parser->panic_mode) {
             synchronize(parser);
         }
@@ -284,6 +358,15 @@ Stmt** parse_program(Parser *parser, int *stmt_count) {
             statements = new_statements;
         }
         statements[(*stmt_count)++] = statement(parser);
+
+        // Guarantee forward progress: if the iteration left us on the same
+        // token we started on, eat a token so the next loop can't repeat
+        // the same failure.
+        if (parser->current.type != TOK_EOF
+            && parser->current.start == before.start
+            && parser->current.length == before.length) {
+            advance(parser);
+        }
     }
 
     return statements;

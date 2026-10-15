@@ -10,6 +10,11 @@
 #include <emscripten.h>
 #endif
 
+#ifdef __APPLE__
+#include <mach/mach_time.h>
+#include <dispatch/dispatch.h>
+#endif
+
 // ========== CORE TIME FUNCTIONS ==========
 
 HmlValue hml_now(void) {
@@ -38,6 +43,35 @@ void hml_sleep(HmlValue seconds) {
     double secs = hml_to_f64(seconds);
 #ifdef __EMSCRIPTEN__
     emscripten_sleep((unsigned int)(secs * 1000));
+#elif defined(__APPLE__)
+    // nanosleep() and mach_wait_until() on macOS are both subject to
+    // aggressive timer coalescing once the kernel classifies a thread
+    // as "idle" (observed: sleep(30) returning 5-16 minutes late on
+    // an otherwise-quiet daemon — every heartbeat / poll loop is
+    // affected, including launchd-spawned nice=0 QOS_CLASS_USER_INITIATED
+    // processes). Coalescing depends on duty cycle, not just QoS.
+    //
+    // The escape hatch is libdispatch's DISPATCH_TIMER_STRICT — it
+    // documents "the system makes a best effort to fire the timer at
+    // the specified time, with little or no leeway", explicitly opting
+    // out of coalescing. Build a one-shot timer source, wait on a
+    // semaphore for it to fire.
+    if (secs <= 0) return;
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+    dispatch_queue_t q = dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0);
+    dispatch_source_t timer = dispatch_source_create(
+        DISPATCH_SOURCE_TYPE_TIMER, 0, DISPATCH_TIMER_STRICT, q);
+    dispatch_time_t when = dispatch_time(
+        DISPATCH_TIME_NOW, (int64_t)(secs * NSEC_PER_SEC));
+    dispatch_source_set_timer(timer, when, DISPATCH_TIME_FOREVER, 0);
+    dispatch_source_set_event_handler(timer, ^{
+        dispatch_semaphore_signal(sem);
+        dispatch_source_cancel(timer);
+    });
+    dispatch_resume(timer);
+    dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+    dispatch_release(timer);
+    dispatch_release(sem);
 #else
     struct timespec ts;
     ts.tv_sec = (time_t)secs;

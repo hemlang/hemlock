@@ -1,0 +1,11 @@
+// Side-effect import: a bare string import with a ".hml" suffix (or "@"
+// prefix) loads and executes the module without binding any exports -
+// equivalent to `import {} from "path"`. Bare imports of anything else
+// (e.g. "libc.so.6") keep the FFI shared-library semantics.
+import "./import_side_effect_fixture.hml";
+print("main after import");
+
+// The empty-brace spelling still works and behaves identically
+// (modules are cached, so the fixture's side effects do not re-run).
+import {} from "./import_side_effect_fixture.hml";
+print("done");

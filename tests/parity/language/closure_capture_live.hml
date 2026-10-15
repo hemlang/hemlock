@@ -1,0 +1,41 @@
+// Captured locals are shared live between the enclosing function and its
+// closures: assignments after closure creation are visible inside the
+// closure, and closure writes are visible to the enclosing function.
+
+fn read_after_write(): i32 {
+    let y = 1;
+    let f = fn() { return y; };
+    y = 99;
+    return f();
+}
+print(read_after_write());
+
+fn outer_sees_closure_write(): i32 {
+    let n = 0;
+    let inc = fn() { n = n + 1; };
+    inc();
+    inc();
+    return n;
+}
+print(outer_sees_closure_write());
+
+fn incdec_after_capture(): i32 {
+    let c = 10;
+    let get = fn() { return c; };
+    c++;
+    c++;
+    --c;
+    return get();
+}
+print(incdec_after_capture());
+
+fn two_closures_share() {
+    let total = 0;
+    let add = fn(x) { total = total + x; };
+    let get = fn() { return total; };
+    add(5);
+    add(7);
+    print(get());
+    print(total);
+}
+two_closures_share();

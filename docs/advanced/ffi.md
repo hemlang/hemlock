@@ -581,6 +581,8 @@ Read typed values directly from memory (complements `ptr_write_*`).
 #### Example: Working with Different Types
 
 ```hemlock
+import { ffi_sizeof } from "@stdlib/ffi";
+
 let p = alloc(64);
 
 // Write and read integers

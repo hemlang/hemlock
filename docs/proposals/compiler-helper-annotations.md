@@ -2,7 +2,7 @@
 
 **Author:** Claude
 **Date:** 2026-01-08
-**Status:** Partially Implemented (Phase 1-2 completed in v1.9.0; Phase 3-5 remain proposals)
+**Status:** Partially Implemented (Phase 1-2 function annotations in v1.9.0; loop & branch annotations — `@unroll`/`@nounroll`/`@simd`/`@likely`/`@unlikely` — now shipped; memory annotations `@stack`/`@noalias`/`@aligned` remain proposals)
 **Related:** Issue #TBD
 
 ## Table of Contents
@@ -755,6 +755,8 @@ HmlValue hemlock_compute_distance(HmlValue x1, HmlValue y1, HmlValue x2, HmlValu
 ### Example 5: Performance-Critical Path with Mixed Hints
 
 ```hemlock
+import { signal, SIGABRT } from "@stdlib/signal";
+
 @optimize("3")
 @hot
 fn process_frame(@noalias frame_data: buffer, width: i32, height: i32) {

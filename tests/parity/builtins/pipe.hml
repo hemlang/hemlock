@@ -1,0 +1,75 @@
+// Test pipe IPC builtins
+import { Pipe, pipe_create, fd_read, fd_write, fd_close, dup2, STDIN_FD, STDOUT_FD, STDERR_FD } from "@stdlib/ipc";
+
+// Basic pipe send/recv
+print("=== Pipe basic ===");
+let p = Pipe();
+print("read_fd valid: " + (p.read_fd >= 0));
+print("write_fd valid: " + (p.write_fd >= 0));
+
+let written = p.send("Hello!");
+print("bytes written: " + written);
+
+let data = p.recv(4096);
+print("received: " + data);
+p.close();
+
+// Multiple sends
+print("=== Multiple sends ===");
+let p2 = Pipe();
+p2.send("aaa");
+p2.send("bbb");
+p2.close_write();
+let all = p2.recv(4096);
+print("all: " + all);
+p2.close_read();
+
+// EOF behavior
+print("=== EOF ===");
+let p3 = Pipe();
+p3.send("x");
+p3.close_write();
+let d1 = p3.recv(4096);
+print("before eof: " + d1);
+let d2 = p3.recv(4096);
+print("after eof: " + (d2 == null));
+p3.close_read();
+
+// Partial reads
+print("=== Partial reads ===");
+let p4 = Pipe();
+p4.send("1234567890");
+let first = p4.recv(3);
+print("first 3: " + first);
+let next = p4.recv(3);
+print("next 3: " + next);
+p4.close();
+
+// Low-level fd functions
+print("=== Low-level ===");
+let fds = pipe_create();
+let w = fd_write(fds.write_fd, "raw");
+print("fd_write: " + w);
+let r = fd_read(fds.read_fd, 4096);
+print("fd_read: " + r);
+fd_close(fds.read_fd);
+fd_close(fds.write_fd);
+
+// FD constants
+print("=== Constants ===");
+print("stdin: " + STDIN_FD);
+print("stdout: " + STDOUT_FD);
+print("stderr: " + STDERR_FD);
+
+// dup2
+print("=== dup2 ===");
+let p5 = Pipe();
+let new_fd = dup2(p5.write_fd, 77);
+print("dup2 result: " + new_fd);
+fd_write(77, "dup2data");
+fd_close(77);
+let dup_read = p5.recv(4096);
+print("dup2 read: " + dup_read);
+p5.close();
+
+print("=== Done ===");

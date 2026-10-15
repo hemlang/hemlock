@@ -21,6 +21,113 @@
 #ifdef HML_HAVE_LIBWEBSOCKETS
 
 #include <libwebsockets.h>
+#include <unistd.h>
+
+
+#define HEMLOCK_MACOS_OPENSSL_CERT_FILE "/opt/homebrew/etc/openssl@3/cert.pem"
+
+static const char *hml_macos_homebrew_ca_filepath(void) {
+#ifdef __APPLE__
+    if (access(HEMLOCK_MACOS_OPENSSL_CERT_FILE, R_OK) == 0) {
+        return HEMLOCK_MACOS_OPENSSL_CERT_FILE;
+    }
+#endif
+    return NULL;
+}
+
+static void hml_lws_configure_macos_ca_file(void) {
+#ifdef __APPLE__
+    const char *cert_file = getenv("SSL_CERT_FILE");
+    if ((!cert_file || cert_file[0] == '\0') &&
+        access(HEMLOCK_MACOS_OPENSSL_CERT_FILE, R_OK) == 0) {
+        setenv("SSL_CERT_FILE", HEMLOCK_MACOS_OPENSSL_CERT_FILE, 0);
+    }
+#endif
+}
+
+// Configure default lws context options for an HTTP/HTTPS request.
+// `ssl` is 1 when the URL scheme is https (full TLS init + CA bundle),
+// 0 when it's plain http. The ssl arg is currently advisory — lws sets
+// up the default vhost's client SSL_CTX regardless of whether *this*
+// request needs TLS, so we have to make that init path succeed even
+// for plain-http calls.
+//
+// LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT must be set only ONCE per
+// process. Setting it on every context creation works on Linux but
+// is broken on macOS: the second context's lws_context_init_client_ssl
+// fails ("Failed to create default vhost") because OpenSSL global
+// init/cleanup races between the destroyed first context and the new
+// one being built. The vhost teardown then closes file descriptors
+// via a shared fd table cleanup, which corrupts an unrelated
+// TcpListener fd in another thread — its accept() throws ECONNABORTED,
+// then EBADF forever, killing the whole HTTP server in the process.
+//
+// Gate the flag behind a once-flag so we pay the global init exactly
+// once per process. On macOS we additionally point at Homebrew
+// openssl@3's cert.pem (system OpenSSL's compile-time default paths
+// don't match the Homebrew layout, so lws's CA load fails without
+// an explicit filepath).
+static void hml_lws_configure_options(struct lws_context_creation_info *info, int ssl) {
+    (void)ssl;
+    static int ssl_global_init_done = 0;
+    if (!ssl_global_init_done) {
+        info->options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+        ssl_global_init_done = 1;
+    } else {
+        info->options = 0;
+    }
+#ifdef __APPLE__
+    if (!info->client_ssl_ca_filepath) {
+        const char *p = hml_macos_homebrew_ca_filepath();
+        if (p) info->client_ssl_ca_filepath = p;
+    }
+#endif
+}
+
+static const char *hml_lws_context_error_message(void) {
+#ifdef __APPLE__
+    return "Failed to create libwebsockets context; on macOS, install openssl@3 with Homebrew or set SSL_CERT_FILE=/opt/homebrew/etc/openssl@3/cert.pem";
+#else
+    return "Failed to create libwebsockets context";
+#endif
+}
+
+// Suppress libwebsockets startup banner. Without this, every lws_create_context
+// emits a NOTICE-level line ("LWS: 4.3.3-... NET CLI SRV H1 H2 WS ...") to
+// stderr — which the parity test runner captures, breaking expected-output
+// comparison between interpreter (which silences via lws_init_logging in
+// websockets.c) and compiled binary (which never did, until now).
+//
+// Set LWS_VERBOSE=1 to opt back in.
+static void hml_lws_init_logging(void) {
+    static int initialized = 0;
+    if (!initialized) {
+        initialized = 1;
+        const char *verbose = getenv("LWS_VERBOSE");
+        if (!verbose || strcmp(verbose, "1") != 0) {
+            lws_set_log_level(LLL_ERR, NULL);
+        }
+    }
+}
+
+// Default timeout for the non-*_timeout one-shot LWS HTTP helpers.
+// The service loop below polls in ~10ms increments, so 5000ms maps to
+// 500 iterations instead of the previous 3000 iterations (~30000ms).
+#define HML_LWS_HTTP_DEFAULT_TIMEOUT_MS 5000
+#define HML_LWS_HTTP_SERVICE_POLL_MS 10
+
+// WebSocket client connect wait (must match HML_WS_CONNECT_TIMEOUT_MS /
+// HML_WS_CONNECT_POLL_US in include/hemlock_limits.h). The poll sleep is what
+// makes the timeout real: lws_service()'s own timeout argument has been
+// ignored since lws 3.2 and returns immediately under the libuv event loop, so
+// counting service calls is a busy-spin, not a wait.
+#define HML_WS_CONNECT_TIMEOUT_MS 10000
+#define HML_WS_CONNECT_POLL_US    10000
+
+static int hml_lws_timeout_iterations_from_ms(int timeout_ms) {
+    int iterations = timeout_ms / HML_LWS_HTTP_SERVICE_POLL_MS;
+    return iterations < 1 ? 1 : iterations;
+}
 
 // HTTP response structure
 typedef struct {
@@ -34,6 +141,13 @@ typedef struct {
     char *headers;
     char **custom_headers;   // Custom request headers
     int num_custom_headers;
+    // Outgoing request body for POST/PUT/PATCH/DELETE-with-body. Owned by
+    // this struct; freed via hml_free_request_body() once the LWS event
+    // loop completes (or fails) so callers don't have to worry about it.
+    char *post_body;
+    size_t post_body_len;
+    char *content_type;
+    int body_sent;
 } hml_http_response_t;
 
 static void hml_free_custom_headers(hml_http_response_t *resp) {
@@ -45,6 +159,67 @@ static void hml_free_custom_headers(hml_http_response_t *resp) {
         resp->custom_headers = NULL;
         resp->num_custom_headers = 0;
     }
+}
+
+static void hml_free_request_body(hml_http_response_t *resp) {
+    if (!resp) return;
+    if (resp->post_body) {
+        free(resp->post_body);
+        resp->post_body = NULL;
+    }
+    if (resp->content_type) {
+        free(resp->content_type);
+        resp->content_type = NULL;
+    }
+    resp->post_body_len = 0;
+}
+
+// Stash the body + content-type on `resp` so the LWS callback can emit
+// Content-Type / Content-Length headers and stream the bytes when the
+// socket becomes writable. Returns 0 on success, -1 on alloc failure.
+// Empty bodies are valid (some methods send Content-Length: 0).
+static int hml_attach_request_body(hml_http_response_t *resp,
+                                   const char *body, const char *content_type) {
+    if (!resp || !body) return -1;
+    size_t blen = strlen(body);
+    resp->post_body = malloc(blen + 1);
+    if (!resp->post_body) return -1;
+    memcpy(resp->post_body, body, blen);
+    resp->post_body[blen] = '\0';
+    resp->post_body_len = blen;
+
+    if (content_type && content_type[0]) {
+        resp->content_type = strdup(content_type);
+        if (!resp->content_type) {
+            free(resp->post_body);
+            resp->post_body = NULL;
+            resp->post_body_len = 0;
+            return -1;
+        }
+    }
+    return 0;
+}
+
+// Detect whether the caller already supplied Content-Type so we don't
+// double-emit it from the default path.
+static int hml_custom_headers_have_content_type(hml_http_response_t *resp) {
+    if (!resp || !resp->custom_headers) return 0;
+    for (int i = 0; i < resp->num_custom_headers; i++) {
+        const char *h = resp->custom_headers[i];
+        if (!h) continue;
+        // ASCII case-insensitive prefix compare against "content-type:"
+        const char *needle = "content-type:";
+        size_t nlen = strlen(needle);
+        if (strlen(h) < nlen) continue;
+        int matches = 1;
+        for (size_t k = 0; k < nlen; k++) {
+            char a = h[k]; if (a >= 'A' && a <= 'Z') a = (char)(a - 'A' + 'a');
+            char b = needle[k];
+            if (a != b) { matches = 0; break; }
+        }
+        if (matches) return 1;
+    }
+    return 0;
 }
 
 static void hml_lws_response_destroy(hml_http_response_t *resp) {
@@ -61,6 +236,7 @@ static void hml_lws_response_destroy(hml_http_response_t *resp) {
         free(resp->headers);
     }
     hml_free_custom_headers(resp);
+    hml_free_request_body(resp);
     free(resp);
 }
 
@@ -108,6 +284,56 @@ static int hml_http_callback(struct lws *wsi, enum lws_callback_reasons reason,
                         *p += accept_len;
                     }
                 }
+
+                // If the caller attached a request body, emit Content-Type
+                // (unless they supplied one) + Content-Length, and arm a
+                // writable callback so we can stream the body bytes once
+                // the socket is ready. Without this, POST/PUT/PATCH bodies
+                // never make it onto the wire — which is exactly the bug
+                // this branch is fixing.
+                if (resp && resp->post_body && resp->post_body_len > 0) {
+                    int caller_set_ct = hml_custom_headers_have_content_type(resp);
+                    if (!caller_set_ct) {
+                        const char *ct = (resp->content_type && resp->content_type[0])
+                                             ? resp->content_type
+                                             : "application/octet-stream";
+                        char ct_line[256];
+                        int ctn = snprintf(ct_line, sizeof(ct_line),
+                                           "Content-Type: %s\r\n", ct);
+                        if (ctn > 0 && (end - *p) >= ctn) {
+                            memcpy(*p, ct_line, (size_t)ctn);
+                            *p += ctn;
+                        }
+                    }
+                    char cl_line[64];
+                    int cln = snprintf(cl_line, sizeof(cl_line),
+                                       "Content-Length: %zu\r\n",
+                                       resp->post_body_len);
+                    if (cln > 0 && (end - *p) >= cln) {
+                        memcpy(*p, cl_line, (size_t)cln);
+                        *p += cln;
+                    }
+                    lws_client_http_body_pending(wsi, 1);
+                    lws_callback_on_writable(wsi);
+                }
+            }
+            break;
+
+        case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+            if (resp && resp->post_body && resp->post_body_len > 0 && !resp->body_sent) {
+                size_t body_len = resp->post_body_len;
+                unsigned char *buf = malloc(LWS_PRE + body_len);
+                if (!buf) {
+                    resp->failed = 1;
+                    resp->complete = 1;
+                    return -1;
+                }
+                memcpy(buf + LWS_PRE, resp->post_body, body_len);
+                int n = lws_write(wsi, buf + LWS_PRE, body_len, LWS_WRITE_HTTP);
+                free(buf);
+                lws_client_http_body_pending(wsi, 0);
+                resp->body_sent = 1;
+                return n < 0 ? -1 : 0;
             }
             break;
 
@@ -316,6 +542,7 @@ static void hml_parse_headers_into_resp(hml_http_response_t *resp, HmlValue head
 
 // HTTP GET
 HmlValue hml_lws_http_get(HmlValue url_val) {
+    hml_lws_init_logging();
     if (url_val.type != HML_VAL_STRING || !url_val.as.as_string) {
         hml_runtime_error("__lws_http_get() expects string URL");
     }
@@ -343,7 +570,7 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    hml_lws_configure_options(&info, ssl);
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;  // 16KB for large headers (e.g., GitHub API)
 
@@ -353,10 +580,10 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
     };
     info.protocols = protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -390,9 +617,9 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
         hml_runtime_error("Failed to connect");
     }
 
-    int timeout = 3000;
+    int timeout = hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS);
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
 
     lws_context_destroy(context);
@@ -407,6 +634,7 @@ HmlValue hml_lws_http_get(HmlValue url_val) {
 
 // HTTP GET with custom headers
 HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
+    hml_lws_init_logging();
     if (url_val.type != HML_VAL_STRING || !url_val.as.as_string) {
         hml_runtime_error("__lws_http_get() expects string URL");
     }
@@ -437,7 +665,7 @@ HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    hml_lws_configure_options(&info, ssl);
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;
 
@@ -447,10 +675,10 @@ HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
     };
     info.protocols = protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -480,9 +708,9 @@ HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
         hml_runtime_error("Failed to connect");
     }
 
-    int timeout = 3000;
+    int timeout = hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS);
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
 
     lws_context_destroy(context);
@@ -495,16 +723,22 @@ HmlValue hml_lws_http_get_with_headers(HmlValue url_val, HmlValue headers_val) {
     return hml_val_ptr(resp);
 }
 
-// HTTP POST
-HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content_type_val) {
-    if (url_val.type != HML_VAL_STRING || body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
-        hml_runtime_error("__lws_http_post() expects string arguments");
-    }
-
-    const char *url = url_val.as.as_string->data;
-    (void)body_val;  // Not fully implemented yet
-    (void)content_type_val;
-    
+// Shared core for POST/PUT/DELETE/PATCH/etc. — handles URL parsing, response
+// allocation, optional custom headers, optional request body, the LWS context
+// + connect dance, and the service loop. On failure raises a runtime error
+// (which is noreturn). On success returns the response as an HmlValue ptr.
+//
+// `headers_val` may be a non-array (e.g. null) — in that case no custom
+// headers are attached. `force_body` controls whether a zero-length body is
+// still attached (POST always does so; the generic request path skips for
+// empty bodies, matching pre-fix behavior).
+static HmlValue hml_lws_http_perform(const char *method,
+                                      const char *url,
+                                      const char *post_body,
+                                      const char *content_type,
+                                      HmlValue headers_val,
+                                      int timeout_iterations,
+                                      int force_body) {
     char host[256], path[512];
     int port, ssl;
 
@@ -517,125 +751,39 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
         hml_runtime_error("Failed to allocate response");
     }
 
-    resp->body_capacity = 4096;
-    resp->body = malloc(resp->body_capacity);
-    if (!resp->body) {
-        free(resp);
-        hml_runtime_error("Failed to allocate body buffer");
-    }
-    resp->body[0] = '\0';
-
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-
-    static const struct lws_protocols post_protocols[] = {
-        { "http", hml_http_callback, 0, 16384, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = post_protocols;
-
-    struct lws_context *context = lws_create_context(&info);
-    if (!context) {
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
-    }
-
-    struct lws_client_connect_info connect_info;
-    memset(&connect_info, 0, sizeof(connect_info));
-    connect_info.context = context;
-    connect_info.address = host;
-    connect_info.port = port;
-    connect_info.path = path;
-    connect_info.host = host;
-    connect_info.origin = host;
-    connect_info.method = "POST";
-    connect_info.protocol = post_protocols[0].name;
-    connect_info.userdata = resp;
-
-    struct lws *wsi;
-    connect_info.pwsi = &wsi;
-
-    connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
-
-    if (ssl) {
-        // SECURITY: Enable SSL with proper certificate validation
-        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
-        // to prevent MITM attacks
-        connect_info.ssl_connection |= LCCSCF_USE_SSL;
-    }
-
-    if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to connect");
-    }
-
-    int timeout = 3000;
-    while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
-    }
-
-    lws_context_destroy(context);
-
-    if (resp->failed || timeout <= 0) {
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("HTTP request failed or timed out");
-    }
-
-    return hml_val_ptr(resp);
-}
-
-// Generic HTTP request with configurable method
-HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val) {
-    if (method_val.type != HML_VAL_STRING || url_val.type != HML_VAL_STRING ||
-        body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
-        hml_runtime_error("__lws_http_request() expects string arguments");
-    }
-
-    const char *method = method_val.as.as_string->data;
-    const char *url = url_val.as.as_string->data;
-    (void)body_val;  // Not fully implemented yet
-    (void)content_type_val;
-
-    char host[256], path[512];
-    int port, ssl;
-
-    if (hml_parse_url(url, host, &port, path, &ssl) < 0) {
-        hml_runtime_error("Invalid URL format");
-    }
-
-    hml_http_response_t *resp = calloc(1, sizeof(hml_http_response_t));
-    if (!resp) {
-        hml_runtime_error("Failed to allocate response");
-    }
+    hml_parse_headers_into_resp(resp, headers_val);
 
     resp->body_capacity = 4096;
     resp->body = malloc(resp->body_capacity);
     if (!resp->body) {
-        free(resp);
+        hml_lws_response_destroy(resp);
         hml_runtime_error("Failed to allocate body buffer");
     }
     resp->body[0] = '\0';
 
+    if (post_body && (force_body || strlen(post_body) > 0)) {
+        if (hml_attach_request_body(resp, post_body, content_type) < 0) {
+            hml_lws_response_destroy(resp);
+            hml_runtime_error("Failed to attach request body");
+        }
+    }
+
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    hml_lws_configure_options(&info, ssl);
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;
 
-    static const struct lws_protocols req_protocols[] = {
+    static const struct lws_protocols protocols[] = {
         { "http", hml_http_callback, 0, 16384, 0, NULL, 0 },
         { NULL, NULL, 0, 0, 0, NULL, 0 }
     };
-    info.protocols = req_protocols;
+    info.protocols = protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -647,14 +795,14 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
     connect_info.host = host;
     connect_info.origin = host;
     connect_info.method = method;
-    connect_info.protocol = req_protocols[0].name;
+    connect_info.protocol = protocols[0].name;
     connect_info.userdata = resp;
 
     struct lws *wsi;
     connect_info.pwsi = &wsi;
 
+    // Disable automatic redirects - handled at the hemlock layer
     connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
-
     if (ssl) {
         connect_info.ssl_connection |= LCCSCF_USE_SSL;
     }
@@ -665,12 +813,13 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
         hml_runtime_error("Failed to connect");
     }
 
-    int timeout = 3000;
+    int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
 
     lws_context_destroy(context);
+    hml_free_request_body(resp);
 
     if (resp->failed || timeout <= 0) {
         hml_lws_response_destroy(resp);
@@ -678,6 +827,71 @@ HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue bo
     }
 
     return hml_val_ptr(resp);
+}
+
+// HTTP POST
+HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content_type_val) {
+    hml_lws_init_logging();
+    if (url_val.type != HML_VAL_STRING || body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_post() expects string arguments");
+    }
+    return hml_lws_http_perform("POST",
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 hml_val_null(),
+                                 hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS),
+                                 /*force_body=*/1);
+}
+
+// HTTP POST with custom headers
+HmlValue hml_lws_http_post_with_headers(HmlValue url_val, HmlValue body_val,
+                                         HmlValue content_type_val, HmlValue headers_val) {
+    hml_lws_init_logging();
+    if (url_val.type != HML_VAL_STRING || body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_post() expects string arguments");
+    }
+    return hml_lws_http_perform("POST",
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 headers_val,
+                                 hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS),
+                                 /*force_body=*/1);
+}
+
+// Generic HTTP request with configurable method
+HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val) {
+    hml_lws_init_logging();
+    if (method_val.type != HML_VAL_STRING || url_val.type != HML_VAL_STRING ||
+        body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_request() expects string arguments");
+    }
+    return hml_lws_http_perform(method_val.as.as_string->data,
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 hml_val_null(),
+                                 hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS),
+                                 /*force_body=*/0);
+}
+
+// Generic HTTP request with configurable method and custom headers
+HmlValue hml_lws_http_request_with_headers(HmlValue method_val, HmlValue url_val,
+                                            HmlValue body_val, HmlValue content_type_val,
+                                            HmlValue headers_val) {
+    hml_lws_init_logging();
+    if (method_val.type != HML_VAL_STRING || url_val.type != HML_VAL_STRING ||
+        body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_request() expects string arguments");
+    }
+    return hml_lws_http_perform(method_val.as.as_string->data,
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 headers_val,
+                                 hml_lws_timeout_iterations_from_ms(HML_LWS_HTTP_DEFAULT_TIMEOUT_MS),
+                                 /*force_body=*/0);
 }
 
 // ========== TIMEOUT VERSIONS ==========
@@ -692,15 +906,14 @@ static int hml_extract_timeout_ms(HmlValue timeout_val) {
     } else if (timeout_val.type == HML_VAL_F64) {
         timeout_ms = (int)timeout_val.as.as_f64;
     } else {
-        timeout_ms = 30000;  // Default 30 seconds
+        timeout_ms = HML_LWS_HTTP_DEFAULT_TIMEOUT_MS;
     }
-    // Convert to iterations (each ~10ms)
-    int iterations = timeout_ms / 10;
-    return iterations < 1 ? 1 : iterations;
+    return hml_lws_timeout_iterations_from_ms(timeout_ms);
 }
 
 // HTTP GET with configurable timeout
 HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
+    hml_lws_init_logging();
     if (url_val.type != HML_VAL_STRING) {
         hml_runtime_error("__lws_http_get_timeout() expects string URL");
     }
@@ -730,7 +943,7 @@ HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    hml_lws_configure_options(&info, ssl);
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;
 
@@ -740,10 +953,10 @@ HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
     };
     info.protocols = protocols;
 
-    struct lws_context *context = lws_create_context(&info);
+    struct lws_context *context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!context) {
         hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -775,7 +988,7 @@ HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
 
     int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
+        lws_service(context, HML_LWS_HTTP_SERVICE_POLL_MS);
     }
 
     lws_context_destroy(context);
@@ -786,192 +999,87 @@ HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
     }
 
     return hml_val_ptr(resp);
+}
+
+// HTTP GET with configurable timeout and custom headers
+HmlValue hml_lws_http_get_timeout_with_headers(HmlValue url_val, HmlValue timeout_val, HmlValue headers_val) {
+    hml_lws_init_logging();
+    if (url_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_get_timeout() expects string URL");
+    }
+    return hml_lws_http_perform("GET",
+                                 url_val.as.as_string->data,
+                                 "",
+                                 "",
+                                 headers_val,
+                                 hml_extract_timeout_ms(timeout_val),
+                                 /*force_body=*/0);
 }
 
 // HTTP POST with configurable timeout
 HmlValue hml_lws_http_post_timeout(HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue timeout_val) {
+    hml_lws_init_logging();
     if (url_val.type != HML_VAL_STRING || body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
         hml_runtime_error("__lws_http_post_timeout() expects string arguments");
     }
+    return hml_lws_http_perform("POST",
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 hml_val_null(),
+                                 hml_extract_timeout_ms(timeout_val),
+                                 /*force_body=*/1);
+}
 
-    int timeout_iterations = hml_extract_timeout_ms(timeout_val);
-
-    const char *url = url_val.as.as_string->data;
-    (void)body_val;
-    (void)content_type_val;
-
-    char host[256], path[512];
-    int port, ssl;
-
-    if (hml_parse_url(url, host, &port, path, &ssl) < 0) {
-        hml_runtime_error("Invalid URL format");
+// HTTP POST with configurable timeout and custom headers
+HmlValue hml_lws_http_post_timeout_with_headers(HmlValue url_val, HmlValue body_val,
+                                                 HmlValue content_type_val, HmlValue timeout_val,
+                                                 HmlValue headers_val) {
+    hml_lws_init_logging();
+    if (url_val.type != HML_VAL_STRING || body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_post_timeout() expects string arguments");
     }
-
-    hml_http_response_t *resp = calloc(1, sizeof(hml_http_response_t));
-    if (!resp) {
-        hml_runtime_error("Failed to allocate response");
-    }
-
-    resp->body_capacity = 4096;
-    resp->body = malloc(resp->body_capacity);
-    if (!resp->body) {
-        free(resp);
-        hml_runtime_error("Failed to allocate body buffer");
-    }
-    resp->body[0] = '\0';
-
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-
-    static const struct lws_protocols protocols[] = {
-        { "http", hml_http_callback, 0, 16384, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
-
-    struct lws_context *context = lws_create_context(&info);
-    if (!context) {
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
-    }
-
-    struct lws_client_connect_info connect_info;
-    memset(&connect_info, 0, sizeof(connect_info));
-    connect_info.context = context;
-    connect_info.address = host;
-    connect_info.port = port;
-    connect_info.path = path;
-    connect_info.host = host;
-    connect_info.origin = host;
-    connect_info.method = "POST";
-    connect_info.protocol = protocols[0].name;
-    connect_info.userdata = resp;
-
-    struct lws *wsi;
-    connect_info.pwsi = &wsi;
-
-    connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
-
-    if (ssl) {
-        connect_info.ssl_connection |= LCCSCF_USE_SSL;
-    }
-
-    if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to connect");
-    }
-
-    int timeout = timeout_iterations;
-    while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
-    }
-
-    lws_context_destroy(context);
-
-    if (resp->failed || timeout <= 0) {
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("HTTP request failed or timed out");
-    }
-
-    return hml_val_ptr(resp);
+    return hml_lws_http_perform("POST",
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 headers_val,
+                                 hml_extract_timeout_ms(timeout_val),
+                                 /*force_body=*/1);
 }
 
 // Generic HTTP request with configurable timeout
 HmlValue hml_lws_http_request_timeout(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue timeout_val) {
+    hml_lws_init_logging();
     if (method_val.type != HML_VAL_STRING || url_val.type != HML_VAL_STRING ||
         body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
         hml_runtime_error("__lws_http_request_timeout() expects string arguments");
     }
+    return hml_lws_http_perform(method_val.as.as_string->data,
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 hml_val_null(),
+                                 hml_extract_timeout_ms(timeout_val),
+                                 /*force_body=*/0);
+}
 
-    int timeout_iterations = hml_extract_timeout_ms(timeout_val);
-
-    const char *method = method_val.as.as_string->data;
-    const char *url = url_val.as.as_string->data;
-    (void)body_val;
-    (void)content_type_val;
-
-    char host[256], path[512];
-    int port, ssl;
-
-    if (hml_parse_url(url, host, &port, path, &ssl) < 0) {
-        hml_runtime_error("Invalid URL format");
+// Generic HTTP request with configurable timeout and custom headers
+HmlValue hml_lws_http_request_timeout_with_headers(HmlValue method_val, HmlValue url_val,
+                                                    HmlValue body_val, HmlValue content_type_val,
+                                                    HmlValue timeout_val, HmlValue headers_val) {
+    hml_lws_init_logging();
+    if (method_val.type != HML_VAL_STRING || url_val.type != HML_VAL_STRING ||
+        body_val.type != HML_VAL_STRING || content_type_val.type != HML_VAL_STRING) {
+        hml_runtime_error("__lws_http_request_timeout() expects string arguments");
     }
-
-    hml_http_response_t *resp = calloc(1, sizeof(hml_http_response_t));
-    if (!resp) {
-        hml_runtime_error("Failed to allocate response");
-    }
-
-    resp->body_capacity = 4096;
-    resp->body = malloc(resp->body_capacity);
-    if (!resp->body) {
-        free(resp);
-        hml_runtime_error("Failed to allocate body buffer");
-    }
-    resp->body[0] = '\0';
-
-    struct lws_context_creation_info info;
-    memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-    info.port = CONTEXT_PORT_NO_LISTEN;
-    info.max_http_header_data = 16384;
-
-    static const struct lws_protocols protocols[] = {
-        { "http", hml_http_callback, 0, 16384, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
-
-    struct lws_context *context = lws_create_context(&info);
-    if (!context) {
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to create libwebsockets context");
-    }
-
-    struct lws_client_connect_info connect_info;
-    memset(&connect_info, 0, sizeof(connect_info));
-    connect_info.context = context;
-    connect_info.address = host;
-    connect_info.port = port;
-    connect_info.path = path;
-    connect_info.host = host;
-    connect_info.origin = host;
-    connect_info.method = method;
-    connect_info.protocol = protocols[0].name;
-    connect_info.userdata = resp;
-
-    struct lws *wsi;
-    connect_info.pwsi = &wsi;
-
-    connect_info.ssl_connection = LCCSCF_HTTP_NO_FOLLOW_REDIRECT;
-
-    if (ssl) {
-        connect_info.ssl_connection |= LCCSCF_USE_SSL;
-    }
-
-    if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("Failed to connect");
-    }
-
-    int timeout = timeout_iterations;
-    while (!resp->complete && !resp->failed && timeout-- > 0) {
-        lws_service(context, 10);
-    }
-
-    lws_context_destroy(context);
-
-    if (resp->failed || timeout <= 0) {
-        hml_lws_response_destroy(resp);
-        hml_runtime_error("HTTP request failed or timed out");
-    }
-
-    return hml_val_ptr(resp);
+    return hml_lws_http_perform(method_val.as.as_string->data,
+                                 url_val.as.as_string->data,
+                                 body_val.as.as_string->data,
+                                 content_type_val.as.as_string->data,
+                                 headers_val,
+                                 hml_extract_timeout_ms(timeout_val),
+                                 /*force_body=*/0);
 }
 
 // Get response status code
@@ -1051,14 +1159,29 @@ HmlValue hml_builtin_lws_http_get(HmlClosureEnv *env, HmlValue url) {
     return hml_lws_http_get(url);
 }
 
+HmlValue hml_builtin_lws_http_get_with_headers(HmlClosureEnv *env, HmlValue url, HmlValue headers) {
+    (void)env;
+    return hml_lws_http_get_with_headers(url, headers);
+}
+
 HmlValue hml_builtin_lws_http_post(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type) {
     (void)env;
     return hml_lws_http_post(url, body, content_type);
 }
 
+HmlValue hml_builtin_lws_http_post_with_headers(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers) {
+    (void)env;
+    return hml_lws_http_post_with_headers(url, body, content_type, headers);
+}
+
 HmlValue hml_builtin_lws_http_request(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type) {
     (void)env;
     return hml_lws_http_request(method, url, body, content_type);
+}
+
+HmlValue hml_builtin_lws_http_request_with_headers(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers) {
+    (void)env;
+    return hml_lws_http_request_with_headers(method, url, body, content_type, headers);
 }
 
 HmlValue hml_builtin_lws_response_status(HmlClosureEnv *env, HmlValue resp) {
@@ -1119,6 +1242,11 @@ typedef struct {
     hml_http_stream_chunk_t *chunk_tail;
     pthread_mutex_t chunk_mutex;
     pthread_cond_t chunk_cond;
+    // Outgoing request body (for POST/PUT/PATCH/etc.)
+    char *post_body;
+    size_t post_body_len;
+    char *content_type;
+    int body_sent;
 } hml_http_stream_t;
 
 static void hml_http_stream_enqueue(hml_http_stream_t *stream, const char *data, size_t len) {
@@ -1163,8 +1291,54 @@ static int hml_http_stream_callback(struct lws *wsi, enum lws_callback_reasons r
                 memcpy(*p, accept, accept_len);
                 *p += accept_len;
             }
+
+            // If we have a request body, emit Content-Type / Content-Length
+            // and request a writable callback so we can send the body bytes.
+            if (stream && stream->post_body && stream->post_body_len > 0) {
+                const char *ct = (stream->content_type && stream->content_type[0])
+                                     ? stream->content_type
+                                     : "application/octet-stream";
+                char ct_line[256];
+                int ctn = snprintf(ct_line, sizeof(ct_line),
+                                   "Content-Type: %s\r\n", ct);
+                if (ctn > 0 && (end - *p) >= ctn) {
+                    memcpy(*p, ct_line, (size_t)ctn);
+                    *p += ctn;
+                }
+                char cl_line[64];
+                int cln = snprintf(cl_line, sizeof(cl_line),
+                                   "Content-Length: %zu\r\n",
+                                   stream->post_body_len);
+                if (cln > 0 && (end - *p) >= cln) {
+                    memcpy(*p, cl_line, (size_t)cln);
+                    *p += cln;
+                }
+                lws_client_http_body_pending(wsi, 1);
+                lws_callback_on_writable(wsi);
+            }
             break;
         }
+
+        case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
+            if (stream && stream->post_body && stream->post_body_len > 0 && !stream->body_sent) {
+                size_t body_len = stream->post_body_len;
+                unsigned char *buf = malloc(LWS_PRE + body_len);
+                if (!buf) {
+                    stream->failed = 1;
+                    stream->complete = 1;
+                    pthread_mutex_lock(&stream->chunk_mutex);
+                    pthread_cond_signal(&stream->chunk_cond);
+                    pthread_mutex_unlock(&stream->chunk_mutex);
+                    return -1;
+                }
+                memcpy(buf + LWS_PRE, stream->post_body, body_len);
+                int n = lws_write(wsi, buf + LWS_PRE, body_len, LWS_WRITE_HTTP);
+                free(buf);
+                lws_client_http_body_pending(wsi, 0);
+                stream->body_sent = 1;
+                return n < 0 ? -1 : 0;
+            }
+            break;
 
         case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
             if (stream) {
@@ -1272,8 +1446,8 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
 
     const char *method = method_val.as.as_string->data;
     const char *url = url_val.as.as_string->data;
-    (void)body_val;
-    (void)content_type_val;
+    const char *post_body = (body_val.type == HML_VAL_STRING) ? body_val.as.as_string->data : "";
+    const char *content_type = (content_type_val.type == HML_VAL_STRING) ? content_type_val.as.as_string->data : "";
 
     int timeout_ms = 120000;
     if (timeout_val.type == HML_VAL_I32) timeout_ms = timeout_val.as.as_i32;
@@ -1292,9 +1466,34 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
     pthread_mutex_init(&stream->chunk_mutex, NULL);
     pthread_cond_init(&stream->chunk_cond, NULL);
 
+    // Attach outgoing request body (if any) so the callback can send it.
+    if (post_body && post_body[0] != '\0') {
+        size_t blen = strlen(post_body);
+        stream->post_body = malloc(blen + 1);
+        if (!stream->post_body) {
+            pthread_mutex_destroy(&stream->chunk_mutex);
+            pthread_cond_destroy(&stream->chunk_cond);
+            free(stream);
+            hml_runtime_error("Failed to allocate request body");
+        }
+        memcpy(stream->post_body, post_body, blen);
+        stream->post_body[blen] = '\0';
+        stream->post_body_len = blen;
+        if (content_type && content_type[0] != '\0') {
+            stream->content_type = strdup(content_type);
+            if (!stream->content_type) {
+                free(stream->post_body);
+                pthread_mutex_destroy(&stream->chunk_mutex);
+                pthread_cond_destroy(&stream->chunk_cond);
+                free(stream);
+                hml_runtime_error("Failed to allocate content_type");
+            }
+        }
+    }
+
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    hml_lws_configure_options(&info, ssl);
     info.port = CONTEXT_PORT_NO_LISTEN;
     info.max_http_header_data = 16384;
 
@@ -1304,12 +1503,14 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
     };
     info.protocols = stream_protocols;
 
-    stream->context = lws_create_context(&info);
+    stream->context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!stream->context) {
+        if (stream->post_body) free(stream->post_body);
+        if (stream->content_type) free(stream->content_type);
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -1332,6 +1533,8 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
 
     if (!lws_client_connect_via_info(&connect_info)) {
         lws_context_destroy(stream->context);
+        if (stream->post_body) free(stream->post_body);
+        if (stream->content_type) free(stream->content_type);
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
@@ -1348,6 +1551,8 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
     if (stream->failed || (!stream->established && wait_iters <= 0)) {
         lws_context_destroy(stream->context);
         if (stream->headers) free(stream->headers);
+        if (stream->post_body) free(stream->post_body);
+        if (stream->content_type) free(stream->content_type);
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
@@ -1358,6 +1563,8 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
     if (pthread_create(&stream->service_thread, NULL, hml_http_stream_service_thread, stream) != 0) {
         lws_context_destroy(stream->context);
         if (stream->headers) free(stream->headers);
+        if (stream->post_body) free(stream->post_body);
+        if (stream->content_type) free(stream->content_type);
         pthread_mutex_destroy(&stream->chunk_mutex);
         pthread_cond_destroy(&stream->chunk_cond);
         free(stream);
@@ -1370,7 +1577,7 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
 // __lws_http_stream_read(stream, timeout_ms): string|null
 HmlValue hml_lws_http_stream_read(HmlValue stream_val, HmlValue timeout_val) {
     if (stream_val.type != HML_VAL_PTR) {
-        return hml_val_null();
+        hml_runtime_error("__lws_http_stream_read() expects ptr");
     }
     hml_http_stream_t *stream = (hml_http_stream_t *)stream_val.as.as_ptr;
     if (!stream) return hml_val_null();
@@ -1406,16 +1613,68 @@ HmlValue hml_lws_http_stream_read(HmlValue stream_val, HmlValue timeout_val) {
     return hml_val_null();
 }
 
+// __lws_http_stream_read_binary(stream, timeout_ms): buffer|null
+//
+// Same poll loop as hml_lws_http_stream_read, but returns a buffer
+// using the chunk's actual byte length instead of strlen-truncating
+// at the first null byte. Required for binary downloads (GGUFs,
+// images, archives) where 0x00 bytes are part of the payload, not
+// terminators.
+HmlValue hml_lws_http_stream_read_binary(HmlValue stream_val, HmlValue timeout_val) {
+    if (stream_val.type != HML_VAL_PTR) {
+        hml_runtime_error("__lws_http_stream_read_binary() expects ptr");
+    }
+    hml_http_stream_t *stream = (hml_http_stream_t *)stream_val.as.as_ptr;
+    if (!stream) return hml_val_null();
+
+    int timeout_ms = 30000;
+    if (timeout_val.type == HML_VAL_I32) timeout_ms = timeout_val.as.as_i32;
+    else if (timeout_val.type == HML_VAL_I64) timeout_ms = (int)timeout_val.as.as_i64;
+
+    int iterations = timeout_ms / 10;
+    if (iterations < 1) iterations = 1;
+
+    while (iterations-- > 0) {
+        pthread_mutex_lock(&stream->chunk_mutex);
+        if (stream->chunk_head) {
+            hml_http_stream_chunk_t *chunk = stream->chunk_head;
+            stream->chunk_head = chunk->next;
+            if (!stream->chunk_head) stream->chunk_tail = NULL;
+            pthread_mutex_unlock(&stream->chunk_mutex);
+
+            HmlValue buf = hml_val_buffer((int)chunk->len);
+            if (buf.type == HML_VAL_BUFFER && buf.as.as_buffer && chunk->len > 0) {
+                memcpy(buf.as.as_buffer->data, chunk->data, chunk->len);
+            }
+            free(chunk->data);
+            free(chunk);
+            return buf;
+        }
+        if (stream->complete || stream->failed) {
+            pthread_mutex_unlock(&stream->chunk_mutex);
+            return hml_val_null();
+        }
+        pthread_mutex_unlock(&stream->chunk_mutex);
+        usleep(10000);
+    }
+
+    return hml_val_null();
+}
+
 // __lws_http_stream_status(stream): i32
 HmlValue hml_lws_http_stream_status(HmlValue stream_val) {
-    if (stream_val.type != HML_VAL_PTR) return hml_val_i32(0);
+    if (stream_val.type != HML_VAL_PTR) {
+        hml_runtime_error("__lws_http_stream_status() expects ptr");
+    }
     hml_http_stream_t *stream = (hml_http_stream_t *)stream_val.as.as_ptr;
     return hml_val_i32(stream ? stream->status_code : 0);
 }
 
 // __lws_http_stream_headers(stream): string
 HmlValue hml_lws_http_stream_headers(HmlValue stream_val) {
-    if (stream_val.type != HML_VAL_PTR) return hml_val_string("");
+    if (stream_val.type != HML_VAL_PTR) {
+        hml_runtime_error("__lws_http_stream_headers() expects ptr");
+    }
     hml_http_stream_t *stream = (hml_http_stream_t *)stream_val.as.as_ptr;
     if (!stream || !stream->headers) return hml_val_string("");
     return hml_val_string(stream->headers);
@@ -1446,6 +1705,8 @@ HmlValue hml_lws_http_stream_close(HmlValue stream_val) {
 
     if (stream->context) lws_context_destroy(stream->context);
     if (stream->headers) free(stream->headers);
+    if (stream->post_body) free(stream->post_body);
+    if (stream->content_type) free(stream->content_type);
     free(stream);
 
     return hml_val_null();
@@ -1461,6 +1722,11 @@ HmlValue hml_builtin_lws_http_stream_start(HmlClosureEnv *env, HmlValue method, 
 HmlValue hml_builtin_lws_http_stream_read(HmlClosureEnv *env, HmlValue stream, HmlValue timeout) {
     (void)env;
     return hml_lws_http_stream_read(stream, timeout);
+}
+
+HmlValue hml_builtin_lws_http_stream_read_binary(HmlClosureEnv *env, HmlValue stream, HmlValue timeout) {
+    (void)env;
+    return hml_lws_http_stream_read_binary(stream, timeout);
 }
 
 HmlValue hml_builtin_lws_http_stream_status(HmlClosureEnv *env, HmlValue stream) {
@@ -1504,6 +1770,7 @@ typedef struct {
     volatile int shutdown;
     int has_own_thread;
     int owns_memory;
+    volatile int close_requested; /* server side: close() called, lws not told yet */
 } hml_ws_connection_t;
 
 // WebSocket server structure
@@ -1590,6 +1857,7 @@ static int hml_ws_callback(struct lws *wsi, enum lws_callback_reasons reason,
             }
             break;
 
+        case LWS_CALLBACK_CLIENT_CLOSED: /* how lws reports a client connection closing */
         case LWS_CALLBACK_CLOSED:
             if (conn) {
                 conn->closed = 1;
@@ -1617,6 +1885,12 @@ static int hml_ws_server_callback(struct lws *wsi, enum lws_callback_reasons rea
     hml_ws_connection_t *conn = (hml_ws_connection_t *)user;
 
     switch (reason) {
+        case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
+            /* lws_cancel_service() from another thread: a connection may
+             * have been closed; let each check in SERVER_WRITEABLE */
+            lws_callback_on_writable_all_protocol(lws_get_context(wsi), lws_get_protocol(wsi));
+            break;
+
         case LWS_CALLBACK_ESTABLISHED:
             if (conn) {
                 conn->wsi = wsi;
@@ -1661,6 +1935,11 @@ static int hml_ws_server_callback(struct lws *wsi, enum lws_callback_reasons rea
             break;
 
         case LWS_CALLBACK_SERVER_WRITEABLE:
+            if (conn && conn->close_requested) {
+                conn->close_requested = 0;
+                lws_close_reason(wsi, LWS_CLOSE_STATUS_NORMAL, NULL, 0);
+                return -1; /* lws sends the close frame and drops the connection */
+            }
             if (conn && conn->send_pending && conn->send_buffer) {
                 lws_write(wsi, (unsigned char *)conn->send_buffer + LWS_PRE,
                          conn->send_len, LWS_WRITE_TEXT);
@@ -1754,6 +2033,7 @@ static int hml_parse_ws_url(const char *url, char *host, int *port, char *path, 
 
 // __lws_ws_connect(url: string): ptr
 HmlValue hml_lws_ws_connect(HmlValue url_val) {
+    hml_lws_init_logging();
     if (url_val.type != HML_VAL_STRING) {
         hml_runtime_error("__lws_ws_connect() expects string URL");
     }
@@ -1774,7 +2054,7 @@ HmlValue hml_lws_ws_connect(HmlValue url_val) {
 
     struct lws_context_creation_info info;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    hml_lws_configure_options(&info, ssl);
     info.port = CONTEXT_PORT_NO_LISTEN;
 
     static const struct lws_protocols ws_protocols[] = {
@@ -1783,10 +2063,10 @@ HmlValue hml_lws_ws_connect(HmlValue url_val) {
     };
     info.protocols = ws_protocols;
 
-    conn->context = lws_create_context(&info);
+    conn->context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!conn->context) {
         free(conn);
-        hml_runtime_error("Failed to create libwebsockets context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     struct lws_client_connect_info connect_info;
@@ -1814,10 +2094,16 @@ HmlValue hml_lws_ws_connect(HmlValue url_val) {
         hml_runtime_error("Failed to connect WebSocket");
     }
 
-    // Wait for connection (timeout 10 seconds)
-    int timeout = 100;
-    while (timeout-- > 0 && !conn->closed && !conn->failed && !conn->established) {
-        lws_service(conn->context, 100);
+    // Wait for connection (timeout 10 seconds), paced with usleep so the
+    // timeout is enforced by the clock rather than by how fast lws_service()
+    // happens to return -- see HML_WS_CONNECT_TIMEOUT_MS above. Counting
+    // service calls made the first, coldest connect in a process fail
+    // intermittently while every later one succeeded.
+    int wait_ms = HML_WS_CONNECT_TIMEOUT_MS;
+    while (wait_ms > 0 && !conn->closed && !conn->failed && !conn->established) {
+        lws_service(conn->context, 0);
+        usleep(HML_WS_CONNECT_POLL_US);
+        wait_ms -= HML_WS_CONNECT_POLL_US / 1000;
     }
 
     if (conn->failed || conn->closed || !conn->established) {
@@ -1911,7 +2197,8 @@ HmlValue hml_lws_ws_recv(HmlValue conn_val, HmlValue timeout_val) {
     }
 
     hml_ws_connection_t *conn = (hml_ws_connection_t *)conn_val.as.as_ptr;
-    if (!conn || conn->closed) {
+    /* a closed connection still delivers what it received first */
+    if (!conn || (conn->closed && !conn->msg_queue_head)) {
         return hml_val_null();
     }
 
@@ -1930,7 +2217,7 @@ HmlValue hml_lws_ws_recv(HmlValue conn_val, HmlValue timeout_val) {
         }
 
         usleep(10000);  // 10ms sleep
-        if (conn->closed) return hml_val_null();
+        if (conn->closed && !conn->msg_queue_head) return hml_val_null();
         if (iterations > 0) iterations--;
     }
 
@@ -2019,8 +2306,29 @@ HmlValue hml_lws_ws_close(HmlValue conn_val) {
 
     hml_ws_connection_t *conn = (hml_ws_connection_t *)conn_val.as.as_ptr;
     if (conn) {
+        /* A server-side connection belongs to the server's lws context, which
+         * only its service thread may touch. Ask that thread to close it: the
+         * wake-up arrives as LWS_CALLBACK_EVENT_WAIT_CANCELLED, which requests
+         * a writeable callback, and returning -1 from that sends the close
+         * frame. */
+        if (!conn->has_own_thread && conn->wsi && !conn->closed) {
+            conn->close_requested = 1;
+            if (conn->context) {
+                lws_cancel_service(conn->context);
+            }
+        }
+
         conn->closed = 1;
         conn->shutdown = 1;
+
+        // Wake the service thread so it re-checks `shutdown`: its loop is
+        // `while (!shutdown) lws_service(ctx, 50)`, and that timeout argument
+        // has been ignored since lws 3.2 -- under the libuv event loop
+        // lws_service() blocks until something happens, so the flag alone is
+        // never noticed and the join below waits forever.
+        if (conn->has_own_thread && conn->context) {
+            lws_cancel_service(conn->context);
+        }
 
         if (conn->has_own_thread) {
             pthread_join(conn->service_thread, NULL);
@@ -2033,6 +2341,8 @@ HmlValue hml_lws_ws_close(HmlValue conn_val) {
             free(msg);
             msg = next;
         }
+        conn->msg_queue_head = NULL; /* recv may still look at the queue */
+        conn->msg_queue_tail = NULL;
 
         if (conn->send_buffer) {
             free(conn->send_buffer);
@@ -2062,6 +2372,7 @@ HmlValue hml_lws_ws_is_closed(HmlValue conn_val) {
 
 // __lws_ws_server_create(host: string, port: i32): ptr
 HmlValue hml_lws_ws_server_create(HmlValue host_val, HmlValue port_val) {
+    hml_lws_init_logging();
     if (host_val.type != HML_VAL_STRING) {
         hml_runtime_error("__lws_ws_server_create() expects string host");
     }
@@ -2090,11 +2401,11 @@ HmlValue hml_lws_ws_server_create(HmlValue host_val, HmlValue port_val) {
     };
     info.protocols = server_protocols;
 
-    server->context = lws_create_context(&info);
+    server->context = (hml_lws_configure_macos_ca_file(), hml_runtime_pin_stdio(), lws_create_context(&info));
     if (!server->context) {
         pthread_mutex_destroy(&server->pending_mutex);
         free(server);
-        hml_runtime_error("Failed to create WebSocket server context");
+        hml_runtime_error("%s", hml_lws_context_error_message());
     }
 
     server->shutdown = 0;
@@ -2123,6 +2434,11 @@ HmlValue hml_lws_ws_server_accept(HmlValue server_val, HmlValue timeout_val) {
     int iterations = timeout_ms > 0 ? (timeout_ms / 10) : -1;
 
     while (iterations != 0) {
+        // Check if server was closed before accessing its mutex
+        if (server->closed) {
+            return hml_val_null();
+        }
+
         pthread_mutex_lock(&server->pending_mutex);
         hml_ws_connection_t *conn = NULL;
         if (server->pending_wsi) {
@@ -2154,8 +2470,17 @@ HmlValue hml_lws_ws_server_close(HmlValue server_val) {
         // Signal shutdown - accept() checks this flag before each iteration
         server->closed = 1;
         server->shutdown = 1;
-        // Wait for any in-flight accept() call to finish its current iteration
-        usleep(50000);
+        // Wait for any in-flight accept() or recv() calls to notice the
+        // shutdown flag and exit.  recv() polls with 10ms sleeps and may
+        // be in the middle of a 100ms timeout, so 200ms gives plenty of
+        // margin.
+        usleep(200000);
+        // Wake the service thread so it re-checks `shutdown` -- see the note
+        // in the connection close above. Without this the join never returns
+        // and the process hangs after its last statement.
+        if (server->context) {
+            lws_cancel_service(server->context);
+        }
         pthread_join(server->service_thread, NULL);
         pthread_mutex_destroy(&server->pending_mutex);
         if (server->context) {
@@ -2256,8 +2581,18 @@ HmlValue hml_lws_http_post(HmlValue url_val, HmlValue body_val, HmlValue content
     hml_runtime_error("HTTP support not available (libwebsockets not installed)");
 }
 
+HmlValue hml_lws_http_post_with_headers(HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue headers_val) {
+    (void)url_val; (void)body_val; (void)content_type_val; (void)headers_val;
+    hml_runtime_error("HTTP support not available (libwebsockets not installed)");
+}
+
 HmlValue hml_lws_http_request(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val) {
     (void)method_val; (void)url_val; (void)body_val; (void)content_type_val;
+    hml_runtime_error("HTTP support not available (libwebsockets not installed)");
+}
+
+HmlValue hml_lws_http_request_with_headers(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue headers_val) {
+    (void)method_val; (void)url_val; (void)body_val; (void)content_type_val; (void)headers_val;
     hml_runtime_error("HTTP support not available (libwebsockets not installed)");
 }
 
@@ -2266,13 +2601,28 @@ HmlValue hml_lws_http_get_timeout(HmlValue url_val, HmlValue timeout_val) {
     hml_runtime_error("HTTP support not available (libwebsockets not installed)");
 }
 
+HmlValue hml_lws_http_get_timeout_with_headers(HmlValue url_val, HmlValue timeout_val, HmlValue headers_val) {
+    (void)url_val; (void)timeout_val; (void)headers_val;
+    hml_runtime_error("HTTP support not available (libwebsockets not installed)");
+}
+
 HmlValue hml_lws_http_post_timeout(HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue timeout_val) {
     (void)url_val; (void)body_val; (void)content_type_val; (void)timeout_val;
     hml_runtime_error("HTTP support not available (libwebsockets not installed)");
 }
 
+HmlValue hml_lws_http_post_timeout_with_headers(HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue timeout_val, HmlValue headers_val) {
+    (void)url_val; (void)body_val; (void)content_type_val; (void)timeout_val; (void)headers_val;
+    hml_runtime_error("HTTP support not available (libwebsockets not installed)");
+}
+
 HmlValue hml_lws_http_request_timeout(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue timeout_val) {
     (void)method_val; (void)url_val; (void)body_val; (void)content_type_val; (void)timeout_val;
+    hml_runtime_error("HTTP support not available (libwebsockets not installed)");
+}
+
+HmlValue hml_lws_http_request_timeout_with_headers(HmlValue method_val, HmlValue url_val, HmlValue body_val, HmlValue content_type_val, HmlValue timeout_val, HmlValue headers_val) {
+    (void)method_val; (void)url_val; (void)body_val; (void)content_type_val; (void)timeout_val; (void)headers_val;
     hml_runtime_error("HTTP support not available (libwebsockets not installed)");
 }
 
@@ -2311,14 +2661,29 @@ HmlValue hml_builtin_lws_http_get(HmlClosureEnv *env, HmlValue url) {
     return hml_lws_http_get(url);
 }
 
+HmlValue hml_builtin_lws_http_get_with_headers(HmlClosureEnv *env, HmlValue url, HmlValue headers) {
+    (void)env;
+    return hml_lws_http_get_with_headers(url, headers);
+}
+
 HmlValue hml_builtin_lws_http_post(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type) {
     (void)env;
     return hml_lws_http_post(url, body, content_type);
 }
 
+HmlValue hml_builtin_lws_http_post_with_headers(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers) {
+    (void)env;
+    return hml_lws_http_post_with_headers(url, body, content_type, headers);
+}
+
 HmlValue hml_builtin_lws_http_request(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type) {
     (void)env;
     return hml_lws_http_request(method, url, body, content_type);
+}
+
+HmlValue hml_builtin_lws_http_request_with_headers(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers) {
+    (void)env;
+    return hml_lws_http_request_with_headers(method, url, body, content_type, headers);
 }
 
 HmlValue hml_builtin_lws_response_status(HmlClosureEnv *env, HmlValue resp) {
@@ -2503,7 +2868,12 @@ HmlValue hml_lws_http_stream_start(HmlValue method_val, HmlValue url_val,
 
 HmlValue hml_lws_http_stream_read(HmlValue stream_val, HmlValue timeout_val) {
     (void)stream_val; (void)timeout_val;
-    return hml_val_null();
+    hml_runtime_error("Streaming HTTP not available (libwebsockets not installed)");
+}
+
+HmlValue hml_lws_http_stream_read_binary(HmlValue stream_val, HmlValue timeout_val) {
+    (void)stream_val; (void)timeout_val;
+    hml_runtime_error("Streaming HTTP not available (libwebsockets not installed)");
 }
 
 HmlValue hml_lws_http_stream_status(HmlValue stream_val) {
@@ -2530,6 +2900,11 @@ HmlValue hml_builtin_lws_http_stream_start(HmlClosureEnv *env, HmlValue method, 
 HmlValue hml_builtin_lws_http_stream_read(HmlClosureEnv *env, HmlValue stream, HmlValue timeout) {
     (void)env;
     return hml_lws_http_stream_read(stream, timeout);
+}
+
+HmlValue hml_builtin_lws_http_stream_read_binary(HmlClosureEnv *env, HmlValue stream, HmlValue timeout) {
+    (void)env;
+    return hml_lws_http_stream_read_binary(stream, timeout);
 }
 
 HmlValue hml_builtin_lws_http_stream_status(HmlClosureEnv *env, HmlValue stream) {

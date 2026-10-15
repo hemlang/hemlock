@@ -1,0 +1,20 @@
+// Test: @stdlib/http exposes download() and download_streaming().
+// Verifies the API surface without making network calls.
+
+import { download, download_streaming } from "@stdlib/http";
+
+let names = ["download", "download_streaming"];
+let fns = [download, download_streaming];
+let ok = true;
+
+let i = 0;
+while (i < fns.length) {
+    let t = typeof(fns[i]);
+    if (t != "function" && t != "builtin") {
+        print("error: " + names[i] + " is " + t);
+        ok = false;
+    }
+    i = i + 1;
+}
+
+if (ok) { print("ok"); }

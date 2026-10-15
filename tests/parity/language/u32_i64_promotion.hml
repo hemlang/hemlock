@@ -1,0 +1,28 @@
+// u32 values above INT32_MAX must keep their value when promoted to i64/u64
+// (previously went through a 32-bit signed conversion: 4294967295 -> -1)
+
+let b = buffer(4);
+b.write_u32_le(0, 4294967295);
+let x = b.read_u32_le(0);
+print(typeof(x));
+
+let big: i64 = 4294967295;
+print(x == 4294967295);
+print(x == big);
+print(x > 4294967294);
+print(x < 0);
+print(x - 4294967295);
+
+let y: u32 = 3000000000;
+let z: i64 = 1;
+print(y + z);
+print(y * z);
+print(y > z);
+
+let u: u64 = 1;
+print(y + u);
+
+// small u32 values unaffected
+let s: u32 = 70000;
+print(s == 70000);
+print(s + z);

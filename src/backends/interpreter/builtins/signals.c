@@ -88,6 +88,15 @@ Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     // Install C signal handler or reset to default
+#ifdef _WIN32
+    // Windows has no sigaction; the C runtime's signal() covers the
+    // small set of signals it supports (SIGINT, SIGTERM, SIGABRT, ...)
+    if (signal(signum, new_handler != NULL ? hemlock_signal_handler : SIG_DFL) == SIG_ERR) {
+        runtime_error(ctx, "signal() failed to %s handler for signal %d: %s",
+                      new_handler != NULL ? "install" : "reset", signum, strerror(errno));
+        return val_null();
+    }
+#else
     if (new_handler != NULL) {
         struct sigaction sa;
         sa.sa_handler = hemlock_signal_handler;
@@ -108,6 +117,7 @@ Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx) {
             return val_null();
         }
     }
+#endif
 
     return prev_val;
 }

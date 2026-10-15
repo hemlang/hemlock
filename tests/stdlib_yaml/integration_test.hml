@@ -1,0 +1,184 @@
+// Integration test: real-world YAML patterns
+
+import { parse, stringify, get, set } from "@stdlib/yaml";
+
+// ============================================================================
+// Docker Compose Style
+// ============================================================================
+
+let compose = parse(`
+version: "3.8"
+services:
+  web:
+    image: nginx:latest
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      NODE_ENV: production
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - db-data:/var/lib/postgresql/data
+`);
+
+assert(compose["version"] == "3.8", "compose version");
+assert(compose["services"]["web"]["image"] == "nginx:latest", "compose web image");
+assert(compose["services"]["web"]["ports"].length == 2, "compose web ports");
+assert(compose["services"]["web"]["ports"][0] == "80:80", "compose web port 0");
+assert(compose["services"]["web"]["environment"]["NODE_ENV"] == "production", "compose web env");
+assert(compose["services"]["db"]["image"] == "postgres:15", "compose db image");
+assert(compose["services"]["db"]["environment"]["POSTGRES_USER"] == "admin", "compose db user");
+
+print("PASS: docker compose");
+
+// ============================================================================
+// CI/CD Pipeline Style
+// ============================================================================
+
+let ci = parse(`
+name: CI Pipeline
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build
+        run: make build
+  test:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Test
+        run: make test
+`);
+
+assert(ci["name"] == "CI Pipeline", "ci name");
+assert(ci["on"]["push"]["branches"].length == 2, "ci push branches");
+assert(ci["on"]["push"]["branches"][0] == "main", "ci push branch 0");
+assert(ci["jobs"]["build"]["runs-on"] == "ubuntu-latest", "ci build runner");
+assert(ci["jobs"]["build"]["steps"].length == 2, "ci build steps count");
+assert(ci["jobs"]["build"]["steps"][0]["name"] == "Checkout", "ci step 0 name");
+assert(ci["jobs"]["test"]["needs"] == "build", "ci test needs");
+
+print("PASS: CI/CD pipeline");
+
+// ============================================================================
+// Kubernetes-Style Config
+// ============================================================================
+
+let k8s = parse(`
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  labels:
+    app: web
+    tier: frontend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app: web
+`);
+
+assert(k8s["apiVersion"] == "v1", "k8s apiVersion");
+assert(k8s["kind"] == "Service", "k8s kind");
+assert(k8s["metadata"]["name"] == "my-service", "k8s metadata.name");
+assert(k8s["metadata"]["labels"]["app"] == "web", "k8s labels.app");
+assert(k8s["spec"]["type"] == "ClusterIP", "k8s spec.type");
+assert(k8s["spec"]["ports"][0]["port"] == 80, "k8s port");
+assert(k8s["spec"]["ports"][0]["targetPort"] == 8080, "k8s targetPort");
+assert(k8s["spec"]["selector"]["app"] == "web", "k8s selector");
+
+print("PASS: kubernetes config");
+
+// ============================================================================
+// Application Config Style
+// ============================================================================
+
+let app = parse(`
+app:
+  name: MyApp
+  version: "2.1.0"
+  debug: false
+database:
+  primary:
+    host: db.example.com
+    port: 5432
+    name: myapp_prod
+    pool_size: 20
+  replica:
+    host: db-ro.example.com
+    port: 5432
+    name: myapp_prod
+    pool_size: 10
+cache:
+  backend: redis
+  url: "redis://cache.example.com:6379"
+  ttl: 3600
+logging:
+  level: info
+  format: json
+  outputs:
+    - stdout
+    - /var/log/myapp.log
+`);
+
+assert(app["app"]["name"] == "MyApp", "app name");
+assert(app["app"]["debug"] == false, "app debug");
+assert(app["database"]["primary"]["host"] == "db.example.com", "db primary host");
+assert(app["database"]["primary"]["pool_size"] == 20, "db primary pool");
+assert(app["database"]["replica"]["pool_size"] == 10, "db replica pool");
+assert(app["cache"]["ttl"] == 3600, "cache ttl");
+assert(app["logging"]["outputs"].length == 2, "log outputs count");
+assert(app["logging"]["outputs"][0] == "stdout", "log output 0");
+
+print("PASS: application config");
+
+// ============================================================================
+// get() with Real Config
+// ============================================================================
+
+assert(get(app, "database.primary.host") == "db.example.com", "get deep path");
+assert(get(app, "logging.outputs.0") == "stdout", "get array via path");
+assert(get(app, "cache.backend") == "redis", "get cache backend");
+assert(get(app, "nonexistent.deep.path") == null, "get missing deep");
+
+print("PASS: get with real config");
+
+// ============================================================================
+// Build Config via set() then Verify
+// ============================================================================
+
+let conf = {};
+set(conf, "server.host", "0.0.0.0");
+set(conf, "server.port", 8080);
+set(conf, "database.url", "postgres://localhost/mydb");
+set(conf, "features.auth", true);
+set(conf, "features.cache", false);
+
+let yaml_out = stringify(conf);
+let reparsed = parse(yaml_out);
+
+assert(get(reparsed, "server.host") == "0.0.0.0", "set+roundtrip server.host");
+assert(get(reparsed, "server.port") == 8080, "set+roundtrip server.port");
+assert(get(reparsed, "database.url") == "postgres://localhost/mydb", "set+roundtrip db url");
+assert(get(reparsed, "features.auth") == true, "set+roundtrip auth");
+assert(get(reparsed, "features.cache") == false, "set+roundtrip cache");
+
+print("PASS: set + roundtrip");
+
+print("All YAML integration tests passed!");

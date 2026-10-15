@@ -34,13 +34,67 @@ static void emit_closure_env_set(CodegenContext *ctx, const char *env_name,
     }
 }
 
+/*
+ * Resolve a captured variable to its C-side source and emit the env_set.
+ *
+ * Resolution mirrors identifier reads (see codegen_expr_ident):
+ *   - module-locals / block-scoped / shadow names use the bare sanitized name
+ *     so user shadowing works,
+ *   - main-file top-level vars use the _main_ prefix,
+ *   - imported symbols reference their module-prefixed global directly, and
+ *   - everything else falls back to the bare sanitized name.
+ *
+ * The import case matters when the function that builds the closure was inlined
+ * into its caller: the non-inlined function declares a local alias for the
+ * import in its prologue (funcgen_emit_captures), but the inlined copy does not,
+ * so referencing the bare name would be undeclared in the generated C.
+ */
+static void emit_capture(CodegenContext *ctx, const char *env_name,
+                         int index, const char *var) {
+    if ((ctx->current_module && codegen_is_local(ctx, var)) ||
+        (ctx->current_scope && scope_is_defined(ctx->current_scope, var)) ||
+        codegen_is_shadow(ctx, var)) {
+        char *safe_cap = codegen_sanitize_ident(var);
+        emit_closure_env_set(ctx, env_name, index, safe_cap, var);
+        free(safe_cap);
+        return;
+    }
+    if (codegen_is_main_var(ctx, var)) {
+        char main_name[CODEGEN_MANGLED_NAME_SIZE];
+        snprintf(main_name, sizeof(main_name), "_main_%s", var);
+        emit_closure_env_set(ctx, env_name, index, main_name, var);
+        return;
+    }
+    // Imported symbols resolve to their module-prefixed global (matching how
+    // identifier reads resolve imports in codegen_expr_ident). This reference is
+    // always valid, whereas the bare name is only declared as a local alias when
+    // the enclosing function is emitted normally; an inlined copy of that
+    // function (e.g. a helper returning a closure that captures the import) has
+    // no such alias, so the bare name would be undeclared in the generated C.
+    ImportBinding *imp = ctx->current_module
+        ? module_find_import(ctx->current_module, var)
+        : codegen_find_main_import(ctx, var);
+    if (imp) {
+        char prefixed[CODEGEN_MANGLED_NAME_SIZE];
+        snprintf(prefixed, sizeof(prefixed), "%s%s",
+                 imp->module_prefix, imp->original_name);
+        emit_closure_env_set(ctx, env_name, index, prefixed, var);
+        return;
+    }
+    char *safe_cap = codegen_sanitize_ident(var);
+    emit_closure_env_set(ctx, env_name, index, safe_cap, var);
+    free(safe_cap);
+}
+
 char* codegen_expr(CodegenContext *ctx, Expr *expr) {
     char *result = codegen_temp(ctx);
 
     switch (expr->type) {
         case EXPR_NUMBER:
             if (expr->as.number.is_float) {
-                codegen_writeln(ctx, "HmlValue %s = hml_val_f64(%g);", result, expr->as.number.float_value);
+                char fbuf[64];
+                codegen_format_f64(fbuf, sizeof(fbuf), expr->as.number.float_value);
+                codegen_writeln(ctx, "HmlValue %s = hml_val_f64(%s);", result, fbuf);
             } else if (expr->as.number.is_u64) {
                 codegen_writeln(ctx, "HmlValue %s = hml_val_u64(%" PRIu64 "ULL);", result, expr->as.number.uint_value);
             } else {
@@ -48,7 +102,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 if (expr->as.number.int_value >= INT32_MIN && expr->as.number.int_value <= INT32_MAX) {
                     codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%d);", result, (int32_t)expr->as.number.int_value);
                 } else {
-                    codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%" PRId64 "L);", result, expr->as.number.int_value);
+                    char ibuf[32];
+                    codegen_format_i64(ibuf, sizeof(ibuf), expr->as.number.int_value);
+                    codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%s);", result, ibuf);
                 }
             }
             break;
@@ -94,20 +150,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         codegen_writeln(ctx, "hml_release_if_needed(&%s);", inner_val);
                         free(inner_val);
                         break;
-                    } else if (expr->as.unary.op == UNARY_NEGATE) {
-                        // -(-x) -> x (identity)
-                        char *inner_val = codegen_expr(ctx, inner);
-                        codegen_writeln(ctx, "HmlValue %s = %s;", result, inner_val);
-                        free(inner_val);
-                        break;
                     }
+                    // NOTE: -(-x) -> x is NOT applied: negation of i32/i64
+                    // MIN throws an overflow error, so double negation is not
+                    // the identity for every value.
                 }
             }
 
             // OPTIMIZATION: Constant folding for unary operations on literals
             if (expr->as.unary.operand->type == EXPR_NUMBER &&
                 !expr->as.unary.operand->as.number.is_float &&
-                !expr->as.unary.operand->as.number.is_u64) {
+                !expr->as.unary.operand->as.number.is_u64 &&
+                expr->as.unary.operand->as.number.int_value != INT64_MIN) {
                 int64_t val = expr->as.unary.operand->as.number.int_value;
                 int can_fold = 1;
 
@@ -127,7 +181,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     if (val >= INT32_MIN && val <= INT32_MAX) {
                         codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%d);", result, (int32_t)val);
                     } else {
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%" PRId64 "L);", result, val);
+                        char ibuf[32];
+                        codegen_format_i64(ibuf, sizeof(ibuf), val);
+                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%s);", result, ibuf);
                     }
                     break;
                 }
@@ -196,6 +252,15 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     if (unbox_cast && box_func) {
                         char *value = codegen_expr(ctx, expr->as.assign.value);
                         char *safe_var_name = codegen_sanitize_ident(expr->as.assign.name);
+                        // Annotated variables enforce their declared type on
+                        // reassignment (hml_convert_to_type errors on invalid
+                        // conversions like string -> i32, mirroring the
+                        // interpreter). Inference-unboxed variables skip this:
+                        // escape analysis already proved type-stable use.
+                        const char *annot = codegen_get_local_annot(ctx, expr->as.assign.name);
+                        if (annot && type_check_is_typed_var(ctx->type_ctx, expr->as.assign.name)) {
+                            codegen_writeln(ctx, "%s = hml_convert_to_type(%s, %s);", value, value, annot);
+                        }
                         // Unbox value and assign to native variable
                         codegen_writeln(ctx, "%s = %s(%s);", safe_var_name, unbox_cast, value);
                         codegen_writeln(ctx, "hml_release(&%s);", value);
@@ -258,6 +323,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             }
 
             char *value = codegen_expr(ctx, expr->as.assign.value);
+            // Enforce the variable's declared type annotation on reassignment
+            // (same conversion as the declaration; mirrors the interpreter).
+            {
+                const char *annot = codegen_get_local_annot(ctx, expr->as.assign.name);
+                if (!annot && codegen_is_main_var(ctx, expr->as.assign.name) &&
+                    !codegen_is_local(ctx, expr->as.assign.name)) {
+                    annot = codegen_get_main_annot(ctx, expr->as.assign.name);
+                }
+                if (annot) {
+                    codegen_writeln(ctx, "%s = hml_convert_to_type(%s, %s);", value, value, annot);
+                }
+            }
             // Determine the correct variable name with prefix
             // Note: safe_var_name is allocated when needed and must be freed
             char *safe_var_name = NULL;
@@ -306,6 +383,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     }
                 }
             }
+            // Mirror writes to captured locals into the shared environment
+            // so closures/defers created earlier see the new value
+            codegen_sync_captured_var(ctx, expr->as.assign.name, var_name);
 
             // Use dereferenced value for result if ref param
             if (codegen_is_ref_param(ctx, expr->as.assign.name)) {
@@ -339,7 +419,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"length\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"length\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             // Socket properties: fd, address, port, closed
@@ -351,7 +431,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"fd\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"fd\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else if (strcmp(expr->as.get_property.property, "address") == 0) {
@@ -362,7 +442,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"address\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"address\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else if (strcmp(expr->as.get_property.property, "port") == 0) {
@@ -373,7 +453,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"port\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"port\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else if (strcmp(expr->as.get_property.property, "closed") == 0) {
@@ -384,7 +464,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"closed\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"closed\");", result, obj);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "}");
+            } else if (strcmp(expr->as.get_property.property, "nonblocking") == 0) {
+                codegen_writeln(ctx, "HmlValue %s;", result);
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_socket_get_nonblocking(%s);", result, obj);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else {");
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"nonblocking\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             // String byte_length property
@@ -396,7 +487,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"byte_length\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"byte_length\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             // Buffer capacity property
@@ -408,12 +499,12 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "%s = hml_object_get_field_required(%s, \"capacity\");", result, obj);
+                codegen_writeln(ctx, "%s = hml_object_get_field_bound(%s, \"capacity\");", result, obj);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             } else {
                 // Regular property access - throws error if field not found (parity with interpreter)
-                codegen_writeln(ctx, "HmlValue %s = hml_object_get_field_required(%s, \"%s\");",
+                codegen_writeln(ctx, "HmlValue %s = hml_object_get_field_bound(%s, \"%s\");",
                               result, obj, expr->as.get_property.property);
             }
             codegen_writeln(ctx, "hml_release(&%s);", obj);
@@ -429,6 +520,16 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             codegen_writeln(ctx, "HmlValue %s = %s;", result, value);
             codegen_writeln(ctx, "hml_retain(&%s);", result);
             codegen_writeln(ctx, "hml_release(&%s);", obj);
+            // Release the RHS temp: codegen_expr returned `value` owned
+            // (+1); hml_object_set_field() takes its OWN reference and
+            // `result` above took an independent one, so without this
+            // the RHS's creation reference is orphaned and every
+            // `obj.field = value` leaks `value`. Same bug/fix as the
+            // indexed-assignment path (`obj[k] = v`) above — that one
+            // was fixed in 2.4.11 but the property-assign path was
+            // missed, so e.g. `bundle.ram = fetch_samples(...)` leaked
+            // the returned array on every dashboard request.
+            codegen_writeln(ctx, "hml_release_if_needed(&%s);", value);
             free(obj);
             free(value);
             break;
@@ -468,6 +569,8 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
+                // Parity with interpreter: indexing any other type throws.
+                codegen_writeln(ctx, "hml_runtime_error_loc(\"Only strings, buffers, arrays, pointers, and objects can be indexed\");");
                 codegen_writeln(ctx, "%s = hml_val_null();", result);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
@@ -506,6 +609,8 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
+                // Parity with interpreter: indexing any other type throws.
+                codegen_writeln(ctx, "hml_runtime_error_loc(\"Only strings, buffers, arrays, pointers, and objects can be indexed\");");
                 codegen_writeln(ctx, "%s = hml_val_null();", result);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
@@ -528,6 +633,45 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
             char *idx = codegen_expr(ctx, expr->as.index_assign.index);
             char *value = codegen_expr(ctx, expr->as.index_assign.value);
 
+            // For string index assignment on a plain variable, pass the
+            // variable's slot so pooled (immortal) 1-char literals can be
+            // copy-on-written instead of corrupting the shared ASCII pool.
+            // string_lvalue is "&var" (or the pointer itself for ref params),
+            // or NULL when the target is not a simple variable.
+            char *string_lvalue = NULL;
+            {
+                Expr *target = expr->as.index_assign.object;
+                if (target && target->type == EXPR_IDENT) {
+                    const char *name = target->as.ident.name;
+                    char buf[CODEGEN_MANGLED_NAME_SIZE + 8];
+                    if (codegen_is_ref_param(ctx, name)) {
+                        char *safe = codegen_sanitize_ident(name);
+                        snprintf(buf, sizeof(buf), "%s", safe);  // already HmlValue*
+                        free(safe);
+                        string_lvalue = strdup(buf);
+                    } else if (ctx->current_module && !codegen_is_local(ctx, name)) {
+                        if (module_find_export(ctx->current_module, name) ||
+                            !module_find_import(ctx->current_module, name)) {
+                            snprintf(buf, sizeof(buf), "&%s%s",
+                                     ctx->current_module->module_prefix, name);
+                            string_lvalue = strdup(buf);
+                        }
+                    } else if (codegen_is_shadow(ctx, name) ||
+                               (codegen_is_local(ctx, name) &&
+                                (ctx->current_module || ctx->in_function ||
+                                 !codegen_is_main_var(ctx, name)))) {
+                        char *safe = codegen_sanitize_ident(name);
+                        snprintf(buf, sizeof(buf), "&%s", safe);
+                        free(safe);
+                        string_lvalue = strdup(buf);
+                    } else if (codegen_is_main_var(ctx, name) &&
+                               !codegen_find_main_import(ctx, name)) {
+                        snprintf(buf, sizeof(buf), "&_main_%s", name);
+                        string_lvalue = strdup(buf);
+                    }
+                }
+            }
+
             if (obj_is_array && idx_is_i32) {
                 // OPTIMIZATION: Both array and i32 index known at compile time
                 codegen_writeln(ctx, "hml_array_set_i32_fast(%s.as.as_array, %s.as.as_i32, %s);", obj, idx, value);
@@ -539,7 +683,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", obj);
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "hml_string_index_assign(%s, %s, %s);", obj, idx, value);
+                if (string_lvalue) {
+                    codegen_writeln(ctx, "hml_string_index_assign_var(%s, %s, %s);", string_lvalue, idx, value);
+                } else {
+                    codegen_writeln(ctx, "hml_string_index_assign(%s, %s, %s);", obj, idx, value);
+                }
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj);
                 codegen_indent_inc(ctx);
@@ -562,7 +710,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else if (%s.type == HML_VAL_STRING) {", obj);
                 codegen_indent_inc(ctx);
-                codegen_writeln(ctx, "hml_string_index_assign(%s, %s, %s);", obj, idx, value);
+                if (string_lvalue) {
+                    codegen_writeln(ctx, "hml_string_index_assign_var(%s, %s, %s);", string_lvalue, idx, value);
+                } else {
+                    codegen_writeln(ctx, "hml_string_index_assign(%s, %s, %s);", obj, idx, value);
+                }
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj);
                 codegen_indent_inc(ctx);
@@ -585,10 +737,44 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
             }
+            // If the target variable was copy-on-written (pooled string) and
+            // is captured by closures, propagate the rebound value to the
+            // shared environment, mirroring EXPR_ASSIGN.
+            if (string_lvalue && string_lvalue[0] == '&') {
+                const char *target_name = expr->as.index_assign.object->as.ident.name;
+                const char *c_name = string_lvalue + 1;  // skip '&'
+                if (ctx->current_closure && ctx->current_closure->num_captured > 0) {
+                    for (int i = 0; i < ctx->current_closure->num_captured; i++) {
+                        if (strcmp(ctx->current_closure->captured_vars[i], target_name) == 0) {
+                            int env_index = ctx->current_closure->shared_env_indices ?
+                                           ctx->current_closure->shared_env_indices[i] : i;
+                            codegen_writeln(ctx, "hml_closure_env_set(_closure_env, %d, %s);", env_index, c_name);
+                            break;
+                        }
+                    }
+                }
+                codegen_sync_captured_var(ctx, target_name, c_name);
+            }
+            free(string_lvalue);
+
+            // The expression value of `obj[idx] = v` is v; hand the
+            // caller an independent owned reference.
             codegen_writeln(ctx, "HmlValue %s = %s;", result, value);
             codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
             codegen_writeln(ctx, "hml_release_if_needed(&%s);", obj);
             codegen_writeln(ctx, "hml_release_if_needed(&%s);", idx);
+            // Release the RHS temp. codegen_expr returned it owned (+1);
+            // every setter above (hml_object_set_field / array_set /
+            // buffer_set / ...) takes its OWN reference, so without
+            // this the RHS's creation reference is orphaned and every
+            // `obj[key] = value` leaks `value`. This is pervasive —
+            // e.g. @stdlib/sqlite's query() does `row[col] = val` per
+            // column per row, so a server querying its DB per request
+            // (a dashboard control-plane) bled GB. Mirrors the
+            // array-literal `hml_array_push(...); hml_release(&elem)`
+            // pattern just below. `result` already holds an
+            // independent ref for the expression's value.
+            codegen_writeln(ctx, "hml_release_if_needed(&%s);", value);
             free(obj);
             free(idx);
             free(value);
@@ -632,10 +818,14 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     free(spread_key);
                     free(spread_field);
                 } else {
-                    // Normal field: name: value
+                    // Normal field: name: value. Keys may come from quoted
+                    // string literals ({"a\"b": 1}), so they must be escaped
+                    // before being interpolated into a C string literal.
                     char *val = codegen_expr(ctx, expr->as.object_literal.field_values[i]);
+                    char *escaped_key = codegen_escape_string(expr->as.object_literal.field_names[i]);
                     codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);",
-                                  result, expr->as.object_literal.field_names[i], val);
+                                  result, escaped_key, val);
+                    free(escaped_key);
                     codegen_writeln(ctx, "hml_release(&%s);", val);
                     free(val);
                 }
@@ -748,39 +938,17 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     }
                 }
 
-                // Update the shared environment with current values of captured variables
+                // Update the shared environment with current values of captured variables.
+                // Slots that resolve into an enclosing closure's environment (borrowed
+                // env or parent-encoded index) are NOT re-seeded: the enclosing
+                // environment already holds the authoritative, shared value, and
+                // overwriting it with this body's local copy could clobber updates
+                // made through previously created closures.
                 for (int i = 0; i < captured->num_vars; i++) {
                     int shared_idx = shared_env_get_index(ctx, captured->vars[i]);
-                    if (shared_idx >= 0) {
-                        // Determine which variable name to use:
-                        // Check block-scope and shadows BEFORE main vars to handle shadowing correctly
-                        // - Block-scoped vars shadow main vars - use bare name
-                        // - Shadow vars (catch params etc.) use bare name
-                        // - Main file vars are stored as _main_<name> in C
-                        // - Module-local vars are stored as <name> in C (sanitized)
-                        if (ctx->current_module && codegen_is_local(ctx, captured->vars[i])) {
-                            char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                            emit_closure_env_set(ctx, ctx->shared_env_name, shared_idx, safe_cap, captured->vars[i]);
-                            free(safe_cap);
-                        } else if (ctx->current_scope && scope_is_defined(ctx->current_scope, captured->vars[i])) {
-                            // Block-local variable shadows any main var with the same name
-                            char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                            emit_closure_env_set(ctx, ctx->shared_env_name, shared_idx, safe_cap, captured->vars[i]);
-                            free(safe_cap);
-                        } else if (codegen_is_shadow(ctx, captured->vars[i])) {
-                            // Shadow variable (catch param etc.) - use bare name
-                            char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                            emit_closure_env_set(ctx, ctx->shared_env_name, shared_idx, safe_cap, captured->vars[i]);
-                            free(safe_cap);
-                        } else if (codegen_is_main_var(ctx, captured->vars[i])) {
-                            char main_name[256];
-                            snprintf(main_name, sizeof(main_name), "_main_%s", captured->vars[i]);
-                            emit_closure_env_set(ctx, ctx->shared_env_name, shared_idx, main_name, captured->vars[i]);
-                        } else {
-                            char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                            emit_closure_env_set(ctx, ctx->shared_env_name, shared_idx, safe_cap, captured->vars[i]);
-                            free(safe_cap);
-                        }
+                    if (shared_idx >= 0 && !ctx->shared_env_borrowed &&
+                        shared_idx < HML_CLOSURE_ENV_PARENT_STRIDE) {
+                        emit_capture(ctx, ctx->shared_env_name, shared_idx, captured->vars[i]);
                     }
                 }
                 int num_required = count_required_params(expr->as.function.param_defaults, expr->as.function.num_params);
@@ -838,37 +1006,9 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlClosureEnv *_env_%d = hml_closure_env_new(%d);",
                               env_id, captured->num_vars);
                 for (int i = 0; i < captured->num_vars; i++) {
-                    // Determine which variable name to use:
-                    // - Block-scoped vars shadow main vars - use bare name
-                    // - Shadow vars (catch params etc.) use bare name
-                    // - Main file vars are stored as _main_<name> in C
-                    // - Module-local vars are stored as sanitized name in C
-                    // Check block-scope and shadows BEFORE main vars to handle shadowing correctly
                     char env_name_buf[64];
                     snprintf(env_name_buf, sizeof(env_name_buf), "_env_%d", env_id);
-                    if (ctx->current_module && codegen_is_local(ctx, captured->vars[i])) {
-                        char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                        emit_closure_env_set(ctx, env_name_buf, i, safe_cap, captured->vars[i]);
-                        free(safe_cap);
-                    } else if (ctx->current_scope && scope_is_defined(ctx->current_scope, captured->vars[i])) {
-                        // Block-local variable shadows any main var with the same name
-                        char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                        emit_closure_env_set(ctx, env_name_buf, i, safe_cap, captured->vars[i]);
-                        free(safe_cap);
-                    } else if (codegen_is_shadow(ctx, captured->vars[i])) {
-                        // Shadow variable (catch param etc.) - use bare name
-                        char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                        emit_closure_env_set(ctx, env_name_buf, i, safe_cap, captured->vars[i]);
-                        free(safe_cap);
-                    } else if (codegen_is_main_var(ctx, captured->vars[i])) {
-                        char main_name[256];
-                        snprintf(main_name, sizeof(main_name), "_main_%s", captured->vars[i]);
-                        emit_closure_env_set(ctx, env_name_buf, i, main_name, captured->vars[i]);
-                    } else {
-                        char *safe_cap = codegen_sanitize_ident(captured->vars[i]);
-                        emit_closure_env_set(ctx, env_name_buf, i, safe_cap, captured->vars[i]);
-                        free(safe_cap);
-                    }
+                    emit_capture(ctx, env_name_buf, i, captured->vars[i]);
                 }
                 int num_required = count_required_params(expr->as.function.param_defaults, expr->as.function.num_params);
                 int has_rest = expr->as.function.rest_param ? 1 : 0;
@@ -951,8 +1091,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         }
                     }
                 }
+                // Refresh the local from the shared environment first - a
+                // closure may have modified this captured variable
+                {
+                    int cap_idx = codegen_captured_var_env_index(ctx, raw_var);
+                    if (cap_idx >= 0) {
+                        codegen_writeln(ctx, "hml_release(&%s);", var);
+                        codegen_writeln(ctx, "%s = hml_closure_env_get(%s, %d);",
+                                      var, ctx->shared_env_name, cap_idx);
+                    }
+                }
                 // Fast path for i32, fallback to generic binary_op
-                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", var, var, var, var);
+                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_value_inc(%s);", var, var, var, var);
                 // If captured variable, update closure environment
                 if (ctx->current_closure && ctx->current_closure->num_captured > 0) {
                     for (int i = 0; i < ctx->current_closure->num_captured; i++) {
@@ -964,6 +1114,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         }
                     }
                 }
+                codegen_sync_captured_var(ctx, raw_var, var);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
                 if (safe_var) free(safe_var);
@@ -974,7 +1125,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *old_val = codegen_temp(ctx);
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, %s);", old_val, arr, idx);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_value_inc(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_array_set(%s, %s, %s);", arr, idx, new_val);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, new_val);
                 codegen_writeln(ctx, "hml_retain(&%s);", result);
@@ -990,7 +1141,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *old_val = codegen_temp(ctx);
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"%s\");", old_val, obj, prop);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_value_inc(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);", obj, prop, new_val);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, new_val);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
@@ -1039,8 +1190,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         }
                     }
                 }
+                // Refresh the local from the shared environment first - a
+                // closure may have modified this captured variable
+                {
+                    int cap_idx = codegen_captured_var_env_index(ctx, raw_var);
+                    if (cap_idx >= 0) {
+                        codegen_writeln(ctx, "hml_release(&%s);", var);
+                        codegen_writeln(ctx, "%s = hml_closure_env_get(%s, %d);",
+                                      var, ctx->shared_env_name, cap_idx);
+                    }
+                }
                 // Fast path for i32, fallback to generic binary_op
-                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", var, var, var, var);
+                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_value_dec(%s);", var, var, var, var);
                 // If captured variable, update closure environment
                 if (ctx->current_closure && ctx->current_closure->num_captured > 0) {
                     for (int i = 0; i < ctx->current_closure->num_captured; i++) {
@@ -1052,6 +1213,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         }
                     }
                 }
+                codegen_sync_captured_var(ctx, raw_var, var);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
                 if (safe_var) free(safe_var);
@@ -1062,7 +1224,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *old_val = codegen_temp(ctx);
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, %s);", old_val, arr, idx);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_value_dec(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_array_set(%s, %s, %s);", arr, idx, new_val);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, new_val);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
@@ -1078,7 +1240,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 char *old_val = codegen_temp(ctx);
                 char *new_val = codegen_temp(ctx);
                 codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"%s\");", old_val, obj, prop);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_value_dec(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);", obj, prop, new_val);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, new_val);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
@@ -1130,8 +1292,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
+                // Refresh the local from the shared environment first - a
+                // closure may have modified this captured variable
+                {
+                    int cap_idx = codegen_captured_var_env_index(ctx, raw_var);
+                    if (cap_idx >= 0) {
+                        codegen_writeln(ctx, "hml_release(&%s);", var);
+                        codegen_writeln(ctx, "%s = hml_closure_env_get(%s, %d);",
+                                      var, ctx->shared_env_name, cap_idx);
+                    }
+                }
                 // Fast path for i32, fallback to generic binary_op
-                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", var, var, var, var);
+                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_value_inc(%s);", var, var, var, var);
                 // If captured variable, update closure environment
                 if (ctx->current_closure && ctx->current_closure->num_captured > 0) {
                     for (int i = 0; i < ctx->current_closure->num_captured; i++) {
@@ -1143,6 +1315,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         }
                     }
                 }
+                codegen_sync_captured_var(ctx, raw_var, var);
                 if (safe_var) free(safe_var);
             } else if (expr->as.postfix_inc.operand->type == EXPR_INDEX) {
                 // arr[i]++
@@ -1153,7 +1326,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, %s);", old_val, arr, idx);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, old_val);  // Return old value
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_value_inc(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_array_set(%s, %s, %s);", arr, idx, new_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", old_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", new_val);
@@ -1169,7 +1342,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"%s\");", old_val, obj, prop);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, old_val);  // Return old value
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_binary_op(HML_OP_ADD, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_inc(%s) : hml_value_inc(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);", obj, prop, new_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", old_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", new_val);
@@ -1218,8 +1391,18 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, var);
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
+                // Refresh the local from the shared environment first - a
+                // closure may have modified this captured variable
+                {
+                    int cap_idx = codegen_captured_var_env_index(ctx, raw_var);
+                    if (cap_idx >= 0) {
+                        codegen_writeln(ctx, "hml_release(&%s);", var);
+                        codegen_writeln(ctx, "%s = hml_closure_env_get(%s, %d);",
+                                      var, ctx->shared_env_name, cap_idx);
+                    }
+                }
                 // Fast path for i32, fallback to generic binary_op
-                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", var, var, var, var);
+                codegen_writeln(ctx, "%s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_value_dec(%s);", var, var, var, var);
                 // If captured variable, update closure environment
                 if (ctx->current_closure && ctx->current_closure->num_captured > 0) {
                     for (int i = 0; i < ctx->current_closure->num_captured; i++) {
@@ -1231,6 +1414,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                         }
                     }
                 }
+                codegen_sync_captured_var(ctx, raw_var, var);
                 if (safe_var) free(safe_var);
             } else if (expr->as.postfix_dec.operand->type == EXPR_INDEX) {
                 // arr[i]--
@@ -1241,7 +1425,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_array_get(%s, %s);", old_val, arr, idx);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, old_val);  // Return old value
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_value_dec(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_array_set(%s, %s, %s);", arr, idx, new_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", old_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", new_val);
@@ -1257,7 +1441,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "HmlValue %s = hml_object_get_field(%s, \"%s\");", old_val, obj, prop);
                 codegen_writeln(ctx, "HmlValue %s = %s;", result, old_val);  // Return old value
                 codegen_writeln(ctx, "hml_retain_if_needed(&%s);", result);
-                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_binary_op(HML_OP_SUB, %s, hml_val_i32(1));", new_val, old_val, old_val, old_val);
+                codegen_writeln(ctx, "HmlValue %s = %s.type == HML_VAL_I32 ? hml_i32_dec(%s) : hml_value_dec(%s);", new_val, old_val, old_val, old_val);
                 codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);", obj, prop, new_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", old_val);
                 codegen_writeln(ctx, "hml_release_if_needed(&%s);", new_val);
@@ -1290,9 +1474,10 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
 
                 // Add expression part (there are num_parts expression parts)
+                // Use display concat: ${[1,2]} renders "[1, 2]" like the interpreter
                 if (i < expr->as.string_interpolation.num_parts) {
                     char *expr_val = codegen_expr(ctx, expr->as.string_interpolation.expr_parts[i]);
-                    codegen_writeln(ctx, "HmlValue _concat%d = hml_string_concat(%s, %s);", ctx->temp_counter, result, expr_val);
+                    codegen_writeln(ctx, "HmlValue _concat%d = hml_string_concat_display(%s, %s);", ctx->temp_counter, result, expr_val);
                     codegen_writeln(ctx, "hml_release(&%s);", result);
                     codegen_writeln(ctx, "hml_release(&%s);", expr_val);
                     codegen_writeln(ctx, "%s = _concat%d;", result, ctx->temp_counter);
@@ -1414,9 +1599,17 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
                 free(arg_temps);
             } else {
-                // obj?.[index]
+                // obj?.[index] or obj?[index]
                 char *idx = codegen_expr(ctx, expr->as.optional_chain.index);
-                codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj);
+                codegen_writeln(ctx, "if (%s.type == HML_VAL_OBJECT && %s.type == HML_VAL_STRING) {", obj, idx);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_object_get_field(%s, %s.as.as_string->data);", result, obj, idx);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_OBJECT) {", obj);
+                codegen_indent_inc(ctx);
+                codegen_writeln(ctx, "%s = hml_object_get_field_coerce(%s, %s);", result, obj, idx);
+                codegen_indent_dec(ctx);
+                codegen_writeln(ctx, "} else if (%s.type == HML_VAL_ARRAY) {", obj);
                 codegen_indent_inc(ctx);
                 codegen_writeln(ctx, "%s = hml_array_get(%s, %s);", result, obj, idx);
                 codegen_indent_dec(ctx);
@@ -1475,6 +1668,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "// Match arm %d", i);
                 codegen_writeln(ctx, "%s:;", arm_labels[i]);
                 int arm_locals_start = ctx->num_locals;
+                int arm_unbox_mark = codegen_match_unbox_mark();
                 codegen_push_scope(ctx);
                 codegen_writeln(ctx, "{");
                 codegen_indent_inc(ctx);
@@ -1482,13 +1676,20 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 // Generate pattern match condition
                 codegen_pattern_match(ctx, arm->pattern, scrutinee, next_arm);
 
+                // Locals added by the pattern are bindings (e.g. `n`, destructured
+                // fields/elements). They each hold a retained reference that must be
+                // released when the arm finishes, otherwise every successful match
+                // leaks the bound heap values.
+                int arm_bindings_end = ctx->num_locals;
+
                 // Generate guard check if present
                 if (arm->guard) {
                     char *guard_val = codegen_expr(ctx, arm->guard);
                     codegen_writeln(ctx, "if (!hml_to_bool(%s)) {", guard_val);
                     codegen_indent_inc(ctx);
                     codegen_writeln(ctx, "hml_release(&%s);", guard_val);
-                    // Release any bindings created by pattern before jumping
+                    // Release bindings created by the pattern before jumping away.
+                    codegen_release_locals_range(ctx, arm_locals_start, arm_bindings_end);
                     codegen_writeln(ctx, "goto %s;", next_arm);
                     codegen_indent_dec(ctx);
                     codegen_writeln(ctx, "}");
@@ -1496,10 +1697,15 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     free(guard_val);
                 }
 
-                // Evaluate body and store result
+                // Evaluate body and store result. The body retains its own value
+                // (codegen_expr returns an owned temp), so the result is independent
+                // of the pattern bindings and they can be safely released below.
                 char *body_val = codegen_expr(ctx, arm->body);
                 codegen_writeln(ctx, "%s = %s;", result, body_val);
                 free(body_val);
+
+                // Release pattern bindings now that the body result is captured.
+                codegen_release_locals_range(ctx, arm_locals_start, arm_bindings_end);
 
                 // Jump to end
                 codegen_writeln(ctx, "goto %s;", end_label);
@@ -1509,6 +1715,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 // Restore num_locals (match arm bindings are out of C scope)
                 ctx->num_locals = arm_locals_start;
                 codegen_pop_scope(ctx);
+                codegen_match_unbox_restore(ctx, arm_unbox_mark);
             }
 
             // No match - runtime error

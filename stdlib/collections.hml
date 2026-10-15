@@ -32,17 +32,18 @@ export fn HashMap() {
 	fn hash(key) {
 		let value_type = typeof(key);
 		if (value_type == "string") {
-			// djb2 hash algorithm - much better distribution than simple sum
-			let h = 5381;
-			for (let i = 0; i < key.byte_length; i++) {
-				let byte_val = key.byte_at(i);
+			// djb2 hash algorithm - much better distribution than simple sum.
+			// Run the accumulator in i64 and mask to 31 bits each iteration so
+			// intermediate values never blow past i32 max and trigger the
+			// runtime's checked-arithmetic overflow throw.
+			let h: i64 = 5381;
+			let len = key.byte_length;
+			for (let i = 0; i < len; i++) {
+				let byte_val: i64 = key.byte_at(i);
 				// h = h * 33 + byte_val (using bit shift: h * 33 = h * 32 + h)
-				h = (h << 5) + h + byte_val;
+				h = ((h << 5) + h + byte_val) & 2147483647;
 			}
-			if (h < 0) {
-				h = -h;
-			}
-			return h;
+			return i32(h);
 		}
 		if (value_type == "i32") {
 			let val = key;

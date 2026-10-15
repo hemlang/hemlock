@@ -188,6 +188,7 @@ static int ctx_set(TestContext *tc, const char *varname, const char *json) {
     JSONParser jp;
     jp.input = json;
     jp.pos   = 0;
+    jp.depth = 0;
 
     Value val = json_parse_value(&jp, tc->ctx);
     if (tc->ctx->exception_state.is_throwing) {

@@ -6,16 +6,13 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "../internal.h"
+#include "hemlock_platform.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <pthread.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <dirent.h>
 #include <unistd.h>
 #include <limits.h>
@@ -24,7 +21,15 @@
 #include <sys/time.h>
 #include <signal.h>
 #include <fcntl.h>  // For O_NOFOLLOW symlink protection
+#ifndef _WIN32
+#include <sys/wait.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <poll.h>   // For poll() in exec functions
+#include <spawn.h>  // For posix_spawn() / posix_spawnp()
+#endif
 
 // Define math constants if not available
 #ifndef M_PI
@@ -98,6 +103,8 @@ Value builtin_now(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_time_ms(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_sleep(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_clock(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_main_loop(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_main_loop_stop(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_localtime(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_gmtime(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_mktime(Value *args, int num_args, ExecutionContext *ctx);
@@ -120,7 +127,15 @@ Value builtin_kill(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_fork(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_abort(Value *args, int num_args, ExecutionContext *ctx);
+
+// Pipe builtins (env.c)
+Value builtin_pipe(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_close_fd(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_fd(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_fd(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_dup2(Value *args, int num_args, ExecutionContext *ctx);
 
 // Signal handling builtins (signals.c)
 Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx);
@@ -148,6 +163,8 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_is_file(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_is_dir(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_file_stat(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_open_fd(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_fileno(Value *args, int num_args, ExecutionContext *ctx);
 
 // Directory builtins (directories.c)
 Value builtin_make_dir(Value *args, int num_args, ExecutionContext *ctx);
@@ -178,6 +195,8 @@ Value builtin_dns_resolve(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx);
 Value val_socket(SocketHandle *sock);
 void socket_free(SocketHandle *sock);
+void socket_retain(SocketHandle *sock);
+void socket_release(SocketHandle *sock);
 Value get_socket_property(SocketHandle *sock, const char *property, ExecutionContext *ctx);
 Value call_socket_method(SocketHandle *sock, const char *method, Value *args, int num_args, ExecutionContext *ctx);
 
@@ -199,6 +218,7 @@ Value builtin_lws_response_free(Value *args, int num_args, ExecutionContext *ctx
 // Streaming HTTP builtins
 Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_http_stream_read(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_http_stream_read_binary(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_http_stream_status(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_http_stream_headers(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_http_stream_close(Value *args, int num_args, ExecutionContext *ctx);
@@ -235,6 +255,9 @@ Value builtin_zlib_compress_bound(Value *args, int num_args, ExecutionContext *c
 Value builtin_crc32(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_adler32(Value *args, int num_args, ExecutionContext *ctx);
 
+// CSPRNG builtin (crypto.c; available on every build)
+Value builtin_random_bytes(Value *args, int num_args, ExecutionContext *ctx);
+
 // Cryptographic hash builtins (crypto.c)
 Value builtin_sha1(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_sha256(Value *args, int num_args, ExecutionContext *ctx);
@@ -260,6 +283,12 @@ Value builtin_os_version(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_tmpdir(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_uptime(Value *args, int num_args, ExecutionContext *ctx);
+
+// Terminal control builtins (os.c, backed by src/shared/term_core.c)
+Value builtin_term_is_tty(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_term_raw(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_term_read_byte(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_term_size(Value *args, int num_args, ExecutionContext *ctx);
 
 // FFI callback builtins (ffi_builtins.c)
 Value builtin_callback(Value *args, int num_args, ExecutionContext *ctx);
@@ -356,6 +385,15 @@ Value builtin_write_u32_be(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_write_u32_le(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_write_u64_be(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_write_u64_le(Value *args, int num_args, ExecutionContext *ctx);
+
+// Memory-mapped file I/O builtins (mmap.c)
+Value builtin_mmap_open(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_open_anon(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_sync(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_close(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_size(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_advise(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_protect(Value *args, int num_args, ExecutionContext *ctx);
 
 // Regex builtins (regex.c)
 Value builtin_regex_compile(Value *args, int num_args, ExecutionContext *ctx);

@@ -1,0 +1,10 @@
+// A function whose every return path yields a fresh owned resource acts as an
+// acquisition at its call sites, so the caller's second free is a double free.
+fn make_block(): ptr {
+    return alloc(64);
+}
+fn main() {
+    let p = make_block();
+    free(p);
+    free(p);
+}

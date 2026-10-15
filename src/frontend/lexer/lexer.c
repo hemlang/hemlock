@@ -1106,10 +1106,16 @@ Token lexer_next(Lexer *lex) {
         case '@': return make_token(lex, TOK_AT);
 
         case '?':
-            // Check for ?. (optional chaining) or ?? (null coalescing) or ??= (null coalescing assignment)
+            // Check for ?. (optional chaining), ?[ (safe index), ?? (null coalescing) or ??= (null coalescing assignment)
             if (peek(lex) == '.') {
                 advance(lex);
                 return make_token(lex, TOK_QUESTION_DOT);
+            }
+            if (peek(lex) == '[') {
+                // Note: only matches when '[' immediately follows '?' (no whitespace),
+                // so a ternary like `a ? [1] : [2]` is unaffected.
+                advance(lex);
+                return make_token(lex, TOK_QUESTION_LBRACKET);
             }
             if (peek(lex) == '?') {
                 advance(lex);

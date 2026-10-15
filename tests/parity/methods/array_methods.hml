@@ -58,4 +58,19 @@ let arr4 = [1, 2, 3];
 arr4.clear();
 print(arr4.length);
 
+// Regression: last()/first() must retain the returned value so that
+// comparisons (which release both operands) don't free the stored element.
+let refs: array = [];
+refs.push("..");
+if (refs.last() != "..") { refs.pop(); }
+refs.push("..");
+print(refs.length);
+print(refs[0]);
+print(refs[1]);
+print(refs.join("/"));
+
+// Regression: join() must handle i64/u64 (previously emitted "[object]").
+let big: array<i64> = [5000000000, 6000000000];
+print(big.join(","));
+
 print("done");

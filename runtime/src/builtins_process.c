@@ -13,9 +13,250 @@
 
 #ifndef __EMSCRIPTEN__
 
+// _GNU_SOURCE exposes posix_spawn_file_actions_addchdir_np (glibc 2.29+) and
+// POSIX_SPAWN_SETSID (glibc 2.26+). Must be defined before any system header
+// inclusion. Guarded so it does not collide with -D_GNU_SOURCE on the build
+// command line.
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "builtins_internal.h"
 
 // ========== COMMAND EXECUTION ==========
+
+#ifdef _WIN32
+// Windows has no fork() and no POSIX uids or signals, so those builtins
+// fail at runtime. exec()/exec_argv() ARE implemented, backed by
+// CreateProcess + pipes (hml_win32_run_capture in the platform layer):
+// shell mode goes through cmd.exe /S /C the way popen goes through
+// /bin/sh, argv mode runs the program directly with stdout/stderr
+// captured and optional stdin, mirroring the POSIX semantics below.
+
+#include "hemlock_compat.h"
+
+#define HML_WIN32_PROCESS_STUB_0(name, label) \
+    HmlValue hml_##name(void) { \
+        hml_runtime_error(label " is not supported on Windows"); \
+    }
+
+#define HML_WIN32_PROCESS_STUB_1(name, label) \
+    HmlValue hml_##name(HmlValue a) { \
+        (void)a; \
+        hml_runtime_error(label " is not supported on Windows"); \
+    }
+
+#define HML_WIN32_PROCESS_STUB_2(name, label) \
+    HmlValue hml_##name(HmlValue a, HmlValue b) { \
+        (void)a; (void)b; \
+        hml_runtime_error(label " is not supported on Windows"); \
+    }
+
+// Build {output, stderr, exit_code}; frees the capture buffers.
+static HmlValue win32_exec_result(char *out_buf, char *err_buf, int exit_code) {
+    HmlValue result = hml_val_object();
+    hml_object_set_field_owned(result, "output", hml_val_string(out_buf ? out_buf : ""));
+    hml_object_set_field_owned(result, "stderr", hml_val_string(err_buf ? err_buf : ""));
+    hml_object_set_field(result, "exit_code", hml_val_i32(exit_code));
+    free(out_buf);
+    free(err_buf);
+    return result;
+}
+
+// Mirror the POSIX child-side execvp failure: an object with exit code
+// 127 and the failure message on stderr (the launch error is data, not
+// an exception, so scripts can check exit_code portably).
+static HmlValue win32_exec_failed(const char *what, const char *argv0, const char *errmsg) {
+    char msg[512];
+    snprintf(msg, sizeof(msg), "%s failed to execute '%s': %s\n", what, argv0, errmsg);
+    HmlValue result = hml_val_object();
+    hml_object_set_field_owned(result, "output", hml_val_string(""));
+    hml_object_set_field_owned(result, "stderr", hml_val_string(msg));
+    hml_object_set_field(result, "exit_code", hml_val_i32(127));
+    return result;
+}
+
+// Collect a NUL-terminated C argv from an optional leading command plus
+// an array of strings (errors do not return).
+static char **win32_collect_argv(const char *what, HmlString *lead,
+                                 HmlArray *arr, int *out_argc) {
+    int64_t argc = (lead ? 1 : 0) + (arr ? arr->length : 0);
+    char **argv = malloc(((size_t)argc + 1) * sizeof(char *));
+    if (!argv) {
+        hml_runtime_error("%s memory allocation failed", what);
+    }
+
+    int64_t pos = 0;
+    if (lead) {
+        argv[pos] = strndup(lead->data, (size_t)lead->length);
+        if (!argv[pos]) {
+            free(argv);
+            hml_runtime_error("%s memory allocation failed", what);
+        }
+        pos++;
+    }
+    if (arr) {
+        for (int64_t i = 0; i < arr->length; i++) {
+            HmlValue elem = arr->elements[i];
+            if (elem.type != HML_VAL_STRING || !elem.as.as_string) {
+                for (int64_t j = 0; j < pos; j++) free(argv[j]);
+                free(argv);
+                hml_runtime_error("%s array elements must be strings", what);
+            }
+            HmlString *s = elem.as.as_string;
+            argv[pos] = strndup(s->data, (size_t)s->length);
+            if (!argv[pos]) {
+                for (int64_t j = 0; j < pos; j++) free(argv[j]);
+                free(argv);
+                hml_runtime_error("%s memory allocation failed", what);
+            }
+            pos++;
+        }
+    }
+    argv[argc] = NULL;
+    *out_argc = (int)argc;
+    return argv;
+}
+
+static void win32_free_argv(char **argv, int argc) {
+    for (int i = 0; i < argc; i++) free(argv[i]);
+    free(argv);
+}
+
+// Run an argv vector with stdout/stderr captured and optional stdin.
+static HmlValue win32_exec_capture(const char *what, char **argv, int argc,
+                                   const char *stdin_data, size_t stdin_len) {
+    char *cmdline = hml_win32_build_cmdline((const char *const *)argv, argc);
+    char argv0[256];
+    snprintf(argv0, sizeof(argv0), "%s", argv[0]);
+    win32_free_argv(argv, argc);
+    if (!cmdline) {
+        hml_runtime_error("%s memory allocation failed", what);
+    }
+
+    char errmsg[256];
+    char *out_buf = NULL, *err_buf = NULL;
+    size_t out_len = 0, err_len = 0;
+    int exit_code = 0;
+    int rc = hml_win32_run_capture(cmdline, stdin_data, stdin_len, 1,
+                                   &out_buf, &out_len, &err_buf, &err_len,
+                                   &exit_code, errmsg, sizeof(errmsg));
+    free(cmdline);
+    if (rc != 0) {
+        return win32_exec_failed(what, argv0, errmsg);
+    }
+    return win32_exec_result(out_buf, err_buf, exit_code);
+}
+
+// exec(command) - shell mode via cmd.exe (stderr inherited, like popen)
+HmlValue hml_exec(HmlValue command) {
+    // SANDBOX: Check if process spawning is allowed
+    if (hml_sandbox_check(HML_SANDBOX_RESTRICT_PROCESS)) {
+        hml_sandbox_error("command execution");
+    }
+
+    if (command.type != HML_VAL_STRING || !command.as.as_string) {
+        hml_runtime_error("exec() argument must be a string");
+    }
+
+    HmlString *cmd_str = command.as.as_string;
+
+    // SECURITY: Warn about potentially dangerous shell metacharacters
+    const char *dangerous_chars = ";|&$`\\\"'<>(){}[]!#";
+    for (int64_t i = 0; i < cmd_str->length; i++) {
+        for (const char *dc = dangerous_chars; *dc; dc++) {
+            if (cmd_str->data[i] == *dc) {
+                fprintf(stderr, "Warning: exec() command contains shell metacharacter '%c'. "
+                        "Consider using exec_argv() for safer command execution.\n", *dc);
+                goto done_warning;
+            }
+        }
+    }
+done_warning:
+    ;
+
+    char *ccmd = strndup(cmd_str->data, (size_t)cmd_str->length);
+    if (!ccmd) {
+        hml_runtime_error("exec() memory allocation failed");
+    }
+    char *cmdline = hml_win32_shell_cmdline(ccmd);
+    if (!cmdline) {
+        free(ccmd);
+        hml_runtime_error("exec() memory allocation failed");
+    }
+
+    char errmsg[256];
+    char *out_buf = NULL;
+    size_t out_len = 0;
+    int exit_code = 0;
+    int rc = hml_win32_run_capture(cmdline, NULL, 0, 0,
+                                   &out_buf, &out_len, NULL, NULL,
+                                   &exit_code, errmsg, sizeof(errmsg));
+    free(cmdline);
+    if (rc != 0) {
+        fprintf(stderr, "Runtime error: Failed to execute command '%s': %s\n", ccmd, errmsg);
+        free(ccmd);
+        exit(1);
+    }
+    free(ccmd);
+    return win32_exec_result(out_buf, NULL, exit_code);
+}
+
+// exec_argv(argv, opts?) - direct execution, no shell
+HmlValue hml_exec_argv(HmlValue args_array, HmlValue opts) {
+    // SANDBOX: Check if process spawning is allowed
+    if (hml_sandbox_check(HML_SANDBOX_RESTRICT_PROCESS)) {
+        hml_sandbox_error("command execution");
+    }
+
+    if (args_array.type != HML_VAL_ARRAY || !args_array.as.as_array) {
+        hml_runtime_error("exec_argv() argument must be an array of strings");
+    }
+
+    HmlArray *arr = args_array.as.as_array;
+    if (arr->length == 0) {
+        hml_runtime_error("exec_argv() array must not be empty");
+    }
+
+    // Extract stdin data from opts (string or buffer)
+    const char *stdin_data = NULL;
+    size_t stdin_len = 0;
+    if (opts.type == HML_VAL_OBJECT && opts.as.as_object) {
+        HmlValue stdin_val = hml_object_get_field(opts, "stdin");
+        if (stdin_val.type == HML_VAL_STRING && stdin_val.as.as_string) {
+            stdin_data = stdin_val.as.as_string->data;
+            stdin_len = (size_t)stdin_val.as.as_string->length;
+        } else if (stdin_val.type == HML_VAL_BUFFER && stdin_val.as.as_buffer) {
+            stdin_data = (const char *)stdin_val.as.as_buffer->data;
+            stdin_len = (size_t)stdin_val.as.as_buffer->length;
+        }
+    }
+
+    int argc = 0;
+    char **argv = win32_collect_argv("exec_argv()", NULL, arr, &argc);
+    return win32_exec_capture("exec_argv()", argv, argc, stdin_data, stdin_len);
+}
+
+// exec(command, args) - direct execution with a leading command
+HmlValue hml_exec_with_args(HmlValue command, HmlValue args_array) {
+    // SANDBOX: Check if process spawning is allowed
+    if (hml_sandbox_check(HML_SANDBOX_RESTRICT_PROCESS)) {
+        hml_sandbox_error("command execution");
+    }
+
+    if (command.type != HML_VAL_STRING || !command.as.as_string) {
+        hml_runtime_error("exec() first argument must be a string");
+    }
+    if (args_array.type != HML_VAL_ARRAY || !args_array.as.as_array) {
+        hml_runtime_error("exec() second argument must be an array of strings");
+    }
+
+    int argc = 0;
+    char **argv = win32_collect_argv("exec()", command.as.as_string,
+                                     args_array.as.as_array, &argc);
+    return win32_exec_capture("exec()", argv, argc, NULL, 0);
+}
+
+#else // !_WIN32
 
 // SECURITY WARNING: exec() uses popen() which passes commands through a shell.
 // This is vulnerable to command injection if the command string contains untrusted input.
@@ -122,8 +363,8 @@ done_warning:
     // Create result object with output, stderr, and exit_code
     // Note: popen() can't capture stderr separately, so we return empty string for it
     HmlValue result = hml_val_object();
-    hml_object_set_field(result, "output", hml_val_string(output_buffer));
-    hml_object_set_field(result, "stderr", hml_val_string(""));
+    hml_object_set_field_owned(result, "output", hml_val_string(output_buffer));
+    hml_object_set_field_owned(result, "stderr", hml_val_string(""));
     hml_object_set_field(result, "exit_code", hml_val_i32(exit_code));
     free(output_buffer);
 
@@ -132,8 +373,10 @@ done_warning:
 
 // exec_argv() - Safe command execution without shell interpretation
 // Takes an array of strings: [program, arg1, arg2, ...]
+// Optional second argument: options object with optional fields:
+//   stdin: string or buffer to pipe into the child's stdin
 // Uses fork/execvp directly, preventing shell injection attacks
-HmlValue hml_exec_argv(HmlValue args_array) {
+HmlValue hml_exec_argv(HmlValue args_array, HmlValue opts) {
     // SANDBOX: Check if process spawning is allowed
     if (hml_sandbox_check(HML_SANDBOX_RESTRICT_PROCESS)) {
         hml_sandbox_error("command execution");
@@ -146,6 +389,20 @@ HmlValue hml_exec_argv(HmlValue args_array) {
     HmlArray *arr = args_array.as.as_array;
     if (arr->length == 0) {
         hml_runtime_error("exec_argv() array must not be empty");
+    }
+
+    // Extract stdin data from opts (string or buffer)
+    const char *stdin_data = NULL;
+    size_t stdin_len = 0;
+    if (opts.type == HML_VAL_OBJECT && opts.as.as_object) {
+        HmlValue stdin_val = hml_object_get_field(opts, "stdin");
+        if (stdin_val.type == HML_VAL_STRING && stdin_val.as.as_string) {
+            stdin_data = stdin_val.as.as_string->data;
+            stdin_len = (size_t)stdin_val.as.as_string->length;
+        } else if (stdin_val.type == HML_VAL_BUFFER && stdin_val.as.as_buffer) {
+            stdin_data = (const char *)stdin_val.as.as_buffer->data;
+            stdin_len = (size_t)stdin_val.as.as_buffer->length;
+        }
     }
 
     // Build argv array for execvp
@@ -173,13 +430,21 @@ HmlValue hml_exec_argv(HmlValue args_array) {
     }
     argv[arr->length] = NULL;
 
-    // Create pipes for stdout and stderr
+    // Create pipes for stdout, stderr, and optionally stdin
     int stdout_pipe[2];
     int stderr_pipe[2];
+    int stdin_pipe[2] = {-1, -1};
     if (pipe(stdout_pipe) != 0 || pipe(stderr_pipe) != 0) {
         for (int64_t i = 0; i < arr->length; i++) free(argv[i]);
         free(argv);
         hml_runtime_error("exec_argv() pipe creation failed: %s", strerror(errno));
+    }
+    if (stdin_data != NULL && pipe(stdin_pipe) != 0) {
+        for (int64_t i = 0; i < arr->length; i++) free(argv[i]);
+        free(argv);
+        close(stdout_pipe[0]); close(stdout_pipe[1]);
+        close(stderr_pipe[0]); close(stderr_pipe[1]);
+        hml_runtime_error("exec_argv() stdin pipe creation failed: %s", strerror(errno));
     }
 
     pid_t pid = fork();
@@ -188,11 +453,17 @@ HmlValue hml_exec_argv(HmlValue args_array) {
         free(argv);
         close(stdout_pipe[0]); close(stdout_pipe[1]);
         close(stderr_pipe[0]); close(stderr_pipe[1]);
+        if (stdin_pipe[0] != -1) { close(stdin_pipe[0]); close(stdin_pipe[1]); }
         hml_runtime_error("exec_argv() fork failed: %s", strerror(errno));
     }
 
     if (pid == 0) {
         // Child process
+        if (stdin_pipe[0] != -1) {
+            close(stdin_pipe[1]);
+            dup2(stdin_pipe[0], STDIN_FILENO);
+            close(stdin_pipe[0]);
+        }
         close(stdout_pipe[0]);  // Close read end
         close(stderr_pipe[0]);
         dup2(stdout_pipe[1], STDOUT_FILENO);
@@ -207,6 +478,7 @@ HmlValue hml_exec_argv(HmlValue args_array) {
     }
 
     // Parent process
+    if (stdin_pipe[0] != -1) close(stdin_pipe[0]);  // Close read end in parent
     close(stdout_pipe[1]);  // Close write end
     close(stderr_pipe[1]);
 
@@ -215,6 +487,7 @@ HmlValue hml_exec_argv(HmlValue args_array) {
     free(argv);
 
     // Read output from child (both stdout and stderr using poll to avoid deadlock)
+    // Also write stdin data if provided.
     char *output_buffer = NULL;
     size_t output_size = 0;
     size_t output_capacity = 4096;
@@ -230,23 +503,47 @@ HmlValue hml_exec_argv(HmlValue args_array) {
         free(stderr_buffer);
         close(stdout_pipe[0]);
         close(stderr_pipe[0]);
+        if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
         hml_runtime_error("exec_argv() memory allocation failed");
     }
 
-    struct pollfd fds[2];
+    // fds[0]=stdout_read, fds[1]=stderr_read, fds[2]=stdin_write (optional)
+    struct pollfd fds[3];
     fds[0].fd = stdout_pipe[0];
     fds[0].events = POLLIN;
     fds[1].fd = stderr_pipe[0];
     fds[1].events = POLLIN;
+    fds[2].fd = stdin_pipe[1];
+    fds[2].events = (stdin_pipe[1] != -1) ? POLLOUT : 0;
+    int num_poll_fds = (stdin_pipe[1] != -1) ? 3 : 2;
 
+    size_t stdin_written = 0;
     int open_fds = 2;
     char chunk[4096];
 
-    while (open_fds > 0) {
-        int ret = poll(fds, 2, -1);
+    while (open_fds > 0 || fds[2].fd != -1) {
+        int ret = poll(fds, num_poll_fds, -1);
         if (ret < 0) {
             if (errno == EINTR) continue;
             break;
+        }
+
+        // Write stdin data if the write end is ready
+        if (fds[2].fd != -1 && (fds[2].revents & (POLLOUT | POLLERR | POLLHUP))) {
+            if (stdin_written < stdin_len) {
+                size_t remaining = stdin_len - stdin_written;
+                size_t to_write = remaining < sizeof(chunk) ? remaining : sizeof(chunk);
+                ssize_t written = write(stdin_pipe[1], stdin_data + stdin_written, to_write);
+                if (written > 0) {
+                    stdin_written += (size_t)written;
+                }
+            }
+            if (stdin_written >= stdin_len || (fds[2].revents & (POLLERR | POLLHUP))) {
+                close(stdin_pipe[1]);
+                stdin_pipe[1] = -1;
+                fds[2].fd = -1;
+                fds[2].events = 0;
+            }
         }
 
         // Read from stdout if available
@@ -259,6 +556,7 @@ HmlValue hml_exec_argv(HmlValue args_array) {
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
+                        if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
                         hml_runtime_error("exec_argv() output too large");
                     }
                     output_capacity *= 2;
@@ -268,6 +566,7 @@ HmlValue hml_exec_argv(HmlValue args_array) {
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
+                        if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
                         hml_runtime_error("exec_argv() memory allocation failed");
                     }
                     output_buffer = new_buffer;
@@ -290,6 +589,7 @@ HmlValue hml_exec_argv(HmlValue args_array) {
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
+                        if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
                         hml_runtime_error("exec_argv() stderr too large");
                     }
                     stderr_capacity *= 2;
@@ -299,6 +599,7 @@ HmlValue hml_exec_argv(HmlValue args_array) {
                         free(stderr_buffer);
                         close(stdout_pipe[0]);
                         close(stderr_pipe[0]);
+                        if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
                         hml_runtime_error("exec_argv() memory allocation failed");
                     }
                     stderr_buffer = new_buffer;
@@ -313,6 +614,7 @@ HmlValue hml_exec_argv(HmlValue args_array) {
     }
     close(stdout_pipe[0]);
     close(stderr_pipe[0]);
+    if (stdin_pipe[1] != -1) close(stdin_pipe[1]);
 
     // Wait for child
     int status;
@@ -345,8 +647,8 @@ HmlValue hml_exec_argv(HmlValue args_array) {
 
     // Create result object
     HmlValue result = hml_val_object();
-    hml_object_set_field(result, "output", hml_val_string(output_buffer));
-    hml_object_set_field(result, "stderr", hml_val_string(stderr_buffer));
+    hml_object_set_field_owned(result, "output", hml_val_string(output_buffer));
+    hml_object_set_field_owned(result, "stderr", hml_val_string(stderr_buffer));
     hml_object_set_field(result, "exit_code", hml_val_i32(exit_code));
     free(output_buffer);
     free(stderr_buffer);
@@ -575,14 +877,16 @@ HmlValue hml_exec_with_args(HmlValue command, HmlValue args_array) {
 
     // Create result object
     HmlValue result = hml_val_object();
-    hml_object_set_field(result, "output", hml_val_string(output_buffer));
-    hml_object_set_field(result, "stderr", hml_val_string(stderr_buffer));
+    hml_object_set_field_owned(result, "output", hml_val_string(output_buffer));
+    hml_object_set_field_owned(result, "stderr", hml_val_string(stderr_buffer));
     hml_object_set_field(result, "exit_code", hml_val_i32(exit_code));
     free(output_buffer);
     free(stderr_buffer);
 
     return result;
 }
+
+#endif // !_WIN32
 
 // Math operations moved to builtins_math.c
 
@@ -621,12 +925,19 @@ HmlValue hml_builtin_exec_with_args(HmlClosureEnv *env, HmlValue command, HmlVal
     return hml_exec_with_args(command, args_array);
 }
 
-HmlValue hml_builtin_exec_argv(HmlClosureEnv *env, HmlValue args_array) {
+HmlValue hml_builtin_exec_argv(HmlClosureEnv *env, HmlValue args_array, HmlValue opts) {
     (void)env;
-    return hml_exec_argv(args_array);
+    return hml_exec_argv(args_array, opts);
 }
 
 // Process ID builtins
+#ifdef _WIN32
+HML_WIN32_PROCESS_STUB_0(getppid, "getppid()")
+HML_WIN32_PROCESS_STUB_0(getuid, "getuid()")
+HML_WIN32_PROCESS_STUB_0(geteuid, "geteuid()")
+HML_WIN32_PROCESS_STUB_0(getgid, "getgid()")
+HML_WIN32_PROCESS_STUB_0(getegid, "getegid()")
+#else
 HmlValue hml_getppid(void) {
     return hml_val_i32((int32_t)getppid());
 }
@@ -646,6 +957,7 @@ HmlValue hml_getgid(void) {
 HmlValue hml_getegid(void) {
     return hml_val_i32((int32_t)getegid());
 }
+#endif // !_WIN32
 
 HmlValue hml_unsetenv(HmlValue name) {
     if (name.type != HML_VAL_STRING || !name.as.as_string) {
@@ -655,6 +967,42 @@ HmlValue hml_unsetenv(HmlValue name) {
     return hml_val_null();
 }
 
+#ifdef _WIN32
+// kill(pid, sig): sig 0 probes existence; other signals terminate via
+// TerminateProcess with exit code 128+sig (Windows cannot deliver
+// signals). Mirrors the POSIX impl below: returns 0 / -1.
+HmlValue hml_kill(HmlValue pid, HmlValue sig) {
+    int p = hml_to_i32(pid);
+    int s = hml_to_i32(sig);
+    char errmsg[256];
+    int rc = hml_win32_kill(p, s, errmsg, sizeof(errmsg));
+    return hml_val_i32(rc == 0 ? 0 : -1);
+}
+
+HML_WIN32_PROCESS_STUB_0(fork, "fork()")
+HML_WIN32_PROCESS_STUB_0(wait, "wait()")
+
+// waitpid(pid, options): WNOHANG (1) probes; status is POSIX-encoded
+// (exit code << 8). Mirrors the POSIX impl below: {pid: -1} on error,
+// {pid: 0} when still running under WNOHANG.
+HmlValue hml_waitpid(HmlValue pid, HmlValue options) {
+    int p = hml_to_i32(pid);
+    int nohang = hml_to_i32(options) & 1;  // WNOHANG
+    char errmsg[256];
+    int exit_code = 0;
+    int rc = hml_win32_waitpid(p, nohang, &exit_code, errmsg, sizeof(errmsg));
+
+    HmlValue obj = hml_val_object();
+    if (rc < 0) {
+        hml_object_set_field(obj, "pid", hml_val_i32(-1));
+        hml_object_set_field(obj, "status", hml_val_i32(0));
+    } else {
+        hml_object_set_field(obj, "pid", hml_val_i32(rc == 1 ? p : 0));
+        hml_object_set_field(obj, "status", hml_val_i32(rc == 1 ? (exit_code & 0xFF) << 8 : 0));
+    }
+    return obj;
+}
+#else
 HmlValue hml_kill(HmlValue pid, HmlValue sig) {
     int p = hml_to_i32(pid);
     int s = hml_to_i32(sig);
@@ -690,6 +1038,325 @@ HmlValue hml_waitpid(HmlValue pid, HmlValue options) {
     hml_object_set_field(obj, "status", hml_val_i32(status));
     return obj;
 }
+#endif // !_WIN32
+
+// posix_spawn(argv, opts?) -> { pid }
+// Detached spawn primitive backed by posix_spawnp(3).
+// argv: array of strings (argv[0] PATH-resolved unless it contains '/').
+// opts (optional object):
+//   env:    array of "KEY=value" strings (default: inherit parent environ)
+//   stdin:  i32 fd to dup2 onto STDIN_FILENO  in child (default: inherit)
+//   stdout: i32 fd to dup2 onto STDOUT_FILENO in child (default: inherit)
+//   stderr: i32 fd to dup2 onto STDERR_FILENO in child (default: inherit)
+//   cwd:    string; chdir before exec (requires glibc 2.29+ / macOS 10.15+)
+//   setsid: bool; child becomes session leader (requires POSIX_SPAWN_SETSID)
+#ifdef _WIN32
+// Windows: CreateProcess-backed detached spawn. Same options as POSIX;
+// setsid maps to CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS, stdio fds
+// become inherited handles, env arrays become an environment block.
+HmlValue hml_posix_spawn(HmlValue argv_val, HmlValue opts_val) {
+    if (hml_sandbox_check(HML_SANDBOX_RESTRICT_PROCESS)) {
+        hml_sandbox_error("process spawning");
+    }
+
+    if (argv_val.type != HML_VAL_ARRAY || !argv_val.as.as_array) {
+        hml_runtime_error("spawn() argv must be an array of strings");
+    }
+    HmlArray *arr = argv_val.as.as_array;
+    if (arr->length == 0) {
+        hml_runtime_error("spawn() argv must not be empty");
+    }
+
+    HmlObject *opts = NULL;
+    if (opts_val.type == HML_VAL_OBJECT && opts_val.as.as_object) {
+        opts = opts_val.as.as_object;
+    } else if (opts_val.type != HML_VAL_NULL) {
+        hml_runtime_error("spawn() opts must be an object or null");
+    }
+
+    int stdio_fds[3] = { -1, -1, -1 };
+    char *ccwd = NULL;
+    char *env_block = NULL;
+    int detach = 0;
+
+    if (opts) {
+        const char *names[3] = {"stdin", "stdout", "stderr"};
+        for (int i = 0; i < 3; i++) {
+            HmlValue v = hml_object_get_field(opts_val, names[i]);
+            if (v.type == HML_VAL_I32) {
+                stdio_fds[i] = v.as.as_i32;
+            } else if (v.type == HML_VAL_I64) {
+                stdio_fds[i] = (int)v.as.as_i64;
+            } else if (v.type != HML_VAL_NULL) {
+                hml_runtime_error("spawn() opts.%s must be an integer fd", names[i]);
+            }
+        }
+
+        HmlValue cwd_val = hml_object_get_field(opts_val, "cwd");
+        if (cwd_val.type == HML_VAL_STRING && cwd_val.as.as_string) {
+            ccwd = strndup(cwd_val.as.as_string->data, (size_t)cwd_val.as.as_string->length);
+            if (!ccwd) {
+                hml_runtime_error("spawn() memory allocation failed");
+            }
+        } else if (cwd_val.type != HML_VAL_NULL) {
+            hml_runtime_error("spawn() opts.cwd must be a string");
+        }
+
+        HmlValue sid_val = hml_object_get_field(opts_val, "setsid");
+        if (sid_val.type == HML_VAL_BOOL) {
+            detach = sid_val.as.as_bool;
+        } else if (sid_val.type != HML_VAL_NULL) {
+            free(ccwd);
+            hml_runtime_error("spawn() opts.setsid must be a bool");
+        }
+
+        HmlValue env_val = hml_object_get_field(opts_val, "env");
+        if (env_val.type == HML_VAL_ARRAY && env_val.as.as_array) {
+            // CreateProcess environment block: "K=V\0K=V\0...\0"
+            HmlArray *envarr = env_val.as.as_array;
+            size_t block_len = 1;
+            for (int64_t i = 0; i < envarr->length; i++) {
+                if (envarr->elements[i].type != HML_VAL_STRING || !envarr->elements[i].as.as_string) {
+                    free(ccwd);
+                    hml_runtime_error("spawn() opts.env elements must be strings");
+                }
+                block_len += (size_t)envarr->elements[i].as.as_string->length + 1;
+            }
+            env_block = malloc(block_len + 1);
+            if (!env_block) {
+                free(ccwd);
+                hml_runtime_error("spawn() memory allocation failed");
+            }
+            size_t pos = 0;
+            for (int64_t i = 0; i < envarr->length; i++) {
+                HmlString *es = envarr->elements[i].as.as_string;
+                memcpy(env_block + pos, es->data, (size_t)es->length);
+                pos += (size_t)es->length;
+                env_block[pos++] = '\0';
+            }
+            env_block[pos++] = '\0';
+        } else if (env_val.type != HML_VAL_NULL) {
+            free(ccwd);
+            hml_runtime_error("spawn() opts.env must be an array of strings");
+        }
+    }
+
+    int argc = 0;
+    char **argv = win32_collect_argv("spawn()", NULL, arr, &argc);
+    char *cmdline = hml_win32_build_cmdline((const char *const *)argv, argc);
+    win32_free_argv(argv, argc);
+    if (!cmdline) {
+        free(ccwd);
+        free(env_block);
+        hml_runtime_error("spawn() memory allocation failed");
+    }
+
+    char errmsg[256];
+    long long pid = hml_win32_spawn(cmdline, ccwd, env_block, detach,
+                                    stdio_fds, errmsg, sizeof(errmsg));
+    free(cmdline);
+    free(ccwd);
+    free(env_block);
+
+    if (pid < 0) {
+        hml_runtime_error("spawn() failed: %s", errmsg);
+    }
+
+    HmlValue result = hml_val_object();
+    hml_object_set_field(result, "pid", hml_val_i32((int32_t)pid));
+    return result;
+}
+#else
+extern char **environ;
+
+// Feature gates: hemlock targets modern systems but we still gate so a
+// build on an older libc fails cleanly at runtime when the option is used.
+#if defined(__GLIBC__) && defined(__GLIBC_PREREQ)
+#  if __GLIBC_PREREQ(2, 29)
+#    define HML_SPAWN_HAS_CHDIR 1
+#  endif
+#endif
+#if defined(__APPLE__)
+#  include <Availability.h>
+#  if defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
+#    define HML_SPAWN_HAS_CHDIR 1
+#  endif
+#endif
+
+HmlValue hml_posix_spawn(HmlValue argv_val, HmlValue opts_val) {
+    if (hml_sandbox_check(HML_SANDBOX_RESTRICT_PROCESS)) {
+        hml_sandbox_error("process spawning");
+    }
+
+    if (argv_val.type != HML_VAL_ARRAY || !argv_val.as.as_array) {
+        hml_runtime_error("spawn() argv must be an array of strings");
+    }
+    HmlArray *arr = argv_val.as.as_array;
+    if (arr->length == 0) {
+        hml_runtime_error("spawn() argv must not be empty");
+    }
+
+    int has_opts = (opts_val.type == HML_VAL_OBJECT && opts_val.as.as_object);
+
+    char **cargv = malloc((arr->length + 1) * sizeof(char*));
+    if (!cargv) {
+        hml_runtime_error("spawn() memory allocation failed");
+    }
+    for (int64_t i = 0; i < arr->length; i++) {
+        HmlValue elem = arr->elements[i];
+        if (elem.type != HML_VAL_STRING || !elem.as.as_string) {
+            for (int64_t j = 0; j < i; j++) free(cargv[j]);
+            free(cargv);
+            hml_runtime_error("spawn() argv elements must be strings");
+        }
+        HmlString *s = elem.as.as_string;
+        cargv[i] = malloc(s->length + 1);
+        if (!cargv[i]) {
+            for (int64_t j = 0; j < i; j++) free(cargv[j]);
+            free(cargv);
+            hml_runtime_error("spawn() memory allocation failed");
+        }
+        memcpy(cargv[i], s->data, s->length);
+        cargv[i][s->length] = '\0';
+    }
+    cargv[arr->length] = NULL;
+
+    char **cenv = NULL;
+    int64_t cenv_count = 0;
+    if (has_opts && hml_object_has_field(opts_val, "env")) {
+        HmlValue env_val = hml_object_get_field(opts_val, "env");
+        if (env_val.type != HML_VAL_NULL) {
+            if (env_val.type != HML_VAL_ARRAY || !env_val.as.as_array) {
+                for (int64_t i = 0; i < arr->length; i++) free(cargv[i]);
+                free(cargv);
+                hml_runtime_error("spawn() opts.env must be an array of strings");
+            }
+            HmlArray *envarr = env_val.as.as_array;
+            cenv = malloc((envarr->length + 1) * sizeof(char*));
+            if (!cenv) {
+                for (int64_t i = 0; i < arr->length; i++) free(cargv[i]);
+                free(cargv);
+                hml_runtime_error("spawn() memory allocation failed");
+            }
+            for (int64_t i = 0; i < envarr->length; i++) {
+                HmlValue ev = envarr->elements[i];
+                if (ev.type != HML_VAL_STRING || !ev.as.as_string) {
+                    for (int64_t j = 0; j < i; j++) free(cenv[j]);
+                    free(cenv);
+                    for (int64_t j = 0; j < arr->length; j++) free(cargv[j]);
+                    free(cargv);
+                    hml_runtime_error("spawn() opts.env elements must be strings");
+                }
+                HmlString *s = ev.as.as_string;
+                cenv[i] = malloc(s->length + 1);
+                if (!cenv[i]) {
+                    for (int64_t j = 0; j < i; j++) free(cenv[j]);
+                    free(cenv);
+                    for (int64_t j = 0; j < arr->length; j++) free(cargv[j]);
+                    free(cargv);
+                    hml_runtime_error("spawn() memory allocation failed");
+                }
+                memcpy(cenv[i], s->data, s->length);
+                cenv[i][s->length] = '\0';
+                cenv_count = i + 1;
+            }
+            cenv[envarr->length] = NULL;
+        }
+    }
+
+    posix_spawn_file_actions_t fa;
+    int fa_inited = (posix_spawn_file_actions_init(&fa) == 0);
+    posix_spawnattr_t sa;
+    int sa_inited = (posix_spawnattr_init(&sa) == 0);
+    int attr_flags = 0;
+
+    #define HML_SPAWN_CLEANUP() do { \
+        if (cenv) { for (int64_t j = 0; j < cenv_count; j++) free(cenv[j]); free(cenv); } \
+        for (int64_t j = 0; j < arr->length; j++) free(cargv[j]); \
+        free(cargv); \
+        if (fa_inited) posix_spawn_file_actions_destroy(&fa); \
+        if (sa_inited) posix_spawnattr_destroy(&sa); \
+    } while (0)
+
+    if (fa_inited && has_opts) {
+        const char *names[3] = {"stdin", "stdout", "stderr"};
+        int targets[3] = {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO};
+        for (int i = 0; i < 3; i++) {
+            if (hml_object_has_field(opts_val, names[i])) {
+                HmlValue fdv = hml_object_get_field(opts_val, names[i]);
+                if (fdv.type != HML_VAL_NULL) {
+                    posix_spawn_file_actions_adddup2(&fa, hml_to_i32(fdv), targets[i]);
+                }
+            }
+        }
+    }
+
+    if (fa_inited && has_opts && hml_object_has_field(opts_val, "cwd")) {
+        HmlValue cwd_val = hml_object_get_field(opts_val, "cwd");
+        if (cwd_val.type != HML_VAL_NULL) {
+            if (cwd_val.type != HML_VAL_STRING || !cwd_val.as.as_string) {
+                HML_SPAWN_CLEANUP();
+                hml_runtime_error("spawn() opts.cwd must be a string");
+            }
+            #ifdef HML_SPAWN_HAS_CHDIR
+            int chdir_rc = posix_spawn_file_actions_addchdir_np(&fa, cwd_val.as.as_string->data);
+            if (chdir_rc != 0) {
+                HML_SPAWN_CLEANUP();
+                hml_runtime_error("spawn() addchdir failed: %s", strerror(chdir_rc));
+            }
+            #else
+            HML_SPAWN_CLEANUP();
+            hml_runtime_error("spawn() opts.cwd not supported on this platform (requires glibc 2.29+ or macOS 10.15+)");
+            #endif
+        }
+    }
+
+    if (sa_inited && has_opts && hml_object_has_field(opts_val, "setsid")) {
+        HmlValue sid_val = hml_object_get_field(opts_val, "setsid");
+        if (sid_val.type != HML_VAL_NULL) {
+            if (sid_val.type != HML_VAL_BOOL) {
+                HML_SPAWN_CLEANUP();
+                hml_runtime_error("spawn() opts.setsid must be a bool");
+            }
+            if (sid_val.as.as_bool) {
+                #ifdef POSIX_SPAWN_SETSID
+                attr_flags |= POSIX_SPAWN_SETSID;
+                #else
+                HML_SPAWN_CLEANUP();
+                hml_runtime_error("spawn() opts.setsid not supported on this platform (POSIX_SPAWN_SETSID unavailable)");
+                #endif
+            }
+        }
+    }
+    if (sa_inited && attr_flags) {
+        posix_spawnattr_setflags(&sa, attr_flags);
+    }
+
+    pid_t pid = -1;
+    int rc = posix_spawnp(&pid, cargv[0],
+                          fa_inited ? &fa : NULL,
+                          (sa_inited && attr_flags) ? &sa : NULL,
+                          cargv, cenv ? cenv : environ);
+
+    if (fa_inited) posix_spawn_file_actions_destroy(&fa);
+    if (sa_inited) posix_spawnattr_destroy(&sa);
+    for (int64_t i = 0; i < arr->length; i++) free(cargv[i]);
+    free(cargv);
+    if (cenv) {
+        for (int64_t i = 0; i < cenv_count; i++) free(cenv[i]);
+        free(cenv);
+    }
+    #undef HML_SPAWN_CLEANUP
+
+    if (rc != 0) {
+        hml_runtime_error("spawn() failed: %s", strerror(rc));
+    }
+
+    HmlValue obj = hml_val_object();
+    hml_object_set_field(obj, "pid", hml_val_i32((int32_t)pid));
+    return obj;
+}
+#endif // !_WIN32
 
 void hml_abort(void) {
     abort();
@@ -744,6 +1411,12 @@ HmlValue hml_builtin_wait(HmlClosureEnv *env) {
 HmlValue hml_builtin_waitpid(HmlClosureEnv *env, HmlValue pid, HmlValue options) {
     (void)env;
     return hml_waitpid(pid, options);
+}
+
+// posix_spawn(argv, opts?) wrapper. opts defaults to null.
+HmlValue hml_builtin_posix_spawn(HmlClosureEnv *env, HmlValue argv_val, HmlValue opts_val) {
+    (void)env;
+    return hml_posix_spawn(argv_val, opts_val);
 }
 
 HmlValue hml_builtin_abort(HmlClosureEnv *env) {
@@ -809,10 +1482,20 @@ static void hml_c_signal_handler(int signum) {
     HmlValue handler = g_signal_handlers[signum];
     if (handler.type == HML_VAL_NULL) return;
 
-    if (handler.type == HML_VAL_FUNCTION) {
-        // Call the function with signal number as argument
-        HmlValue sig_arg = hml_val_i32(signum);
-        hml_call_function(handler, &sig_arg, 1);
+    if (handler.type == HML_VAL_FUNCTION && handler.as.as_function != NULL) {
+        // Invoke the handler respecting its declared arity. Handlers may be
+        // written either as fn(sig) {...} (receive the signal number) or as
+        // fn() {...} (no parameters). Always passing one argument would make
+        // a zero-parameter handler throw "expects 0 arguments, got 1" and
+        // crash the process. This mirrors the interpreter, which only binds
+        // the signal argument when the handler declares a parameter.
+        HmlFunction *func = handler.as.as_function;
+        if (func->num_params >= 1 || func->has_rest_param) {
+            HmlValue sig_arg = hml_val_i32(signum);
+            hml_call_function(handler, &sig_arg, 1);
+        } else {
+            hml_call_function(handler, NULL, 0);
+        }
     }
 }
 
@@ -826,7 +1509,7 @@ HmlValue hml_signal(HmlValue signum, HmlValue handler) {
 
     int sig = signum.as.as_i32;
     if (sig < 0 || sig >= HML_MAX_SIGNAL) {
-        hml_runtime_error("signal() signum %d out of range [0, %d)", sig, HML_MAX_SIGNAL);
+        hml_runtime_error_loc("signal() signum %d out of range [0, %d)", sig, HML_MAX_SIGNAL);
     }
 
     // Validate handler is function or null
@@ -844,6 +1527,14 @@ HmlValue hml_signal(HmlValue signum, HmlValue handler) {
     hml_retain(&g_signal_handlers[sig]);
 
     // Install or reset C signal handler
+#ifdef _WIN32
+    // Windows has no sigaction; the C runtime's signal() covers the
+    // small set of signals it supports (SIGINT, SIGTERM, SIGABRT, ...)
+    if (signal(sig, handler.type != HML_VAL_NULL ? hml_c_signal_handler : SIG_DFL) == SIG_ERR) {
+        hml_runtime_error("signal() failed to %s handler for signal %d: %s",
+                          handler.type != HML_VAL_NULL ? "install" : "reset", sig, strerror(errno));
+    }
+#else
     struct sigaction sa;
     if (handler.type != HML_VAL_NULL) {
         sa.sa_handler = hml_c_signal_handler;
@@ -860,6 +1551,7 @@ HmlValue hml_signal(HmlValue signum, HmlValue handler) {
             hml_runtime_error("signal() failed to reset signal %d: %s", sig, strerror(errno));
         }
     }
+#endif
 
     return prev;
 }
@@ -871,7 +1563,7 @@ HmlValue hml_raise(HmlValue signum) {
 
     int sig = signum.as.as_i32;
     if (sig < 0 || sig >= HML_MAX_SIGNAL) {
-        hml_runtime_error("raise() signum %d out of range [0, %d)", sig, HML_MAX_SIGNAL);
+        hml_runtime_error_loc("raise() signum %d out of range [0, %d)", sig, HML_MAX_SIGNAL);
     }
 
     if (raise(sig) != 0) {
@@ -879,6 +1571,123 @@ HmlValue hml_raise(HmlValue signum) {
     }
 
     return hml_val_null();
+}
+
+// ========== PIPE OPERATIONS ==========
+
+HmlValue hml_pipe(void) {
+    if (hml_sandbox_check(HML_SANDBOX_RESTRICT_PROCESS)) {
+        hml_sandbox_error("pipe creation");
+    }
+
+    int fds[2];
+#ifdef _WIN32
+    if (_pipe(fds, 65536, _O_BINARY) != 0) {
+#else
+    if (pipe(fds) != 0) {
+#endif
+        hml_runtime_error("pipe() failed: %s", strerror(errno));
+    }
+
+    HmlValue result = hml_val_object();
+    hml_object_set_field(result, "read_fd", hml_val_i32(fds[0]));
+    hml_object_set_field(result, "write_fd", hml_val_i32(fds[1]));
+    return result;
+}
+
+HmlValue hml_close_fd(HmlValue fd) {
+    int file_fd = hml_to_i32(fd);
+    if (close(file_fd) != 0) {
+        hml_runtime_error("close_fd(%d) failed: %s", file_fd, strerror(errno));
+    }
+    return hml_val_null();
+}
+
+HmlValue hml_read_fd(HmlValue fd, HmlValue size) {
+    int file_fd = hml_to_i32(fd);
+    int buf_size = hml_to_i32(size);
+
+    if (buf_size <= 0) {
+        hml_runtime_error("read_fd() size must be positive, got %d", buf_size);
+    }
+
+    char *buf = malloc((size_t)buf_size + 1);
+    if (!buf) {
+        hml_runtime_error("read_fd() memory allocation failed");
+    }
+
+    ssize_t bytes_read = read(file_fd, buf, (size_t)buf_size);
+    if (bytes_read < 0) {
+        free(buf);
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return hml_val_null();
+        }
+        hml_runtime_error("read_fd(%d) failed: %s", file_fd, strerror(errno));
+    }
+
+    if (bytes_read == 0) {
+        free(buf);
+        return hml_val_null();
+    }
+
+    buf[bytes_read] = '\0';
+    HmlValue result = hml_val_string(buf);
+    free(buf);
+    return result;
+}
+
+HmlValue hml_write_fd(HmlValue fd, HmlValue data) {
+    int file_fd = hml_to_i32(fd);
+
+    if (data.type != HML_VAL_STRING || !data.as.as_string) {
+        hml_runtime_error("write_fd() data must be a string");
+    }
+
+    HmlString *str = data.as.as_string;
+    ssize_t written = write(file_fd, str->data, (size_t)str->length);
+    if (written < 0) {
+        hml_runtime_error("write_fd(%d) failed: %s", file_fd, strerror(errno));
+    }
+
+    return hml_val_i32((int32_t)written);
+}
+
+HmlValue hml_dup2(HmlValue oldfd, HmlValue newfd) {
+    int old_fd = hml_to_i32(oldfd);
+    int new_fd = hml_to_i32(newfd);
+
+    int result = dup2(old_fd, new_fd);
+    if (result < 0) {
+        hml_runtime_error("dup2(%d, %d) failed: %s", old_fd, new_fd, strerror(errno));
+    }
+
+    return hml_val_i32(result);
+}
+
+// Pipe builtin wrappers
+HmlValue hml_builtin_pipe(HmlClosureEnv *env) {
+    (void)env;
+    return hml_pipe();
+}
+
+HmlValue hml_builtin_close_fd(HmlClosureEnv *env, HmlValue fd) {
+    (void)env;
+    return hml_close_fd(fd);
+}
+
+HmlValue hml_builtin_read_fd(HmlClosureEnv *env, HmlValue fd, HmlValue size) {
+    (void)env;
+    return hml_read_fd(fd, size);
+}
+
+HmlValue hml_builtin_write_fd(HmlClosureEnv *env, HmlValue fd, HmlValue data) {
+    (void)env;
+    return hml_write_fd(fd, data);
+}
+
+HmlValue hml_builtin_dup2(HmlClosureEnv *env, HmlValue oldfd, HmlValue newfd) {
+    (void)env;
+    return hml_dup2(oldfd, newfd);
 }
 
 #endif // !__EMSCRIPTEN__

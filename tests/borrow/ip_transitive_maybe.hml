@@ -1,0 +1,15 @@
+// Transitive *possible* consumption: the wrapper frees only on one path, so a
+// later free is a possible (not certain) double free.
+fn release(p: ptr) {
+    free(p);
+}
+fn maybe_release(p: ptr, c: bool) {
+    if (c) {
+        release(p);
+    }
+}
+fn main() {
+    let p = alloc(64);
+    maybe_release(p, true);
+    free(p);
+}

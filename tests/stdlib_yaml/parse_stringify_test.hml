@@ -1,0 +1,311 @@
+// Test @stdlib/yaml parse() and stringify() functions
+
+import { parse, stringify, parse_all, get, set } from "@stdlib/yaml";
+
+// ============================================================================
+// Basic Scalar Parsing
+// ============================================================================
+
+// Null values
+assert(parse("null") == null, "parse null");
+assert(parse("~") == null, "parse tilde as null");
+assert(parse("Null") == null, "parse Null");
+
+// Boolean values
+assert(parse("true") == true, "parse true");
+assert(parse("false") == false, "parse false");
+assert(parse("True") == true, "parse True");
+assert(parse("False") == false, "parse False");
+
+// Integer values
+assert(parse("42") == 42, "parse integer");
+assert(parse("-17") == -17, "parse negative integer");
+assert(parse("0") == 0, "parse zero");
+
+// Float values
+assert(parse("3.14") == 3.14, "parse float");
+assert(parse("-2.5") == -2.5, "parse negative float");
+
+// String values
+assert(parse("hello") == "hello", "parse plain string");
+assert(parse("\"hello world\"") == "hello world", "parse double-quoted string");
+assert(parse("'hello world'") == "hello world", "parse single-quoted string");
+
+print("PASS: basic scalars");
+
+// ============================================================================
+// Quoted String Escapes
+// ============================================================================
+
+assert(parse("\"hello\\nworld\"") == "hello\nworld", "parse escaped newline");
+assert(parse("\"tab\\there\"") == "tab\there", "parse escaped tab");
+assert(parse("\"back\\\\slash\"") == "back\\slash", "parse escaped backslash");
+assert(parse("\"quote\\\"here\"") == "quote\"here", "parse escaped quote");
+
+// Single-quoted escape (only '' -> ')
+assert(parse("'it''s'") == "it's", "parse single-quote escape");
+
+print("PASS: quoted strings");
+
+// ============================================================================
+// Block Mapping
+// ============================================================================
+
+let map1 = parse(`
+name: Alice
+age: 30
+active: true
+`);
+assert(map1["name"] == "Alice", "mapping name");
+assert(map1["age"] == 30, "mapping age");
+assert(map1["active"] == true, "mapping active");
+
+print("PASS: block mapping");
+
+// ============================================================================
+// Nested Mapping
+// ============================================================================
+
+let nested = parse(`
+database:
+  host: localhost
+  port: 5432
+  credentials:
+    user: admin
+    pass: secret
+`);
+assert(nested["database"]["host"] == "localhost", "nested host");
+assert(nested["database"]["port"] == 5432, "nested port");
+assert(nested["database"]["credentials"]["user"] == "admin", "nested user");
+assert(nested["database"]["credentials"]["pass"] == "secret", "nested pass");
+
+print("PASS: nested mapping");
+
+// ============================================================================
+// Block Sequence
+// ============================================================================
+
+let seq1 = parse(`
+- red
+- green
+- blue
+`);
+assert(seq1.length == 3, "sequence length");
+assert(seq1[0] == "red", "sequence item 0");
+assert(seq1[1] == "green", "sequence item 1");
+assert(seq1[2] == "blue", "sequence item 2");
+
+print("PASS: block sequence");
+
+// ============================================================================
+// Mapping with Sequences
+// ============================================================================
+
+let config = parse(`
+name: app
+ports:
+  - 8080
+  - 8443
+tags:
+  - web
+  - prod
+`);
+assert(config["name"] == "app", "config name");
+assert(config["ports"].length == 2, "ports length");
+assert(config["ports"][0] == 8080, "port 0");
+assert(config["ports"][1] == 8443, "port 1");
+assert(config["tags"][0] == "web", "tag 0");
+assert(config["tags"][1] == "prod", "tag 1");
+
+print("PASS: mapping with sequences");
+
+// ============================================================================
+// Sequence of Mappings
+// ============================================================================
+
+let servers = parse(`
+- name: alpha
+  host: 10.0.0.1
+- name: beta
+  host: 10.0.0.2
+`);
+assert(servers.length == 2, "servers length");
+assert(servers[0]["name"] == "alpha", "server 0 name");
+assert(servers[0]["host"] == "10.0.0.1", "server 0 host");
+assert(servers[1]["name"] == "beta", "server 1 name");
+
+print("PASS: sequence of mappings");
+
+// ============================================================================
+// Flow Collections
+// ============================================================================
+
+let flow_seq = parse("[1, 2, 3]");
+assert(flow_seq.length == 3, "flow sequence length");
+assert(flow_seq[0] == 1, "flow seq item 0");
+assert(flow_seq[2] == 3, "flow seq item 2");
+
+let flow_map = parse("{name: Alice, age: 30}");
+assert(flow_map["name"] == "Alice", "flow map name");
+assert(flow_map["age"] == 30, "flow map age");
+
+let mixed = parse(`
+point: {x: 1, y: 2}
+colors: [red, green, blue]
+`);
+assert(mixed["point"]["x"] == 1, "inline map x");
+assert(mixed["colors"][1] == "green", "inline seq item");
+
+print("PASS: flow collections");
+
+// ============================================================================
+// Block Scalars
+// ============================================================================
+
+let lit = parse(`
+text: |
+  line one
+  line two
+  line three
+`);
+assert(lit["text"] == "line one\nline two\nline three\n", "literal block scalar");
+
+let folded = parse(`
+text: >
+  this is a
+  long folded
+  string
+`);
+assert(folded["text"] == "this is a long folded string\n", "folded block scalar");
+
+let strip = parse(`
+text: |-
+  no trailing newline
+`);
+assert(strip["text"] == "no trailing newline", "strip chomping");
+
+print("PASS: block scalars");
+
+// ============================================================================
+// Comments
+// ============================================================================
+
+let commented = parse(`
+# This is a comment
+name: Alice  # inline comment
+# Another comment
+age: 30
+`);
+assert(commented["name"] == "Alice", "comment: name");
+assert(commented["age"] == 30, "comment: age");
+
+print("PASS: comments");
+
+// ============================================================================
+// Document Markers
+// ============================================================================
+
+let doc = parse(`
+---
+name: hello
+version: 1
+`);
+assert(doc["name"] == "hello", "document marker: name");
+assert(doc["version"] == 1, "document marker: version");
+
+print("PASS: document markers");
+
+// ============================================================================
+// Multi-Document
+// ============================================================================
+
+let docs = parse_all(`
+---
+name: first
+---
+name: second
+`);
+assert(docs.length == 2, "multi-doc count");
+assert(docs[0]["name"] == "first", "multi-doc 0");
+assert(docs[1]["name"] == "second", "multi-doc 1");
+
+print("PASS: multi-document");
+
+// ============================================================================
+// Stringify
+// ============================================================================
+
+assert(stringify(null) == "null\n", "stringify null");
+assert(stringify(true) == "true\n", "stringify true");
+assert(stringify(false) == "false\n", "stringify false");
+assert(stringify(42) == "42\n", "stringify integer");
+assert(stringify("hello") == "hello\n", "stringify plain string");
+
+// Strings that need quoting
+assert(stringify("true") == "\"true\"\n", "stringify string-true");
+assert(stringify("") == "\"\"\n", "stringify empty string");
+
+print("PASS: stringify scalars");
+
+// ============================================================================
+// Stringify Collections
+// ============================================================================
+
+let arr_yaml = stringify([1, 2, 3]);
+assert(arr_yaml == "[1, 2, 3]\n", "stringify simple array");
+
+let obj_yaml = stringify({ name: "Alice", age: 30 });
+// Should produce block mapping
+assert(obj_yaml.contains("name: Alice"), "stringify object has name");
+assert(obj_yaml.contains("age: 30"), "stringify object has age");
+
+print("PASS: stringify collections");
+
+// ============================================================================
+// Get/Set Helpers
+// ============================================================================
+
+let data = parse(`
+database:
+  host: localhost
+  port: 5432
+items:
+  - first
+  - second
+`);
+
+assert(get(data, "database.host") == "localhost", "get nested");
+assert(get(data, "database.port") == 5432, "get nested port");
+assert(get(data, "items.0") == "first", "get array index");
+assert(get(data, "items.1") == "second", "get array index 1");
+assert(get(data, "missing.path") == null, "get missing path");
+
+let obj = {};
+set(obj, "server.host", "example.com");
+set(obj, "server.port", 443);
+assert(obj["server"]["host"] == "example.com", "set nested host");
+assert(obj["server"]["port"] == 443, "set nested port");
+
+print("PASS: get/set helpers");
+
+// ============================================================================
+// Round-trip
+// ============================================================================
+
+let original = {
+    name: "test",
+    version: 1,
+    debug: false,
+    tags: ["a", "b", "c"]
+};
+let yaml_str = stringify(original);
+let roundtrip = parse(yaml_str);
+assert(roundtrip["name"] == "test", "roundtrip name");
+assert(roundtrip["version"] == 1, "roundtrip version");
+assert(roundtrip["debug"] == false, "roundtrip debug");
+assert(roundtrip["tags"].length == 3, "roundtrip tags length");
+assert(roundtrip["tags"][0] == "a", "roundtrip tag 0");
+
+print("PASS: round-trip");
+
+print("All YAML tests passed!");

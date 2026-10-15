@@ -8,14 +8,17 @@
 
 #include "frontend.h"
 #include "tools/type_check.h"
+#include "tools/borrow_check.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
+#ifndef _WIN32
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#endif
 #include <errno.h>
 
 // ============================================================================
@@ -226,47 +229,41 @@ void lsp_document_parse(LSPServer *server, LSPDocument *doc) {
 
     Parser parser;
     parser_init(&parser, &lexer);
+    parser_enable_error_collection(&parser);
 
     // Parse the document
     int stmt_count = 0;
     Stmt **statements = parse_program(&parser, &stmt_count);
 
-    // Check for parse errors
-    if (parser.had_error) {
-        // The parser error occurred at parser.previous or parser.current
-        // Convert to LSP diagnostic
-
-        // Get line number (parser stores 1-based lines)
-        int line = parser.previous.line > 0 ? parser.previous.line - 1 : 0;
-
-        // Calculate character position in line
-        int character = 0;
-        const char *line_start = doc->content;
-        int current_line = 0;
-
-        // Find the start of the error line
-        for (const char *p = doc->content; *p && current_line < parser.previous.line - 1; p++) {
-            if (*p == '\n') {
-                current_line++;
-                line_start = p + 1;
-            }
-        }
-
-        // Calculate character offset
-        if (parser.previous.start) {
-            character = (int)(parser.previous.start - line_start);
-            if (character < 0) character = 0;
-        }
+    // Publish every collected parse error with the parser's real message.
+    // Panic-mode recovery in parse_program means a document can carry several
+    // independent syntax errors; each becomes its own diagnostic.
+    for (ParseError *pe = parser.errors; pe; pe = pe->next) {
+        int line = pe->line > 0 ? pe->line - 1 : 0;           // 1-based -> 0-based
+        int character = pe->column > 0 ? pe->column - 1 : 0;  // 1-based -> 0-based
+        int length = pe->length > 0 ? pe->length : 1;
 
         LSPRange range = {
             .start = { .line = line, .character = character },
-            .end = { .line = line, .character = character + parser.previous.length }
+            .end = { .line = line, .character = character + length }
         };
 
-        // Create generic error message if we don't have specifics
+        lsp_document_add_diagnostic(doc, range, LSP_SEVERITY_ERROR, pe->message);
+    }
+
+    // A few parser paths (annotation validation) set had_error without going
+    // through error_at, so nothing was collected — keep a generic fallback so
+    // the editor still shows that the document failed to parse.
+    if (parser.had_error && !parser.errors) {
+        int line = parser.previous.line > 0 ? parser.previous.line - 1 : 0;
+        LSPRange range = {
+            .start = { .line = line, .character = 0 },
+            .end = { .line = line, .character = 1 }
+        };
         lsp_document_add_diagnostic(doc, range, LSP_SEVERITY_ERROR,
                                     "Syntax error");
     }
+    parser_free_errors(&parser);
 
     // Store AST for later use (hover, goto definition, etc.)
     // AST is freed by lsp_document_free_ast() when document is updated or closed
@@ -309,6 +306,33 @@ void lsp_document_parse(LSPServer *server, LSPDocument *doc) {
 
         // Clean up type checker
         type_check_free(type_ctx);
+
+        // Run the borrow / ownership checker and surface its findings as
+        // diagnostics. Uses the default (non-strict) mode for editor feedback:
+        // high-precision use-after-free / double-free / free-in-loop checks
+        // without the noisier move/leak warnings.
+        BorrowContext *borrow_ctx = borrow_check_new(type_check_path);
+        if (borrow_ctx) {
+            borrow_check_enable_collection(borrow_ctx, doc->content);
+            borrow_check_program(borrow_ctx, statements, stmt_count);
+
+            for (BorrowDiag *bd = borrow_ctx->diags; bd; bd = bd->next) {
+                int lsp_line = bd->line > 0 ? bd->line - 1 : 0;
+
+                LSPRange range = {
+                    .start = { .line = lsp_line, .character = bd->column },
+                    .end   = { .line = lsp_line, .character = bd->end_column }
+                };
+
+                LSPDiagnosticSeverity severity = bd->is_error ?
+                    LSP_SEVERITY_ERROR : LSP_SEVERITY_WARNING;
+
+                lsp_document_add_diagnostic(doc, range, severity, bd->message);
+            }
+
+            borrow_check_free(borrow_ctx);
+        }
+
         free(document_path);
     }
 }
@@ -370,6 +394,15 @@ int lsp_server_run_stdio(LSPServer *server) {
     return 0;
 }
 
+#ifdef _WIN32
+// The TCP transport reads/writes the socket through the POSIX fd API, which
+// Windows sockets do not support. The standard stdio transport works.
+int lsp_server_run_tcp(LSPServer *server, int port) {
+    (void)server;
+    fprintf(stderr, "LSP: TCP mode (port %d) is not supported on Windows; use stdio mode\n", port);
+    return 1;
+}
+#else
 int lsp_server_run_tcp(LSPServer *server, int port) {
     // Create socket
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -456,3 +489,4 @@ int lsp_server_run_tcp(LSPServer *server, int port) {
     close(listen_fd);
     return 0;
 }
+#endif // !_WIN32

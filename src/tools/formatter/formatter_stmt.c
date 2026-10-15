@@ -457,8 +457,28 @@ void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
         case STMT_IMPORT:
             fmt_indent(ctx);
             if (stmt->as.import_stmt.is_namespace) {
-                buf_append(&ctx->buf, "import * as ");
-                buf_append(&ctx->buf, stmt->as.import_stmt.namespace_name);
+                if (stmt->as.import_stmt.namespace_name) {
+                    buf_append(&ctx->buf, "import * as ");
+                    buf_append(&ctx->buf, stmt->as.import_stmt.namespace_name);
+                } else {
+                    // Star import: import * from "module"
+                    buf_append(&ctx->buf, "import *");
+                }
+            } else if (stmt->as.import_stmt.num_imports == 0 &&
+                       stmt->as.import_stmt.module_path &&
+                       (stmt->as.import_stmt.module_path[0] == '@' ||
+                        (strlen(stmt->as.import_stmt.module_path) > 4 &&
+                         strcmp(stmt->as.import_stmt.module_path +
+                                strlen(stmt->as.import_stmt.module_path) - 4, ".hml") == 0))) {
+                // Side-effect import: import "module"; (no bindings).
+                // Only paths that re-parse as source imports (".hml" suffix or
+                // "@" prefix) may use the bare spelling; others keep the
+                // `import { } from "path"` form so round-tripping is stable.
+                buf_append(&ctx->buf, "import \"");
+                buf_append(&ctx->buf, stmt->as.import_stmt.module_path);
+                buf_append(&ctx->buf, "\";");
+                fmt_newline(ctx);
+                break;
             } else {
                 int import_len = estimate_import_len(stmt);
                 int should_break = (import_len > FMT_MAX_LINE_WIDTH) &&

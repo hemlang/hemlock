@@ -1,0 +1,18 @@
+// Test: creating many closures works correctly
+// This exercises the function allocator pool exhaustion path.
+// Previously fn_alloc() would infinite-recurse when the pool was empty.
+
+let closures = [];
+let count = 500;
+
+for (let i = 0; i < count; i++) {
+    let val = i;
+    closures.push(fn() { return val; });
+}
+
+// Verify first, middle, and last closures
+print("first: " + closures[0]());
+print("middle: " + closures[250]());
+print("last: " + closures[499]());
+print("count: " + closures.length);
+print("done");

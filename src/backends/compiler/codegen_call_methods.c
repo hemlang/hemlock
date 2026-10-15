@@ -29,8 +29,53 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         arg_temps[i] = codegen_expr(ctx, call_args[i]);
     }
 
+    // Named arguments: bypass ALL builtin fast paths. The interpreter only
+    // reorders named args for user-defined functions (eval_calls.c), so
+    // dispatch through the object's method with hml_call_function_named.
+    int has_named_args = 0;
+    if (expr->as.call.arg_names != NULL) {
+        for (int i = 0; i < num_args; i++) {
+            if (expr->as.call.arg_names[i] != NULL) {
+                has_named_args = 1;
+                break;
+            }
+        }
+    }
+
+    if (has_named_args && num_args > 0) {
+        int mc = ctx->temp_counter++;
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_OBJECT) {", obj_val);
+        codegen_writeln(ctx, "    HmlValue _named_fn%d = hml_object_get_field_bound(%s, \"%s\");",
+                      mc, obj_val, method);
+        codegen_writeln(ctx, "    HmlValue _named_args%d[%d];", mc, num_args);
+        for (int i = 0; i < num_args; i++) {
+            codegen_writeln(ctx, "    _named_args%d[%d] = %s;", mc, i, arg_temps[i]);
+        }
+        codegen_writeln(ctx, "    const char *_named_names%d[%d];", mc, num_args);
+        for (int i = 0; i < num_args; i++) {
+            if (expr->as.call.arg_names[i]) {
+                codegen_writeln(ctx, "    _named_names%d[%d] = \"%s\";",
+                              mc, i, expr->as.call.arg_names[i]);
+            } else {
+                codegen_writeln(ctx, "    _named_names%d[%d] = NULL;", mc, i);
+            }
+        }
+        codegen_writeln(ctx, "    %s = hml_call_function_named(_named_fn%d, _named_args%d, _named_names%d, %d);",
+                      result, mc, mc, mc, num_args);
+        codegen_writeln(ctx, "    hml_release(&_named_fn%d);", mc);
+        codegen_writeln(ctx, "} else {");
+        // Non-object receivers: builtin methods ignore argument names,
+        // matching the interpreter (names are only read for user functions).
+        codegen_writeln(ctx, "    HmlValue _named_pos_args%d[%d];", mc, num_args);
+        for (int i = 0; i < num_args; i++) {
+            codegen_writeln(ctx, "    _named_pos_args%d[%d] = %s;", mc, i, arg_temps[i]);
+        }
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"%s\", _named_pos_args%d, %d);",
+                      result, obj_val, method, mc, num_args);
+        codegen_writeln(ctx, "}");
     // Methods that work on both strings and arrays - need runtime type check
-    if (strcmp(method, "slice") == 0 && (num_args == 1 || num_args == 2) && arg_temps) {
+    } else if (strcmp(method, "slice") == 0 && (num_args == 1 || num_args == 2) && arg_temps) {
         codegen_writeln(ctx, "HmlValue %s;", result);
         if (num_args == 1) {
             // Single-arg slice: default end to length
@@ -40,9 +85,13 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
             codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj_val);
             codegen_writeln(ctx, "    %s = hml_buffer_slice(%s, %s, hml_val_i32(%s.as.as_buffer->length));",
                           result, obj_val, arg_temps[0], obj_val);
-            codegen_writeln(ctx, "} else {");
+            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_ARRAY) {", obj_val);
             codegen_writeln(ctx, "    %s = hml_array_slice(%s, %s, hml_val_i32(%s.as.as_array->length));",
                           result, obj_val, arg_temps[0], obj_val);
+            codegen_writeln(ctx, "} else {");
+            codegen_writeln(ctx, "    HmlValue _slice_args__%s[1] = { %s };", result, arg_temps[0]);
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"slice\", _slice_args__%s, 1);",
+                          result, obj_val, result);
             codegen_writeln(ctx, "}");
         } else {
             codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
@@ -51,13 +100,17 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
             codegen_writeln(ctx, "} else if (%s.type == HML_VAL_BUFFER) {", obj_val);
             codegen_writeln(ctx, "    %s = hml_buffer_slice(%s, %s, %s);",
                           result, obj_val, arg_temps[0], arg_temps[1]);
-            codegen_writeln(ctx, "} else {");
+            codegen_writeln(ctx, "} else if (%s.type == HML_VAL_ARRAY) {", obj_val);
             codegen_writeln(ctx, "    %s = hml_array_slice(%s, %s, %s);",
                           result, obj_val, arg_temps[0], arg_temps[1]);
+            codegen_writeln(ctx, "} else {");
+            codegen_writeln(ctx, "    HmlValue _slice_args__%s[2] = { %s, %s };",
+                          result, arg_temps[0], arg_temps[1]);
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"slice\", _slice_args__%s, 2);",
+                          result, obj_val, result);
             codegen_writeln(ctx, "}");
         }
-    } else if ((strcmp(method, "find") == 0 || strcmp(method, "indexOf") == 0)
-               && num_args == 1) {
+    } else if (strcmp(method, "find") == 0 && num_args == 1) {
         codegen_writeln(ctx, "HmlValue %s;", result);
         codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
         codegen_writeln(ctx, "    %s = hml_string_find(%s, %s);",
@@ -83,50 +136,170 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         codegen_writeln(ctx, "    %s = hml_call_method(%s, \"contains\", _contains_args__%s, 1);",
                       result, obj_val, result);
         codegen_writeln(ctx, "}");
-    // String-only methods
+    } else if (strcmp(method, "rfind") == 0 && num_args == 1) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_rfind(%s, %s);",
+                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _rfind_args__%s[1] = { %s };", result, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"rfind\", _rfind_args__%s, 1);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
+    // String-only methods - guard on receiver type so user-defined object
+    // methods with the same name dispatch via hml_call_method
     } else if (strcmp(method, "substr") == 0 && num_args == 2) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_substr(%s, %s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_substr(%s, %s, %s);",
                       result, obj_val, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _substr_args__%s[2] = { %s, %s };",
+                      result, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"substr\", _substr_args__%s, 2);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
+    } else if (strcmp(method, "substr") == 0 && num_args == 1) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_substr_from(%s, %s);",
+                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _substr_args__%s[1] = { %s };", result, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"substr\", _substr_args__%s, 1);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "split") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_split(%s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_split(%s, %s);",
                       result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _split_args__%s[1] = { %s };", result, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"split\", _split_args__%s, 1);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "trim") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_trim(%s);", result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_trim(%s);", result, obj_val);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"trim\", NULL, 0);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "trim_start") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_trim_start(%s);", result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_trim_start(%s);", result, obj_val);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"trim_start\", NULL, 0);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "trim_end") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_trim_end(%s);", result, obj_val);
-    } else if (strcmp(method, "to_upper") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_to_upper(%s);", result, obj_val);
-    } else if (strcmp(method, "to_lower") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_to_lower(%s);", result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_trim_end(%s);", result, obj_val);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"trim_end\", NULL, 0);", result, obj_val);
+        codegen_writeln(ctx, "}");
+    } else if ((strcmp(method, "to_upper") == 0 || strcmp(method, "upper") == 0) && num_args == 0) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_to_upper(%s);", result, obj_val);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"%s\", NULL, 0);", result, obj_val, method);
+        codegen_writeln(ctx, "}");
+    } else if ((strcmp(method, "to_lower") == 0 || strcmp(method, "lower") == 0) && num_args == 0) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_to_lower(%s);", result, obj_val);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"%s\", NULL, 0);", result, obj_val, method);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "starts_with") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_starts_with(%s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_starts_with(%s, %s);",
                       result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _starts_with_args__%s[1] = { %s };", result, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"starts_with\", _starts_with_args__%s, 1);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "ends_with") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_ends_with(%s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_ends_with(%s, %s);",
                       result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _ends_with_args__%s[1] = { %s };", result, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"ends_with\", _ends_with_args__%s, 1);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "replace") == 0 && num_args == 2) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_replace(%s, %s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_replace(%s, %s, %s);",
                       result, obj_val, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _replace_args__%s[2] = { %s, %s };",
+                      result, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"replace\", _replace_args__%s, 2);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "replace_all") == 0 && num_args == 2) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_replace_all(%s, %s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_replace_all(%s, %s, %s);",
                       result, obj_val, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _replace_all_args__%s[2] = { %s, %s };",
+                      result, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"replace_all\", _replace_all_args__%s, 2);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "repeat") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_repeat(%s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_repeat(%s, %s);",
                       result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _repeat_args__%s[1] = { %s };", result, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"repeat\", _repeat_args__%s, 1);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "char_at") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_char_at(%s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_char_at(%s, %s);",
                       result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _char_at_args__%s[1] = { %s };", result, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"char_at\", _char_at_args__%s, 1);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "byte_at") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_byte_at(%s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_byte_at(%s, %s);",
                       result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _byte_at_args__%s[1] = { %s };", result, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"byte_at\", _byte_at_args__%s, 1);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "byte_ptr") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_byte_ptr(%s);",
-                      result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_byte_ptr(%s);", result, obj_val);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"byte_ptr\", NULL, 0);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "to_bytes") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_string_to_bytes(%s);",
-                      result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_STRING) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_string_to_bytes(%s);", result, obj_val);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"to_bytes\", NULL, 0);", result, obj_val);
+        codegen_writeln(ctx, "}");
     // Array methods - with runtime type check to also support object methods
     } else if (strcmp(method, "push") == 0 && num_args == 1) {
         codegen_writeln(ctx, "HmlValue %s;", result);
@@ -204,18 +377,63 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         codegen_writeln(ctx, "}");
     // Note: find, contains, slice are handled above with runtime type checks
     } else if (strcmp(method, "join") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_join(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_join(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _join_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"join\", _join_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "concat") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_concat(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_concat(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _concat_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"concat\", _concat_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "reverse") == 0 && num_args == 0) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
         codegen_writeln(ctx, "hml_array_reverse(%s);", obj_val);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "%s = hml_val_null();", result);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"reverse\", NULL, 0);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "first") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_first(%s);", result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_first(%s);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"first\", NULL, 0);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "last") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_last(%s);", result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_last(%s);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"last\", NULL, 0);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "clear") == 0 && num_args == 0) {
         codegen_writeln(ctx, "HmlValue %s;", result);
         codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
@@ -228,75 +446,241 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
         codegen_writeln(ctx, "%s = hml_call_method(%s, \"clear\", NULL, 0);", result, obj_val);
         codegen_indent_dec(ctx);
         codegen_writeln(ctx, "}");
-    // File methods
+    // File methods (with fallback to hml_call_method for generic objects)
     } else if (strcmp(method, "read") == 0 && (num_args == 0 || num_args == 1)) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_FILE) {", obj_val);
         if (num_args == 1) {
-            codegen_writeln(ctx, "HmlValue %s = hml_file_read(%s, %s);",
+            codegen_writeln(ctx, "    %s = hml_file_read(%s, %s);",
                           result, obj_val, arg_temps[0]);
         } else {
-            codegen_writeln(ctx, "HmlValue %s = hml_file_read_all(%s);", result, obj_val);
+            codegen_writeln(ctx, "    %s = hml_file_read_all(%s);", result, obj_val);
         }
+        codegen_writeln(ctx, "} else {");
+        if (num_args == 1) {
+            codegen_writeln(ctx, "    HmlValue _read_args[1] = {%s};", arg_temps[0]);
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"read\", _read_args, 1);", result, obj_val);
+        } else {
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"read\", NULL, 0);", result, obj_val);
+        }
+        codegen_writeln(ctx, "}");
+    } else if (strcmp(method, "read_binary") == 0 && (num_args == 0 || num_args == 1)) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_FILE) {", obj_val);
+        if (num_args == 1) {
+            codegen_writeln(ctx, "    %s = hml_file_read_binary(%s, %s);",
+                          result, obj_val, arg_temps[0]);
+        } else {
+            codegen_writeln(ctx, "    %s = hml_file_read_binary_all(%s);", result, obj_val);
+        }
+        codegen_writeln(ctx, "} else {");
+        if (num_args == 1) {
+            codegen_writeln(ctx, "    HmlValue _read_binary_args[1] = {%s};", arg_temps[0]);
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"read_binary\", _read_binary_args, 1);", result, obj_val);
+        } else {
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"read_binary\", NULL, 0);", result, obj_val);
+        }
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "write") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_file_write(%s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_FILE) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_file_write(%s, %s);",
                       result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _write_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"write\", _write_args, 1);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "seek") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_file_seek(%s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_FILE) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_file_seek(%s, %s);",
                       result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _seek_args__%s[1] = { %s };", result, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"seek\", _seek_args__%s, 1);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "tell") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_file_tell(%s);", result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_FILE) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_file_tell(%s);", result, obj_val);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"tell\", NULL, 0);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "close") == 0 && num_args == 0) {
-        // Handle file.close(), channel.close(), and socket.close()
+        // Handle file.close(), channel.close(), socket.close(), and generic object.close()
+        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
         codegen_writeln(ctx, "if (%s.type == HML_VAL_FILE) {", obj_val);
         codegen_writeln(ctx, "    hml_file_close(%s);", obj_val);
         codegen_writeln(ctx, "} else if (%s.type == HML_VAL_CHANNEL) {", obj_val);
         codegen_writeln(ctx, "    hml_channel_close(%s);", obj_val);
         codegen_writeln(ctx, "} else if (%s.type == HML_VAL_SOCKET) {", obj_val);
         codegen_writeln(ctx, "    hml_socket_close(%s);", obj_val);
+        codegen_writeln(ctx, "} else {");
+        // An object's own close() result must propagate (the builtin
+        // close()s return null anyway)
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"close\", NULL, 0);", result, obj_val);
         codegen_writeln(ctx, "}");
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
     } else if (strcmp(method, "map") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_map(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_map(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _map_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"map\", _map_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "filter") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_filter(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_filter(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _filter_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"filter\", _filter_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "reduce") == 0 && (num_args == 1 || num_args == 2)) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
         if (num_args == 2) {
-            codegen_writeln(ctx, "HmlValue %s = hml_array_reduce(%s, %s, %s);",
+            // Explicit initial value - null is a legitimate accumulator, so
+            // pass has_initial=1 instead of letting the runtime infer
+            // absence from null-ness.
+            codegen_writeln(ctx, "%s = hml_array_reduce_n(%s, %s, %s, 1);",
                           result, obj_val, arg_temps[0], arg_temps[1]);
         } else {
             // No initial value - use first element
-            codegen_writeln(ctx, "HmlValue %s = hml_array_reduce(%s, %s, hml_val_null());",
+            codegen_writeln(ctx, "%s = hml_array_reduce_n(%s, %s, hml_val_null(), 0);",
                           result, obj_val, arg_temps[0]);
         }
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        if (num_args == 2) {
+            codegen_writeln(ctx, "HmlValue _reduce_args[2] = {%s, %s};", arg_temps[0], arg_temps[1]);
+            codegen_writeln(ctx, "%s = hml_call_method(%s, \"reduce\", _reduce_args, 2);", result, obj_val);
+        } else {
+            codegen_writeln(ctx, "HmlValue _reduce_args[1] = {%s};", arg_temps[0]);
+            codegen_writeln(ctx, "%s = hml_call_method(%s, \"reduce\", _reduce_args, 1);", result, obj_val);
+        }
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "every") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_every(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_every(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _every_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"every\", _every_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "some") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_some(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_some(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _some_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"some\", _some_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "indexOf") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_index_of(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_index_of(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _indexOf_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"indexOf\", _indexOf_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "lastIndexOf") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_last_index_of(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_last_index_of(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _lastIndexOf_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"lastIndexOf\", _lastIndexOf_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "findIndex") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_find_index(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_find_index(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _findIndex_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"findIndex\", _findIndex_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "flat") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_array_flat(%s);", result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_array_flat(%s);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"flat\", NULL, 0);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "sort") == 0 && (num_args == 0 || num_args == 1)) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
         if (num_args == 1) {
             codegen_writeln(ctx, "hml_array_sort(%s, %s);", obj_val, arg_temps[0]);
         } else {
             codegen_writeln(ctx, "hml_array_sort(%s, hml_val_null());", obj_val);
         }
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "%s = hml_val_null();", result);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        if (num_args == 1) {
+            codegen_writeln(ctx, "HmlValue _sort_args[1] = {%s};", arg_temps[0]);
+            codegen_writeln(ctx, "%s = hml_call_method(%s, \"sort\", _sort_args, 1);", result, obj_val);
+        } else {
+            codegen_writeln(ctx, "%s = hml_call_method(%s, \"sort\", NULL, 0);", result, obj_val);
+        }
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "reserve") == 0 && num_args == 1) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
         codegen_writeln(ctx, "hml_array_reserve(%s, %s);", obj_val, arg_temps[0]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "%s = hml_val_null();", result);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        codegen_writeln(ctx, "HmlValue _reserve_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "%s = hml_call_method(%s, \"reserve\", _reserve_args, 1);", result, obj_val);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "fill") == 0 && (num_args >= 1 && num_args <= 3)) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_ARRAY) {", obj_val);
+        codegen_indent_inc(ctx);
         if (num_args == 3) {
             codegen_writeln(ctx, "hml_array_fill(%s, %s, %s, %s);",
                           obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
@@ -307,63 +691,155 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
             codegen_writeln(ctx, "hml_array_fill(%s, %s, hml_val_null(), hml_val_null());",
                           obj_val, arg_temps[0]);
         }
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "%s = hml_val_null();", result);
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "} else {");
+        codegen_indent_inc(ctx);
+        if (num_args == 3) {
+            codegen_writeln(ctx, "HmlValue _fill_args[3] = {%s, %s, %s};",
+                          arg_temps[0], arg_temps[1], arg_temps[2]);
+            codegen_writeln(ctx, "%s = hml_call_method(%s, \"fill\", _fill_args, 3);", result, obj_val);
+        } else if (num_args == 2) {
+            codegen_writeln(ctx, "HmlValue _fill_args[2] = {%s, %s};",
+                          arg_temps[0], arg_temps[1]);
+            codegen_writeln(ctx, "%s = hml_call_method(%s, \"fill\", _fill_args, 2);", result, obj_val);
+        } else {
+            codegen_writeln(ctx, "HmlValue _fill_args[1] = {%s};", arg_temps[0]);
+            codegen_writeln(ctx, "%s = hml_call_method(%s, \"fill\", _fill_args, 1);", result, obj_val);
+        }
+        codegen_indent_dec(ctx);
+        codegen_writeln(ctx, "}");
     // Channel methods (also handle socket variants)
     } else if (strcmp(method, "send") == 0 && num_args == 1) {
-        // Channel send or socket send
+        // Channel send, socket send, or generic object send
+        codegen_writeln(ctx, "HmlValue %s;", result);
         codegen_writeln(ctx, "if (%s.type == HML_VAL_CHANNEL) {", obj_val);
         codegen_writeln(ctx, "    hml_channel_send(%s, %s);", obj_val, arg_temps[0]);
-        codegen_writeln(ctx, "}");
-        codegen_writeln(ctx, "HmlValue %s;", result);
-        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else if (%s.type == HML_VAL_SOCKET) {", obj_val);
         codegen_writeln(ctx, "    %s = hml_socket_send(%s, %s);", result, obj_val, arg_temps[0]);
         codegen_writeln(ctx, "} else {");
-        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "    HmlValue _send_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"send\", _send_args, 1);", result, obj_val);
         codegen_writeln(ctx, "}");
     } else if (strcmp(method, "recv") == 0) {
-        // Channel recv (no args) or socket recv (1 arg for size)
+        // Channel recv (no args), socket recv (1 arg for size), or generic object recv
         codegen_writeln(ctx, "HmlValue %s;", result);
         if (num_args == 0) {
-            codegen_writeln(ctx, "%s = hml_channel_recv(%s);", result, obj_val);
+            codegen_writeln(ctx, "if (%s.type == HML_VAL_CHANNEL) {", obj_val);
+            codegen_writeln(ctx, "    %s = hml_channel_recv(%s);", result, obj_val);
+            codegen_writeln(ctx, "} else {");
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"recv\", NULL, 0);", result, obj_val);
+            codegen_writeln(ctx, "}");
         } else if (arg_temps) {
-            codegen_writeln(ctx, "%s = hml_socket_recv(%s, %s);", result, obj_val, arg_temps[0]);
+            codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+            codegen_writeln(ctx, "    %s = hml_socket_recv(%s, %s);", result, obj_val, arg_temps[0]);
+            codegen_writeln(ctx, "} else {");
+            codegen_writeln(ctx, "    HmlValue _recv_args[1] = {%s};", arg_temps[0]);
+            codegen_writeln(ctx, "    %s = hml_call_method(%s, \"recv\", _recv_args, 1);", result, obj_val);
+            codegen_writeln(ctx, "}");
         }
-    // Socket-specific methods
+    // Socket-specific methods - guard with type check so object methods
+    // with the same name (e.g. gn.hml Server.listen()) fall through to
+    // hml_call_method dynamic dispatch.
     } else if (strcmp(method, "bind") == 0 && num_args == 2) {
-        codegen_writeln(ctx, "hml_socket_bind(%s, %s, %s);", obj_val, arg_temps[0], arg_temps[1]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    hml_socket_bind(%s, %s, %s);", obj_val, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _bind_args[2] = {%s, %s};", arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"bind\", _bind_args, 2);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "listen") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "hml_socket_listen(%s, %s);", obj_val, arg_temps[0]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    hml_socket_listen(%s, %s);", obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _listen_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"listen\", _listen_args, 1);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "accept") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_socket_accept(%s);", result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_socket_accept(%s);", result, obj_val);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"accept\", NULL, 0);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "connect") == 0 && num_args == 2) {
-        codegen_writeln(ctx, "hml_socket_connect(%s, %s, %s);", obj_val, arg_temps[0], arg_temps[1]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    hml_socket_connect(%s, %s, %s);", obj_val, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _connect_args[2] = {%s, %s};", arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"connect\", _connect_args, 2);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "sendto") == 0 && num_args == 3) {
-        codegen_writeln(ctx, "HmlValue %s = hml_socket_sendto(%s, %s, %s, %s);",
-                      result, obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_socket_sendto(%s, %s, %s, %s);", result, obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _sendto_args[3] = {%s, %s, %s};", arg_temps[0], arg_temps[1], arg_temps[2]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"sendto\", _sendto_args, 3);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "recvfrom") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_socket_recvfrom(%s, %s);",
-                      result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_socket_recvfrom(%s, %s);", result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _recvfrom_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"recvfrom\", _recvfrom_args, 1);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "setsockopt") == 0 && num_args == 3) {
-        codegen_writeln(ctx, "hml_socket_setsockopt(%s, %s, %s, %s);",
-                      obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    hml_socket_setsockopt(%s, %s, %s, %s);", obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _setsockopt_args[3] = {%s, %s, %s};", arg_temps[0], arg_temps[1], arg_temps[2]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"setsockopt\", _setsockopt_args, 3);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "set_timeout") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "hml_socket_set_timeout(%s, %s);",
-                      obj_val, arg_temps[0]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    hml_socket_set_timeout(%s, %s);", obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _set_timeout_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"set_timeout\", _set_timeout_args, 1);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "set_nonblocking") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "hml_socket_set_nonblocking(%s, %s);",
-                      obj_val, arg_temps[0]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_SOCKET) {", obj_val);
+        codegen_writeln(ctx, "    hml_socket_set_nonblocking(%s, %s);", obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _set_nonblocking_args[1] = {%s};", arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"set_nonblocking\", _set_nonblocking_args, 1);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "recv_timeout") == 0 && num_args == 1) {
-        codegen_writeln(ctx, "HmlValue %s = hml_channel_recv_timeout(%s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_CHANNEL) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_channel_recv_timeout(%s, %s);",
                       result, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _recv_timeout_args__%s[1] = { %s };", result, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"recv_timeout\", _recv_timeout_args__%s, 1);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "send_timeout") == 0 && num_args == 2) {
-        codegen_writeln(ctx, "HmlValue %s = hml_channel_send_timeout(%s, %s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_CHANNEL) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_channel_send_timeout(%s, %s, %s);",
                       result, obj_val, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _send_timeout_args__%s[2] = { %s, %s };",
+                      result, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"send_timeout\", _send_timeout_args__%s, 2);",
+                      result, obj_val, result);
+        codegen_writeln(ctx, "}");
     // Buffer typed write methods (2 args: offset, value)
     } else if (strncmp(method, "write_", 6) == 0 && num_args == 2 &&
                (strcmp(method + 6, "u8") == 0 || strcmp(method + 6, "i8") == 0 ||
@@ -375,13 +851,29 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
                 strcmp(method + 6, "u64_le") == 0 || strcmp(method + 6, "u64_be") == 0 ||
                 strcmp(method + 6, "f32_le") == 0 || strcmp(method + 6, "f32_be") == 0 ||
                 strcmp(method + 6, "f64_le") == 0 || strcmp(method + 6, "f64_be") == 0)) {
-        codegen_writeln(ctx, "hml_buffer_%s(%s, %s, %s);", method, obj_val, arg_temps[0], arg_temps[1]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        // Guard on the receiver type: an object may define its own method
+        // with this name (e.g. @stdlib/mmap's MappedFile.write_u8)
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_BUFFER) {", obj_val);
+        codegen_writeln(ctx, "    hml_buffer_%s(%s, %s, %s);", method, obj_val, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _bmargs%d[2] = { %s, %s };", ctx->temp_counter, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"%s\", _bmargs%d, 2);", result, obj_val, method, ctx->temp_counter);
+        codegen_writeln(ctx, "}");
+        ctx->temp_counter++;
     // Buffer write_bytes (3 args: offset, src_buffer, len)
     } else if (strcmp(method, "write_bytes") == 0 && num_args == 3) {
-        codegen_writeln(ctx, "hml_buffer_write_bytes(%s, %s, %s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_BUFFER) {", obj_val);
+        codegen_writeln(ctx, "    hml_buffer_write_bytes(%s, %s, %s, %s);",
                       obj_val, arg_temps[0], arg_temps[1], arg_temps[2]);
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+        codegen_writeln(ctx, "    %s = hml_val_null();", result);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _bmargs%d[3] = { %s, %s, %s };", ctx->temp_counter, arg_temps[0], arg_temps[1], arg_temps[2]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"write_bytes\", _bmargs%d, 3);", result, obj_val, ctx->temp_counter);
+        codegen_writeln(ctx, "}");
+        ctx->temp_counter++;
     // Buffer typed read methods (1 arg: offset)
     } else if (strncmp(method, "read_", 5) == 0 && num_args == 1 &&
                (strcmp(method + 5, "u8") == 0 || strcmp(method + 5, "i8") == 0 ||
@@ -393,17 +885,52 @@ int codegen_call_methods(CodegenContext *ctx, Expr *expr, char *result,
                 strcmp(method + 5, "u64_le") == 0 || strcmp(method + 5, "u64_be") == 0 ||
                 strcmp(method + 5, "f32_le") == 0 || strcmp(method + 5, "f32_be") == 0 ||
                 strcmp(method + 5, "f64_le") == 0 || strcmp(method + 5, "f64_be") == 0)) {
-        codegen_writeln(ctx, "HmlValue %s = hml_buffer_%s(%s, %s);",
-                      result, method, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_BUFFER) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_buffer_%s(%s, %s);", result, method, obj_val, arg_temps[0]);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _bmargs%d[1] = { %s };", ctx->temp_counter, arg_temps[0]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"%s\", _bmargs%d, 1);", result, obj_val, method, ctx->temp_counter);
+        codegen_writeln(ctx, "}");
+        ctx->temp_counter++;
     // Buffer read_bytes (2 args: offset, len)
     } else if (strcmp(method, "read_bytes") == 0 && num_args == 2) {
-        codegen_writeln(ctx, "HmlValue %s = hml_buffer_read_bytes(%s, %s, %s);",
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_BUFFER) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_buffer_read_bytes(%s, %s, %s);",
                       result, obj_val, arg_temps[0], arg_temps[1]);
-    // Serialization methods
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    HmlValue _bmargs%d[2] = { %s, %s };", ctx->temp_counter, arg_temps[0], arg_temps[1]);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"read_bytes\", _bmargs%d, 2);", result, obj_val, ctx->temp_counter);
+        codegen_writeln(ctx, "}");
+        ctx->temp_counter++;
+    // buffer.to_string() - convert buffer bytes to a string (UTF-8),
+    // matching the interpreter's buffer method handling
+    } else if (strcmp(method, "to_string") == 0 && num_args == 0) {
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_BUFFER) {", obj_val);
+        codegen_writeln(ctx, "    %s = hml_buffer_to_string(%s);", result, obj_val);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"to_string\", NULL, 0);", result, obj_val);
+        codegen_writeln(ctx, "}");
+    // Serialization methods - user-defined object methods take precedence
+    // over the builtin, matching the interpreter
     } else if (strcmp(method, "serialize") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_serialize(%s);", result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_OBJECT && hml_object_has_field(%s, \"serialize\")) {",
+                      obj_val, obj_val);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"serialize\", NULL, 0);", result, obj_val);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    %s = hml_serialize(%s);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else if (strcmp(method, "deserialize") == 0 && num_args == 0) {
-        codegen_writeln(ctx, "HmlValue %s = hml_deserialize(%s);", result, obj_val);
+        codegen_writeln(ctx, "HmlValue %s;", result);
+        codegen_writeln(ctx, "if (%s.type == HML_VAL_OBJECT && hml_object_has_field(%s, \"deserialize\")) {",
+                      obj_val, obj_val);
+        codegen_writeln(ctx, "    %s = hml_call_method(%s, \"deserialize\", NULL, 0);", result, obj_val);
+        codegen_writeln(ctx, "} else {");
+        codegen_writeln(ctx, "    %s = hml_deserialize(%s);", result, obj_val);
+        codegen_writeln(ctx, "}");
     } else {
         // Unknown built-in method - try as object method call
         if (num_args > 0) {

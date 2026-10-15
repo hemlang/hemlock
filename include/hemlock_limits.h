@@ -41,6 +41,20 @@
 // Maximum signal number for signal handlers (POSIX standard)
 #define HML_MAX_SIGNAL 64
 
+// ========== RECURSION / NESTING DEPTH LIMITS ==========
+// These bound recursion driven by untrusted input (source files, JSON passed to
+// deserialize(), and serialized-AST blobs) so deeply nested input raises a
+// catchable error instead of exhausting the native C stack (SIGSEGV).
+
+// Maximum nesting depth for the recursive-descent source parser.
+#define HML_MAX_PARSE_DEPTH 1000
+
+// Maximum nesting depth when parsing JSON via string.deserialize().
+#define HML_MAX_JSON_DEPTH 1000
+
+// Maximum nesting depth when deserializing a serialized AST blob (.hmlc/.hmlb).
+#define HML_MAX_AST_DESERIALIZE_DEPTH 1000
+
 // ========== COMPILER LIMITS ==========
 
 // Buffer size for mangled names (module prefix + symbol name)
@@ -58,6 +72,13 @@
 #define HML_WS_HEADER_BUFFER_SIZE 8192
 #define HML_WS_BODY_BUFFER_SIZE 4096
 #define HML_WS_MAX_HEADER_DATA 16384
+
+// How long a client connect waits for the handshake, and how often it polls
+// while waiting. The poll interval is what makes the timeout real: it must be
+// enforced with a sleep, because lws_service()'s own timeout argument has been
+// ignored since lws 3.2 and returns immediately under the libuv event loop.
+#define HML_WS_CONNECT_TIMEOUT_MS 10000
+#define HML_WS_CONNECT_POLL_US    10000
 
 // ========== I/O LIMITS ==========
 
@@ -218,6 +239,16 @@
 // Closures in hot loops benefit the most from pooled allocation
 #define HML_FUNCTION_POOL_SIZE 512
 
+// ========== CLOSURE ENVIRONMENTS ==========
+
+// Parent-slot index encoding for closure environments:
+//   index = depth * HML_CLOSURE_ENV_PARENT_STRIDE + slot
+// where depth is the number of parent links to follow and slot is the index
+// within that environment. Used so closures created inside other closures can
+// share (rather than copy) variables captured from an enclosing function.
+// Must match HML_CLOSURE_ENV_PARENT_STRIDE in runtime/include/hemlock_runtime.h
+#define HML_CLOSURE_ENV_PARENT_STRIDE 65536
+
 // ========== INLINE CACHE CONSTANTS ==========
 
 // Inline caching is used to speed up property access and method dispatch
@@ -243,6 +274,9 @@
 
 // Compiler inlining limits
 #define HML_MAX_INLINE_DEPTH 3  // Maximum nesting depth for function inlining
+
+// Maximum unroll factor accepted by the @unroll(n) loop annotation
+#define HML_MAX_UNROLL_FACTOR 256
 
 // ========== TYPEID CONSTANTS ==========
 
@@ -273,5 +307,11 @@
 #define HML_TYPEID_TASK     19
 #define HML_TYPEID_CHANNEL  20
 #define HML_TYPEID_NULL     21
+
+// ========== STATIC ANALYSIS ==========
+
+// Borrow checker: cap on interprocedural summary fixpoint passes. Summaries
+// are monotone so they converge quickly; the cap bounds pathological inputs.
+#define HML_BORROW_SUMMARY_MAX_PASSES 8
 
 #endif // HEMLOCK_LIMITS_H

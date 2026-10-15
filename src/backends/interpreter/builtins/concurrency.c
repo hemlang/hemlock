@@ -5,6 +5,12 @@
 // Global task ID counter (atomic for thread-safety in concurrent spawns)
 static atomic_int next_task_id = 1;
 
+// Set once (monotonic, never reset) the first time any task thread is
+// created. Lets the shared per-AST-node property inline cache bypass its
+// unsynchronized fast-path once concurrency is possible. See internal.h
+// and runtime/expressions.c.
+int g_interp_has_spawned = 0;
+
 // Global default stack size for spawned threads (atomic for thread-safety)
 // Initialized to HML_THREAD_STACK_SIZE (16 MB) from hemlock_limits.h
 static _Atomic size_t g_default_stack_size = HML_THREAD_STACK_SIZE;
@@ -16,9 +22,12 @@ static void* task_thread_wrapper(void* arg) {
 
     // Block all signals in worker thread - only main thread should handle signals
     // This prevents signal handlers from corrupting task state during execution
+    // (POSIX only: Windows delivers console control events on its own thread)
+#ifndef _WIN32
     sigset_t set;
     sigfillset(&set);
     pthread_sigmask(SIG_BLOCK, &set, NULL);
+#endif
 
     // Set thread name if provided (must be called from within the thread for macOS)
     // Not available in Emscripten/WASM
@@ -47,15 +56,25 @@ static void* task_thread_wrapper(void* arg) {
     // Bind parameters (these are deep-copied, so safe to use directly)
     for (int i = 0; i < fn->num_params && i < task->num_args; i++) {
         Value param_arg = task->args[i];
+        // Own a reference: convert_to_type consumes it on failure, and
+        // task_free() still releases task->args[i].
+        VALUE_RETAIN(param_arg);
         // Type check if parameter has type annotation
         if (fn->param_types[i]) {
             param_arg = convert_to_type(param_arg, fn->param_types[i], func_env, task->ctx);
         }
-        env_define(func_env, fn->param_names[i], param_arg, 0, task->ctx);
+        env_define(func_env, fn->param_names[i], param_arg, 0, task->ctx);  // retains
+        VALUE_RELEASE(param_arg);
+        if (task->ctx->exception_state.is_throwing) {
+            break;
+        }
     }
 
     // Execute function body
-    eval_stmt(fn->body, func_env, task->ctx);
+    // Skip the body if binding a typed parameter threw
+    if (!task->ctx->exception_state.is_throwing) {
+        eval_stmt(fn->body, func_env, task->ctx);
+    }
 
     // Get return value
     Value result = val_null();
@@ -72,7 +91,7 @@ static void* task_thread_wrapper(void* arg) {
     } else {
         // Memory allocation failed - log error and set exception state
         // The result will be lost, but the caller will see an exception
-        fprintf(stderr, "Runtime error: Failed to allocate memory for task result\n");
+        // Set exception directly on the task's context (we're in the task thread)
         task->ctx->exception_state.exception_value = val_string("Memory allocation failed for task result");
         task->ctx->exception_state.is_throwing = 1;
     }
@@ -100,25 +119,21 @@ static void* task_thread_wrapper(void* arg) {
 }
 
 Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Not used in spawn
 
     if (num_args < 1) {
-        fprintf(stderr, "Runtime error: spawn() expects at least 1 argument (async function)\n");
-        exit(1);
+        runtime_error(ctx, "spawn() expects at least 1 argument (async function)"); return val_null();
     }
 
     Value func_val = args[0];
 
     if (func_val.type != VAL_FUNCTION) {
-        fprintf(stderr, "Runtime error: spawn() expects an async function\n");
-        exit(1);
+        runtime_error(ctx, "spawn() expects an async function"); return val_null();
     }
 
     Function *fn = func_val.as.as_function;
 
     if (!fn->is_async) {
-        fprintf(stderr, "Runtime error: spawn() requires an async function\n");
-        exit(1);
+        runtime_error(ctx, "spawn() requires an async function"); return val_null();
     }
 
     // Create task with remaining args as function arguments
@@ -130,8 +145,7 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     if (task_num_args > 0) {
         task_args = malloc(sizeof(Value) * task_num_args);
         if (!task_args) {
-            fprintf(stderr, "Runtime error: Memory allocation failed in spawn()\n");
-            exit(1);
+            runtime_error(ctx, "Memory allocation failed in spawn()"); return val_null();
         }
         for (int i = 0; i < task_num_args; i++) {
             // Deep copy each argument for thread isolation
@@ -150,8 +164,7 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     // Allocate pthread_t
     task->thread = malloc(sizeof(pthread_t));
     if (!task->thread) {
-        fprintf(stderr, "Runtime error: Memory allocation failed\n");
-        exit(1);
+        runtime_error(ctx, "Memory allocation failed"); return val_null();
     }
 
     // Retain task so the worker thread holds a reference.
@@ -168,12 +181,13 @@ Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx) {
     pthread_attr_setstacksize(&attr, atomic_load(&g_default_stack_size));
 
     // Create thread to execute task
+    __atomic_store_n(&g_interp_has_spawned, 1, __ATOMIC_SEQ_CST);
     int rc = pthread_create((pthread_t*)task->thread, &attr, task_thread_wrapper, task);
     pthread_attr_destroy(&attr);
     if (rc != 0) {
-        fprintf(stderr, "Runtime error: Failed to create thread: %d\n", rc);
         task_release(task);
-        exit(1);
+        runtime_error(ctx, "Failed to create thread: %d", rc);
+        return val_null();
     }
 
     return val_task(task);
@@ -275,6 +289,7 @@ Value builtin_spawn_with(Value *args, int num_args, ExecutionContext *ctx) {
     pthread_attr_setstacksize(&attr, stack_size);
 
     // Create thread
+    __atomic_store_n(&g_interp_has_spawned, 1, __ATOMIC_SEQ_CST);
     int rc = pthread_create((pthread_t*)task->thread, &attr, task_thread_wrapper, task);
     pthread_attr_destroy(&attr);
     if (rc != 0) {
@@ -495,7 +510,8 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
         pthread_attr_setstacksize(&attr, atomic_load(&g_default_stack_size));
 
         // Create thread to execute task
-        int rc = pthread_create((pthread_t*)task->thread, &attr, task_thread_wrapper, task);
+        __atomic_store_n(&g_interp_has_spawned, 1, __ATOMIC_SEQ_CST);
+    int rc = pthread_create((pthread_t*)task->thread, &attr, task_thread_wrapper, task);
         pthread_attr_destroy(&attr);
         if (rc != 0) {
             runtime_error(ctx, "Failed to create thread: %d", rc);
@@ -526,20 +542,17 @@ Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_channel(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
 
     int capacity = 0;  // unbuffered by default
 
     if (num_args > 0) {
         if (args[0].type != VAL_I32 && args[0].type != VAL_U32) {
-            fprintf(stderr, "Runtime error: channel() capacity must be an integer\n");
-            exit(1);
+            runtime_error(ctx, "channel() capacity must be an integer"); return val_null();
         }
         capacity = value_to_int(args[0]);
 
         if (capacity < 0) {
-            fprintf(stderr, "Runtime error: channel() capacity cannot be negative\n");
-            exit(1);
+            runtime_error(ctx, "channel() capacity cannot be negative"); return val_null();
         }
     }
 
@@ -626,9 +639,13 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
                 Value msg = *(ch->unbuffered_value);
                 *(ch->unbuffered_value) = val_null();
                 ch->sender_waiting = 0;
+                ch->rendezvous_gen++;
 
-                // Signal sender that value was received
-                pthread_cond_signal((pthread_cond_t*)ch->rendezvous);
+                // Wake the sender whose value was consumed (broadcast - a
+                // signal() could wake a different staged sender), and wake
+                // any sender queued waiting for the rendezvous slot
+                pthread_cond_broadcast((pthread_cond_t*)ch->rendezvous);
+                pthread_cond_signal((pthread_cond_t*)ch->not_full);
                 pthread_mutex_unlock(mutex);
 
                 // Create result object { channel, value }
@@ -762,16 +779,13 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_task_debug_info(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;
 
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: task_debug_info() expects 1 argument (task handle)\n");
-        exit(1);
+        runtime_error(ctx, "task_debug_info() expects 1 argument (task handle)"); return val_null();
     }
 
     if (args[0].type != VAL_TASK) {
-        fprintf(stderr, "Runtime error: task_debug_info() expects a task handle\n");
-        exit(1);
+        runtime_error(ctx, "task_debug_info() expects a task handle"); return val_null();
     }
 
     Task *task = args[0].as.as_task;

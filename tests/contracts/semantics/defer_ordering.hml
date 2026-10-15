@@ -1,0 +1,20 @@
+// CONTRACT: defer runs when the function returns, in LIFO order, and sees
+// the variable values at execution time (docs/language-guide/defer.md).
+
+fn ordered() {
+    defer print("defer first-registered");
+    defer print("defer last-registered");
+    print("body");
+}
+ordered();
+
+fn early_return(flag: bool) {
+    defer print("cleanup");
+    if (flag) {
+        print("early");
+        return;
+    }
+    print("late");
+}
+early_return(true);
+early_return(false);

@@ -101,6 +101,25 @@ import { add as sum, subtract as diff } from "./math.hml";
 print(sum(1, 2));  // 3
 ```
 
+**Side-effect imports:**
+```hemlock
+// Load and execute a module without binding any exports.
+// Useful when a test runner discovers suites registered during module load.
+import "./register_tests.hml";
+import "@stdlib/some_module";
+```
+
+A bare string import naming a source module — a path ending in `.hml` or a
+package path starting with `@` — resolves, loads, caches, and executes the
+module like any other source import; it simply creates no local bindings.
+The explicit `.hml` extension is required for file paths because bare
+imports of anything else (e.g. `import "libc.so.6";`) keep their existing
+meaning: loading an FFI shared library.
+
+The empty named import list `import {} from "./register_tests.hml";` is
+the older spelling and behaves identically (the formatter normalizes it to
+the bare form).
+
 ## Module Resolution
 
 ### Path Types

@@ -356,9 +356,11 @@ fn url_decode(input) {
 
 			i = i + 3;
 		} else {
-			// Regular character
-			let b: i32 = ch;
-			bytes.push(b);
+			// Literal character: append its UTF-8 bytes (a non-ASCII rune is
+			// more than one byte; pushing the code point mangled it)
+			for (b in ("" + ch).bytes()) {
+				bytes.push(b);
+			}
 			i = i + 1;
 		}
 	}

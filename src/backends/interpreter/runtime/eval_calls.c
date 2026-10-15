@@ -5,6 +5,25 @@
 // Forward declaration for recursive evaluation
 Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx);
 
+// Number of bytes accessed by a buffer typed read_*/write_* suffix (e.g.
+// "u32_le"), or 0 if the suffix is not a fixed-width typed accessor. Used to
+// bounds-check the access up-front: runtime_error() only flags a (catchable)
+// exception and does NOT abort the C call, so the typed read/write paths below
+// must validate and return BEFORE touching memory, using 64-bit math so a large
+// offset cannot overflow int and bypass the check.
+static int buffer_typed_access_size(const char *suffix) {
+    if (strcmp(suffix, "u8") == 0 || strcmp(suffix, "i8") == 0) return 1;
+    if (strcmp(suffix, "u16_le") == 0 || strcmp(suffix, "u16_be") == 0 ||
+        strcmp(suffix, "i16_le") == 0 || strcmp(suffix, "i16_be") == 0) return 2;
+    if (strcmp(suffix, "u32_le") == 0 || strcmp(suffix, "u32_be") == 0 ||
+        strcmp(suffix, "i32_le") == 0 || strcmp(suffix, "i32_be") == 0 ||
+        strcmp(suffix, "f32_le") == 0 || strcmp(suffix, "f32_be") == 0) return 4;
+    if (strcmp(suffix, "u64_le") == 0 || strcmp(suffix, "u64_be") == 0 ||
+        strcmp(suffix, "i64_le") == 0 || strcmp(suffix, "i64_be") == 0 ||
+        strcmp(suffix, "f64_le") == 0 || strcmp(suffix, "f64_be") == 0) return 8;
+    return 0;
+}
+
 // Evaluate function and method call expressions
 Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // Check if this is a method call (obj.method(...))
@@ -14,6 +33,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             if (expr->as.call.func->type == EXPR_GET_PROPERTY) {
                 is_method_call = 1;
                 method_self = eval_expr(expr->as.call.func->as.get_property.object, env, ctx);
+                // Receiver threw: propagate instead of dispatching on its
+                // placeholder value (which reported "'m' is not a function").
+                if (ctx->exception_state.is_throwing) {
+                    VALUE_RELEASE(method_self);
+                    return val_null();
+                }
 
                 // METHOD DISPATCH INLINE CACHE:
                 // Cache the receiver type to skip the if-chain on subsequent calls
@@ -193,7 +218,9 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         view->ref_count = 1;
                         atomic_store(&view->freed, 0);
                         view->parent = root;
+                        atomic_store(&view->view_count, 0);
                         buffer_retain(root);  // Keep root alive
+                        atomic_fetch_add(&root->view_count, 1);  // Block free() while view lives
 
                         Value result = {0};
                         result.type = VAL_BUFFER;
@@ -226,14 +253,20 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                 return val_null();
                             }
                             Buffer *src = src_val.as.as_buffer;
-                            if (len < 0) { runtime_error(ctx, "write_bytes: length must be non-negative"); }
-                            if (off < 0 || off + len > buf->length) {
-                                runtime_error(ctx, "write_bytes: offset %d with size %d out of bounds (buffer length %d)", off, len, buf->length);
+                            // 64-bit math so off+len cannot overflow int and bypass the check;
+                            // runtime_error() does not abort, so we must return before memcpy.
+                            if (len < 0 || off < 0 ||
+                                (int64_t)off + (int64_t)len > (int64_t)buf->length ||
+                                len > src->length) {
+                                runtime_error(ctx, "write_bytes: offset %d with size %d out of bounds (buffer length %d, source length %d)", off, len, buf->length, src->length);
+                                VALUE_RELEASE(off_val); VALUE_RELEASE(src_val); VALUE_RELEASE(len_val);
+                                VALUE_RELEASE(method_self);
+                                return val_null();
                             }
-                            if (len > src->length) {
-                                runtime_error(ctx, "write_bytes: source buffer length %d less than requested %d", src->length, len);
+                            // memmove: dest and src may be overlapping views of one root
+                            if (len > 0) {
+                                memmove((uint8_t *)buf->data + off, src->data, len);
                             }
-                            memcpy((uint8_t *)buf->data + off, src->data, len);
                             VALUE_RELEASE(off_val); VALUE_RELEASE(src_val); VALUE_RELEASE(len_val);
                             VALUE_RELEASE(method_self);
                             return val_null();
@@ -248,6 +281,13 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         Value off_val = eval_expr(expr->as.call.args[0], env, ctx);
                         Value val_arg = eval_expr(expr->as.call.args[1], env, ctx);
                         int32_t off = value_to_int(off_val);
+                        // Effective bounds check BEFORE the write (runtime_error does not abort).
+                        int access_size = buffer_typed_access_size(suffix);
+                        if (access_size > 0 && (off < 0 || (int64_t)off + (int64_t)access_size > (int64_t)buf->length)) {
+                            runtime_error(ctx, "buffer.%s: offset %d with size %d out of bounds (buffer length %d)", method, off, access_size, buf->length);
+                            VALUE_RELEASE(off_val); VALUE_RELEASE(val_arg); VALUE_RELEASE(method_self);
+                            return val_null();
+                        }
                         uint8_t *p = (uint8_t *)buf->data + off;
 
                         if (strcmp(suffix, "u8") == 0) {
@@ -350,9 +390,14 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             Value len_val = eval_expr(expr->as.call.args[1], env, ctx);
                             int32_t off = value_to_int(off_val);
                             int32_t len = value_to_int(len_val);
-                            if (len < 0) { runtime_error(ctx, "read_bytes: length must be non-negative"); }
-                            if (off < 0 || off + len > buf->length) {
+                            // 64-bit math so off+len cannot overflow int and bypass the check;
+                            // runtime_error() does not abort, so we must return before memcpy.
+                            if (len < 0 || off < 0 ||
+                                (int64_t)off + (int64_t)len > (int64_t)buf->length) {
                                 runtime_error(ctx, "read_bytes: offset %d with size %d out of bounds (buffer length %d)", off, len, buf->length);
+                                VALUE_RELEASE(off_val); VALUE_RELEASE(len_val);
+                                VALUE_RELEASE(method_self);
+                                return val_null();
                             }
                             // Create new buffer with copied data
                             Buffer *new_buf = malloc(sizeof(Buffer));
@@ -362,7 +407,10 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             new_buf->ref_count = 1;
                             atomic_store(&new_buf->freed, 0);
                             new_buf->parent = NULL;
-                            memcpy(new_buf->data, (uint8_t *)buf->data + off, len);
+                            atomic_store(&new_buf->view_count, 0);
+                            if (len > 0) {
+                                memcpy(new_buf->data, (uint8_t *)buf->data + off, len);
+                            }
                             Value result = {0};
                             result.type = VAL_BUFFER;
                             result.as.as_buffer = new_buf;
@@ -379,6 +427,13 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
                         Value off_val = eval_expr(expr->as.call.args[0], env, ctx);
                         int32_t off = value_to_int(off_val);
+                        // Effective bounds check BEFORE the read (runtime_error does not abort).
+                        int access_size = buffer_typed_access_size(suffix);
+                        if (access_size > 0 && (off < 0 || (int64_t)off + (int64_t)access_size > (int64_t)buf->length)) {
+                            runtime_error(ctx, "buffer.%s: offset %d with size %d out of bounds (buffer length %d)", method, off, access_size, buf->length);
+                            VALUE_RELEASE(off_val); VALUE_RELEASE(method_self);
+                            return val_null();
+                        }
                         uint8_t *p = (uint8_t *)buf->data + off;
                         Value result;
 
@@ -647,6 +702,9 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             Value stack_args[HML_MAX_STACK_ARGS];
             Value *args = NULL;
             int args_on_heap = 0;
+            // Number of slots in `args`. Stays num_args unless named-argument
+            // reordering swaps in a differently-sized array below.
+            int args_count = expr->as.call.num_args;
             if (expr->as.call.num_args > 0) {
                 if (expr->as.call.num_args <= HML_MAX_STACK_ARGS) {
                     args = stack_args;
@@ -700,11 +758,15 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 int original_args_on_heap = args_on_heap;
 
                 if (expr->as.call.arg_names != NULL) {
-                    // Allocate reordered array
-                    if (fn->num_params <= HML_MAX_STACK_ARGS) {
+                    // Allocate reordered array. Must be large enough for both
+                    // the parameter slots and any extra positional args
+                    // (which the rest-param logic reads at indices >= num_params).
+                    int reordered_size = fn->num_params > expr->as.call.num_args
+                                             ? fn->num_params : expr->as.call.num_args;
+                    if (reordered_size <= HML_MAX_STACK_ARGS) {
                         reordered_args = reordered_stack;
                     } else {
-                        reordered_args = malloc(sizeof(Value) * fn->num_params);
+                        reordered_args = malloc(sizeof(Value) * reordered_size);
                         if (!reordered_args) {
                             runtime_error(ctx, "Out of memory allocating reordered arguments");
                             if (args) {
@@ -720,7 +782,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     }
 
                     // Initialize reordered_args to null values
-                    for (int i = 0; i < fn->num_params; i++) {
+                    for (int i = 0; i < reordered_size; i++) {
                         reordered_args[i] = val_null();
                     }
 
@@ -784,6 +846,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
                     // Second pass: place positional arguments in remaining slots
                     int next_positional_slot = 0;
+                    int next_extra_slot = fn->num_params;  // overflow area for rest params
                     for (int i = 0; i < expr->as.call.num_args; i++) {
                         if (!arg_used[i]) {
                             // Find the next unfilled slot
@@ -795,8 +858,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                 reordered_args[next_positional_slot] = args[i];
                                 arg_used[i] = 1;
                                 next_positional_slot++;
+                            } else if (next_extra_slot < reordered_size) {
+                                // Extra positional args go after the parameter
+                                // slots, where the rest-param logic reads them
+                                reordered_args[next_extra_slot++] = args[i];
+                                arg_used[i] = 1;
                             }
-                            // Extra positional args will be handled by rest param logic
                         }
                     }
 
@@ -810,6 +877,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     // Switch to use reordered_args instead of args for parameter binding
                     args = reordered_args;
                     args_on_heap = reordered_on_heap;
+                    args_count = reordered_size;
                 }
 
                 // Calculate number of required parameters (those without defaults)
@@ -842,7 +910,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         runtime_error(ctx, "Missing required parameter(s)");
                         VALUE_RELEASE(func);
                         // Release original evaluated args
-                        for (int i = 0; i < fn->num_params; i++) {
+                        for (int i = 0; i < args_count; i++) {
                             if (args[i].type != VAL_NULL) {
                                 VALUE_RELEASE(args[i]);
                             }
@@ -890,7 +958,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     // Release function and args before returning
                     VALUE_RELEASE(func);
                     if (args) {
-                        for (int i = 0; i < expr->as.call.num_args; i++) {
+                        for (int i = 0; i < args_count; i++) {
                             VALUE_RELEASE(args[i]);
                         }
                         if (args_on_heap) free(args);
@@ -1003,9 +1071,20 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             arg_value = val_null();
                             VALUE_RELEASE(args[i]);
                         }
+                        // Null the slot: the post-call cleanup loop releases every
+                        // args[i], and releasing this one a second time
+                        // over-decremented heap arguments (use-after-free when
+                        // args[i] held the last reference, e.g. a temporary
+                        // passed to a ref parameter).
+                        args[i] = val_null();
                     } else if (has_arg) {
-                        // Regular parameter - use provided argument
+                        // Regular parameter - use provided argument. Take our own
+                        // reference: convert_to_type consumes its input on failure,
+                        // and args[i] is still released by the post-call cleanup
+                        // loop (borrowing it double-released heap args on a type
+                        // annotation error).
                         arg_value = args[i];
+                        VALUE_RETAIN(arg_value);
                     } else {
                         // Argument missing - use default value
                         if (fn->param_defaults && fn->param_defaults[i]) {
@@ -1025,25 +1104,36 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     // Use fast param binding with pre-computed hash (skips redundant checks)
                     env_define_param(call_env, fn->param_names[i], fn->param_hashes[i], arg_value);
 
-                    // Release default param value if we created it (not from args array)
-                    // For default params or ref params, arg_value was created locally and needs release
-                    if (!has_arg || is_ref_param) {
-                        VALUE_RELEASE(arg_value);
+                    // arg_value is always owned here (retained arg, default, ref,
+                    // or the result of convert_to_type); env_define_param retained it.
+                    VALUE_RELEASE(arg_value);
+
+                    // Stop at the first failing parameter so its error is the one
+                    // reported (a later failure would overwrite and leak it).
+                    if (ctx->exception_state.is_throwing) {
+                        break;
                     }
                 }
 
                 // Bind rest parameter if present (collect extra args into array)
-                if (fn->rest_param) {
+                if (fn->rest_param && !ctx->exception_state.is_throwing) {
                     Array *rest_arr = array_new();
                     int extra_count = expr->as.call.num_args - fn->num_params;
                     if (extra_count > 0 && args) {
                         for (int i = fn->num_params; i < expr->as.call.num_args; i++) {
+                            // Own a reference: convert_to_type consumes it on failure,
+                            // and args[i] is released by the post-call cleanup loop.
                             Value arg = args[i];
+                            VALUE_RETAIN(arg);
                             // Type check if rest param has type annotation (array element type)
                             if (fn->rest_param_type) {
                                 arg = convert_to_type(arg, fn->rest_param_type, call_env, ctx);
                             }
-                            array_push(rest_arr, arg);
+                            array_push(rest_arr, arg);  // retains
+                            VALUE_RELEASE(arg);
+                            if (ctx->exception_state.is_throwing) {
+                                break;
+                            }
                         }
                     }
                     Value rest_val = val_array(rest_arr);
@@ -1063,7 +1153,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Execute body - reset return state first
                 ctx->return_state.is_returning = 0;
                 ctx->return_state.return_value = val_null();  // Reset to prevent stale values
-                eval_stmt(fn->body, call_env, ctx);
+                // A parameter that failed its type annotation (or a throwing
+                // default) leaves an exception pending: don't run the body,
+                // or its first failure would replace the real error.
+                if (!ctx->exception_state.is_throwing) {
+                    eval_stmt(fn->body, call_env, ctx);
+                }
 
                 // Execute deferred calls (in LIFO order) before returning
                 // This happens even if there was an exception
@@ -1125,7 +1220,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Note: Must release BEFORE exiting this block because 'args' might point to
                 // 'reordered_stack' which is a local stack variable that will go out of scope.
                 if (args) {
-                    for (int i = 0; i < expr->as.call.num_args; i++) {
+                    for (int i = 0; i < args_count; i++) {
                         VALUE_RELEASE(args[i]);
                     }
                 }

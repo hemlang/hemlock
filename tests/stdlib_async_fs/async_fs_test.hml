@@ -1,0 +1,161 @@
+// Test @stdlib/async_fs - Async file I/O operations
+
+import {
+	async_read_file, async_write_file, async_append_file,
+	async_exists, async_remove_file, async_list_dir,
+	async_make_dir, async_remove_dir, async_rename,
+	read_files_parallel, write_files_parallel,
+	shutdown_async_fs
+} from "@stdlib/async_fs";
+
+let test_dir = "/tmp/hemlock_async_fs_test";
+
+// ============================================================================
+// Setup - Create test directory
+// ============================================================================
+
+// Clean up from any previous run
+try { async_remove_file(test_dir + "/file1.txt").get(); } catch (e) {}
+try { async_remove_file(test_dir + "/file2.txt").get(); } catch (e) {}
+try { async_remove_file(test_dir + "/file3.txt").get(); } catch (e) {}
+try { async_remove_file(test_dir + "/renamed.txt").get(); } catch (e) {}
+try { async_remove_file(test_dir + "/sub/nested.txt").get(); } catch (e) {}
+try { async_remove_dir(test_dir + "/sub").get(); } catch (e) {}
+try { async_remove_dir(test_dir).get(); } catch (e) {}
+
+async_make_dir(test_dir).get();
+
+print("PASS: setup");
+
+// ============================================================================
+// Write and Read File
+// ============================================================================
+
+async_write_file(test_dir + "/file1.txt", "Hello, async!").get();
+let content = async_read_file(test_dir + "/file1.txt").get();
+assert(content == "Hello, async!", "write then read");
+
+print("PASS: write and read");
+
+// ============================================================================
+// Append to File
+// ============================================================================
+
+async_write_file(test_dir + "/file2.txt", "line1\n").get();
+async_append_file(test_dir + "/file2.txt", "line2\n").get();
+let appended = async_read_file(test_dir + "/file2.txt").get();
+assert(appended == "line1\nline2\n", "append");
+
+print("PASS: append");
+
+// ============================================================================
+// File Exists
+// ============================================================================
+
+let exists1 = async_exists(test_dir + "/file1.txt").get();
+assert(exists1 == true, "existing file exists");
+
+let exists2 = async_exists(test_dir + "/nonexistent.txt").get();
+assert(exists2 == false, "nonexistent file does not exist");
+
+print("PASS: exists");
+
+// ============================================================================
+// Rename
+// ============================================================================
+
+async_write_file(test_dir + "/file3.txt", "rename me").get();
+async_rename(test_dir + "/file3.txt", test_dir + "/renamed.txt").get();
+
+let renamed_exists = async_exists(test_dir + "/renamed.txt").get();
+assert(renamed_exists == true, "renamed file exists");
+
+let old_exists = async_exists(test_dir + "/file3.txt").get();
+assert(old_exists == false, "old file gone after rename");
+
+let renamed_content = async_read_file(test_dir + "/renamed.txt").get();
+assert(renamed_content == "rename me", "renamed file content");
+
+print("PASS: rename");
+
+// ============================================================================
+// Directory Operations
+// ============================================================================
+
+async_make_dir(test_dir + "/sub").get();
+async_write_file(test_dir + "/sub/nested.txt", "nested content").get();
+
+let nested = async_read_file(test_dir + "/sub/nested.txt").get();
+assert(nested == "nested content", "nested file read");
+
+let listing = async_list_dir(test_dir).get();
+assert(listing.length >= 3, "directory listing has entries");
+
+print("PASS: directory operations");
+
+// ============================================================================
+// Parallel Read
+// ============================================================================
+
+async_write_file(test_dir + "/p1.txt", "content1").get();
+async_write_file(test_dir + "/p2.txt", "content2").get();
+async_write_file(test_dir + "/p3.txt", "content3").get();
+
+let contents = read_files_parallel([
+	test_dir + "/p1.txt",
+	test_dir + "/p2.txt",
+	test_dir + "/p3.txt"
+]);
+assert(contents.length == 3, "parallel read count");
+assert(contents[0] == "content1", "parallel read 0");
+assert(contents[1] == "content2", "parallel read 1");
+assert(contents[2] == "content3", "parallel read 2");
+
+print("PASS: parallel read");
+
+// ============================================================================
+// Parallel Write
+// ============================================================================
+
+write_files_parallel([
+	{ path: test_dir + "/w1.txt", content: "written1" },
+	{ path: test_dir + "/w2.txt", content: "written2" }
+]);
+
+let w1 = async_read_file(test_dir + "/w1.txt").get();
+let w2 = async_read_file(test_dir + "/w2.txt").get();
+assert(w1 == "written1", "parallel write 1");
+assert(w2 == "written2", "parallel write 2");
+
+print("PASS: parallel write");
+
+// ============================================================================
+// Remove File
+// ============================================================================
+
+async_remove_file(test_dir + "/renamed.txt").get();
+let removed = async_exists(test_dir + "/renamed.txt").get();
+assert(removed == false, "file removed");
+
+print("PASS: remove file");
+
+// ============================================================================
+// Cleanup
+// ============================================================================
+
+async_remove_file(test_dir + "/file1.txt").get();
+async_remove_file(test_dir + "/file2.txt").get();
+async_remove_file(test_dir + "/p1.txt").get();
+async_remove_file(test_dir + "/p2.txt").get();
+async_remove_file(test_dir + "/p3.txt").get();
+async_remove_file(test_dir + "/w1.txt").get();
+async_remove_file(test_dir + "/w2.txt").get();
+async_remove_file(test_dir + "/sub/nested.txt").get();
+async_remove_dir(test_dir + "/sub").get();
+async_remove_dir(test_dir).get();
+
+shutdown_async_fs();
+
+print("PASS: cleanup");
+
+print("All async_fs tests passed!");

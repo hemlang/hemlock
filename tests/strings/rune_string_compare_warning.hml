@@ -1,0 +1,25 @@
+// Comparing a rune to a string is a type mismatch and is almost always a bug:
+// `string[i]` returns a rune, so `s[0] == "H"` always evaluates to false (and
+// `!= "H"` always to true) because the values cannot be equal across types.
+//
+// Both backends emit the warning
+//   "warning: equality comparison between different types 'rune' and 'string'"
+// hemlockc emits it at compile time; the interpreter emits it at runtime.
+// This test asserts the runtime evaluation result; the warning text is observed
+// on stderr (visible when the test runner prints output on failure).
+
+let s = "Hello";
+let c = s[0];
+
+// Cross-type equality: always false / always true
+assert(typeof(c) == "rune", "string indexing returns rune");
+assert((c == "H") == false, "rune == string is always false");
+assert((c != "H") == true,  "rune != string is always true");
+assert((c == 'H') == true,  "rune == rune compares codepoints");
+assert((c != " ") == true,  "rune != string is always true (whitespace skip bug)");
+
+// Both orderings warn
+let space = " ";
+assert((space == c) == false, "string == rune is always false");
+
+print("rune/string comparison warning test passed");

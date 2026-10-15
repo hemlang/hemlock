@@ -1,0 +1,25 @@
+// CONTRACT: Explicit conversion rules (CLAUDE.md, docs/language-guide/types.md)
+// - Constructor-style conversions parse strings and truncate floats.
+// - Float -> int truncates toward zero (no rounding).
+// - Type annotations perform numeric coercion but never string parsing.
+
+print(i32("42"));
+print(typeof(i32("42")));
+print(f64("3.14"));
+print(typeof(f64("3.14")));
+
+// Widening keeps the value, changes the tag
+print(i64(42));
+print(typeof(i64(42)));
+
+// Truncation toward zero, never rounding
+print(i32(3.99));
+print(i32(-3.99));
+print(i32(0.5));
+
+// Annotation coercion: numeric only
+let f: f64 = 100;
+print(f);
+print(typeof(f));
+let n: i64 = 42;
+print(typeof(n));

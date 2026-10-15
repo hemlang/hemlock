@@ -1,6 +1,6 @@
 // @stdlib/strings - Advanced string utilities
 //
-// Provides string manipulation functions beyond the 18 built-in methods.
+// Provides string manipulation functions beyond the 23 built-in methods.
 //
 // Usage:
 // import { pad_left, pad_right, center, is_alpha, is_digit } from "@stdlib/strings";
@@ -604,3 +604,20 @@ export fn truncate(str, max_len, suffix?: "..."): string {
 // ============================================================================
 
 export let string_concat_many = __string_concat_many;
+
+// Build a string from raw bytes
+// Parameters:
+// src: buffer | array - Byte source. A buffer's contents are copied as-is;
+//                       an array's elements must be integers in 0-255.
+// Returns: string - String containing exactly those bytes (no transcoding;
+//                   rune-based operations interpret the bytes as UTF-8)
+// Examples:
+// from_bytes([72, 105]) -> "Hi"
+// from_bytes(socket_buf) -> decoded network payload
+export fn from_bytes(src): string {
+	let t = typeof(src);
+	if (t != "buffer" && t != "array") {
+		throw "from_bytes() requires buffer or array argument";
+	}
+	return __string_from_bytes(src);
+}

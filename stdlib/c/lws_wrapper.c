@@ -18,6 +18,26 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#define HEMLOCK_MACOS_OPENSSL_CERT_FILE "/opt/homebrew/etc/openssl@3/cert.pem"
+
+static void hemlock_lws_configure_macos_ca_file(void) {
+#ifdef __APPLE__
+    const char *cert_file = getenv("SSL_CERT_FILE");
+    if ((!cert_file || cert_file[0] == '\0') &&
+        access(HEMLOCK_MACOS_OPENSSL_CERT_FILE, R_OK) == 0) {
+        setenv("SSL_CERT_FILE", HEMLOCK_MACOS_OPENSSL_CERT_FILE, 0);
+    }
+#endif
+}
+
+static const char *hemlock_lws_context_error_message(void) {
+#ifdef __APPLE__
+    return "Failed to create libwebsockets context; on macOS, install openssl@3 with Homebrew or set SSL_CERT_FILE=/opt/homebrew/etc/openssl@3/cert.pem";
+#else
+    return "Failed to create libwebsockets context";
+#endif
+}
+
 // Forward declaration
 static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
                          void *user, void *in, size_t len);
@@ -39,12 +59,19 @@ static struct lws_context* get_http_client_context(int needs_ssl) {
     if (needs_ssl) {
         if (!ssl_http_ctx) {
             info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-            ssl_http_ctx = lws_create_context(&info);
+            ssl_http_ctx = (hemlock_lws_configure_macos_ca_file(), lws_create_context(&info));
+            if (!ssl_http_ctx) {
+                fprintf(stderr, "%s\n", hemlock_lws_context_error_message());
+            }
         }
         return ssl_http_ctx;
     }
 
-    return lws_create_context(&info);
+    struct lws_context *context = (hemlock_lws_configure_macos_ca_file(), lws_create_context(&info));
+    if (!context) {
+        fprintf(stderr, "%s\n", hemlock_lws_context_error_message());
+    }
+    return context;
 }
 
 // ========== HTTP SUPPORT ==========
@@ -448,6 +475,7 @@ typedef struct {
     volatile int shutdown;
     int has_own_thread;  // 1 if this connection started its own service thread
     int owns_memory;     // 1 if we allocated this struct and should free it
+    volatile int close_requested; // server side: close() called, lws not told yet
 } ws_connection_t;
 
 // Service thread function - runs continuously to service the event loop
@@ -520,6 +548,7 @@ static int ws_callback(struct lws *wsi, enum lws_callback_reasons reason,
             }
             break;
 
+        case LWS_CALLBACK_CLIENT_CLOSED: /* how lws reports a client connection closing */
         case LWS_CALLBACK_CLOSED:
             DEBUG_PRINT("[DEBUG] CLOSED: conn=%p\n", (void*)conn);
             if (conn) {
@@ -645,8 +674,9 @@ ws_connection_t* lws_ws_connect(const char *url) {
     };
     info.protocols = ws_protocols;
 
-    conn->context = lws_create_context(&info);
+    conn->context = (hemlock_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!conn->context) {
+        fprintf(stderr, "%s\n", hemlock_lws_context_error_message());
         free(conn);
         return NULL;
     }
@@ -754,7 +784,8 @@ int lws_ws_send_binary(ws_connection_t *conn, const unsigned char *data, size_t 
 
 // WebSocket receive (blocking with timeout)
 ws_message_t* lws_ws_recv(ws_connection_t *conn, int timeout_ms) {
-    if (!conn || conn->closed) {
+    /* a closed connection still delivers what it received first */
+    if (!conn || (conn->closed && !conn->msg_queue_head)) {
         DEBUG_PRINT("[DEBUG] recv: conn=%p, closed=%d\n", (void*)conn, conn ? conn->closed : -1);
         return NULL;
     }
@@ -778,7 +809,7 @@ ws_message_t* lws_ws_recv(ws_connection_t *conn, int timeout_ms) {
         // Service thread handles receiving, we just wait
         usleep(10000);  // 10ms sleep
 
-        if (conn->closed) return NULL;
+        if (conn->closed && !conn->msg_queue_head) return NULL;
         if (iterations > 0) iterations--;
     }
 
@@ -816,6 +847,17 @@ void lws_msg_free(ws_message_t *msg) {
 // WebSocket close
 void lws_ws_close(ws_connection_t *conn) {
     if (conn) {
+        // A server-side connection belongs to the server's lws context, which
+        // only its service thread may touch. Ask that thread to close it: the
+        // wake-up arrives as LWS_CALLBACK_EVENT_WAIT_CANCELLED, which requests
+        // a writeable callback, and returning -1 from that sends the close.
+        if (!conn->has_own_thread && conn->wsi && !conn->closed) {
+            conn->close_requested = 1;
+            if (conn->context) {
+                lws_cancel_service(conn->context);
+            }
+        }
+
         // Mark as closed
         conn->closed = 1;
 
@@ -834,6 +876,8 @@ void lws_ws_close(ws_connection_t *conn) {
             lws_msg_free(msg);
             msg = next;
         }
+        conn->msg_queue_head = NULL; /* recv may still look at the queue */
+        conn->msg_queue_tail = NULL;
 
         if (conn->send_buffer) {
             free(conn->send_buffer);
@@ -891,6 +935,12 @@ static int ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
     DEBUG_PRINT("[DEBUG] ws_server_callback: reason=%d, conn=%p, wsi=%p\n", reason, (void*)conn, (void*)wsi);
 
     switch (reason) {
+        case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
+            // lws_cancel_service() from another thread: a connection may have
+            // been closed; let each check in SERVER_WRITEABLE
+            lws_callback_on_writable_all_protocol(lws_get_context(wsi), lws_get_protocol(wsi));
+            break;
+
         case LWS_CALLBACK_ESTABLISHED:
             fprintf(stderr, "WebSocket server connection established\n");
             // Initialize connection state
@@ -943,6 +993,11 @@ static int ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
 
         case LWS_CALLBACK_SERVER_WRITEABLE:
             DEBUG_PRINT("[DEBUG] SERVER_WRITEABLE callback triggered\n");
+            if (conn && conn->close_requested) {
+                conn->close_requested = 0;
+                lws_close_reason(wsi, LWS_CLOSE_STATUS_NORMAL, NULL, 0);
+                return -1; // lws sends the close frame and drops the connection
+            }
             if (conn && conn->send_pending && conn->send_buffer) {
                 DEBUG_PRINT("[DEBUG] Writing %zu bytes\n", conn->send_len);
                 int flags = LWS_WRITE_TEXT;
@@ -994,8 +1049,9 @@ ws_server_t* lws_ws_server_create(const char *host, int port) {
     };
     info.protocols = server_protocols;
 
-    server->context = lws_create_context(&info);
+    server->context = (hemlock_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!server->context) {
+        fprintf(stderr, "%s\n", hemlock_lws_context_error_message());
         free(server);
         return NULL;
     }

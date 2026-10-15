@@ -7,7 +7,7 @@ A standard library module providing comprehensive file and directory operations 
 The fs module provides essential filesystem capabilities:
 
 - **File operations** - Read, write, append, copy, rename, delete files
-- **Directory operations** - Create, remove, list directories
+- **Directory operations** - Create single directories, recursively create directory trees, remove, and list directories
 - **File information** - Check existence, get file stats, distinguish files/directories
 - **Path operations** - Get current directory, change directory, resolve absolute paths
 
@@ -81,6 +81,52 @@ f3.close();
 
 See [File I/O documentation](../../docs/advanced/file-io.md) for detailed usage.
 
+### open_fd(path, mode?)
+Opens a file and returns a raw POSIX file descriptor (`i32`). Useful for plumbing
+fds into `posix_spawn()` for stdio redirection without going through the buffered
+`FILE*` layer or shelling out to `sh -c "exec ... > log"`.
+
+**Parameters:**
+- `path: string` - Path to the file
+- `mode: string` (optional) - Open mode (default: `"r"`). Same set as `open()`.
+
+**Returns:** `i32` - A raw file descriptor. The caller owns the fd and must
+close it with `fd_close()` (or by `dup2`-ing it onto a fd whose owner closes
+it). Sandbox restrictions on file read/write apply just like `open()`.
+
+**Throws:** Exception if the file cannot be opened.
+
+```hemlock
+import { open_fd } from "@stdlib/fs";
+import { posix_spawn } from "@stdlib/process";
+import { fd_close } from "@stdlib/ipc";
+
+let log_fd = open_fd("/tmp/worker.log", "a");
+let { pid } = posix_spawn(["./worker"], { stdout: log_fd, stderr: log_fd });
+fd_close(log_fd);  // child holds its own dup'd copy
+```
+
+### fileno(file)
+Returns the raw POSIX file descriptor backing an open File handle.
+
+**Parameters:**
+- `file: file` - A File object returned by `open()`
+
+**Returns:** `i32` - The underlying fd. The File retains ownership: closing
+the file via `file.close()` closes the fd. Do not call `fd_close()` on it
+yourself.
+
+**Throws:** Exception if the file is closed or the underlying stream has no
+fd (e.g. `fmemopen`-style streams).
+
+```hemlock
+import { open, fileno } from "@stdlib/fs";
+
+let f = open("/tmp/out.log", "w");
+let fd = fileno(f);
+// pass fd to posix_spawn, dup2, etc.; f.close() will close fd
+```
+
 ### exists(path)
 Checks if a file or directory exists at the given path.
 
@@ -125,11 +171,11 @@ try {
 **Note:** For line-by-line reading or binary files, use the File object API (`open()`).
 
 ### write_file(path, content)
-Writes a string to a file, creating it if it doesn't exist, or overwriting if it does.
+Writes content to a file, creating it if it doesn't exist, or overwriting if it does. The file is opened in binary mode so all bytes are preserved exactly.
 
 **Parameters:**
 - `path: string` - Path to the file
-- `content: string` - Content to write
+- `content: string | buffer` - Content to write. Pass a `buffer` to write arbitrary binary data; pass a `string` for text.
 
 **Returns:** `null`
 
@@ -138,15 +184,17 @@ Writes a string to a file, creating it if it doesn't exist, or overwriting if it
 ```hemlock
 import { write_file } from "@stdlib/fs";
 
-try {
-    write_file("output.txt", "Hello, World!");
-    print("File written successfully");
-} catch (e) {
-    print("Error writing file: " + e);
-}
+// Text
+write_file("output.txt", "Hello, World!");
+
+// Binary
+let buf = buffer(4);
+ptr_write_u8(buf, 0, 0xDE); ptr_write_u8(buf, 1, 0xAD);
+ptr_write_u8(buf, 2, 0xBE); ptr_write_u8(buf, 3, 0xEF);
+write_file("output.bin", buf);
 ```
 
-**Note:** Creates parent directory if needed (on some systems). Overwrites existing files.
+**Note:** Overwrites existing files. Unlike `file.write()` (which is string-only), `write_file()` accepts buffers, making it the preferred way to write binary data without managing a file handle.
 
 ### append_file(path, content)
 Appends content to a file, creating it if it doesn't exist.
@@ -280,7 +328,38 @@ try {
 }
 ```
 
-**Note:** Does not create parent directories (non-recursive). Use a loop to create nested directories.
+**Note:** Does not create parent directories (non-recursive). Use `make_dirs()` to create nested directory trees.
+
+### make_dirs(path, mode?)
+Creates a directory and any missing parent directories, similar to `mkdir -p`.
+
+**Parameters:**
+- `path: string` - Path for the directory tree
+- `mode: u32` (optional) - Permissions mode to use for newly-created directories (default: 0755)
+
+**Returns:** `null`
+
+**Throws:** Exception if any path component exists and is not a directory, or if a directory cannot be created
+
+```hemlock
+import { make_dirs } from "@stdlib/fs";
+
+try {
+    make_dirs("/tmp/app/data/logs");
+    print("Directory tree created");
+
+    // Existing directories are accepted.
+    make_dirs("/tmp/app/data/logs");
+
+    // Create with custom permissions (0700 - owner only).
+    let mode: u32 = 448;
+    make_dirs("/tmp/app/private/cache", mode);
+} catch (e) {
+    print("Error creating directory tree: " + e);
+}
+```
+
+**Note:** `make_dirs()` only creates directories. It fails if a file blocks one of the path components.
 
 ### remove_dir(path)
 Removes an empty directory.
@@ -640,45 +719,19 @@ rotate_log("app.log", 10485760);  // 10 MB
 
 ### Recursive Directory Creation
 
+Use `make_dirs()` when you need to create a full directory tree without hand-walking each parent component.
+
 ```hemlock
-import { exists, make_dir, is_dir } from "@stdlib/fs";
+import { make_dirs, is_dir } from "@stdlib/fs";
 
-fn make_dirs(path: string): bool {
-    if (exists(path)) {
-        return is_dir(path);
+try {
+    make_dirs("/tmp/app/data/logs");
+
+    if (is_dir("/tmp/app/data/logs")) {
+        print("Directory tree created");
     }
-
-    // Find the last slash
-    let parts = path.split("/");
-    if (parts.length <= 1) {
-        try {
-            make_dir(path);
-            return true;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    // Create parent first
-    let parent_parts = parts.slice(0, parts.length - 1);
-    let parent = parent_parts.join("/");
-
-    if (!make_dirs(parent)) {
-        return false;
-    }
-
-    // Then create this directory
-    try {
-        make_dir(path);
-        return true;
-    } catch (e) {
-        return false;
-    }
-}
-
-// Usage
-if (make_dirs("/tmp/app/data/logs")) {
-    print("Directory tree created");
+} catch (e) {
+    print("Error creating directory tree: " + e);
 }
 ```
 

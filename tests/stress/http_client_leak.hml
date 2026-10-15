@@ -1,0 +1,76 @@
+// Leak harness for the actual Witchgrid control-plane workload that
+// synthetic repros never exercised: the dashboard fan-out — an
+// outbound HTTP client call (libwebsockets), JSON-parse the
+// response, walk the parsed nested object, discard — looped, as
+// happens once per agent per dashboard poll.
+//
+// A tiny in-process HTTP server (raw TcpListener, detached task)
+// serves a fixed agent-/services-shaped JSON body. Main loops:
+// http get -> json parse -> traverse -> drop. Bounded + finite so
+// LeakSanitizer reports per-iteration leaks at exit; run via
+// `run_stress.sh lsan`. Must leak nothing per request.
+
+import { TcpListener } from "@stdlib/net";
+import { get } from "@stdlib/http";
+import { parse } from "@stdlib/json";
+import { sleep } from "@stdlib/time";
+
+let PORT = 8791;
+
+let BODY = "{\"node\":\"agentX\",\"services\":["
+	+ "{\"name\":\"llm-a\",\"port\":9001,\"flags\":[\"--ctx\",\"4096\"],\"pid\":1234},"
+	+ "{\"name\":\"llm-b\",\"port\":9002,\"flags\":[\"--ctx\",\"8192\"],\"pid\":1235},"
+	+ "{\"name\":\"llm-c\",\"port\":9003,\"flags\":[\"--ngl\",\"99\"],\"pid\":1236}"
+	+ "],\"hardware\":{\"gpus\":[{\"idx\":0,\"free_mb\":24000},{\"idx\":1,\"free_mb\":16000}],\"cpu\":32}}";
+
+async fn serve(): null {
+	let listener = TcpListener("127.0.0.1", PORT);
+	loop {
+		try {
+			let s = listener.accept();
+			// Drain request headers up to the blank line.
+			loop {
+				let line = s.read_line();
+				if (line == null) { break; }
+				if (line.trim().length == 0) { break; }
+			}
+			let resp = "HTTP/1.1 200 OK\r\n"
+				+ "Content-Type: application/json\r\n"
+				+ "Content-Length: " + BODY.byte_length + "\r\n"
+				+ "Connection: close\r\n\r\n" + BODY;
+			s.write(resp);
+			s.close();
+		} catch (e) { }
+	}
+	return null;
+}
+
+let srv = spawn(serve);
+detach(srv);
+sleep(0.5);  // let the listener bind
+
+let url = "http://127.0.0.1:" + PORT + "/services";
+let n = 0;
+let acc = 0;
+while (n < 1500) {
+	let r = get(url, []);
+	if (r.status_code == 200) {
+		let doc = parse(r.body);
+		// Traverse like render does: keys(), index, nested arrays.
+		for (k in doc.keys()) {
+			let v = doc[k];
+		}
+		let svcs = doc["services"];
+		let i = 0;
+		while (i < svcs.length) {
+			let svc = svcs[i];
+			acc = acc + svc["port"];
+			let fl = svc["flags"];
+			let j = 0;
+			while (j < fl.length) { acc = acc + fl[j].length; j = j + 1; }
+			i = i + 1;
+		}
+	}
+	n = n + 1;
+}
+print("http_client_leak: ok acc=" + acc);

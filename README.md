@@ -8,7 +8,7 @@ Hemlock is a systems scripting language that combines the power of C with the er
 
 ## Documentation
 
-For the complete language manual and documentation, visit **[hem-doc](https://github.com/hemlang/hem-doc)**.
+The checked-in documentation starts at **[docs/README.md](docs/README.md)**. Standard library module references live in **[stdlib/docs/](stdlib/docs/)**, and the release history is in **[CHANGELOG.md](CHANGELOG.md)**. Hemlock v2.11.0 is the current release.
 
 ## Design Philosophy
 
@@ -81,7 +81,7 @@ let pid = getpid();
 | **FFI** | Call C functions from shared libraries, export extern |
 | **Error Handling** | try/catch/finally/throw, panic() |
 | **I/O** | File API, signal handling, command execution |
-| **Stdlib** | 46 modules (math, net, crypto, signal, atomic, ffi, and more) |
+| **Stdlib** | 53 modules (math, net, crypto, signal, atomic, ffi, vector, and more) |
 | **Packages** | [hpm](https://github.com/hemlang/hpm) package manager with GitHub registry |
 
 ## Building
@@ -98,11 +98,15 @@ brew install libffi openssl@3 libwebsockets
 sudo apt-get install libffi-dev libssl-dev libwebsockets-dev
 ```
 
+**Windows:** build natively under MSYS2 or cross-compile from Linux with
+`make mingw` — see [docs/advanced/windows.md](docs/advanced/windows.md).
+
 ### Compile and Test
 
 ```bash
 make        # Build hemlock
-make test   # Run all tests
+make test   # Run interpreter tests (rebuilds first)
+make test-all   # Run all tests (interpreter, compiler, parity, etc.)
 ```
 
 ### Install
@@ -160,6 +164,11 @@ See [Installation - WASM Build](docs/getting-started/installation.md#webassembly
 ./hemlock                          # Start REPL
 ```
 
+```hemlock
+// Your first Hemlock program
+print("Hello, World!");
+```
+
 ## Bundling & Packaging
 
 Hemlock provides tools to bundle multi-file projects and create self-contained executables.
@@ -190,22 +199,28 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v2.0.0 is released with:
+Hemlock v2.11.0 is the current checked-in release. Highlights include:
 
-- **BREAKING: Reduced builtin conflicts** - Moved 63 builtins to `@stdlib` modules (math, signal, net, process, fs, atomic, debug, ffi) to reduce global namespace pollution
-- **New stdlib modules** - `@stdlib/signal`, `@stdlib/atomic`, `@stdlib/debug`, `@stdlib/ffi`
-- **C macro conflict prevention** - Compiler sanitizes imported names that conflict with C system macros
-- Full type system with 64-bit integers and Unicode support
-- Pattern matching with destructuring, guards, and rest syntax
-- Expression-bodied functions, type aliases, named arguments, null coalescing
-- Manual memory management with safe and unsafe options
-- Async/await with true pthread parallelism
-- 46 stdlib modules
-- FFI for C interop with `export extern fn` for reusable library wrappers
-- Compiler backend (C code generation) with 100% interpreter parity
-- LSP server with go-to-definition and find-references
-- [hpm](https://github.com/hemlang/hpm) package manager with GitHub-based registry
-- 628+ tests with 188 parity tests (100% pass rate)
+- **v2.11.0 JSON strictness + borrow checker precision + wasm frame loop** - JSON (de)serialization is now exact and strict, the borrow checker is substantially more precise, and wasm gains a proper frame loop.
+- **v2.4.0 HTTP/auth + ergonomics batch** - `@stdlib/http` POST/PUT/DELETE/PATCH now actually send custom headers (`Authorization`, `X-Request-Id`, etc. were silently dropped before — only `Content-Type` made it past the wrapper). Interpreter named-module imports are live bindings instead of import-time snapshots, so reassigning an exported `let` propagates to importers and to spawned tasks. Flow null-narrowing follows `?.` field access. Type error labels report the parameter name instead of `'positional'`. `string.lower()`/`upper()` aliases. `get_binary` follows 3xx redirects. C codegen no longer prefixes call symbols with surrounding-scope tokens. macOS libwebsockets picks up Homebrew CA bundles automatically. Default LWS HTTP timeout dropped from ~30s to 5s.
+- **v2.3.1 binary HTTP fixes** - `@stdlib/http.download(url, path)` now actually writes the buffer body (was silently writing zero-byte files in compiled binaries); new `download_streaming(url, path)` for bounded-memory pulls of large artifacts; new `stream.read_binary()` preserves 0x00 bytes that `read()` would have truncated at.
+- **v2.3.0 streaming HTTP** - `@stdlib/http` now exports `stream()`, `stream_get()`, `stream_post()`, `post_json_stream()`, and `stream_sse()` for chunked HTTP and Server-Sent Events. Built on the already-bundled libwebsockets, so no new dependency. The compiler runtime now sends POST/PUT/PATCH bodies for streaming requests and throws the same catchable exceptions as the interpreter on invalid arguments — full interpreter/compiler parity.
+- **v2.2.3 hardening release** - Socket connect/bind failures are catchable in compiled binaries, `/proc` and `/sys` pseudo-files read correctly, buffer memory builtins validate ranges, optional-chain null guards narrow in the compiler, CLI help parsing is stricter, and `@stdlib/fs` now includes recursive `make_dirs()`.
+- **v2.2.2 hardening release** - Runtime `file_stat()` failures are catchable, typed-array fast-path assignments have stricter checks, non-default install prefixes find their stdlib/runtime layout, and documentation audit tooling is checked in.
+- **v2.2.1 HTTP body fix** - Compiled binaries now send `Content-Type`, `Content-Length`, and request body bytes for POST/PUT/PATCH/DELETE, matching interpreter behavior.
+- **v2.2.0 process and filesystem additions** - `@stdlib/process` exports `posix_spawn(argv, opts?)`; `@stdlib/fs` exports raw file-descriptor helpers `open_fd()` and `fileno()`.
+- **Safer module/codegen behavior** - Fixes include two-library FFI import collision handling, module `init` symbol-collision prevention, and stricter compiler/interpreter parity checks.
+- **Reduced builtin conflicts since v2.0.0** - 63 former globals moved to `@stdlib` modules (math, signal, net, process, fs, atomic, debug, ffi) to reduce global namespace pollution.
+- Full type system with 64-bit integers and Unicode support.
+- Pattern matching with destructuring, guards, and rest syntax.
+- Expression-bodied functions, type aliases, named arguments, null coalescing, string-literal object keys, and safe dynamic indexing (`obj?[key]`).
+- Manual memory management with safe (`buffer`) and unsafe (`ptr`) options.
+- Async/await with pthread-backed task execution and channels.
+- 53 stdlib modules with one API document per module.
+- FFI for C interop with `export extern fn` for reusable library wrappers.
+- Compiler backend (C code generation), formatter, bundler/packager, and LSP tooling.
+- [hpm](https://github.com/hemlang/hpm) package manager with GitHub-based registry.
+- A 1,265-file Hemlock test corpus, including interpreter/compiler parity tests.
 
 ## Philosophy
 
@@ -215,7 +230,12 @@ Hemlock is **NOT** memory-safe. Dangling pointers, use-after-free, and buffer ov
 
 ## License
 
-MIT License
+MIT License. Copyright (c) 2025 Schneewolf Labs LLC.
+
+Hemlock is developed and maintained by [Schneewolf Labs](https://schneewolflabs.com/).
+It is permissively licensed on purpose: everything built on Hemlock, including the
+[Wobbleweed](https://github.com/Yotis-Studios/Wobbleweed) retro-3D engine (also MIT),
+stays free for anyone to use commercially without inheriting a copyleft obligation.
 
 ## Contributing
 

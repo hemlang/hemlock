@@ -129,6 +129,7 @@ typedef enum {
     // New keywords (added at end to preserve enum values)
     TOK_TYPE,          // 'type' keyword for type aliases
     TOK_MATCH,         // 'match' keyword for pattern matching
+    TOK_QUESTION_LBRACKET,  // ?[  -- safe indexing (e.g. obj?["key"])
 
     // Special
     TOK_EOF,

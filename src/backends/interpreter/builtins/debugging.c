@@ -2,10 +2,8 @@
 #include "hemlock_limits.h"
 
 Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: typeof() expects 1 argument\n");
-        exit(1);
+        runtime_error(ctx, "typeof() expects 1 argument"); return val_null();
     }
 
     const char *type_name;
@@ -87,6 +85,18 @@ Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx) {
         case VAL_CHANNEL:
             type_name = "channel";
             break;
+        case VAL_SOCKET:
+            type_name = "socket";
+            break;
+        case VAL_WEBSOCKET:
+            type_name = "websocket";
+            break;
+        case VAL_FFI_FUNCTION:
+            type_name = "ffi function";
+            break;
+        case VAL_REF:
+            type_name = "ref";
+            break;
         default:
             type_name = "unknown";
             break;
@@ -96,10 +106,8 @@ Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_typeid(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: typeid() expects 1 argument\n");
-        exit(1);
+        runtime_error(ctx, "typeid() expects 1 argument"); return val_null();
     }
 
     int32_t tid;
@@ -136,8 +144,7 @@ Value builtin_typeid(Value *args, int num_args, ExecutionContext *ctx) {
 
 Value builtin_assert(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args < 1 || num_args > 2) {
-        fprintf(stderr, "Runtime error: assert() expects 1-2 arguments (condition, [message])\n");
-        exit(1);
+        runtime_error(ctx, "assert() expects 1-2 arguments (condition, [message])"); return val_null();
     }
 
     // Check if condition is truthy
@@ -190,15 +197,15 @@ Value builtin_assert(Value *args, int num_args, ExecutionContext *ctx) {
     if (!is_truthy) {
         Value exception_msg;
         if (num_args == 2) {
-            // Use provided message
+            // Use provided message - retain it so it survives past the caller
+            // releasing the argument values during unwinding
             exception_msg = args[1];
+            value_retain(exception_msg);
         } else {
-            // Use default message
+            // Use default message - val_string() already returns an owned reference
             exception_msg = val_string("assertion failed");
         }
 
-        // Retain the exception value so it survives past environment cleanups during unwinding
-        value_retain(exception_msg);
         ctx->exception_state.exception_value = exception_msg;
         ctx->exception_state.is_throwing = 1;
     }

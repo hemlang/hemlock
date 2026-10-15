@@ -1,0 +1,150 @@
+// Linear algebra operation tests
+
+import { from_rows, identity, col_vector, diagonal, solve } from "@stdlib/matrix";
+import { abs } from "@stdlib/math";
+
+fn approx(a, b) {
+	return abs(a - b) < 1e-8;
+}
+
+print("=== Testing transpose ===");
+let m = from_rows([[1, 2, 3], [4, 5, 6]]);
+let t = m.transpose();
+assert(t.rows == 3, "transpose rows");
+assert(t.cols == 2, "transpose cols");
+assert(t.get(0, 0) == 1, "transpose [0,0]");
+assert(t.get(0, 1) == 4, "transpose [0,1]");
+assert(t.get(1, 0) == 2, "transpose [1,0]");
+assert(t.get(2, 0) == 3, "transpose [2,0]");
+assert(t.get(2, 1) == 6, "transpose [2,1]");
+print("transpose tests passed!");
+
+print("=== Testing trace ===");
+let tr = from_rows([[1, 2], [3, 4]]);
+assert(tr.trace() == 5, "trace of [[1,2],[3,4]] = 5");
+let tr3 = from_rows([[10, 0, 0], [0, 20, 0], [0, 0, 30]]);
+assert(tr3.trace() == 60, "trace of diag(10,20,30) = 60");
+print("trace tests passed!");
+
+print("=== Testing det 1x1 ===");
+let d1 = from_rows([[7]]);
+assert(d1.det() == 7, "det of [[7]] = 7");
+print("det 1x1 passed!");
+
+print("=== Testing det 2x2 ===");
+let d2 = from_rows([[1, 2], [3, 4]]);
+assert(approx(d2.det(), -2), "det of [[1,2],[3,4]] = -2");
+
+let d2b = from_rows([[3, 8], [4, 6]]);
+assert(approx(d2b.det(), -14), "det of [[3,8],[4,6]] = -14");
+print("det 2x2 passed!");
+
+print("=== Testing det 3x3 ===");
+let d3 = from_rows([[6, 1, 1], [4, -2, 5], [2, 8, 7]]);
+assert(approx(d3.det(), -306), "det of 3x3 = -306");
+print("det 3x3 passed!");
+
+print("=== Testing det 4x4 ===");
+let d4 = from_rows([
+	[1, 2, 3, 4],
+	[5, 6, 7, 8],
+	[2, 6, 4, 8],
+	[3, 1, 1, 2]
+]);
+// Computed determinant: 72
+assert(approx(d4.det(), 72), "det of 4x4 = 72");
+print("det 4x4 passed!");
+
+print("=== Testing inverse 2x2 ===");
+let inv2 = from_rows([[1, 2], [3, 4]]);
+let inv2r = inv2.inverse();
+let prod2 = inv2.mul(inv2r);
+assert(prod2.equals(identity(2)), "A * A^-1 = I (2x2)");
+print("inverse 2x2 passed!");
+
+print("=== Testing inverse 3x3 ===");
+let inv3 = from_rows([[2, 1, 0], [1, 3, 1], [0, 1, 2]]);
+let inv3r = inv3.inverse();
+let prod3 = inv3.mul(inv3r);
+assert(prod3.equals(identity(3)), "A * A^-1 = I (3x3)");
+print("inverse 3x3 passed!");
+
+print("=== Testing singular matrix ===");
+let caught = false;
+try {
+	let singular = from_rows([[1, 2], [2, 4]]);
+	singular.inverse();
+} catch (err) {
+	caught = true;
+}
+assert(caught == true, "Singular matrix inverse should throw");
+print("singular matrix tests passed!");
+
+print("=== Testing norm ===");
+let n = from_rows([[3, 4]]);
+assert(approx(n.norm(), 5), "norm of [3,4] = 5");
+
+let I3 = identity(3);
+assert(approx(I3.norm(), 1.7320508075688772), "norm of I3 = sqrt(3)");
+print("norm tests passed!");
+
+print("=== Testing dot ===");
+let v1 = from_rows([[1, 2, 3]]);
+let v2 = from_rows([[4, 5, 6]]);
+assert(v1.dot(v2) == 32, "dot product [1,2,3].[4,5,6] = 32");
+print("dot tests passed!");
+
+print("=== Testing equals ===");
+let eq1 = from_rows([[1, 2], [3, 4]]);
+let eq2 = from_rows([[1, 2], [3, 4]]);
+let eq3 = from_rows([[1, 2], [3, 5]]);
+assert(eq1.equals(eq2) == true, "Equal matrices");
+assert(eq1.equals(eq3) == false, "Unequal matrices");
+print("equals tests passed!");
+
+print("=== Testing solve ===");
+// 2x + y = 5, x + 3y = 10 => x=1, y=3
+let A = from_rows([[2, 1], [1, 3]]);
+let b = col_vector([5, 10]);
+let x = solve(A, b);
+assert(approx(x.get(0, 0), 1.0), "solve x = 1");
+assert(approx(x.get(1, 0), 3.0), "solve y = 3");
+print("solve 2x2 passed!");
+
+// 3x3 system
+let A3 = from_rows([[1, 1, 1], [0, 2, 5], [2, 5, -1]]);
+let b3 = col_vector([6, -4, 27]);
+let x3 = solve(A3, b3);
+assert(approx(x3.get(0, 0), 5.0), "solve 3x3 x1 = 5");
+assert(approx(x3.get(1, 0), 3.0), "solve 3x3 x2 = 3");
+assert(approx(x3.get(2, 0), -2.0), "solve 3x3 x3 = -2");
+print("solve 3x3 passed!");
+
+print("=== Testing map ===");
+let mp = from_rows([[1, 4], [9, 16]]);
+let mapped = mp.map(fn(val, r, c) { return val + 1; });
+assert(mapped.get(0, 0) == 2, "map [0,0]");
+assert(mapped.get(0, 1) == 5, "map [0,1]");
+assert(mapped.get(1, 0) == 10, "map [1,0]");
+assert(mapped.get(1, 1) == 17, "map [1,1]");
+print("map tests passed!");
+
+print("=== Testing submatrix ===");
+let sm = from_rows([[1, 2, 3], [4, 5, 6], [7, 8, 9]]);
+let sub = sm.submatrix(0, 0, 2, 2);
+assert(sub.rows == 2, "submatrix rows");
+assert(sub.cols == 2, "submatrix cols");
+assert(sub.get(0, 0) == 1, "submatrix [0,0]");
+assert(sub.get(0, 1) == 2, "submatrix [0,1]");
+assert(sub.get(1, 0) == 4, "submatrix [1,0]");
+assert(sub.get(1, 1) == 5, "submatrix [1,1]");
+print("submatrix tests passed!");
+
+print("=== Testing to_string ===");
+let ts = from_rows([[1, 2], [3, 4]]);
+let s = ts.to_string();
+assert(typeof(s) == "string", "to_string returns string");
+print("to_string tests passed!");
+
+print("");
+print("All linear algebra tests passed!");

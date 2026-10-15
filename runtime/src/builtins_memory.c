@@ -59,7 +59,7 @@ void hml_callback_free(HmlValue callback) {
 
 HmlValue hml_alloc(int32_t size) {
     if (size <= 0) {
-        hml_runtime_error("alloc() requires positive size");
+        hml_runtime_error_loc("alloc() size must be positive");
     }
     void *ptr = malloc(size);
     if (!ptr) {
@@ -68,47 +68,139 @@ HmlValue hml_alloc(int32_t size) {
     return hml_val_ptr(ptr);
 }
 
+// User-facing buffer() constructor: rejects non-positive sizes with a
+// catchable error (parity with the interpreter and with alloc()).
+// hml_val_buffer() itself stays permissive about size 0 for internal
+// callers (empty file reads, read_bytes(off, 0), freed-buffer copies).
+HmlValue hml_buffer_new(int32_t size) {
+    if (size <= 0) {
+        hml_runtime_error_loc("buffer() size must be positive");
+    }
+    return hml_val_buffer(size);
+}
+
 void hml_free(HmlValue ptr_or_buffer) {
     if (ptr_or_buffer.type == HML_VAL_PTR) {
         if (ptr_or_buffer.as.as_ptr) {
             free(ptr_or_buffer.as.as_ptr);
         }
     } else if (ptr_or_buffer.type == HML_VAL_BUFFER) {
-        if (ptr_or_buffer.as.as_buffer) {
-            if (ptr_or_buffer.as.as_buffer->parent) {
+        HmlBuffer *b = ptr_or_buffer.as.as_buffer;
+        if (b) {
+            if (b->parent) {
                 hml_runtime_error("cannot free() a buffer slice view");
             }
-            if (ptr_or_buffer.as.as_buffer->data) {
-                free(ptr_or_buffer.as.as_buffer->data);
+            // Temporal safety: a live slice view's data points into this
+            // allocation, so freeing now would leave the view dangling with
+            // a stale nonzero length (its bounds check alone cannot save it).
+            int live_views = atomic_load(&b->view_count);
+            if (live_views > 0) {
+                hml_runtime_error("Cannot free buffer with %d live slice view%s",
+                        live_views, live_views == 1 ? "" : "s");
             }
-            free(ptr_or_buffer.as.as_buffer);
+            // Atomically check and set the freed flag to detect double-free.
+            // This matches the interpreter (catchable error) and arms the
+            // freed-buffer guards in memset()/memcpy()/ptr_read/ptr_write,
+            // which check this flag but previously never saw it set.
+            int expected = 0;
+            if (!atomic_compare_exchange_strong(&b->freed, &expected, 1)) {
+                hml_runtime_error("double free detected on buffer");
+            }
+            // Free the (potentially large) backing allocation now, but do
+            // NOT free the HmlBuffer handle and do NOT touch ref_count: the
+            // value is still reachable by the refcount system (a top-level
+            // `let` released via hml_release_statics at exit, or ordinary
+            // local scope cleanup), and that path calls buffer_free() on
+            // this same struct. Freeing it here too is a double-free +
+            // use-after-free — silent under glibc, fatal under macOS
+            // libsystem_malloc. Nulling data makes the later buffer_free()
+            // a safe no-op.
+            if (b->data) {
+                free(b->data);
+                b->data = NULL;
+            }
+            b->length = 0;
+            b->capacity = 0;  // parity: interpreter zeroes capacity too
         }
     } else if (ptr_or_buffer.type == HML_VAL_ARRAY) {
-        if (ptr_or_buffer.as.as_array) {
-            HmlArray *arr = ptr_or_buffer.as.as_array;
-            // Release all elements
+        HmlArray *arr = ptr_or_buffer.as.as_array;
+        if (arr) {
+            // Atomically check and set the freed flag to detect double-free.
+            int expected = 0;
+            if (!atomic_compare_exchange_strong(&arr->freed, &expected, 1)) {
+                hml_runtime_error("double free detected on array");
+            }
+            // Release all elements (decrements their ref_counts)
             for (int i = 0; i < arr->length; i++) {
                 hml_release(&arr->elements[i]);
             }
+            // Free internal data but keep the struct alive so the refcount
+            // cleanup path (array_free) can detect the manual free and only
+            // free the wrapper. Freeing it here too is a double-free, because
+            // the value is still reachable via locals/statics that release it
+            // on scope exit. This also breaks circular references safely.
             free(arr->elements);
-            free(arr);
+            arr->elements = NULL;
+            arr->length = 0;
+            arr->capacity = 0;
         }
     } else if (ptr_or_buffer.type == HML_VAL_OBJECT) {
-        if (ptr_or_buffer.as.as_object) {
-            HmlObject *obj = ptr_or_buffer.as.as_object;
-            // Release all field values and free names
+        HmlObject *obj = ptr_or_buffer.as.as_object;
+        if (obj) {
+            // Atomically check and set the freed flag to detect double-free.
+            int expected = 0;
+            if (!atomic_compare_exchange_strong(&obj->freed, &expected, 1)) {
+                hml_runtime_error("double free detected on object");
+            }
+            // Release all field values and free names (decrements ref_counts)
             for (int i = 0; i < obj->num_fields; i++) {
                 hml_release(&obj->fields[i].value);
                 free(obj->fields[i].name);
             }
-            free(obj->fields);
+            // Free internal data but keep the struct alive so the refcount
+            // cleanup path (object_free) can detect the manual free and only
+            // free the wrapper. Freeing it here too is a double-free, because
+            // the value is still reachable via locals/statics that release it
+            // on scope exit. This also breaks circular references safely.
+            // For pooled objects the fields array may point to pool-owned
+            // storage, so leave it for obj_pool_free() during final cleanup.
+            if (!obj->is_pooled) {
+                free(obj->fields);
+            }
             if (obj->type_name) free(obj->type_name);
-            free(obj);
+            free(obj->hash_table);
+            obj->fields = NULL;
+            obj->type_name = NULL;
+            obj->hash_table = NULL;
+            obj->num_fields = 0;
+            obj->capacity = 0;
+            obj->hash_capacity = 0;
         }
     } else if (ptr_or_buffer.type == HML_VAL_NULL) {
         // free(null) is a safe no-op (like C's free(NULL))
     } else {
         hml_runtime_error("free() requires pointer, buffer, object, or array");
+    }
+}
+
+// Exception-safe wrapper used by codegen for the free() builtin: hml_free()
+// refuses some frees by throwing (double free, live slice views, freeing a
+// view), and the longjmp would skip the caller's paired release of the
+// argument temporary — permanently leaking a reference. That is not just a
+// memory leak: a leaked slice-view reference keeps the root's view_count
+// elevated, so every later free() of the root is refused too. Consume the
+// reference on both the success and the throw path, then rethrow.
+void hml_free_owned(HmlValue *v) {
+    HmlExceptionContext *ctx = hml_exception_push();
+    if (setjmp(ctx->exception_buf) == 0) {
+        hml_free(*v);
+        hml_exception_pop();
+        hml_release_if_needed(v);
+    } else {
+        HmlValue exc = hml_exception_get_value();
+        hml_exception_pop();
+        hml_release_if_needed(v);
+        hml_throw(exc);
     }
 }
 
@@ -127,23 +219,50 @@ HmlValue hml_realloc(HmlValue ptr, int32_t new_size) {
 }
 
 void hml_memset(HmlValue ptr, uint8_t byte_val, int32_t size) {
+    if (size < 0) {
+        hml_runtime_error("memset() size cannot be negative");
+    }
     if (ptr.type == HML_VAL_PTR) {
-        memset(ptr.as.as_ptr, byte_val, size);
+        if (ptr.as.as_ptr == NULL) {
+            hml_runtime_error("memset() cannot write to null pointer");
+        }
+        memset(ptr.as.as_ptr, byte_val, (size_t)size);
     } else if (ptr.type == HML_VAL_BUFFER) {
-        memset(ptr.as.as_buffer->data, byte_val, size);
+        if (!ptr.as.as_buffer || (!ptr.as.as_buffer->data && size > 0)) {
+            hml_runtime_error("memset() cannot write to null buffer");
+        }
+        if (atomic_load(&ptr.as.as_buffer->freed)) {
+            hml_runtime_error("memset() cannot write to freed buffer");
+        }
+        if (size > ptr.as.as_buffer->length) {
+            hml_runtime_error_loc("memset() size exceeds buffer length");
+        }
+        memset(ptr.as.as_buffer->data, byte_val, (size_t)size);
     } else {
         hml_runtime_error("memset() requires pointer or buffer");
     }
 }
 
 void hml_memcpy(HmlValue dest, HmlValue src, int32_t size) {
+    if (size < 0) {
+        hml_runtime_error("memcpy() size cannot be negative");
+    }
+
     void *dest_ptr = NULL;
     void *src_ptr = NULL;
 
     if (dest.type == HML_VAL_PTR) {
         dest_ptr = dest.as.as_ptr;
     } else if (dest.type == HML_VAL_BUFFER) {
-        dest_ptr = dest.as.as_buffer->data;
+        if (dest.as.as_buffer) {
+            if (atomic_load(&dest.as.as_buffer->freed)) {
+                hml_runtime_error("memcpy() cannot write to freed destination buffer");
+            }
+            if (size > dest.as.as_buffer->length) {
+                hml_runtime_error_loc("memcpy() size exceeds destination buffer length");
+            }
+            dest_ptr = dest.as.as_buffer->data;
+        }
     } else {
         hml_runtime_error("memcpy() dest requires pointer or buffer");
     }
@@ -151,12 +270,38 @@ void hml_memcpy(HmlValue dest, HmlValue src, int32_t size) {
     if (src.type == HML_VAL_PTR) {
         src_ptr = src.as.as_ptr;
     } else if (src.type == HML_VAL_BUFFER) {
-        src_ptr = src.as.as_buffer->data;
+        if (src.as.as_buffer) {
+            if (atomic_load(&src.as.as_buffer->freed)) {
+                hml_runtime_error("memcpy() cannot read from freed source buffer");
+            }
+            if (size > src.as.as_buffer->length) {
+                hml_runtime_error_loc("memcpy() size exceeds source buffer length");
+            }
+            src_ptr = src.as.as_buffer->data;
+        }
     } else {
         hml_runtime_error("memcpy() src requires pointer or buffer");
     }
 
-    memcpy(dest_ptr, src_ptr, size);
+    if (!dest_ptr) {
+        hml_runtime_error("memcpy() cannot write to null pointer");
+    }
+    if (!src_ptr) {
+        hml_runtime_error("memcpy() cannot read from null pointer");
+    }
+
+    if (size == 0) {
+        return;
+    }
+
+    if (dest.type == HML_VAL_BUFFER && src.type == HML_VAL_BUFFER) {
+        // Two buffers may be overlapping views of one root; C memcpy would be
+        // UB there, and safe-fragment code must never reach UB. Raw pointers
+        // keep memcpy and its no-overlap obligation.
+        memmove(dest_ptr, src_ptr, (size_t)size);
+    } else {
+        memcpy(dest_ptr, src_ptr, (size_t)size);
+    }
 }
 
 int32_t hml_sizeof_type(HmlValueType type) {
@@ -246,10 +391,22 @@ HmlValue hml_builtin_talloc(HmlClosureEnv *env, HmlValue type_name, HmlValue cou
 
 // ========== ADDITIONAL POINTER HELPERS FOR ALL TYPES ==========
 
-// Helper: extract raw pointer from ptr or buffer value
-static inline void *hml_extract_ptr(HmlValue val) {
+// Helper: extract raw pointer from ptr or buffer value after validating optional buffer bounds.
+static inline void *hml_extract_ptr_checked(HmlValue val, size_t access_size, const char *operation) {
     if (val.type == HML_VAL_PTR) return val.as.as_ptr;
-    if (val.type == HML_VAL_BUFFER && val.as.as_buffer) return val.as.as_buffer->data;
+    if (val.type == HML_VAL_BUFFER && val.as.as_buffer) {
+        HmlBuffer *buf = val.as.as_buffer;
+        if (atomic_load(&buf->freed)) {
+            hml_runtime_error("%s cannot access freed buffer", operation);
+        }
+        if ((int64_t)access_size > (int64_t)buf->length) {
+            hml_runtime_error_loc("%s access exceeds buffer length", operation);
+        }
+        if (!buf->data && access_size > 0) {
+            hml_runtime_error("%s cannot access null buffer", operation);
+        }
+        return buf->data;
+    }
     return NULL;
 }
 
@@ -263,7 +420,7 @@ HmlValue hml_builtin_ptr_deref_i8(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_deref_i8() argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(int8_t), "ptr_deref_i8()");
     if (!p) {
         hml_runtime_error("ptr_deref_i8() cannot dereference null pointer");
     }
@@ -276,7 +433,7 @@ HmlValue hml_builtin_ptr_deref_i16(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_deref_i16() argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(int16_t), "ptr_deref_i16()");
     if (!p) {
         hml_runtime_error("ptr_deref_i16() cannot dereference null pointer");
     }
@@ -289,7 +446,7 @@ HmlValue hml_builtin_ptr_deref_i64(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_deref_i64() argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(int64_t), "ptr_deref_i64()");
     if (!p) {
         hml_runtime_error("ptr_deref_i64() cannot dereference null pointer");
     }
@@ -302,7 +459,7 @@ HmlValue hml_builtin_ptr_deref_u8(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_deref_u8() argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(uint8_t), "ptr_deref_u8()");
     if (!p) {
         hml_runtime_error("ptr_deref_u8() cannot dereference null pointer");
     }
@@ -315,7 +472,7 @@ HmlValue hml_builtin_ptr_deref_u16(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_deref_u16() argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(uint16_t), "ptr_deref_u16()");
     if (!p) {
         hml_runtime_error("ptr_deref_u16() cannot dereference null pointer");
     }
@@ -328,7 +485,7 @@ HmlValue hml_builtin_ptr_deref_u32(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_deref_u32() argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(uint32_t), "ptr_deref_u32()");
     if (!p) {
         hml_runtime_error("ptr_deref_u32() cannot dereference null pointer");
     }
@@ -341,7 +498,7 @@ HmlValue hml_builtin_ptr_deref_u64(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_deref_u64() argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(uint64_t), "ptr_deref_u64()");
     if (!p) {
         hml_runtime_error("ptr_deref_u64() cannot dereference null pointer");
     }
@@ -354,7 +511,7 @@ HmlValue hml_builtin_ptr_deref_f32(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_deref_f32() argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(float), "ptr_deref_f32()");
     if (!p) {
         hml_runtime_error("ptr_deref_f32() cannot dereference null pointer");
     }
@@ -367,7 +524,7 @@ HmlValue hml_builtin_ptr_deref_f64(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_deref_f64() argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(double), "ptr_deref_f64()");
     if (!p) {
         hml_runtime_error("ptr_deref_f64() cannot dereference null pointer");
     }
@@ -380,7 +537,7 @@ HmlValue hml_builtin_ptr_deref_ptr(HmlClosureEnv *env, HmlValue ptr) {
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_deref_ptr() argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(void*), "ptr_deref_ptr()");
     if (!p) {
         hml_runtime_error("ptr_deref_ptr() cannot dereference null pointer");
     }
@@ -393,7 +550,7 @@ HmlValue hml_builtin_ptr_write_i8(HmlClosureEnv *env, HmlValue ptr, HmlValue val
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_write_i8() first argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(int8_t), "ptr_write_i8()");
     if (!p) {
         hml_runtime_error("ptr_write_i8() cannot write to null pointer");
     }
@@ -407,7 +564,7 @@ HmlValue hml_builtin_ptr_write_i16(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_write_i16() first argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(int16_t), "ptr_write_i16()");
     if (!p) {
         hml_runtime_error("ptr_write_i16() cannot write to null pointer");
     }
@@ -421,7 +578,7 @@ HmlValue hml_builtin_ptr_write_i64(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_write_i64() first argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(int64_t), "ptr_write_i64()");
     if (!p) {
         hml_runtime_error("ptr_write_i64() cannot write to null pointer");
     }
@@ -435,7 +592,7 @@ HmlValue hml_builtin_ptr_write_u8(HmlClosureEnv *env, HmlValue ptr, HmlValue val
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_write_u8() first argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(uint8_t), "ptr_write_u8()");
     if (!p) {
         hml_runtime_error("ptr_write_u8() cannot write to null pointer");
     }
@@ -449,7 +606,7 @@ HmlValue hml_builtin_ptr_write_u16(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_write_u16() first argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(uint16_t), "ptr_write_u16()");
     if (!p) {
         hml_runtime_error("ptr_write_u16() cannot write to null pointer");
     }
@@ -463,7 +620,7 @@ HmlValue hml_builtin_ptr_write_u32(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_write_u32() first argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(uint32_t), "ptr_write_u32()");
     if (!p) {
         hml_runtime_error("ptr_write_u32() cannot write to null pointer");
     }
@@ -477,7 +634,7 @@ HmlValue hml_builtin_ptr_write_u64(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_write_u64() first argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(uint64_t), "ptr_write_u64()");
     if (!p) {
         hml_runtime_error("ptr_write_u64() cannot write to null pointer");
     }
@@ -491,7 +648,7 @@ HmlValue hml_builtin_ptr_write_f32(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_write_f32() first argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(float), "ptr_write_f32()");
     if (!p) {
         hml_runtime_error("ptr_write_f32() cannot write to null pointer");
     }
@@ -505,7 +662,7 @@ HmlValue hml_builtin_ptr_write_f64(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_write_f64() first argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(double), "ptr_write_f64()");
     if (!p) {
         hml_runtime_error("ptr_write_f64() cannot write to null pointer");
     }
@@ -519,7 +676,7 @@ HmlValue hml_builtin_ptr_write_ptr(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_write_ptr() first argument must be a ptr or buffer");
     }
-    void *p = hml_extract_ptr(ptr);
+    void *p = hml_extract_ptr_checked(ptr, sizeof(void*), "ptr_write_ptr()");
     if (!p) {
         hml_runtime_error("ptr_write_ptr() cannot write to null pointer");
     }
@@ -585,6 +742,9 @@ HmlValue hml_builtin_buffer_ptr(HmlClosureEnv *env, HmlValue buf) {
     (void)env;
     if (buf.type != HML_VAL_BUFFER || !buf.as.as_buffer) {
         hml_runtime_error("buffer_ptr() argument must be a buffer");
+    }
+    if (atomic_load(&buf.as.as_buffer->freed) || !buf.as.as_buffer->data) {
+        hml_runtime_error("buffer_ptr() cannot take the address of a freed buffer");
     }
     return hml_val_ptr(buf.as.as_buffer->data);
 }

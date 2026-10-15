@@ -1,0 +1,4 @@
+fn main() {
+    let f = open("x.txt", "r");
+    let s = f.read();
+}

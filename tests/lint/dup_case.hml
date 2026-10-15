@@ -1,0 +1,9 @@
+fn name(n: i32): string {
+    switch (n) {
+        case 1: return "one";
+        case 2: return "two";
+        case 1: return "uno";
+        default: return "other";
+    }
+}
+print(name(1));

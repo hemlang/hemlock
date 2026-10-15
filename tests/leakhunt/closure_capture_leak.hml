@@ -1,0 +1,14 @@
+// Single construct: a closure capturing a heap value, created +
+// invoked + dropped each iteration. If the capture env retains the
+// free var but the closure's release doesn't release the env (or the
+// env doesn't release its captures), every dropped closure leaks the
+// captured array. Bounded so LeakSanitizer reports at exit.
+let round = 0;
+let sink = 0;
+while (round < 2000) {
+	let cap = ["item-" + round, "tail"];
+	let f = fn(): i64 { return cap.length + round; };
+	sink = sink + f();
+	round = round + 1;
+}
+print("closure_capture_leak: ok sink=" + sink);

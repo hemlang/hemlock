@@ -1,0 +1,2 @@
+self_assign.hml:3: warning: self-assignment: 'x = x' has no effect
+self_assign.hml:5: warning: self-assignment: assigning property '.a' to itself has no effect

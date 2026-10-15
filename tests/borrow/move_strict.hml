@@ -1,0 +1,7 @@
+// Strict mode only: a binding used after its resource was moved away.
+fn main() {
+    let p = alloc(64);
+    let q = p;
+    free(q);
+    memset(p, 0, 64);
+}

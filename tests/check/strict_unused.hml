@@ -1,0 +1,5 @@
+fn main() {
+    let unused = 42;
+    return 0;
+}
+main();

@@ -1,0 +1,9 @@
+r1=5
+r2=7
+finally
+r3=9
+after break loop, i=2
+after continue loop, seen=2
+labeled break hits=4
+caught: still works
+done

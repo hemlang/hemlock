@@ -1,0 +1,28 @@
+// Regression: sockets stored in collections must be reference-counted.
+//
+// Bug: VAL_SOCKET was missing from VALUE_NEEDS_REFCOUNT, so the
+// VALUE_RETAIN/VALUE_RELEASE macros were no-ops for sockets. Storing a socket
+// in an array/object (array_push, object literals, variable reads) skipped the
+// retain, but array_free_internal/object_free_internal release fields via the
+// value_release() *function* directly. Net over-release: releasing the
+// collection freed a socket the program was still using -> use-after-free
+// (flaky SIGABRT, e.g. in poll()'s input/result arrays). Fixed by adding
+// VAL_SOCKET to VALUE_NEEDS_REFCOUNT so macro and function agree.
+//
+// This reproduces it deterministically without any network I/O: the socket is
+// only ever held by a local; the array merely borrows it.
+import { AF_INET, SOCK_STREAM, socket_create } from "@stdlib/net";
+
+let s = socket_create(AF_INET, SOCK_STREAM, 0);
+
+// Put the socket in an array, then drop the array. Pre-fix this freed `s`.
+let arr = [s];
+arr = [];          // releases the old [s]; must NOT free the still-referenced socket
+
+// Same via an object literal field inside an array.
+let holder = [{ sock: s }];
+holder = [];
+
+// `s` must still be alive here.
+s.close();
+print("PASS: socket survives collection release");

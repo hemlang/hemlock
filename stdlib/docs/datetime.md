@@ -113,7 +113,7 @@ print(datetime.to_string());  // "2025-03-15 14:30:45"
 
 #### `from_utc(year: i32, month: i32, day: i32, hour?: i32, minute?: i32, second?: i32): object`
 
-Create a DateTime object from UTC date/time components.
+Create a DateTime object from UTC date/time components. The timestamp does not depend on the process time zone. Out-of-range components throw.
 
 ```hemlock
 import { from_utc } from "@stdlib/datetime";
@@ -260,9 +260,12 @@ print(dt.month_name());  // "March"
 Parse an ISO 8601 date string into a DateTime object.
 
 Supported formats:
-- `YYYY-MM-DD` - Date only
-- `YYYY-MM-DDTHH:MM:SS` - Date and time
+- `YYYY-MM-DD` - Date only (local time)
+- `YYYY-MM-DDTHH:MM:SS` - Date and time (local time)
 - `YYYY-MM-DDTHH:MM:SSZ` - Date and time (UTC)
+- `YYYY-MM-DDTHH:MM:SS+HH:MM` / `-HH:MM` - Date and time with a UTC offset
+
+Out-of-range components (e.g. `2024-13-45`) throw instead of rolling over.
 
 ```hemlock
 import { parse_iso } from "@stdlib/datetime";

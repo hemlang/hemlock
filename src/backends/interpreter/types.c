@@ -7,6 +7,15 @@
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
+#include <pthread.h>
+
+// Protects the global object/enum/alias type registries. `define`, `enum`
+// and `type` statements register at eval time, and spawned task threads
+// perform lookups concurrently (type annotations, convert_to_type), so
+// unsynchronized access races with hash-table rebuilds. Registered type
+// structs are stable until process-exit cleanup, so returning a pointer
+// after releasing the lock is safe.
+static pthread_rwlock_t type_registry_lock = PTHREAD_RWLOCK_INITIALIZER;
 
 /* ========== TYPE CONVERSION HELPERS ==========
  *
@@ -147,6 +156,7 @@ void init_object_types(void) {
 }
 
 void register_object_type(ObjectType *type) {
+    pthread_rwlock_wrlock(&type_registry_lock);
     init_object_types();
     if (object_types.count >= object_types.capacity) {
         // SECURITY: Check for integer overflow before doubling capacity
@@ -179,13 +189,21 @@ void register_object_type(ObjectType *type) {
         }
         object_types.hash_table[slot] = idx;
     }
+    pthread_rwlock_unlock(&type_registry_lock);
 }
 
 ObjectType* lookup_object_type(const char *name) {
-    if (name == NULL || object_types.hash_table == NULL || object_types.hash_capacity == 0) {
+    if (name == NULL) {
         return NULL;
     }
 
+    pthread_rwlock_rdlock(&type_registry_lock);
+    if (object_types.hash_table == NULL || object_types.hash_capacity == 0) {
+        pthread_rwlock_unlock(&type_registry_lock);
+        return NULL;
+    }
+
+    ObjectType *found = NULL;
     uint32_t hash = type_hash(name);
     int slot = hash % object_types.hash_capacity;
     int start_slot = slot;
@@ -193,12 +211,14 @@ ObjectType* lookup_object_type(const char *name) {
     while (object_types.hash_table[slot] != -1) {
         int idx = object_types.hash_table[slot];
         if (strcmp(object_types.types[idx]->name, name) == 0) {
-            return object_types.types[idx];
+            found = object_types.types[idx];
+            break;
         }
         slot = (slot + 1) % object_types.hash_capacity;
         if (slot == start_slot) break;
     }
-    return NULL;
+    pthread_rwlock_unlock(&type_registry_lock);
+    return found;
 }
 
 void cleanup_object_types(void) {
@@ -303,6 +323,7 @@ void init_enum_types(void) {
 }
 
 void register_enum_type(EnumType *type) {
+    pthread_rwlock_wrlock(&type_registry_lock);
     init_enum_types();
     if (enum_types.count >= enum_types.capacity) {
         // SECURITY: Check for integer overflow before doubling capacity
@@ -335,13 +356,21 @@ void register_enum_type(EnumType *type) {
         }
         enum_types.hash_table[slot] = idx;
     }
+    pthread_rwlock_unlock(&type_registry_lock);
 }
 
 EnumType* lookup_enum_type(const char *name) {
-    if (name == NULL || enum_types.hash_table == NULL || enum_types.hash_capacity == 0) {
+    if (name == NULL) {
         return NULL;
     }
 
+    pthread_rwlock_rdlock(&type_registry_lock);
+    if (enum_types.hash_table == NULL || enum_types.hash_capacity == 0) {
+        pthread_rwlock_unlock(&type_registry_lock);
+        return NULL;
+    }
+
+    EnumType *found = NULL;
     uint32_t hash = type_hash(name);
     int slot = hash % enum_types.hash_capacity;
     int start_slot = slot;
@@ -349,12 +378,14 @@ EnumType* lookup_enum_type(const char *name) {
     while (enum_types.hash_table[slot] != -1) {
         int idx = enum_types.hash_table[slot];
         if (strcmp(enum_types.types[idx]->name, name) == 0) {
-            return enum_types.types[idx];
+            found = enum_types.types[idx];
+            break;
         }
         slot = (slot + 1) % enum_types.hash_capacity;
         if (slot == start_slot) break;
     }
-    return NULL;
+    pthread_rwlock_unlock(&type_registry_lock);
+    return found;
 }
 
 void cleanup_enum_types(void) {
@@ -436,6 +467,7 @@ void init_type_aliases(void) {
 }
 
 void register_type_alias(TypeAlias *alias) {
+    pthread_rwlock_wrlock(&type_registry_lock);
     init_type_aliases();
     if (type_aliases.count >= type_aliases.capacity) {
         // SECURITY: Check for integer overflow before doubling capacity
@@ -468,13 +500,21 @@ void register_type_alias(TypeAlias *alias) {
         }
         type_aliases.hash_table[slot] = idx;
     }
+    pthread_rwlock_unlock(&type_registry_lock);
 }
 
 TypeAlias* lookup_type_alias(const char *name) {
-    if (name == NULL || type_aliases.hash_table == NULL || type_aliases.hash_capacity == 0) {
+    if (name == NULL) {
         return NULL;
     }
 
+    pthread_rwlock_rdlock(&type_registry_lock);
+    if (type_aliases.hash_table == NULL || type_aliases.hash_capacity == 0) {
+        pthread_rwlock_unlock(&type_registry_lock);
+        return NULL;
+    }
+
+    TypeAlias *found = NULL;
     uint32_t hash = type_hash(name);
     int slot = hash % type_aliases.hash_capacity;
     int start_slot = slot;
@@ -482,12 +522,14 @@ TypeAlias* lookup_type_alias(const char *name) {
     while (type_aliases.hash_table[slot] != -1) {
         int idx = type_aliases.hash_table[slot];
         if (strcmp(type_aliases.aliases[idx]->name, name) == 0) {
-            return type_aliases.aliases[idx];
+            found = type_aliases.aliases[idx];
+            break;
         }
         slot = (slot + 1) % type_aliases.hash_capacity;
         if (slot == start_slot) break;
     }
-    return NULL;
+    pthread_rwlock_unlock(&type_registry_lock);
+    return found;
 }
 
 void cleanup_type_aliases(void) {
@@ -901,17 +943,17 @@ static Value check_object_type_generic(Value value, ObjectType *object_type,
                                  Type **type_args, int num_type_args,
                                  Environment *env, ExecutionContext *ctx) {
     if (value.type != VAL_OBJECT) {
-        fprintf(stderr, "Runtime error: Expected object for type '%s', got non-object\n",
+        runtime_error(ctx, "Expected object for type '%s', got non-object",
                 object_type->name);
-        exit(1);
+        return val_null();
     }
 
     // Validate type argument count for generic types
     if (object_type->num_type_params > 0) {
         if (num_type_args != object_type->num_type_params) {
-            fprintf(stderr, "Runtime error: Type '%s' expects %d type argument(s), got %d\n",
+            runtime_error(ctx, "Type '%s' expects %d type argument(s), got %d",
                     object_type->name, object_type->num_type_params, num_type_args);
-            exit(1);
+            return val_null();
         }
     }
 
@@ -979,14 +1021,19 @@ static Value check_object_type_generic(Value value, ObjectType *object_type,
             } else {
                 // Free substituted type if allocated
                 free_substituted_type(substituted_field_type, field_type);
-                fprintf(stderr, "Runtime error: Object missing required field '%s' for type '%s'\n",
+                runtime_error(ctx, "Object missing required field '%s' for type '%s'",
                         field_name, object_type->name);
-                exit(1);
+                return val_null();
             }
         } else if (substituted_field_type && substituted_field_type->kind != TYPE_INFER) {
             // Type check the field using the (possibly substituted) type
             // Use convert_to_type for recursive type checking (handles arrays, objects, etc.)
             Value converted = convert_to_type(field_value, substituted_field_type, env, ctx);
+            if (ctx && ctx->exception_state.is_throwing) {
+                // Field failed its type check: leave the object untouched
+                free_substituted_type(substituted_field_type, field_type);
+                return val_null();
+            }
             obj->fields[field_index].value = converted;
         }
 
@@ -1042,16 +1089,16 @@ static Value check_object_type_generic(Value value, ObjectType *object_type,
                 // If no default, optional methods are simply not required
             } else {
                 // Required method missing
-                fprintf(stderr, "Runtime error: Object missing required method '%s' for type '%s'\n",
+                runtime_error(ctx, "Object missing required method '%s' for type '%s'",
                         method_name, object_type->name);
-                exit(1);
+                return val_null();
             }
         } else {
             // Method found - verify it's a function
             if (method_value.type != VAL_FUNCTION) {
-                fprintf(stderr, "Runtime error: Property '%s' must be a function for type '%s'\n",
+                runtime_error(ctx, "Property '%s' must be a function for type '%s'",
                         method_name, object_type->name);
-                exit(1);
+                return val_null();
             }
 
             // Validate method signature against expected type
@@ -1071,8 +1118,8 @@ static Value check_object_type_generic(Value value, ObjectType *object_type,
                                                 method_name, object_type->name, &error_msg)) {
                     // Free substituted type before error exit
                     free_substituted_type(substituted_method_type, method_type);
-                    fprintf(stderr, "Runtime error: %s\n", error_msg);
-                    exit(1);
+                    runtime_error(ctx, "%s", error_msg);
+                    return val_null();
                 }
             }
 
@@ -1279,7 +1326,9 @@ Value promote_value(Value val, ValueType target_type) {
             } else if (val.type == VAL_U64) {
                 return val_i64((int64_t)val.as.as_u64);
             } else {
-                return val_i64((int64_t)value_to_int(val));
+                // value_to_int64, not value_to_int: u32 values above INT32_MAX
+                // would otherwise wrap negative (4294967295 -> -1)
+                return val_i64(value_to_int64(val));
             }
         case VAL_U8: return val_u8((uint8_t)value_to_int(val));
         case VAL_U16: return val_u16((uint16_t)value_to_int(val));
@@ -1293,7 +1342,7 @@ Value promote_value(Value val, ValueType target_type) {
             } else if (val.type == VAL_I64) {
                 return val_u64((uint64_t)val.as.as_i64);
             } else {
-                return val_u64((uint64_t)value_to_int(val));
+                return val_u64((uint64_t)value_to_int64(val));
             }
         case VAL_F32:
             // Use value_to_float to preserve precision for i64/u64 values
@@ -1390,8 +1439,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
 
             // Validate async flag
             if (target_type->fn_is_async && !func->is_async) {
-                fprintf(stderr, "Runtime error: Expected async function, got non-async function\n");
-                exit(1);
+                runtime_error(ctx, "Expected async function, got non-async function");
+                return val_null();
             }
 
             // Calculate required parameters (non-optional) for both sides
@@ -1412,15 +1461,15 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             // Function must accept at least as many required parameters as the type specifies
             // and not require more parameters than the type provides
             if (actual_required > target_type->fn_num_params) {
-                fprintf(stderr, "Runtime error: Function requires %d parameter(s), but type expects at most %d\n",
+                runtime_error(ctx, "Function requires %d parameter(s), but type expects at most %d",
                         actual_required, target_type->fn_num_params);
-                exit(1);
+                return val_null();
             }
 
             if (func->num_params < expected_required) {
-                fprintf(stderr, "Runtime error: Function accepts %d parameter(s), but type requires at least %d\n",
+                runtime_error(ctx, "Function accepts %d parameter(s), but type requires at least %d",
                         func->num_params, expected_required);
-                exit(1);
+                return val_null();
             }
 
             // Check parameter types for matching positions
@@ -1431,17 +1480,17 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
                 Type *actual_param = func->param_types ? func->param_types[i] : NULL;
 
                 if (!types_compatible(expected_param, actual_param)) {
-                    fprintf(stderr, "Runtime error: Function parameter %d type mismatch (expected %s, got %s)\n",
+                    runtime_error(ctx, "Function parameter %d type mismatch (expected %s, got %s)",
                             i + 1, type_to_string(expected_param), type_to_string(actual_param));
-                    exit(1);
+                    return val_null();
                 }
             }
 
             // Check return type
             if (!types_compatible(target_type->fn_return_type, func->return_type)) {
-                fprintf(stderr, "Runtime error: Function return type mismatch (expected %s, got %s)\n",
+                runtime_error(ctx, "Function return type mismatch (expected %s, got %s)",
                         type_to_string(target_type->fn_return_type), type_to_string(func->return_type));
-                exit(1);
+                return val_null();
             }
 
             return value;
@@ -1452,8 +1501,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             return value;
         }
 
-        fprintf(stderr, "Runtime error: Expected function value\n");
-        exit(1);
+        runtime_error(ctx, "Expected function value");
+        return val_null();
     }
 
     // Handle object and enum types (both use TYPE_CUSTOM_OBJECT at parse time)
@@ -1463,9 +1512,9 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         if (enum_type) {
             // Enum values are i32
             if (value.type != VAL_I32) {
-                fprintf(stderr, "Runtime error: Expected enum value (i32) for type '%s'\n",
+                runtime_error(ctx, "Expected enum value (i32) for type '%s'",
                         target_type->type_name);
-                exit(1);
+                return val_null();
             }
             // Validate that the value is one of the valid enum variants
             int32_t val = value.as.as_i32;
@@ -1477,9 +1526,9 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
                 }
             }
             if (!is_valid_variant) {
-                fprintf(stderr, "Runtime error: Value %d is not a valid variant of enum '%s'\n",
+                runtime_error(ctx, "Value %d is not a valid variant of enum '%s'",
                         val, enum_type->name);
-                exit(1);
+                return val_null();
             }
             return value;
         }
@@ -1491,9 +1540,9 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
             if (alias->num_type_params > 0) {
                 // Generic type alias - verify type arguments and substitute
                 if (target_type->num_type_args != alias->num_type_params) {
-                    fprintf(stderr, "Runtime error: Type alias '%s' expects %d type argument(s), got %d\n",
+                    runtime_error(ctx, "Type alias '%s' expects %d type argument(s), got %d",
                             alias->name, alias->num_type_params, target_type->num_type_args);
-                    exit(1);
+                    return val_null();
                 }
 
                 // Substitute type parameters in the aliased type with actual type arguments
@@ -1517,8 +1566,32 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         // Not a type alias, try object type
         ObjectType *object_type = lookup_object_type(target_type->type_name);
         if (!object_type) {
-            fprintf(stderr, "Runtime error: Unknown type '%s'\n", target_type->type_name);
-            exit(1);
+            // Builtin types that lex as identifiers (task, file, channel are
+            // documented types). User-defined types take precedence above,
+            // so `define channel { ... }` keeps working.
+            if (strcmp(target_type->type_name, "task") == 0) {
+                if (value.type == VAL_TASK) {
+                    return value;
+                }
+                runtime_error(ctx, "Cannot convert to task");
+                return val_null();
+            }
+            if (strcmp(target_type->type_name, "file") == 0) {
+                if (value.type == VAL_FILE) {
+                    return value;
+                }
+                runtime_error(ctx, "Cannot convert to file");
+                return val_null();
+            }
+            if (strcmp(target_type->type_name, "channel") == 0) {
+                if (value.type == VAL_CHANNEL) {
+                    return value;
+                }
+                runtime_error(ctx, "Cannot convert to channel");
+                return val_null();
+            }
+            runtime_error(ctx, "Unknown type '%s'", target_type->type_name);
+            return val_null();
         }
 
         // For generic types, pass type arguments for substitution
@@ -1532,8 +1605,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
 
     if (kind == TYPE_GENERIC_OBJECT) {
         if (value.type != VAL_OBJECT) {
-            fprintf(stderr, "Runtime error: Expected object, got non-object\n");
-            exit(1);
+            runtime_error(ctx, "Expected object, got non-object");
+            return val_null();
         }
         return value;
     }
@@ -1541,8 +1614,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
     // Handle compound types (A & B & C) - value must satisfy ALL constituent types
     if (kind == TYPE_COMPOUND) {
         if (value.type != VAL_OBJECT) {
-            fprintf(stderr, "Runtime error: Compound type requires an object\n");
-            exit(1);
+            runtime_error(ctx, "Compound type requires an object");
+            return val_null();
         }
 
         // Check against each constituent type
@@ -1556,8 +1629,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
     // Handle typed arrays
     if (kind == TYPE_ARRAY) {
         if (value.type != VAL_ARRAY) {
-            fprintf(stderr, "Runtime error: Expected array, got non-array\n");
-            exit(1);
+            runtime_error(ctx, "Expected array, got non-array");
+            return val_null();
         }
 
         Array *arr = value.as.as_array;
@@ -1573,8 +1646,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         if (arr->element_type != NULL) {
             // Check if existing type matches target type
             if (arr->element_type->kind != target_type->element_type->kind) {
-                fprintf(stderr, "Runtime error: Array element type mismatch\n");
-                exit(1);
+                runtime_error(ctx, "Array element type mismatch");
+                return val_null();
             }
         } else {
             // Set the element type constraint on the array
@@ -1635,6 +1708,7 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         // String to bool via type annotation is not allowed
         // Use explicit conversion: bool("true") or bool("false")
         runtime_error(ctx, "Cannot convert string to bool via type annotation. Use bool(\"...\") instead.");
+        VALUE_RELEASE(value);  // consume the value, matching the success paths
         return val_null();
     } else if (value.type == VAL_STRING && is_numeric_type(target_kind)) {
         // String to numeric via type annotation is not allowed
@@ -1642,6 +1716,7 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         const char *type_name = type_kind_to_string(target_kind);
         runtime_error(ctx, "Cannot convert string to %s via type annotation. Use %s(\"...\") instead.",
                 type_name, type_name);
+        VALUE_RELEASE(value);  // consume the value, matching the success paths
         return val_null();
     } else if (value.type == VAL_BOOL && target_kind == TYPE_BOOL) {
         return value;  // Bool to bool, ok
@@ -1658,6 +1733,7 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         return value;
     } else {
         runtime_error(ctx, "Cannot convert type to target type");
+        VALUE_RELEASE(value);  // consume the value, matching the success paths
         return val_null();
     }
 
@@ -1750,8 +1826,8 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         case TYPE_U64:
             if (is_source_float) {
                 if (float_val < 0.0 || float_val > (double)HML_U64_MAX) {
-                    fprintf(stderr, "Runtime error: Value %g out of range for u64 [0, 18446744073709551615]\n", float_val);
-                    exit(1);
+                    runtime_error(ctx, "Value %g out of range for u64 [0, 18446744073709551615]", float_val);
+                    return val_null();
                 }
                 return val_u64((uint64_t)float_val);
             }

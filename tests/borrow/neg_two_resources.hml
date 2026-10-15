@@ -1,0 +1,6 @@
+fn main() {
+    let a = alloc(64);
+    let b = alloc(128);
+    free(a);
+    free(b);
+}

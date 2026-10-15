@@ -1,0 +1,100 @@
+// Test @stdlib/decimal parse_int and parse_float
+import { parse_int, parse_float } from "@stdlib/decimal";
+
+print("Testing parse_int...");
+
+// Basic decimal
+print(parse_int("42") == 42);
+print(parse_int("0") == 0);
+print(parse_int("-100") == -100);
+print(parse_int("+50") == 50);
+
+// Numeric separators
+print(parse_int("1_000") == 1000);
+print(parse_int("1_000_000") == 1000000);
+
+// Explicit radix
+print(parse_int("ff", 16) == 255);
+print(parse_int("FF", 16) == 255);
+print(parse_int("777", 8) == 511);
+print(parse_int("1010", 2) == 10);
+print(parse_int("z", 36) == 35);
+
+// Auto-detect prefix
+print(parse_int("0xff") == 255);
+print(parse_int("0xFF") == 255);
+print(parse_int("0o77") == 63);
+print(parse_int("0O77") == 63);
+print(parse_int("0b1010") == 10);
+print(parse_int("0B1010") == 10);
+
+// Leading/trailing whitespace
+print(parse_int("  42  ") == 42);
+
+// Error handling
+let caught = false;
+try {
+    parse_int("");
+} catch (e) {
+    caught = true;
+}
+print(caught == true);
+
+caught = false;
+try {
+    parse_int("abc");
+} catch (e) {
+    caught = true;
+}
+print(caught == true);
+
+caught = false;
+try {
+    parse_int("42", 1);
+} catch (e) {
+    caught = true;
+}
+print(caught == true);
+
+print("Testing parse_float...");
+
+// Basic
+print(parse_float("3.14") == 3.14);
+print(parse_float("-0.5") == -0.5);
+print(parse_float("+1.5") == 1.5);
+
+// No leading zero
+print(parse_float(".5") == 0.5);
+
+// Integer input
+print(parse_float("42") == 42);
+
+// Numeric separators
+print(parse_float("1_000.5") == 1000.5);
+
+// Scientific notation
+print(parse_float("1.5e3") == 1500);
+print(parse_float("2.5E-1") == 0.25);
+print(parse_float("1e2") == 100);
+
+// Whitespace
+print(parse_float("  3.14  ") == 3.14);
+
+// Error handling
+caught = false;
+try {
+    parse_float("");
+} catch (e) {
+    caught = true;
+}
+print(caught == true);
+
+caught = false;
+try {
+    parse_float("abc");
+} catch (e) {
+    caught = true;
+}
+print(caught == true);
+
+print("All parse tests passed!");

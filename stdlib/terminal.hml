@@ -169,26 +169,28 @@ export fn bg_color_256(n: i32): string {
 
 // ========== TERMINAL INFO ==========
 
-// Get terminal size using stty command
+// Get terminal size (TIOCGWINSZ on POSIX, console API on Windows)
 export fn size() {
-	let result = __exec("stty size 2>/dev/null || echo '24 80'");
-	if (result.exit_code != 0) {
-		return { rows: 24, cols: 80 };
+	let s = __term_size();
+	if (s != null && s.rows > 0 && s.cols > 0) {
+		return s;
 	}
 
-	let parts = result.output.trim().split(" ");
-	if (parts.length < 2) {
-		return { rows: 24, cols: 80 };
+	// No terminal attached (redirected output): try the conventional
+	// environment variables, then the classic 24x80 default
+	let rows = 0;
+	let cols = 0;
+	try {
+		rows = i32(__getenv("LINES") ?? "0");
+		cols = i32(__getenv("COLUMNS") ?? "0");
+	} catch (e) {
+		rows = 0;
+		cols = 0;
 	}
-
-	// Parse terminal dimensions using type constructor
-	let rows = i32(parts[0]);
-	let cols = i32(parts[1]);
-
-	if (rows == 0) {
+	if (rows <= 0) {
 		rows = 24;
 	}
-	if (cols == 0) {
+	if (cols <= 0) {
 		cols = 80;
 	}
 
@@ -287,7 +289,7 @@ export fn ProgressBar(total: i32, width?: 40) {
 			}
 
 			// Print with carriage return to overwrite
-			__exec("printf '\r" + bar + " " + percent_str + "%% " + ("" + current) + "/" + ("" + total) + "'");
+			write("\r" + bar + " " + percent_str + "% " + ("" + current) + "/" + ("" + total));
 			return null;
 		},
 		finish: fn() {
@@ -315,7 +317,7 @@ export fn Spinner(frames?: null) {
 		spin: fn() {
 			// Start the spinner (must be called in a loop manually)
 			let frame = spinner_frames[frame_index];
-			__exec("printf '\r" + frame + " '");
+			write("\r" + frame + " ");
 
 			frame_index = frame_index + 1;
 			if (frame_index >= spinner_frames.length) {
@@ -326,7 +328,7 @@ export fn Spinner(frames?: null) {
 		finish: fn(message?: "") {
 
 			// Finish the spinner
-			__exec("printf '\r'");
+			write("\r");
 			if (message != "") {
 				print(message);
 			}
@@ -387,13 +389,13 @@ export fn SPINNER_CLOCK() {
 
 // Clear screen and move cursor to top-left
 export fn clear() {
-	__exec("printf '" + CLEAR_SCREEN + move_to(1, 1) + "'");
+	write(CLEAR_SCREEN + move_to(1, 1));
 	return null;
 }
 
 // Print text at specific position
 export fn print_at(row: i32, col: i32, text: string) {
-	__exec("printf '" + move_to(row, col) + text + "'");
+	write(move_to(row, col) + text);
 	return null;
 }
 

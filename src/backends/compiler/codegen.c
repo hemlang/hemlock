@@ -12,6 +12,7 @@
  */
 
 #include "codegen_internal.h"
+#include "hemlock_compat.h"
 
 // ========== SAFE CAPACITY GROWTH ==========
 
@@ -25,7 +26,11 @@ static int safe_double_capacity(int current, int min_default) {
 // ========== CONTEXT MANAGEMENT ==========
 
 CodegenContext* codegen_new(FILE *output) {
-    CodegenContext *ctx = malloc(sizeof(CodegenContext));
+    // calloc (not malloc): zero-initialise every field so any member not
+    // explicitly set below defaults to 0/NULL. The fields are otherwise
+    // assigned by hand, and a missed one is read as heap garbage, making
+    // codegen non-deterministic.
+    CodegenContext *ctx = calloc(1, sizeof(CodegenContext));
     if (!ctx) {
         fprintf(stderr, "error: Memory allocation failed for codegen context\n");
         return NULL;
@@ -39,6 +44,12 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->inline_depth = 0;
     ctx->local_vars = NULL;
     ctx->local_needs_cleanup = NULL;
+    ctx->local_annots = NULL;
+    ctx->local_is_raw = NULL;
+    ctx->main_annot_names = NULL;
+    ctx->main_annot_types = NULL;
+    ctx->num_main_annots = 0;
+    ctx->main_annot_capacity = 0;
     ctx->num_locals = 0;
     ctx->local_capacity = 0;
     ctx->locals_body_start = 0;
@@ -50,6 +61,7 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->func_params = NULL;
     ctx->num_func_params = 0;
     ctx->func_param_is_ref = NULL;
+    ctx->func_rest_param = NULL;
     ctx->defer_stack = NULL;
     ctx->defer_scope_depth = 0;
     ctx->current_closure = NULL;
@@ -57,6 +69,8 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->shared_env_vars = NULL;
     ctx->shared_env_num_vars = 0;
     ctx->shared_env_capacity = 0;
+    ctx->shared_env_indices = NULL;
+    ctx->shared_env_borrowed = 0;
     ctx->last_closure_env_id = -1;
     ctx->last_closure_captured = NULL;
     ctx->last_closure_num_captured = 0;
@@ -76,6 +90,9 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->main_imports = NULL;
     ctx->num_main_imports = 0;
     ctx->main_imports_capacity = 0;
+    ctx->extern_fns = NULL;
+    ctx->num_extern_fns = 0;
+    ctx->extern_fns_capacity = 0;
     ctx->shadow_vars = NULL;
     ctx->num_shadow_vars = 0;
     ctx->shadow_vars_capacity = 0;
@@ -86,13 +103,23 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->finally_labels = NULL;
     ctx->return_value_vars = NULL;
     ctx->has_return_vars = NULL;
+    ctx->tf_try_depth = NULL;
+    ctx->tf_loop_body = NULL;
+    ctx->tf_switch_depth = NULL;
+    ctx->tf_num_locals = NULL;
+    ctx->tf_pending = NULL;
+    ctx->tf_num_pending = NULL;
+    ctx->tf_pending_cap = NULL;
     ctx->try_finally_capacity = 0;
+    ctx->try_body_depth = 0;
     ctx->loop_depth = 0;
     ctx->loop_body_locals = NULL;
+    ctx->loop_body_try_depth = NULL;
     ctx->loop_body_depth = 0;
     ctx->loop_body_capacity = 0;
     ctx->switch_depth = 0;
     ctx->switch_end_labels = NULL;
+    ctx->switch_loop_depths = NULL;
     ctx->switch_end_capacity = 0;
     ctx->for_continue_labels = NULL;
     ctx->for_continue_depth = 0;
@@ -101,12 +128,22 @@ CodegenContext* codegen_new(FILE *output) {
     ctx->loop_break_labels = NULL;
     ctx->loop_continue_labels = NULL;
     ctx->loop_label_body_locals = NULL;
+    ctx->loop_label_continue_locals = NULL;
+    ctx->loop_label_try_depth = NULL;
+    ctx->loop_label_loop_body = NULL;
     ctx->loop_label_depth = 0;
     ctx->loop_label_capacity = 0;
+    ctx->unboxed_shadow_names = NULL;
+    ctx->unboxed_shadow_types = NULL;
+    ctx->unboxed_shadow_body_depth = NULL;
+    ctx->num_unboxed_shadows = 0;
+    ctx->unboxed_shadow_capacity = 0;
     ctx->type_ctx = NULL;  // Set by caller (main.c) if type checking enabled
     ctx->optimize = 1;  // Enable optimization by default
     ctx->stack_check = 1;  // Enable stack checking by default (can be overridden by caller)
+    ctx->function_has_try = 0;
     ctx->has_defers = 0;  // Track if any defers exist in current function
+    ctx->defer_unwind_active = 0;
     ctx->tail_call_func_name = NULL;  // Tail call optimization tracking
     ctx->tail_call_label = NULL;
     ctx->tail_call_func_expr = NULL;
@@ -127,6 +164,11 @@ void codegen_free(CodegenContext *ctx) {
         }
         free(ctx->local_vars);
         free(ctx->local_needs_cleanup);
+        free(ctx->local_is_raw);
+        free(ctx->local_annots);
+        for (int i = 0; i < ctx->num_main_annots; i++) free(ctx->main_annot_names[i]);
+        free(ctx->main_annot_names);
+        free(ctx->main_annot_types);
 
         // Free closures
         ClosureInfo *c = ctx->closures;
@@ -137,6 +179,7 @@ void codegen_free(CodegenContext *ctx) {
                 free(c->captured_vars[i]);
             }
             free(c->captured_vars);
+            free(c->shared_env_indices);
             free(c);
             c = next;
         }
@@ -193,6 +236,32 @@ void codegen_free(CodegenContext *ctx) {
             free(ctx->main_func_inlinable);
         }
 
+        // Free extern fn tracking
+        if (ctx->extern_fns) {
+            for (int i = 0; i < ctx->num_extern_fns; i++) {
+                free(ctx->extern_fns[i]);
+            }
+            free(ctx->extern_fns);
+        }
+
+        // Free main file imports tracking
+        if (ctx->main_imports) {
+            for (int i = 0; i < ctx->num_main_imports; i++) {
+                free(ctx->main_imports[i].local_name);
+                free(ctx->main_imports[i].original_name);
+                free(ctx->main_imports[i].module_prefix);
+            }
+            free(ctx->main_imports);
+        }
+
+        // Free any shared closure environment metadata left by an interrupted
+        // function-generation path. Normal function generation clears this when
+        // restoring state, but codegen_free must also own the final cleanup.
+        shared_env_clear(ctx);
+
+        // Free tail-call label tracking if codegen is torn down mid-function.
+        free(ctx->tail_call_label);
+
         // Free shadow variables tracking
         if (ctx->shadow_vars) {
             for (int i = 0; i < ctx->num_shadow_vars; i++) {
@@ -223,11 +292,19 @@ void codegen_free(CodegenContext *ctx) {
                 free(ctx->finally_labels[i]);
                 free(ctx->return_value_vars[i]);
                 free(ctx->has_return_vars[i]);
+                codegen_try_finally_free_pending(ctx->tf_pending[i], ctx->tf_num_pending[i]);
             }
             free(ctx->finally_labels);
             free(ctx->return_value_vars);
             free(ctx->has_return_vars);
         }
+        free(ctx->tf_try_depth);
+        free(ctx->tf_loop_body);
+        free(ctx->tf_switch_depth);
+        free(ctx->tf_num_locals);
+        free(ctx->tf_pending);
+        free(ctx->tf_num_pending);
+        free(ctx->tf_pending_cap);
 
         // Free switch end labels stack
         if (ctx->switch_end_labels) {
@@ -236,6 +313,7 @@ void codegen_free(CodegenContext *ctx) {
             }
             free(ctx->switch_end_labels);
         }
+        free(ctx->switch_loop_depths);
 
         // Free for-continue labels stack
         if (ctx->for_continue_labels) {
@@ -247,9 +325,33 @@ void codegen_free(CodegenContext *ctx) {
 
         // Free loop body locals stack
         free(ctx->loop_body_locals);
+        free(ctx->loop_body_try_depth);
 
-        // Free loop label body locals stack
+        // Free loop label tracking stacks. Active entries may remain if codegen
+        // aborts before the matching pop; entries below loop_label_depth still
+        // own their strdup'd strings. Popped entries have already been freed.
+        if (ctx->loop_labels) {
+            for (int i = 0; i < ctx->loop_label_depth; i++) {
+                free(ctx->loop_labels[i]);
+                free(ctx->loop_break_labels[i]);
+                free(ctx->loop_continue_labels[i]);
+            }
+            free(ctx->loop_labels);
+            free(ctx->loop_break_labels);
+            free(ctx->loop_continue_labels);
+        }
         free(ctx->loop_label_body_locals);
+        free(ctx->loop_label_continue_locals);
+        free(ctx->loop_label_try_depth);
+        free(ctx->loop_label_loop_body);
+
+        // Free unboxed shadow tracking
+        for (int i = 0; i < ctx->num_unboxed_shadows; i++) {
+            free(ctx->unboxed_shadow_names[i]);
+        }
+        free(ctx->unboxed_shadow_names);
+        free(ctx->unboxed_shadow_types);
+        free(ctx->unboxed_shadow_body_depth);
 
         // Note: type_ctx is NOT freed here - it's owned by the caller (main.c)
 
@@ -360,49 +462,144 @@ void codegen_add_local(CodegenContext *ctx, const char *name) {
         }
         char **new_vars = realloc(ctx->local_vars, (size_t)new_cap * sizeof(char*));
         int *new_cleanup = realloc(ctx->local_needs_cleanup, (size_t)new_cap * sizeof(int));
-        if (!new_vars || !new_cleanup) {
+        const char **new_annots = realloc(ctx->local_annots, (size_t)new_cap * sizeof(const char*));
+        int *new_raw = realloc(ctx->local_is_raw, (size_t)new_cap * sizeof(int));
+        if (!new_vars || !new_cleanup || !new_annots || !new_raw) {
             fprintf(stderr, "error: Failed to expand local variable storage\n");
             exit(1);
         }
         ctx->local_vars = new_vars;
         ctx->local_needs_cleanup = new_cleanup;
+        ctx->local_annots = new_annots;
+        ctx->local_is_raw = new_raw;
         ctx->local_capacity = new_cap;
     }
     // 1 = boxed HmlValue (needs hml_release), 0 = unboxed primitive (int32_t etc.)
     // Scope management is handled by restoring num_locals at block exit.
     ctx->local_needs_cleanup[ctx->num_locals] = 1;
+    ctx->local_annots[ctx->num_locals] = NULL;
+    ctx->local_is_raw[ctx->num_locals] = 0;
     ctx->local_vars[ctx->num_locals++] = strdup(name);
+}
+
+// Register a raw C temp name (e.g. "_tmp7") as a cleanup-tracked local so
+// return/break/continue cleanup releases it. Emitted verbatim - the sanitizer
+// would otherwise mangle the leading "_tmp" prefix (reserved for temps).
+void codegen_add_local_raw(CodegenContext *ctx, const char *c_name) {
+    codegen_add_local(ctx, c_name);
+    ctx->local_is_raw[ctx->num_locals - 1] = 1;
 }
 
 int codegen_is_local(CodegenContext *ctx, const char *name) {
     for (int i = 0; i < ctx->num_locals; i++) {
-        if (strcmp(ctx->local_vars[i], name) == 0) {
+        if (ctx->local_vars[i] && strcmp(ctx->local_vars[i], name) == 0) {
             return 1;
         }
     }
     return 0;
 }
 
-// Remove a local variable from scope (used for catch params that go out of scope)
-// Search from the end so that the most recently added duplicate is removed first,
-// preserving earlier entries (e.g., function parameters) when inlined functions
-// add and then remove parameters with the same name.
+// Remove a local variable from scope (used for catch params and switch temps
+// that go out of scope, and inlined function params).
+// Search from the end so that the most recently added duplicate is removed
+// first, preserving earlier entries (e.g., function parameters) when inlined
+// functions add and then remove parameters with the same name.
+//
+// Removal punches a NULL hole in place instead of shifting and decrementing
+// num_locals. The old shift-and-decrement was unsafe: contexts that reset
+// num_locals to 0 (module function/closure bodies) and later have it restored
+// by funcgen_restore_state would "resurrect" the array region above the
+// shrunk count - including the slot the shift had NULLed - leaving a NULL
+// entry inside the live range that crashed codegen_is_local's strcmp.
+// All iterators over local_vars skip NULL entries.
 void codegen_remove_local(CodegenContext *ctx, const char *name) {
     for (int i = ctx->num_locals - 1; i >= 0; i--) {
-        if (strcmp(ctx->local_vars[i], name) == 0) {
+        if (ctx->local_vars[i] && strcmp(ctx->local_vars[i], name) == 0) {
             free(ctx->local_vars[i]);
-            // Shift remaining elements down
-            for (int j = i; j < ctx->num_locals - 1; j++) {
-                ctx->local_vars[j] = ctx->local_vars[j + 1];
-                ctx->local_needs_cleanup[j] = ctx->local_needs_cleanup[j + 1];
-            }
-            // Clear the last slot to prevent double-free when num_locals is restored
-            ctx->local_vars[ctx->num_locals - 1] = NULL;
-            ctx->local_needs_cleanup[ctx->num_locals - 1] = 0;
-            ctx->num_locals--;
+            ctx->local_vars[i] = NULL;
+            ctx->local_needs_cleanup[i] = 0;
+            ctx->local_annots[i] = NULL;
+            ctx->local_is_raw[i] = 0;
             return;
         }
     }
+}
+
+// Record/query the declared primitive annotation of a local (HML_VAL_* enum
+// name, or NULL for untyped bindings). Entries live in the same stack as
+// local_vars, so block-exit truncation of num_locals restores shadowing
+// correctly. Used to enforce type annotations on reassignment.
+void codegen_set_local_annot(CodegenContext *ctx, const char *name, const char *hml_type) {
+    for (int i = ctx->num_locals - 1; i >= 0; i--) {
+        if (ctx->local_vars[i] && strcmp(ctx->local_vars[i], name) == 0) {
+            ctx->local_annots[i] = hml_type;
+            return;
+        }
+    }
+}
+
+// Main-level (top-of-program) annotated variables live in their own
+// registry: they are generated by codegen_program, not codegen_add_local.
+// Top-level names are unique, so a flat list is sufficient.
+void codegen_set_main_annot(CodegenContext *ctx, const char *name, const char *hml_type) {
+    for (int i = 0; i < ctx->num_main_annots; i++) {
+        if (strcmp(ctx->main_annot_names[i], name) == 0) {
+            ctx->main_annot_types[i] = hml_type;
+            return;
+        }
+    }
+    if (ctx->num_main_annots >= ctx->main_annot_capacity) {
+        int new_cap = ctx->main_annot_capacity ? ctx->main_annot_capacity * 2 : 16;
+        char **new_names = realloc(ctx->main_annot_names, (size_t)new_cap * sizeof(char*));
+        const char **new_types = realloc(ctx->main_annot_types, (size_t)new_cap * sizeof(const char*));
+        if (!new_names || !new_types) return;  // fail open: annotation just not enforced
+        ctx->main_annot_names = new_names;
+        ctx->main_annot_types = new_types;
+        ctx->main_annot_capacity = new_cap;
+    }
+    ctx->main_annot_names[ctx->num_main_annots] = strdup(name);
+    ctx->main_annot_types[ctx->num_main_annots] = hml_type;
+    ctx->num_main_annots++;
+}
+
+const char *codegen_get_main_annot(CodegenContext *ctx, const char *name) {
+    for (int i = 0; i < ctx->num_main_annots; i++) {
+        if (strcmp(ctx->main_annot_names[i], name) == 0) {
+            return ctx->main_annot_types[i];
+        }
+    }
+    return NULL;
+}
+
+// Map a primitive type annotation to its HML_VAL_* enum name (NULL for
+// non-primitive annotations, which get static checks only).
+const char *codegen_annot_primitive_name(Type *annotation) {
+    if (!annotation) return NULL;
+    switch (annotation->kind) {
+        case TYPE_I8:  return "HML_VAL_I8";
+        case TYPE_I16: return "HML_VAL_I16";
+        case TYPE_I32: return "HML_VAL_I32";
+        case TYPE_I64: return "HML_VAL_I64";
+        case TYPE_U8:  return "HML_VAL_U8";
+        case TYPE_U16: return "HML_VAL_U16";
+        case TYPE_U32: return "HML_VAL_U32";
+        case TYPE_U64: return "HML_VAL_U64";
+        case TYPE_F32: return "HML_VAL_F32";
+        case TYPE_F64: return "HML_VAL_F64";
+        case TYPE_BOOL: return "HML_VAL_BOOL";
+        case TYPE_STRING: return "HML_VAL_STRING";
+        case TYPE_RUNE: return "HML_VAL_RUNE";
+        default: return NULL;
+    }
+}
+
+const char *codegen_get_local_annot(CodegenContext *ctx, const char *name) {
+    for (int i = ctx->num_locals - 1; i >= 0; i--) {
+        if (ctx->local_vars[i] && strcmp(ctx->local_vars[i], name) == 0) {
+            return ctx->local_annots[i];
+        }
+    }
+    return NULL;
 }
 
 // Mark a local variable as not needing cleanup (e.g., unboxed to C primitive)
@@ -421,7 +618,8 @@ void codegen_emit_local_cleanup(CodegenContext *ctx, const char *skip_var) {
         if (!ctx->local_needs_cleanup[i]) continue;
         if (!ctx->local_vars[i]) continue;
         if (skip_var && strcmp(ctx->local_vars[i], skip_var) == 0) continue;
-        char *safe = codegen_sanitize_ident(ctx->local_vars[i]);
+        char *safe = ctx->local_is_raw[i] ? strdup(ctx->local_vars[i])
+                                          : codegen_sanitize_ident(ctx->local_vars[i]);
         codegen_writeln(ctx, "hml_release(&%s);", safe);
         free(safe);
     }
@@ -547,7 +745,7 @@ void codegen_restore_consumed(CodegenContext *ctx, int checkpoint) {
     ctx->num_consumed_temps = checkpoint;
 }
 
-// Try-finally context tracking (for return/break to jump to finally first)
+// Try-finally context tracking (for return/break/continue to jump to finally first)
 void codegen_push_try_finally(CodegenContext *ctx, const char *finally_label,
                               const char *return_value_var, const char *has_return_var) {
     if (ctx->try_finally_depth >= ctx->try_finally_capacity) {
@@ -555,17 +753,40 @@ void codegen_push_try_finally(CodegenContext *ctx, const char *finally_label,
         char **new_labels = realloc(ctx->finally_labels, new_cap * sizeof(char*));
         char **new_return_vars = realloc(ctx->return_value_vars, new_cap * sizeof(char*));
         char **new_has_vars = realloc(ctx->has_return_vars, new_cap * sizeof(char*));
-        if (!new_labels || !new_return_vars || !new_has_vars) {
+        int *new_try_depth = realloc(ctx->tf_try_depth, new_cap * sizeof(int));
+        int *new_loop_body = realloc(ctx->tf_loop_body, new_cap * sizeof(int));
+        int *new_switch_depth = realloc(ctx->tf_switch_depth, new_cap * sizeof(int));
+        int *new_num_locals = realloc(ctx->tf_num_locals, new_cap * sizeof(int));
+        TfPendingJump **new_pending = realloc(ctx->tf_pending, new_cap * sizeof(TfPendingJump*));
+        int *new_num_pending = realloc(ctx->tf_num_pending, new_cap * sizeof(int));
+        int *new_pending_cap = realloc(ctx->tf_pending_cap, new_cap * sizeof(int));
+        if (!new_labels || !new_return_vars || !new_has_vars || !new_try_depth ||
+            !new_loop_body || !new_switch_depth || !new_num_locals ||
+            !new_pending || !new_num_pending || !new_pending_cap) {
             // Update pointers for any successful allocations to avoid losing memory
             if (new_labels) ctx->finally_labels = new_labels;
             if (new_return_vars) ctx->return_value_vars = new_return_vars;
             if (new_has_vars) ctx->has_return_vars = new_has_vars;
+            if (new_try_depth) ctx->tf_try_depth = new_try_depth;
+            if (new_loop_body) ctx->tf_loop_body = new_loop_body;
+            if (new_switch_depth) ctx->tf_switch_depth = new_switch_depth;
+            if (new_num_locals) ctx->tf_num_locals = new_num_locals;
+            if (new_pending) ctx->tf_pending = new_pending;
+            if (new_num_pending) ctx->tf_num_pending = new_num_pending;
+            if (new_pending_cap) ctx->tf_pending_cap = new_pending_cap;
             fprintf(stderr, "error: Failed to expand try-finally storage\n");
             exit(1);
         }
         ctx->finally_labels = new_labels;
         ctx->return_value_vars = new_return_vars;
         ctx->has_return_vars = new_has_vars;
+        ctx->tf_try_depth = new_try_depth;
+        ctx->tf_loop_body = new_loop_body;
+        ctx->tf_switch_depth = new_switch_depth;
+        ctx->tf_num_locals = new_num_locals;
+        ctx->tf_pending = new_pending;
+        ctx->tf_num_pending = new_num_pending;
+        ctx->tf_pending_cap = new_pending_cap;
         ctx->try_finally_capacity = new_cap;
     }
     char *dup_finally = strdup(finally_label);
@@ -580,19 +801,68 @@ void codegen_push_try_finally(CodegenContext *ctx, const char *finally_label,
         exit(1);
     }
 
-    ctx->finally_labels[ctx->try_finally_depth] = dup_finally;
-    ctx->return_value_vars[ctx->try_finally_depth] = dup_return;
-    ctx->has_return_vars[ctx->try_finally_depth] = dup_has;
+    int d = ctx->try_finally_depth;
+    ctx->finally_labels[d] = dup_finally;
+    ctx->return_value_vars[d] = dup_return;
+    ctx->has_return_vars[d] = dup_has;
+    ctx->tf_try_depth[d] = ctx->try_body_depth;
+    ctx->tf_loop_body[d] = ctx->loop_body_depth;
+    ctx->tf_switch_depth[d] = ctx->switch_depth;
+    ctx->tf_num_locals[d] = ctx->num_locals;
+    ctx->tf_pending[d] = NULL;
+    ctx->tf_num_pending[d] = 0;
+    ctx->tf_pending_cap[d] = 0;
     ctx->try_finally_depth++;
 }
 
+// Pop the innermost try-finally context. The pending-jump list is NOT freed:
+// STMT_TRY reads it (from slot [try_finally_depth] right after the pop) to
+// emit the post-finally dispatch, then frees it with
+// codegen_try_finally_free_pending().
 void codegen_pop_try_finally(CodegenContext *ctx) {
     if (ctx->try_finally_depth > 0) {
         ctx->try_finally_depth--;
         free(ctx->finally_labels[ctx->try_finally_depth]);
         free(ctx->return_value_vars[ctx->try_finally_depth]);
         free(ctx->has_return_vars[ctx->try_finally_depth]);
+        ctx->finally_labels[ctx->try_finally_depth] = NULL;
+        ctx->return_value_vars[ctx->try_finally_depth] = NULL;
+        ctx->has_return_vars[ctx->try_finally_depth] = NULL;
     }
+}
+
+void codegen_try_finally_free_pending(TfPendingJump *pending, int num_pending) {
+    for (int i = 0; i < num_pending; i++) {
+        free(pending[i].label);
+    }
+    free(pending);
+}
+
+// Register (or find) a labeled jump on the innermost try-finally context and
+// return its action code (4 + index).
+int codegen_try_finally_pending_code(CodegenContext *ctx, int is_continue, const char *label) {
+    int d = ctx->try_finally_depth - 1;
+    if (d < 0) return -1;
+    for (int i = 0; i < ctx->tf_num_pending[d]; i++) {
+        if (ctx->tf_pending[d][i].is_continue == is_continue &&
+            strcmp(ctx->tf_pending[d][i].label, label) == 0) {
+            return 4 + i;
+        }
+    }
+    if (ctx->tf_num_pending[d] >= ctx->tf_pending_cap[d]) {
+        int new_cap = ctx->tf_pending_cap[d] ? ctx->tf_pending_cap[d] * 2 : 4;
+        TfPendingJump *grown = realloc(ctx->tf_pending[d], new_cap * sizeof(TfPendingJump));
+        if (!grown) {
+            fprintf(stderr, "error: Failed to expand pending jump storage\n");
+            exit(1);
+        }
+        ctx->tf_pending[d] = grown;
+        ctx->tf_pending_cap[d] = new_cap;
+    }
+    int idx = ctx->tf_num_pending[d]++;
+    ctx->tf_pending[d][idx].is_continue = is_continue;
+    ctx->tf_pending[d][idx].label = strdup(label);
+    return 4 + idx;
 }
 
 // Get the current (innermost) try-finally context
@@ -623,14 +893,19 @@ void codegen_push_switch(CodegenContext *ctx, const char *end_label) {
     if (ctx->switch_depth >= ctx->switch_end_capacity) {
         int new_cap = (ctx->switch_end_capacity == 0) ? 4 : ctx->switch_end_capacity * 2;
         char **new_labels = realloc(ctx->switch_end_labels, new_cap * sizeof(char*));
-        if (!new_labels) {
+        int *new_depths = realloc(ctx->switch_loop_depths, new_cap * sizeof(int));
+        if (!new_labels || !new_depths) {
+            if (new_labels) ctx->switch_end_labels = new_labels;
+            if (new_depths) ctx->switch_loop_depths = new_depths;
             fprintf(stderr, "error: Failed to expand switch label storage\n");
             exit(1);
         }
         ctx->switch_end_labels = new_labels;
+        ctx->switch_loop_depths = new_depths;
         ctx->switch_end_capacity = new_cap;
     }
     ctx->switch_end_labels[ctx->switch_depth] = strdup(end_label);
+    ctx->switch_loop_depths[ctx->switch_depth] = ctx->loop_body_depth;
     ctx->switch_depth++;
 }
 
@@ -643,6 +918,15 @@ void codegen_pop_switch(CodegenContext *ctx) {
 
 const char* codegen_get_switch_end_label(CodegenContext *ctx) {
     if (ctx->switch_depth > 0) {
+        // An unlabeled break targets the switch only when the switch is the
+        // innermost breakable construct. If a loop body was entered after
+        // this switch was pushed (loop_body_depth grew), the break belongs
+        // to that loop, not the switch - the old behavior made a `break`
+        // inside `switch { case: while (...) { break; } }` exit the whole
+        // switch, silently skipping the rest of the case body.
+        if (ctx->loop_body_depth > ctx->switch_loop_depths[ctx->switch_depth - 1]) {
+            return NULL;
+        }
         return ctx->switch_end_labels[ctx->switch_depth - 1];
     }
     return NULL;
@@ -688,11 +972,17 @@ void codegen_push_loop_label(CodegenContext *ctx, const char *label, const char 
         char **new_break = realloc(ctx->loop_break_labels, new_cap * sizeof(char*));
         char **new_continue = realloc(ctx->loop_continue_labels, new_cap * sizeof(char*));
         int *new_body_locals = realloc(ctx->loop_label_body_locals, new_cap * sizeof(int));
-        if (!new_labels || !new_break || !new_continue || !new_body_locals) {
+        int *new_continue_locals = realloc(ctx->loop_label_continue_locals, new_cap * sizeof(int));
+        int *new_try_depth = realloc(ctx->loop_label_try_depth, new_cap * sizeof(int));
+        int *new_loop_body = realloc(ctx->loop_label_loop_body, new_cap * sizeof(int));
+        if (!new_labels || !new_break || !new_continue || !new_body_locals || !new_continue_locals || !new_try_depth || !new_loop_body) {
             if (new_labels) ctx->loop_labels = new_labels;
             if (new_break) ctx->loop_break_labels = new_break;
             if (new_continue) ctx->loop_continue_labels = new_continue;
             if (new_body_locals) ctx->loop_label_body_locals = new_body_locals;
+            if (new_continue_locals) ctx->loop_label_continue_locals = new_continue_locals;
+            if (new_try_depth) ctx->loop_label_try_depth = new_try_depth;
+            if (new_loop_body) ctx->loop_label_loop_body = new_loop_body;
             fprintf(stderr, "error: Failed to expand loop label storage\n");
             exit(1);
         }
@@ -700,13 +990,136 @@ void codegen_push_loop_label(CodegenContext *ctx, const char *label, const char 
         ctx->loop_break_labels = new_break;
         ctx->loop_continue_labels = new_continue;
         ctx->loop_label_body_locals = new_body_locals;
+        ctx->loop_label_continue_locals = new_continue_locals;
+        ctx->loop_label_try_depth = new_try_depth;
+        ctx->loop_label_loop_body = new_loop_body;
         ctx->loop_label_capacity = new_cap;
     }
     ctx->loop_labels[ctx->loop_label_depth] = strdup(label);
     ctx->loop_break_labels[ctx->loop_label_depth] = strdup(break_label);
     ctx->loop_continue_labels[ctx->loop_label_depth] = strdup(continue_label);
     ctx->loop_label_body_locals[ctx->loop_label_depth] = ctx->num_locals;
+    ctx->loop_label_continue_locals[ctx->loop_label_depth] = ctx->num_locals;
+    ctx->loop_label_try_depth[ctx->loop_label_depth] = ctx->try_body_depth;
+    ctx->loop_label_loop_body[ctx->loop_label_depth] = ctx->loop_body_depth;
     ctx->loop_label_depth++;
+}
+
+void codegen_loop_label_set_continue_base(CodegenContext *ctx) {
+    if (ctx->loop_label_depth > 0) {
+        ctx->loop_label_continue_locals[ctx->loop_label_depth - 1] = ctx->num_locals;
+    }
+}
+
+// Check whether a function expression's body references `name` as a free
+// variable (i.e. not shadowed by a parameter or local of that function).
+static int func_body_references_var(Expr *func, const char *name) {
+    if (!func || func->type != EXPR_FUNCTION || !func->as.function.body) return 0;
+    Scope *scope = scope_new(NULL);
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        scope_add_var(scope, func->as.function.param_names[i]);
+    }
+    if (func->as.function.rest_param) {
+        scope_add_var(scope, func->as.function.rest_param);
+    }
+    FreeVarSet *fv = free_var_set_new();
+    find_free_vars_stmt(func->as.function.body, scope, fv);
+    int found = 0;
+    for (int i = 0; i < fv->num_vars; i++) {
+        if (strcmp(fv->vars[i], name) == 0) { found = 1; break; }
+    }
+    free_var_set_free(fv);
+    scope_free(scope);
+    return found;
+}
+
+// Check whether any function generated (or known) so far can observe `name`
+// while a loop runs: a closure that captured it, a closure body that reads
+// the _main_ global directly (main-level vars are never in captured_vars -
+// closures address the global), or a named top-level function referencing
+// it. Used to veto while-loop unboxing of main variables: such functions
+// read and write the boxed variable while the loop would be using a native
+// shadow, desynchronizing the two.
+int codegen_var_captured_by_any_closure(CodegenContext *ctx, const char *name) {
+    for (ClosureInfo *c = ctx->closures; c; c = c->next) {
+        for (int i = 0; i < c->num_captured; i++) {
+            if (c->captured_vars[i] && strcmp(c->captured_vars[i], name) == 0) {
+                return 1;
+            }
+        }
+        if (func_body_references_var(c->func_expr, name)) {
+            return 1;
+        }
+    }
+    // Named top-level functions are all known up front (pre-pass), covering
+    // definitions both before and after the loop.
+    for (int i = 0; i < ctx->num_main_funcs; i++) {
+        if (func_body_references_var(ctx->main_func_ast[i], name)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// ========== UNBOXED MAIN-VAR SHADOW TRACKING ==========
+
+void codegen_push_unboxed_shadow(CodegenContext *ctx, const char *name, int checked_type) {
+    if (ctx->num_unboxed_shadows >= ctx->unboxed_shadow_capacity) {
+        int new_cap = ctx->unboxed_shadow_capacity ? ctx->unboxed_shadow_capacity * 2 : 4;
+        char **new_names = realloc(ctx->unboxed_shadow_names, new_cap * sizeof(char*));
+        int *new_types = realloc(ctx->unboxed_shadow_types, new_cap * sizeof(int));
+        int *new_depths = realloc(ctx->unboxed_shadow_body_depth, new_cap * sizeof(int));
+        if (!new_names || !new_types || !new_depths) {
+            if (new_names) ctx->unboxed_shadow_names = new_names;
+            if (new_types) ctx->unboxed_shadow_types = new_types;
+            if (new_depths) ctx->unboxed_shadow_body_depth = new_depths;
+            fprintf(stderr, "error: Failed to expand unboxed shadow storage\n");
+            exit(1);
+        }
+        ctx->unboxed_shadow_names = new_names;
+        ctx->unboxed_shadow_types = new_types;
+        ctx->unboxed_shadow_body_depth = new_depths;
+        ctx->unboxed_shadow_capacity = new_cap;
+    }
+    ctx->unboxed_shadow_names[ctx->num_unboxed_shadows] = strdup(name);
+    ctx->unboxed_shadow_types[ctx->num_unboxed_shadows] = checked_type;
+    ctx->unboxed_shadow_body_depth[ctx->num_unboxed_shadows] = ctx->loop_body_depth;
+    ctx->num_unboxed_shadows++;
+}
+
+void codegen_pop_unboxed_shadows(CodegenContext *ctx, int count) {
+    for (int i = 0; i < count && ctx->num_unboxed_shadows > 0; i++) {
+        ctx->num_unboxed_shadows--;
+        free(ctx->unboxed_shadow_names[ctx->num_unboxed_shadows]);
+    }
+}
+
+void codegen_emit_labeled_jump_shadow_writeback(CodegenContext *ctx, const char *label) {
+    // Find the target label's loop_body_depth
+    int target_depth = -1;
+    for (int i = ctx->loop_label_depth - 1; i >= 0; i--) {
+        if (strcmp(ctx->loop_labels[i], label) == 0) {
+            target_depth = ctx->loop_label_loop_body[i];
+            break;
+        }
+    }
+    if (target_depth < 0) return;  // Unknown label - error reported by caller
+
+    // Write back every shadow whose while loop lives at or inside the target
+    // loop's body depth: the goto exits those shadows' regions (or, for the
+    // target loop's own shadows, jumps to the break label placed just before
+    // the loop's natural write-back - re-running it there is harmless since
+    // the shadow variable stays in scope and holds the same value).
+    for (int i = 0; i < ctx->num_unboxed_shadows; i++) {
+        if (ctx->unboxed_shadow_body_depth[i] < target_depth) continue;
+        const char *box_func = checked_type_to_box_func(ctx->unboxed_shadow_types[i]);
+        if (!box_func) continue;
+        char *safe_name = codegen_sanitize_ident(ctx->unboxed_shadow_names[i]);
+        codegen_writeln(ctx, "hml_release(&_main_%s);", ctx->unboxed_shadow_names[i]);
+        codegen_writeln(ctx, "_main_%s = %s(%s);",
+                        ctx->unboxed_shadow_names[i], box_func, safe_name);
+        free(safe_name);
+    }
 }
 
 void codegen_pop_loop_label(CodegenContext *ctx) {
@@ -742,14 +1155,19 @@ void codegen_push_loop_body(CodegenContext *ctx) {
     if (ctx->loop_body_depth >= ctx->loop_body_capacity) {
         int new_cap = (ctx->loop_body_capacity == 0) ? 4 : ctx->loop_body_capacity * 2;
         int *new_stack = realloc(ctx->loop_body_locals, new_cap * sizeof(int));
-        if (!new_stack) {
+        int *new_try_stack = realloc(ctx->loop_body_try_depth, new_cap * sizeof(int));
+        if (!new_stack || !new_try_stack) {
+            if (new_stack) ctx->loop_body_locals = new_stack;
+            if (new_try_stack) ctx->loop_body_try_depth = new_try_stack;
             fprintf(stderr, "error: Failed to expand loop body locals storage\n");
             exit(1);
         }
         ctx->loop_body_locals = new_stack;
+        ctx->loop_body_try_depth = new_try_stack;
         ctx->loop_body_capacity = new_cap;
     }
     ctx->loop_body_locals[ctx->loop_body_depth] = ctx->num_locals;
+    ctx->loop_body_try_depth[ctx->loop_body_depth] = ctx->try_body_depth;
     ctx->loop_body_depth++;
 }
 
@@ -759,15 +1177,22 @@ void codegen_pop_loop_body(CodegenContext *ctx) {
     }
 }
 
-// Emit hml_release for locals from current num_locals down to 'start'
-static void codegen_emit_cleanup_range(CodegenContext *ctx, int start) {
-    for (int i = start; i < ctx->num_locals; i++) {
+// Emit hml_release for locals in the half-open index range [start, end).
+void codegen_release_locals_range(CodegenContext *ctx, int start, int end) {
+    if (end > ctx->num_locals) end = ctx->num_locals;
+    for (int i = start; i < end; i++) {
         if (!ctx->local_needs_cleanup[i]) continue;
         if (!ctx->local_vars[i]) continue;
-        char *safe = codegen_sanitize_ident(ctx->local_vars[i]);
+        char *safe = ctx->local_is_raw[i] ? strdup(ctx->local_vars[i])
+                                          : codegen_sanitize_ident(ctx->local_vars[i]);
         codegen_writeln(ctx, "hml_release(&%s);", safe);
         free(safe);
     }
+}
+
+// Emit hml_release for locals from current num_locals down to 'start'
+static void codegen_emit_cleanup_range(CodegenContext *ctx, int start) {
+    codegen_release_locals_range(ctx, start, ctx->num_locals);
 }
 
 void codegen_emit_break_cleanup(CodegenContext *ctx) {
@@ -780,6 +1205,44 @@ void codegen_emit_labeled_break_cleanup(CodegenContext *ctx, const char *label) 
     for (int i = ctx->loop_label_depth - 1; i >= 0; i--) {
         if (strcmp(ctx->loop_labels[i], label) == 0) {
             codegen_emit_cleanup_range(ctx, ctx->loop_label_body_locals[i]);
+            return;
+        }
+    }
+}
+
+void codegen_emit_labeled_continue_cleanup(CodegenContext *ctx, const char *label) {
+    for (int i = ctx->loop_label_depth - 1; i >= 0; i--) {
+        if (strcmp(ctx->loop_labels[i], label) == 0) {
+            codegen_emit_cleanup_range(ctx, ctx->loop_label_continue_locals[i]);
+            return;
+        }
+    }
+}
+
+// ========== TRY-BODY EXCEPTION CONTEXT POPS ==========
+
+void codegen_emit_exception_pops(CodegenContext *ctx, int pops) {
+    for (int i = 0; i < pops; i++) {
+        codegen_writeln(ctx, "hml_exception_pop();");
+    }
+}
+
+void codegen_emit_return_try_pops(CodegenContext *ctx) {
+    codegen_emit_exception_pops(ctx, ctx->try_body_depth);
+}
+
+void codegen_emit_break_try_pops(CodegenContext *ctx) {
+    if (ctx->loop_body_depth <= 0) return;
+    int entry_depth = ctx->loop_body_try_depth[ctx->loop_body_depth - 1];
+    int pops = ctx->try_body_depth - entry_depth;
+    if (pops > 0) codegen_emit_exception_pops(ctx, pops);
+}
+
+void codegen_emit_labeled_break_try_pops(CodegenContext *ctx, const char *label) {
+    for (int i = ctx->loop_label_depth - 1; i >= 0; i--) {
+        if (strcmp(ctx->loop_labels[i], label) == 0) {
+            int pops = ctx->try_body_depth - ctx->loop_label_try_depth[i];
+            if (pops > 0) codegen_emit_exception_pops(ctx, pops);
             return;
         }
     }
@@ -976,6 +1439,59 @@ void codegen_add_main_func(CodegenContext *ctx, const char *name, int num_params
 int codegen_is_main_func(CodegenContext *ctx, const char *name) {
     for (int i = 0; i < ctx->num_main_funcs; i++) {
         if (strcmp(ctx->main_funcs[i], name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Format an f64 constant as a valid C expression. %.17g alone produces
+// "inf"/"nan" (not valid C) for non-finite values, and "-0" (an int constant
+// that loses the sign when converted to double) for negative zero.
+void codegen_format_f64(char *buf, size_t size, double value) {
+    if (isnan(value)) {
+        snprintf(buf, size, signbit(value) ? "(-NAN)" : "NAN");
+    } else if (isinf(value)) {
+        snprintf(buf, size, signbit(value) ? "(-INFINITY)" : "INFINITY");
+    } else if (value == 0.0 && signbit(value)) {
+        snprintf(buf, size, "-0.0");
+    } else {
+        snprintf(buf, size, "%.17g", value);
+    }
+}
+
+// Format an int64 value as a valid C integer-constant token. Uses the `LL`
+// suffix (not `L`, which is only 32-bit on LLP64/Windows) and emits INT64_MIN
+// as the macro, since `-9223372036854775808LL` is parsed as negation of a value
+// one past LLONG_MAX and is ill-formed.
+void codegen_format_i64(char *buf, size_t size, int64_t value) {
+    if (value == INT64_MIN) {
+        snprintf(buf, size, "INT64_MIN");
+    } else {
+        snprintf(buf, size, "%" PRId64 "LL", value);
+    }
+}
+
+void codegen_add_extern_fn(CodegenContext *ctx, const char *name) {
+    if (codegen_is_extern_fn(ctx, name)) {
+        return;
+    }
+    if (ctx->num_extern_fns >= ctx->extern_fns_capacity) {
+        int new_cap = (ctx->extern_fns_capacity == 0) ? 16 : ctx->extern_fns_capacity * 2;
+        char **new_fns = realloc(ctx->extern_fns, new_cap * sizeof(char*));
+        if (!new_fns) {
+            fprintf(stderr, "error: Failed to expand extern function storage\n");
+            exit(1);
+        }
+        ctx->extern_fns = new_fns;
+        ctx->extern_fns_capacity = new_cap;
+    }
+    ctx->extern_fns[ctx->num_extern_fns++] = strdup(name);
+}
+
+int codegen_is_extern_fn(CodegenContext *ctx, const char *name) {
+    for (int i = 0; i < ctx->num_extern_fns; i++) {
+        if (strcmp(ctx->extern_fns[i], name) == 0) {
             return 1;
         }
     }
@@ -1356,6 +1872,167 @@ void codegen_defer_clear(CodegenContext *ctx) {
     }
 }
 
+// ========== CAPTURED VARIABLE SYNC ==========
+
+/*
+ * Variables captured by closures (or defers) live in the function's shared
+ * environment; closures read and write that environment. The enclosing
+ * function keeps a C local as well, so every write to a captured local must
+ * be mirrored into the shared environment (and reads must come from it - see
+ * codegen_expr_ident) or the two copies diverge:
+ *   let y = 1; let f = fn() { return y; }; y = 99; f()  must return 99.
+ */
+// A captured variable participates in shared-env reads/writes only when its
+// C storage is a bare function-local (not a _main_ global, module symbol, or
+// ref param pointer).
+static int captured_var_is_bare_local(CodegenContext *ctx, const char *hml_name) {
+    if (codegen_is_ref_param(ctx, hml_name)) return 0;
+    if (codegen_is_shadow(ctx, hml_name)) return 1;
+    if (ctx->current_scope && scope_is_defined(ctx->current_scope, hml_name)) return 1;
+    return codegen_is_local(ctx, hml_name) && !codegen_is_main_var(ctx, hml_name);
+}
+
+void codegen_sync_captured_var(CodegenContext *ctx, const char *hml_name, const char *c_name) {
+    if (!ctx->shared_env_name || !ctx->in_function) return;
+    if (!captured_var_is_bare_local(ctx, hml_name)) return;
+    int idx = shared_env_get_index(ctx, hml_name);
+    if (idx < 0) return;
+    codegen_writeln(ctx, "hml_closure_env_set(%s, %d, %s);", ctx->shared_env_name, idx, c_name);
+}
+
+// Returns the shared-env index if reads of this variable should go through
+// the shared environment (captured local in the enclosing function), else -1.
+int codegen_captured_var_env_index(CodegenContext *ctx, const char *hml_name) {
+    if (!ctx->shared_env_name || !ctx->in_function) return -1;
+    if (!captured_var_is_bare_local(ctx, hml_name)) return -1;
+    return shared_env_get_index(ctx, hml_name);
+}
+
+// ========== DEFER FRAME SUPPORT ==========
+
+// Pre-scan a statement tree for defer statements. Does NOT descend into
+// nested function expressions - their defers belong to that function's frame.
+// (defer can only appear as a statement, so scanning statements suffices.)
+// Recursively check whether a statement tree contains a try statement
+// (nested function bodies excluded - EXPR_FUNCTION bodies get their own
+// scan when their code is generated). Used to decide whether unboxed
+// native locals must be declared volatile (setjmp clobbering).
+int codegen_body_has_try(Stmt *stmt) {
+    if (!stmt) return 0;
+    switch (stmt->type) {
+        case STMT_TRY:
+            return 1;
+        case STMT_BLOCK:
+            for (int i = 0; i < stmt->as.block.count; i++) {
+                if (codegen_body_has_try(stmt->as.block.statements[i])) return 1;
+            }
+            return 0;
+        case STMT_IF:
+            return codegen_body_has_try(stmt->as.if_stmt.then_branch) ||
+                   codegen_body_has_try(stmt->as.if_stmt.else_branch);
+        case STMT_WHILE:
+            return codegen_body_has_try(stmt->as.while_stmt.body);
+        case STMT_LOOP:
+            return codegen_body_has_try(stmt->as.loop_stmt.body);
+        case STMT_FOR:
+            return codegen_body_has_try(stmt->as.for_loop.initializer) ||
+                   codegen_body_has_try(stmt->as.for_loop.body);
+        case STMT_FOR_IN:
+            return codegen_body_has_try(stmt->as.for_in.body);
+        case STMT_SWITCH:
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                if (codegen_body_has_try(stmt->as.switch_stmt.case_bodies[i])) return 1;
+            }
+            return 0;
+        case STMT_EXPORT:
+            if (stmt->as.export_stmt.is_declaration) {
+                return codegen_body_has_try(stmt->as.export_stmt.declaration);
+            }
+            return 0;
+        default:
+            return 0;
+    }
+}
+
+int codegen_body_has_defer(Stmt *stmt) {
+    if (!stmt) return 0;
+    switch (stmt->type) {
+        case STMT_DEFER:
+            return 1;
+        case STMT_BLOCK:
+            for (int i = 0; i < stmt->as.block.count; i++) {
+                if (codegen_body_has_defer(stmt->as.block.statements[i])) return 1;
+            }
+            return 0;
+        case STMT_IF:
+            return codegen_body_has_defer(stmt->as.if_stmt.then_branch) ||
+                   codegen_body_has_defer(stmt->as.if_stmt.else_branch);
+        case STMT_WHILE:
+            return codegen_body_has_defer(stmt->as.while_stmt.body);
+        case STMT_LOOP:
+            return codegen_body_has_defer(stmt->as.loop_stmt.body);
+        case STMT_FOR:
+            return codegen_body_has_defer(stmt->as.for_loop.initializer) ||
+                   codegen_body_has_defer(stmt->as.for_loop.body);
+        case STMT_FOR_IN:
+            return codegen_body_has_defer(stmt->as.for_in.body);
+        case STMT_TRY:
+            return codegen_body_has_defer(stmt->as.try_stmt.try_block) ||
+                   codegen_body_has_defer(stmt->as.try_stmt.catch_block) ||
+                   codegen_body_has_defer(stmt->as.try_stmt.finally_block);
+        case STMT_SWITCH:
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                if (codegen_body_has_defer(stmt->as.switch_stmt.case_bodies[i])) return 1;
+            }
+            return 0;
+        case STMT_EXPORT:
+            if (stmt->as.export_stmt.is_declaration) {
+                return codegen_body_has_defer(stmt->as.export_stmt.declaration);
+            }
+            return 0;
+        default:
+            return 0;
+    }
+}
+
+/*
+ * Emit the per-function defer frame prologue. The frame mark scopes defer
+ * execution to this function (a callee's return must not run our defers).
+ * The exception context makes this function's defers run when an exception
+ * unwinds past it - before the catch handler - matching the interpreter.
+ * Defers registered before a try/catch in the same function are NOT run by
+ * the catch (they stay pending until function exit), which falls out
+ * naturally: inner try contexts are pushed above this one.
+ */
+void codegen_emit_defer_prologue(CodegenContext *ctx, Stmt *body) {
+    if (!codegen_body_has_defer(body)) return;
+    ctx->has_defers = 1;
+    ctx->defer_unwind_active = 1;
+    codegen_writeln(ctx, "void *_defer_frame = hml_defer_frame_begin();");
+    codegen_writeln(ctx, "{");
+    codegen_indent_inc(ctx);
+    codegen_writeln(ctx, "HmlExceptionContext *_defer_unwind = hml_exception_push();");
+    codegen_writeln(ctx, "if (setjmp(_defer_unwind->exception_buf) != 0) {");
+    codegen_indent_inc(ctx);
+    codegen_writeln(ctx, "HmlValue _defer_ex = hml_exception_get_value();");
+    codegen_writeln(ctx, "hml_exception_pop();");
+    codegen_writeln(ctx, "hml_defer_execute_frame(_defer_frame);");
+    codegen_writeln(ctx, "hml_throw(_defer_ex);");
+    codegen_indent_dec(ctx);
+    codegen_writeln(ctx, "}");
+    codegen_indent_dec(ctx);
+    codegen_writeln(ctx, "}");
+}
+
+// Emit the defer cleanup for an actual function exit (return or implicit
+// end-of-function): pop the unwind context pushed by the prologue, then run
+// this frame's pending defers.
+void codegen_emit_defer_exit(CodegenContext *ctx) {
+    if (!ctx->defer_unwind_active) return;
+    codegen_writeln(ctx, "hml_exception_pop();  // defer unwind context");
+    codegen_writeln(ctx, "hml_defer_execute_frame(_defer_frame);");
+}
+
 // ========== FUNCTION GENERATION STATE ==========
 
 void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
@@ -1364,6 +2041,7 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     state->defer_stack = ctx->defer_stack;
     state->in_function = ctx->in_function;
     state->has_defers = ctx->has_defers;
+    state->defer_unwind_active = ctx->defer_unwind_active;
     state->module = ctx->current_module;
     state->closure = ctx->current_closure;
     state->scope = ctx->current_scope;
@@ -1372,11 +2050,18 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     state->tail_call_func_expr = ctx->tail_call_func_expr;
     state->loop_body_depth = ctx->loop_body_depth;
     state->loop_depth = ctx->loop_depth;
+    state->try_body_depth = ctx->try_body_depth;
+    state->func_params = ctx->func_params;
+    state->num_func_params = ctx->num_func_params;
+    state->func_param_is_ref = ctx->func_param_is_ref;
+    state->func_rest_param = ctx->func_rest_param;
+    state->function_has_try = ctx->function_has_try;
 
     // Initialize for new function
     ctx->defer_stack = NULL;
     ctx->in_function = 1;
     ctx->has_defers = 0;
+    ctx->defer_unwind_active = 0;
     ctx->current_scope = NULL;  // Fresh scope for new function
     ctx->last_closure_env_id = -1;
     ctx->tail_call_func_name = NULL;
@@ -1384,6 +2069,15 @@ void funcgen_save_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->tail_call_func_expr = NULL;
     ctx->loop_body_depth = 0;
     ctx->loop_depth = 0;
+    ctx->try_body_depth = 0;
+    // funcgen_add_params() sets these for the new function; clear
+    // here so an early return / a param-less function can't observe
+    // the previous function's params.
+    ctx->func_params = NULL;
+    ctx->num_func_params = 0;
+    ctx->func_param_is_ref = NULL;
+    ctx->func_rest_param = NULL;
+    ctx->function_has_try = 0;  // Caller sets via codegen_body_has_try(body)
 }
 
 void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
@@ -1402,6 +2096,7 @@ void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->locals_body_start = state->locals_body_start;
     ctx->in_function = state->in_function;
     ctx->has_defers = state->has_defers;
+    ctx->defer_unwind_active = state->defer_unwind_active;
     ctx->current_module = state->module;
     ctx->current_closure = state->closure;
     // Free any scopes created during the function (they should already be freed by block statements)
@@ -1418,6 +2113,12 @@ void funcgen_restore_state(CodegenContext *ctx, FuncGenState *state) {
     ctx->tail_call_func_expr = state->tail_call_func_expr;
     ctx->loop_body_depth = state->loop_body_depth;
     ctx->loop_depth = state->loop_depth;
+    ctx->try_body_depth = state->try_body_depth;
+    ctx->func_params = state->func_params;
+    ctx->num_func_params = state->num_func_params;
+    ctx->func_param_is_ref = state->func_param_is_ref;
+    ctx->func_rest_param = state->func_rest_param;
+    ctx->function_has_try = state->function_has_try;
     shared_env_clear(ctx);
 }
 
@@ -1427,6 +2128,7 @@ void funcgen_add_params(CodegenContext *ctx, Expr *func) {
     ctx->func_params = func->as.function.param_names;
     ctx->num_func_params = func->as.function.num_params;
     ctx->func_param_is_ref = func->as.function.param_is_ref;
+    ctx->func_rest_param = func->as.function.rest_param;
 
     for (int i = 0; i < func->as.function.num_params; i++) {
         codegen_add_local(ctx, func->as.function.param_names[i]);
@@ -1457,6 +2159,67 @@ int codegen_is_ref_param(CodegenContext *ctx, const char *name) {
     return 0;
 }
 
+// Promote parameters to owned references (see codegen_internal.h).
+// Emitted before funcgen_apply_defaults: an applied default overwrites an
+// incoming null (nothing to release) and is already owned, so it must not
+// be retained again.
+void funcgen_retain_params(CodegenContext *ctx, Expr *func) {
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        int is_ref = func->as.function.param_is_ref && func->as.function.param_is_ref[i];
+        if (is_ref) continue;  // ref params alias the caller's variable
+        char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
+        codegen_writeln(ctx, "hml_retain_if_needed(&%s);", safe_param);
+        free(safe_param);
+    }
+    if (func->as.function.rest_param) {
+        char *safe_rest = codegen_sanitize_ident(func->as.function.rest_param);
+        codegen_writeln(ctx, "hml_retain_if_needed(&%s);", safe_rest);
+        free(safe_rest);
+    }
+}
+
+// Release owned parameters on function exit - counterpart of
+// funcgen_retain_params. Uses ctx->func_params so it works from any
+// statement context (return sites) without the function Expr at hand.
+void codegen_emit_param_cleanup(CodegenContext *ctx) {
+    for (int i = 0; i < ctx->num_func_params; i++) {
+        if (ctx->func_param_is_ref && ctx->func_param_is_ref[i]) continue;
+        char *safe_param = codegen_sanitize_ident(ctx->func_params[i]);
+        codegen_writeln(ctx, "hml_release_if_needed(&%s);", safe_param);
+        free(safe_param);
+    }
+    if (ctx->func_rest_param) {
+        char *safe_rest = codegen_sanitize_ident(ctx->func_rest_param);
+        codegen_writeln(ctx, "hml_release_if_needed(&%s);", safe_rest);
+        free(safe_rest);
+    }
+}
+
+// Release the current closure's captured-variable C locals (each holds an
+// owned reference: extraction either hml_retain_if_needed's a global/module
+// value or hml_closure_env_get's a retained copy). Skips captures that share
+// a name with a parameter - extraction skips those, so no C local exists
+// beyond the parameter itself (released by codegen_emit_param_cleanup).
+// No-op outside closure bodies.
+void codegen_emit_capture_cleanup(CodegenContext *ctx) {
+    if (!ctx->current_closure) return;
+    for (int i = 0; i < ctx->current_closure->num_captured; i++) {
+        const char *var_name = ctx->current_closure->captured_vars[i];
+        int is_param = 0;
+        for (int j = 0; j < ctx->num_func_params; j++) {
+            if (strcmp(var_name, ctx->func_params[j]) == 0) { is_param = 1; break; }
+        }
+        if (!is_param && ctx->func_rest_param &&
+            strcmp(var_name, ctx->func_rest_param) == 0) {
+            is_param = 1;
+        }
+        if (is_param) continue;
+        char *safe_cap = codegen_sanitize_ident(var_name);
+        codegen_writeln(ctx, "hml_release(&%s);", safe_cap);
+        free(safe_cap);
+    }
+}
+
 void funcgen_apply_defaults(CodegenContext *ctx, Expr *func) {
     if (!func->as.function.param_defaults) return;
 
@@ -1475,8 +2238,59 @@ void funcgen_apply_defaults(CodegenContext *ctx, Expr *func) {
     }
 }
 
+// Convert parameter i to its annotated primitive type, as the interpreter does
+// when it binds an argument: a float argument to an integer parameter
+// truncates, integers are range-checked, and an integer argument takes the
+// parameter's width, so u8/u32 arithmetic on parameters wraps. A nullable
+// annotation lets null through. Non-primitive annotations get static checks
+// only. `target` is the C variable holding the parameter's value.
+void funcgen_convert_param(CodegenContext *ctx, Expr *func, int i, const char *target) {
+    if (!func->as.function.param_types) return;
+    if (func->as.function.param_is_ref && func->as.function.param_is_ref[i]) return;
+    Type *annot = func->as.function.param_types[i];
+    const char *hml_type = codegen_annot_primitive_name(annot);
+    if (!hml_type) return;
+    if (annot->nullable) {
+        codegen_writeln(ctx, "if (%s.type != HML_VAL_NULL) %s = hml_convert_to_type(%s, %s);",
+                        target, target, target, hml_type);
+    } else {
+        codegen_writeln(ctx, "%s = hml_convert_to_type(%s, %s);", target, target, hml_type);
+    }
+}
+
+void funcgen_convert_params(CodegenContext *ctx, Expr *func) {
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
+        funcgen_convert_param(ctx, func, i, safe_param);
+        free(safe_param);
+    }
+}
+
+// If `var` is a captured variable of the enclosing closure (and not shadowed
+// by one of the closure function's own parameters), return its slot index in
+// that closure's _closure_env (may itself use the parent-slot encoding).
+// Returns -1 when the variable does not live in the enclosing environment.
+static int closure_capture_env_index(ClosureInfo *closure, Expr *func, const char *var) {
+    if (!closure) return -1;
+    // A parameter with the same name shadows the captured variable inside
+    // this function body (see codegen_closure_impl), so references resolve to
+    // the parameter, not the enclosing environment slot.
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        if (strcmp(func->as.function.param_names[i], var) == 0) return -1;
+    }
+    if (func->as.function.rest_param &&
+        strcmp(func->as.function.rest_param, var) == 0) {
+        return -1;
+    }
+    for (int j = 0; j < closure->num_captured; j++) {
+        if (strcmp(closure->captured_vars[j], var) == 0) {
+            return closure->shared_env_indices ? closure->shared_env_indices[j] : j;
+        }
+    }
+    return -1;
+}
+
 void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *closure) {
-    (void)closure;
     // Create an empty scope for scanning. We intentionally do NOT add the
     // enclosing function's params or captured vars here, because inner closures
     // need to detect ALL references to enclosing variables as free variables
@@ -1499,11 +2313,107 @@ void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *clos
 
     // Create shared environment if needed
     if (ctx->shared_env_num_vars > 0) {
+        // When generating a closure body, variables captured from the
+        // enclosing function already live in this closure's _closure_env.
+        // Inner closures must SHARE those slots (capture by reference), not
+        // copy them - otherwise mutations from an inner closure never reach
+        // the original variable (and each inner closure gets its own copy).
+        // Compute the slot index for each scanned variable:
+        //   - vars stored in the enclosing env: reference the enclosing slot
+        //     (through the parent link, see below)
+        //   - everything else: a fresh local slot in a new environment
+        int n = ctx->shared_env_num_vars;
+        int *idx_map = malloc(n * sizeof(int));
+        int *is_parent = malloc(n * sizeof(int));
+        if (!idx_map || !is_parent) {
+            fprintf(stderr, "error: Memory allocation failed for shared env mapping\n");
+            exit(1);
+        }
+        int num_local = 0;
+        int num_parent = 0;
+        for (int i = 0; i < n; i++) {
+            int parent_idx = closure_capture_env_index(closure, func, ctx->shared_env_vars[i]);
+            if (parent_idx >= 0) {
+                is_parent[i] = 1;
+                idx_map[i] = parent_idx;
+                num_parent++;
+            } else {
+                is_parent[i] = 0;
+                idx_map[i] = num_local++;
+            }
+        }
+
         char env_name[CODEGEN_ENV_NAME_SIZE];
+        if (num_parent > 0 && num_local == 0) {
+            // Every variable inner closures capture already lives in this
+            // closure's environment: reuse _closure_env directly as the
+            // shared environment. Slot indices are the enclosing indices
+            // unchanged. Take a reference so the release emitted by
+            // codegen_emit_local_cleanup stays balanced.
+            ctx->shared_env_name = strdup("_closure_env");
+            ctx->shared_env_indices = idx_map;
+            ctx->shared_env_borrowed = 1;
+            free(is_parent);
+            codegen_writeln(ctx, "hml_closure_env_retain(_closure_env);");
+            return;
+        }
+
         snprintf(env_name, sizeof(env_name), "_shared_env_%d", ctx->temp_counter++);
         ctx->shared_env_name = strdup(env_name);
-        codegen_writeln(ctx, "HmlClosureEnv *%s = hml_closure_env_new(%d);",
-                      env_name, ctx->shared_env_num_vars);
+        if (num_parent > 0) {
+            // Mixed case: chain a fresh environment (holding this body's own
+            // captured locals) to the enclosing environment. Enclosing slots
+            // are addressed through the parent link: one extra hop adds one
+            // stride to the encoded index (encoding is additive, so already
+            // encoded indices from deeper nesting compose correctly).
+            codegen_writeln(ctx, "HmlClosureEnv *%s = hml_closure_env_new_with_parent(%d, _closure_env);",
+                          env_name, num_local);
+            for (int i = 0; i < n; i++) {
+                if (is_parent[i]) {
+                    idx_map[i] += HML_CLOSURE_ENV_PARENT_STRIDE;
+                }
+            }
+            ctx->shared_env_indices = idx_map;
+        } else {
+            codegen_writeln(ctx, "HmlClosureEnv *%s = hml_closure_env_new(%d);",
+                          env_name, num_local);
+            // Identity mapping - keep the array for uniformity
+            ctx->shared_env_indices = idx_map;
+        }
+
+        // Seed the environment with variables that are already declared at
+        // this point (parameters, and for closure bodies the extracted
+        // captures). The shared env is the source of truth for captured
+        // locals, so it must hold their values before any read.
+        // Parent-resolved slots are NOT seeded: the enclosing environment
+        // already holds the authoritative value.
+        for (int i = 0; i < n; i++) {
+            if (is_parent[i]) continue;
+            const char *var = ctx->shared_env_vars[i];
+            int slot = idx_map[i];
+            // Imported symbols have no in-scope C local to seed from in a nested
+            // or inlined closure function: codegen_is_local can report true for
+            // an enclosing scope's binding, but that binding is not a C variable
+            // in this separately-emitted function. Seed from the module-prefixed
+            // global instead, which is always a valid reference.
+            ImportBinding *imp = ctx->current_module
+                ? module_find_import(ctx->current_module, var)
+                : codegen_find_main_import(ctx, var);
+            if (imp) {
+                char prefixed[CODEGEN_MANGLED_NAME_SIZE];
+                snprintf(prefixed, sizeof(prefixed), "%s%s",
+                         imp->module_prefix, imp->original_name);
+                codegen_writeln(ctx, "hml_closure_env_set(%s, %d, %s);",
+                              env_name, slot, prefixed);
+            } else if (codegen_is_local(ctx, var) && !codegen_is_main_var(ctx, var) &&
+                !codegen_is_ref_param(ctx, var)) {
+                char *safe_var = codegen_sanitize_ident(var);
+                codegen_writeln(ctx, "hml_closure_env_set(%s, %d, %s);",
+                              env_name, slot, safe_var);
+                free(safe_var);
+            }
+        }
+        free(is_parent);
     }
 }
 
@@ -1548,6 +2458,30 @@ const char* type_kind_to_hml_val(TypeKind kind) {
         case TYPE_NULL:   return "HML_VAL_NULL";
         default:          return NULL;
     }
+}
+
+// Map a TYPE_CUSTOM_OBJECT annotation's type name to a runtime value tag for
+// the builtin types that lex as identifiers (task, file, channel are
+// documented types). Returns NULL for anything else, including user-defined
+// types - callers must check the type context for shadowing defines/aliases
+// first so e.g. `define channel { ... }` keeps validating as an object type.
+const char* builtin_type_name_to_hml_val(const char *type_name) {
+    if (!type_name) return NULL;
+    if (strcmp(type_name, "task") == 0)    return "HML_VAL_TASK";
+    if (strcmp(type_name, "file") == 0)    return "HML_VAL_FILE";
+    if (strcmp(type_name, "channel") == 0) return "HML_VAL_CHANNEL";
+    return NULL;
+}
+
+// True if `type_name` names a user-defined type (enum, object, or alias) in
+// the type-check context. Lets user definitions shadow the builtin
+// identifier-lexed type names, mirroring the interpreter's lookup order.
+int is_user_defined_type_name(TypeCheckContext *type_ctx, const char *type_name) {
+    if (!type_ctx || !type_name) return 0;
+    if (type_check_lookup_enum(type_ctx, type_name)) return 1;
+    if (type_check_lookup_object(type_ctx, type_name)) return 1;
+    if (type_check_lookup_type_alias(type_ctx, type_name)) return 1;
+    return 0;
 }
 
 const char* type_kind_to_ffi_type(TypeKind kind) {
@@ -1670,7 +2604,13 @@ MemBuffer* membuf_new(void) {
     if (!buf) return NULL;
     buf->data = NULL;
     buf->size = 0;
+#ifdef _WIN32
+    // No open_memstream on Windows: back the stream with a self-deleting
+    // temp file; membuf_flush_to copies from it instead of buf->data.
+    buf->stream = hml_win_tmpfile();
+#else
     buf->stream = open_memstream(&buf->data, &buf->size);
+#endif
     if (!buf->stream) {
         free(buf);
         return NULL;
@@ -1684,10 +2624,29 @@ void membuf_flush_to(MemBuffer *buf, FILE *output) {
     if (buf->stream) {
         fflush(buf->stream);
     }
+#ifdef _WIN32
+    // Temp-file-backed stream: copy its contents, then restore the write
+    // position so further appends still land at the end
+    if (buf->stream) {
+        long end = ftell(buf->stream);
+        rewind(buf->stream);
+        char chunk[8192];
+        long remaining = end;
+        while (remaining > 0) {
+            size_t want = remaining > (long)sizeof(chunk) ? sizeof(chunk) : (size_t)remaining;
+            size_t got = fread(chunk, 1, want, buf->stream);
+            if (got == 0) break;
+            fwrite(chunk, 1, got, output);
+            remaining -= (long)got;
+        }
+        fseek(buf->stream, 0, SEEK_END);
+    }
+#else
     // Write all buffered data to output
     if (buf->data && buf->size > 0) {
         fwrite(buf->data, 1, buf->size, output);
     }
+#endif
 }
 
 void membuf_free(MemBuffer *buf) {

@@ -1,0 +1,40 @@
+// expect: pass
+// Regression test: an out-of-bounds buffer write (negative or past-end index)
+// must throw a catchable bounds error BEFORE any byte is written.
+// Previously the interpreter reported the error but still performed the store,
+// so b[-1] = 9 smashed the malloc chunk header and the process aborted with
+// "double free or corruption" at cleanup.
+
+let b = buffer(4);
+b[0] = 1;
+
+try {
+    b[-1] = 9;
+    print("no error");
+} catch (e) {
+    print("caught negative write");
+}
+
+let big = buffer(4096);
+try {
+    big[-8] = 65;
+    print("no error");
+} catch (e) {
+    print("caught negative write big");
+}
+
+try {
+    b[4] = 7;
+    print("no error");
+} catch (e) {
+    print("caught past-end write");
+}
+
+// Buffer contents unchanged and still fully usable after the caught errors
+print(b[0]);
+b[1] = 2;
+print(b[1]);
+
+free(b);
+free(big);
+print("done");

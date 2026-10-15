@@ -18,7 +18,7 @@ These are available everywhere without any `import` statement.
 | Function | Description |
 |----------|-------------|
 | `print(value, ...)` | Print values to stdout with newline |
-| `write(value)` | Print value to stdout without newline (flushes immediately) |
+| `write(value, ...)` | Print values to stdout without newline (flushes immediately) |
 | `eprint(value, ...)` | Print values to stderr with newline |
 | `read_line()` | Read a line from stdin; returns `string` or `null` on EOF |
 
@@ -37,8 +37,8 @@ let name = read_line();     // blocks until input
 | `talloc(type, count)` | Type-aware allocation: `talloc(i32, 10)` allocates 10 i32s |
 | `realloc(ptr, new_size)` | Resize previously allocated memory |
 | `free(ptr)` | Free allocated memory |
-| `memset(ptr, value, size)` | Set `size` bytes to `value` |
-| `memcpy(dest, src, size)` | Copy `size` bytes from `src` to `dest` |
+| `memset(ptr_or_buffer, value, size)` | Set `size` bytes to `value`; buffers are bounds checked |
+| `memcpy(dest, src, size)` | Copy `size` bytes from `src` to `dest`; buffer operands are bounds checked |
 | `buffer(size)` | Create a bounds-checked buffer of `size` bytes |
 
 ```hemlock
@@ -137,9 +137,8 @@ These are global because they're low-level primitives used with `alloc`/`free`.
 | `ptr_null()` | Get a null pointer |
 | `ptr_to_buffer(ptr, size)` | Wrap a pointer in a bounds-checked buffer |
 | `buffer_ptr(buffer)` | Get the raw pointer from a buffer |
-| `ffi_sizeof(type_name)` | Get FFI type size |
 
-**Pointer read/write/deref** for all numeric types:
+**Pointer read/write/deref** for all numeric types and `ptr`:
 
 ```
 ptr_read_i8, ptr_read_i16, ptr_read_i32, ptr_read_i64
@@ -155,7 +154,7 @@ ptr_deref_u8, ptr_deref_u16, ptr_deref_u32, ptr_deref_u64
 ptr_deref_f32, ptr_deref_f64, ptr_deref_ptr
 ```
 
-All `ptr_read_*`, `ptr_write_*`, and `ptr_deref_*` functions accept both `ptr` and `buffer` types directly:
+All `ptr_read_*`, `ptr_write_*`, and `ptr_deref_*` functions accept both `ptr` and `buffer` types directly; direct buffer operands are bounds checked for the whole typed access:
 
 ```hemlock
 let p = alloc(8);
@@ -229,7 +228,7 @@ import { exec, fork, kill } from "@stdlib/process";
 import { open, read_file } from "@stdlib/fs";
 ```
 
-**Functions:** `open`, `read_file`, `write_file`, `append_file`, `remove_file`, `rename`, `copy_file`, `is_file`, `is_dir`, `file_stat`, `make_dir`, `remove_dir`, `list_dir`, `cwd`, `chdir`, `absolute_path`, `exists`
+**Functions:** `open`, `read_file`, `write_file`, `append_file`, `remove_file`, `rename`, `copy_file`, `is_file`, `is_dir`, `file_stat`, `make_dir`, `make_dirs`, `remove_dir`, `list_dir`, `cwd`, `chdir`, `absolute_path`, `exists`
 
 ### `@stdlib/time`
 

@@ -1,0 +1,13 @@
+// && short-circuits: the right operand may or may not run, so a consuming
+// call there leaves the resource MAYBE_FREED and the later free is a
+// possible double free.
+fn try_consume(p: ptr): bool {
+    free(p);
+    return true;
+}
+fn main() {
+    let ok = false;
+    let p = alloc(64);
+    let both = ok && try_consume(p);
+    free(p);
+}

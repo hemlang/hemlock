@@ -61,14 +61,15 @@ export fn frange(start, end, step): array {
 
 	let result: array = [];
 
-	if (step > 0) {
-		for (let i: f64 = start; i < end; i = i + step) {
-			result.push(i);
-		}
-	} else {
-		for (let i: f64 = start; i > end; i = i + step) {
-			result.push(i);
-		}
+	// Compute start + k*step instead of accumulating the step: repeated
+	// addition drifts (frange(0.0, 1.0, 0.1) produced 11 values)
+	let base: f64 = start;
+	let k = 0;
+	let v: f64 = base;
+	while ((step > 0 && v < end) || (step < 0 && v > end)) {
+		result.push(v);
+		k = k + 1;
+		v = base + k * step;
 	}
 
 	return result;

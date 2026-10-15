@@ -11,6 +11,58 @@
 #include "hemlock_value.h"
 #include <setjmp.h>
 
+// ---- Non-unwinding setjmp on Windows/x64 ----
+// mingw-w64 defines setjmp(BUF) as _setjmp(BUF, __builtin_frame_address(0)),
+// which records a target frame; the CRT's longjmp then drives a full SEH
+// unwind (RtlUnwindEx) back to it. Hemlock's throw deliberately does not
+// unwind — hml_throw() runs no destructors and no defers, exactly like
+// longjmp on POSIX — and unwinding through the generated closure frames
+// crashed inside RtlVirtualUnwind on roughly one run in ten (a throw from
+// inside an array.sort() comparator segfaulted before the catch block ran,
+// with the throw depth deciding whether it survived).
+//
+// The CRT's longjmp skips the unwind when the jmp_buf's Frame field is 0, so
+// zero it after setjmp has saved the registers. Passing a NULL frame instead
+// only works on the msvcrt spelling: against the UCRT, _setjmp is #defined to
+// GCC's __intrinsic_setjmpex builtin, which fills the buffer itself and stores
+// the real frame regardless of the argument. Writing the field afterwards is
+// independent of which spelling the toolchain picked.
+//
+// What this does and does not fix, measured (table in
+// docs/advanced/windows.md):
+//   - msvcrt (cross builds, Wine, MinGW GCC 8.3): 5/40 crashes -> 0/60.
+//   - UCRT64 + GCC 16: no effect; the unwind still happens, ~1/25. That
+//     residual crash predates this change and is a documented known issue.
+//
+// Do NOT "fix" the UCRT case with __builtin_setjmp/__builtin_longjmp. It looks
+// ideal — no CRT, no unwinder, and it does give 0/60 on GCC 8.3 — but GCC's
+// nonlocal-goto builtins do not work cross-function on x86_64 SEH targets with
+// a modern GCC: on UCRT64/GCC 16 the jump lands on a garbage address and the
+// same test crashes 25/25, with rip in no known function and every frame `??`.
+// That trades an intermittent failure for a deterministic one. Define
+// HEMLOCK_WIN32_CRT_SETJMP to leave setjmp completely alone, which is how that
+// A/B was run (`--cc "gcc -DHEMLOCK_WIN32_CRT_SETJMP"`, and the same define on
+// the runtime — applying it to only one side makes hml_throw jump on a buffer
+// the other mechanism filled, which crashes every time and looks like a result).
+//
+// Normalizing the longjmp return to 1 is safe here: hml_throw is the only
+// caller and always passes 1. Deliberately no temporary — a local modified
+// between setjmp and longjmp would need to be volatile.
+//
+// <setjmp.h> is include-guarded and already included above, so nothing can
+// redefine setjmp back afterwards.
+#if defined(_WIN32) && defined(__x86_64__) && !defined(__EMSCRIPTEN__) && \
+    !defined(HEMLOCK_WIN32_CRT_SETJMP)
+#include <stddef.h>
+_Static_assert(offsetof(_JUMP_BUFFER, Frame) == 0,
+               "jmp_buf layout changed: Frame must be the first field");
+#undef setjmp
+#define setjmp(BUF) \
+    (_setjmp((BUF), __builtin_frame_address(0)) \
+        ? 1 \
+        : (((_JUMP_BUFFER *)(void *)(BUF))->Frame = 0, 0))
+#endif
+
 // Forward declarations
 typedef struct HmlClosureEnv HmlClosureEnv;
 
@@ -18,6 +70,12 @@ typedef struct HmlClosureEnv HmlClosureEnv;
 
 // Initialize the Hemlock runtime (call at start of main)
 void hml_runtime_init(int argc, char **argv);
+
+// Re-pin /dev/null onto any of fds 0/1/2 that have been closed. Called
+// internally before lws_create_context to keep libwebsockets' Homebrew
+// builtin plugins (which close stdin on macOS) from causing later
+// open()/socket()/pipe() calls to land on the standard fd slots.
+void hml_runtime_pin_stdio(void);
 
 // Cleanup the Hemlock runtime (call at end of main)
 void hml_runtime_cleanup(void);
@@ -80,6 +138,8 @@ typedef enum {
 
 // Perform binary operation with automatic type promotion
 HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right);
+HmlValue hml_value_inc(HmlValue val);  // ++: preserves type, wraps on overflow
+HmlValue hml_value_dec(HmlValue val);  // --: preserves type, wraps on overflow
 
 // ========== UNARY OPERATIONS ==========
 
@@ -90,6 +150,10 @@ typedef enum {
 } HmlUnaryOp;
 
 HmlValue hml_unary_op(HmlUnaryOp op, HmlValue operand);
+
+// Type-preserving ++/-- (u16 wraps at 65536, i64 stays i64, floats keep width)
+HmlValue hml_value_inc(HmlValue val);
+HmlValue hml_value_dec(HmlValue val);
 
 // ========== BUILTIN FUNCTIONS ==========
 
@@ -128,7 +192,7 @@ __attribute__((noreturn)) void hml_panic(HmlValue message);
 // Command execution
 HmlValue hml_exec(HmlValue command);
 HmlValue hml_exec_with_args(HmlValue command, HmlValue args_array);  // Safe version with separate args
-HmlValue hml_exec_argv(HmlValue args_array);  // Safe version without shell
+HmlValue hml_exec_argv(HmlValue args_array, HmlValue opts);  // Safe version without shell
 
 // ========== MATH OPERATIONS ==========
 
@@ -209,6 +273,17 @@ HmlValue hml_builtin_time_ms(HmlClosureEnv *env);
 HmlValue hml_builtin_clock(HmlClosureEnv *env);
 HmlValue hml_builtin_sleep(HmlClosureEnv *env, HmlValue seconds);
 
+// ========== FRAME LOOP ==========
+// Drives per-frame work without sleep(). Under WASM this hands the callback
+// to the host's frame scheduler, which is what lets a browser build link
+// without Asyncify (see runtime/src/builtins_mainloop.c).
+
+void hml_main_loop(HmlValue callback, HmlValue fps);
+void hml_main_loop_stop(void);
+
+HmlValue hml_builtin_main_loop(HmlClosureEnv *env, HmlValue callback, HmlValue fps);
+HmlValue hml_builtin_main_loop_stop(HmlClosureEnv *env);
+
 // ========== DATETIME OPERATIONS ==========
 
 HmlValue hml_localtime(HmlValue timestamp);
@@ -230,7 +305,7 @@ __attribute__((noreturn)) void hml_exit(HmlValue code);
 HmlValue hml_get_pid(void);
 HmlValue hml_exec(HmlValue command);
 HmlValue hml_exec_with_args(HmlValue command, HmlValue args_array);
-HmlValue hml_exec_argv(HmlValue args_array);
+HmlValue hml_exec_argv(HmlValue args_array, HmlValue opts);
 
 // Environment builtin wrappers
 HmlValue hml_builtin_getenv(HmlClosureEnv *env, HmlValue name);
@@ -240,7 +315,7 @@ HmlValue hml_builtin_exit(HmlClosureEnv *env, HmlValue code);
 HmlValue hml_builtin_get_pid(HmlClosureEnv *env);
 HmlValue hml_builtin_exec(HmlClosureEnv *env, HmlValue command);
 HmlValue hml_builtin_exec_with_args(HmlClosureEnv *env, HmlValue command, HmlValue args_array);
-HmlValue hml_builtin_exec_argv(HmlClosureEnv *env, HmlValue args_array);
+HmlValue hml_builtin_exec_argv(HmlClosureEnv *env, HmlValue args_array, HmlValue opts);
 
 // ========== PROCESS OPERATIONS ==========
 
@@ -254,7 +329,15 @@ HmlValue hml_kill(HmlValue pid, HmlValue sig);
 HmlValue hml_fork(void);
 HmlValue hml_wait(void);
 HmlValue hml_waitpid(HmlValue pid, HmlValue options);
+HmlValue hml_posix_spawn(HmlValue argv, HmlValue opts);
 __attribute__((noreturn)) void hml_abort(void);
+
+// Pipe operations
+HmlValue hml_pipe(void);
+HmlValue hml_close_fd(HmlValue fd);
+HmlValue hml_read_fd(HmlValue fd, HmlValue size);
+HmlValue hml_write_fd(HmlValue fd, HmlValue data);
+HmlValue hml_dup2(HmlValue oldfd, HmlValue newfd);
 
 // Process builtin wrappers
 HmlValue hml_builtin_getppid(HmlClosureEnv *env);
@@ -266,7 +349,15 @@ HmlValue hml_builtin_kill(HmlClosureEnv *env, HmlValue pid, HmlValue sig);
 HmlValue hml_builtin_fork(HmlClosureEnv *env);
 HmlValue hml_builtin_wait(HmlClosureEnv *env);
 HmlValue hml_builtin_waitpid(HmlClosureEnv *env, HmlValue pid, HmlValue options);
+HmlValue hml_builtin_posix_spawn(HmlClosureEnv *env, HmlValue argv, HmlValue opts);
 HmlValue hml_builtin_abort(HmlClosureEnv *env);
+
+// Pipe builtin wrappers
+HmlValue hml_builtin_pipe(HmlClosureEnv *env);
+HmlValue hml_builtin_close_fd(HmlClosureEnv *env, HmlValue fd);
+HmlValue hml_builtin_read_fd(HmlClosureEnv *env, HmlValue fd, HmlValue size);
+HmlValue hml_builtin_write_fd(HmlClosureEnv *env, HmlValue fd, HmlValue data);
+HmlValue hml_builtin_dup2(HmlClosureEnv *env, HmlValue oldfd, HmlValue newfd);
 
 // ========== I/O OPERATIONS ==========
 
@@ -279,7 +370,9 @@ HmlValue hml_sizeof(HmlValue type_name);
 // ========== STRING OPERATIONS ==========
 
 HmlValue hml_string_concat(HmlValue a, HmlValue b);
+HmlValue hml_string_concat_display(HmlValue a, HmlValue b);  // Template strings: display formatting
 HmlValue hml_string_append_inplace(HmlValue *dest, HmlValue src);  // For x = x + y pattern
+HmlValue hml_to_string_concat(HmlValue val);  // `+` concat: arrays/objects JSON-serialized
 HmlValue hml_string_concat3(HmlValue a, HmlValue b, HmlValue c);
 HmlValue hml_string_concat4(HmlValue a, HmlValue b, HmlValue c, HmlValue d);
 HmlValue hml_string_concat5(HmlValue a, HmlValue b, HmlValue c, HmlValue d, HmlValue e);
@@ -290,8 +383,10 @@ HmlValue hml_string_char_at(HmlValue str, HmlValue index);
 HmlValue hml_string_byte_at(HmlValue str, HmlValue index);
 HmlValue hml_string_rune_at(HmlValue str, HmlValue index);  // UTF-8 aware rune at char index
 HmlValue hml_string_substr(HmlValue str, HmlValue start, HmlValue length);
+HmlValue hml_string_substr_from(HmlValue str, HmlValue start);  // substr(start) to end of string
 HmlValue hml_string_slice(HmlValue str, HmlValue start, HmlValue end);
 HmlValue hml_string_find(HmlValue str, HmlValue needle);
+HmlValue hml_string_rfind(HmlValue str, HmlValue needle);  // last occurrence (byte index)
 HmlValue hml_string_contains(HmlValue str, HmlValue needle);
 HmlValue hml_string_split(HmlValue str, HmlValue delimiter);
 HmlValue hml_string_trim(HmlValue str);
@@ -309,6 +404,10 @@ HmlValue hml_string_concat_many(HmlValue arr);  // Concatenate array of strings
 // String index access (returns rune)
 HmlValue hml_string_index(HmlValue str, HmlValue index);
 void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue rune);
+// Variable-slot variant: copy-on-writes immortal (pooled) strings into the
+// slot before mutating, so `s[i] = c` on a 1-char literal cannot corrupt the
+// shared ASCII pool. Codegen uses this whenever the target is a plain variable.
+void hml_string_index_assign_var(HmlValue *slot, HmlValue index, HmlValue rune);
 
 // String to array conversion
 HmlValue hml_string_chars(HmlValue str);   // Returns array of runes
@@ -343,11 +442,13 @@ void hml_array_set(HmlValue arr, HmlValue index, HmlValue val);
 // Typed array support
 void hml_array_set_element_type(HmlValue arr, HmlValueType element_type);
 HmlValue hml_validate_typed_array(HmlValue arr, HmlValueType element_type);
+HmlValue hml_validate_typed_array_object(HmlValue arr, const char *type_name);
 
 // Higher-order array operations
 HmlValue hml_array_map(HmlValue arr, HmlValue callback);
 HmlValue hml_array_filter(HmlValue arr, HmlValue predicate);
 HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial);
+HmlValue hml_array_reduce_n(HmlValue arr, HmlValue reducer, HmlValue initial, int has_initial);
 HmlValue hml_array_every(HmlValue arr, HmlValue predicate);
 HmlValue hml_array_some(HmlValue arr, HmlValue predicate);
 HmlValue hml_array_index_of(HmlValue arr, HmlValue value);
@@ -361,6 +462,10 @@ void hml_array_fill(HmlValue arr, HmlValue value, HmlValue start, HmlValue end);
 
 HmlValue hml_object_get_field(HmlValue obj, const char *field);
 HmlValue hml_object_get_field_required(HmlValue obj, const char *field);  // Throws if field not found
+// Property access variant: like hml_object_get_field_required, but if the
+// field holds a function it returns a copy with 'self' bound to the object
+// (method extraction semantics, matching the interpreter).
+HmlValue hml_object_get_field_bound(HmlValue obj, const char *field);
 void hml_object_set_field(HmlValue obj, const char *field, HmlValue val);
 int hml_value_coerce_to_key(HmlValue val, char *buf, size_t buf_size);  // Convert value to string key
 HmlValue hml_object_get_field_coerce(HmlValue obj, HmlValue key);  // Non-string key auto-coerced to string
@@ -368,6 +473,11 @@ void hml_object_set_field_coerce(HmlValue obj, HmlValue key, HmlValue val);  // 
 int hml_object_has_field(HmlValue obj, const char *field);
 int hml_object_delete_field(HmlValue obj, const char *field);  // Returns 1 if deleted, 0 if not found
 int hml_object_num_fields(HmlValue obj);
+
+// Current element count of a for-in iterable (array/object/string).
+// Re-evaluated every iteration so mutation during iteration is observed,
+// matching the interpreter's live length check.
+int32_t hml_iter_length(HmlValue v);
 HmlValue hml_object_key_at(HmlValue obj, int index);
 HmlValue hml_object_value_at(HmlValue obj, int index);
 HmlValue hml_object_keys(HmlValue obj);
@@ -383,7 +493,9 @@ HmlValue hml_deserialize(HmlValue json_str);
 // ========== MEMORY OPERATIONS ==========
 
 HmlValue hml_alloc(int32_t size);
+HmlValue hml_buffer_new(int32_t size);
 void hml_free(HmlValue ptr_or_buffer);
+void hml_free_owned(HmlValue *ptr_or_buffer);
 HmlValue hml_realloc(HmlValue ptr, int32_t new_size);
 void hml_memset(HmlValue ptr, uint8_t byte_val, int32_t size);
 void hml_memcpy(HmlValue dest, HmlValue src, int32_t size);
@@ -397,6 +509,7 @@ void hml_buffer_set(HmlValue buf, HmlValue index, HmlValue val);
 HmlValue hml_buffer_length(HmlValue buf);
 HmlValue hml_buffer_capacity(HmlValue buf);
 HmlValue hml_buffer_slice(HmlValue buf, HmlValue start, HmlValue end);
+HmlValue hml_buffer_to_string(HmlValue buf);
 
 // Buffer typed write methods (bounds-checked, explicit endianness)
 void hml_buffer_write_u8(HmlValue buf, HmlValue offset, HmlValue value);
@@ -453,8 +566,15 @@ void hml_callback_free(HmlValue callback);
 // Global self reference for method calls (thread-local for safety)
 extern __thread HmlValue hml_self;
 
-// Call a function value with arguments
+// Call a function value with arguments (honors bound 'self' on extracted methods)
 HmlValue hml_call_function(HmlValue fn, HmlValue *args, int num_args);
+
+// Raw dispatch that ignores any bound 'self' on the callee (used by
+// hml_call_method, which sets hml_self from the explicit receiver)
+HmlValue hml_call_function_no_bind(HmlValue fn, HmlValue *args, int num_args);
+
+// Copy a function value with 'self' bound to the given object (method extraction)
+HmlValue hml_function_bind_self(HmlValue fn, HmlValue self_obj);
 
 // Call a function with named arguments (reorders args to match parameter names)
 HmlValue hml_call_function_named(HmlValue fn, HmlValue *args, const char **arg_names, int num_args);
@@ -483,6 +603,20 @@ HmlValue hml_exception_get_value(void);
 // but the code after the call site will not execute.
 __attribute__((noreturn)) void hml_runtime_error(const char *format, ...);
 
+// Fatal, non-catchable error: prints "Runtime error: <msg>" and exits.
+__attribute__((noreturn)) void hml_fatal_error(const char *message);
+
+// Located variant: "[file:line] message" plus source line + caret.
+__attribute__((noreturn)) void hml_runtime_error_loc(const char *format, ...);
+
+// Line-only variant: "[line N] message" with no file path or source snippet.
+__attribute__((noreturn)) void hml_runtime_error_line(const char *format, ...);
+
+// Source context for runtime error messages. Set once at program start by
+// generated main(); hml_error_line is updated per statement by generated code.
+void hml_set_source(const char *file, const char *code);
+extern _Thread_local int hml_error_line;
+
 // ========== DEFER SUPPORT ==========
 
 typedef void (*HmlDeferFn)(void *arg);
@@ -492,6 +626,12 @@ void hml_defer_push_call(HmlValue fn);
 void hml_defer_push_call_with_args(HmlValue fn, HmlValue *args, int num_args);
 void hml_defer_pop_and_execute(void);
 void hml_defer_execute_all(void);
+
+// Per-function defer frames: a function with defers records the stack mark at
+// entry and drains only its own entries on exit, so a callee's return doesn't
+// run the caller's defers.
+void* hml_defer_frame_begin(void);
+void hml_defer_execute_frame(void *mark);
 
 // ========== ASYNC/CONCURRENCY ==========
 
@@ -517,9 +657,22 @@ void hml_channel_close(HmlValue channel);
 HmlValue hml_select(HmlValue channels, HmlValue timeout);
 HmlValue hml_poll(HmlValue fds, HmlValue timeout);
 
+// Env-first wrappers for builtins used as first-class function values.
+// (Defined in builtins_func.c — see the comment there.) The function-value
+// dispatch path calls f(env, args...); these give the raw builtins that
+// signature so arguments don't shift by one.
+HmlValue hml_builtin_poll(HmlClosureEnv *env, HmlValue fds, HmlValue timeout);
+HmlValue hml_builtin_open(HmlClosureEnv *env, HmlValue path, HmlValue mode);
+HmlValue hml_builtin_raise(HmlClosureEnv *env, HmlValue signum);
+HmlValue hml_builtin_signal(HmlClosureEnv *env, HmlValue signum, HmlValue handler);
+HmlValue hml_builtin_string_concat_many(HmlClosureEnv *env, HmlValue arr);
+HmlValue hml_builtin_task_debug_info(HmlClosureEnv *env, HmlValue task);
+
 // ========== FILE I/O ==========
 
 HmlValue hml_open(HmlValue path, HmlValue mode);
+HmlValue hml_open_fd(HmlValue path, HmlValue mode);
+HmlValue hml_fileno(HmlValue file);
 HmlValue hml_file_read(HmlValue file, HmlValue size);
 HmlValue hml_file_read_all(HmlValue file);
 HmlValue hml_file_write(HmlValue file, HmlValue data);
@@ -527,7 +680,13 @@ HmlValue hml_file_seek(HmlValue file, HmlValue position);
 HmlValue hml_file_tell(HmlValue file);
 void hml_file_close(HmlValue file);
 HmlValue hml_file_read_bytes(HmlValue file, HmlValue size);
+HmlValue hml_file_read_binary(HmlValue file, HmlValue size);
+HmlValue hml_file_read_binary_all(HmlValue file);
 HmlValue hml_file_write_bytes(HmlValue file, HmlValue data);
+
+// File I/O builtin wrappers
+HmlValue hml_builtin_open_fd(HmlClosureEnv *env, HmlValue path, HmlValue mode);
+HmlValue hml_builtin_fileno(HmlClosureEnv *env, HmlValue file);
 
 // ========== FILESYSTEM OPERATIONS ==========
 
@@ -638,6 +797,10 @@ HmlValue hml_builtin_dirent_name(HmlClosureEnv *env, HmlValue ptr);
 HmlValue hml_builtin_string_to_cstr(HmlClosureEnv *env, HmlValue str);
 HmlValue hml_builtin_cstr_to_string(HmlClosureEnv *env, HmlValue ptr);
 HmlValue hml_builtin_string_from_bytes(HmlClosureEnv *env, HmlValue arg);
+// Env-first wrappers so to_string / string_byte_length can be used as
+// first-class function values (the codegen value-wrap path calls f(env,...)).
+HmlValue hml_builtin_to_string(HmlClosureEnv *env, HmlValue val);
+HmlValue hml_builtin_string_byte_length(HmlClosureEnv *env, HmlValue str);
 
 // ========== DNS/NETWORKING OPERATIONS ==========
 
@@ -655,6 +818,9 @@ void hml_socket_listen(HmlValue socket_val, HmlValue backlog);
 HmlValue hml_socket_accept(HmlValue socket_val);
 void hml_socket_connect(HmlValue socket_val, HmlValue address, HmlValue port);
 void hml_socket_close(HmlValue socket_val);
+// Refcount-zero teardown (closes fd if open, frees the handle struct).
+// Called by hml_release; not for direct use from generated code.
+void hml_socket_destroy(HmlSocket *sock);
 
 // Socket I/O
 HmlValue hml_socket_send(HmlValue socket_val, HmlValue data);
@@ -672,6 +838,7 @@ HmlValue hml_socket_get_fd(HmlValue socket_val);
 HmlValue hml_socket_get_address(HmlValue socket_val);
 HmlValue hml_socket_get_port(HmlValue socket_val);
 HmlValue hml_socket_get_closed(HmlValue socket_val);
+HmlValue hml_socket_get_nonblocking(HmlValue socket_val);
 
 // Socket builtin wrappers
 HmlValue hml_builtin_socket_create(HmlClosureEnv *env, HmlValue domain, HmlValue sock_type, HmlValue protocol);
@@ -733,11 +900,28 @@ HmlValue hml_validate_enum_value(HmlValue val, const char *enum_name);
 typedef struct HmlClosureEnv {
     HmlValue *captured;     // Array of captured values
     int num_captured;       // Number of captured values
-    int ref_count;          // Reference count
+    struct HmlClosureEnv *parent;  // Enclosing environment (NULL if none); enables
+                                   // shared (by-reference) capture across nested closures
+    _Atomic int ref_count;  // Reference count (atomic for thread safety)
+    pthread_mutex_t mutex;  // Protects concurrent access from spawned tasks
 } HmlClosureEnv;
+
+// Parent-slot index encoding for closure environments:
+//   index = depth * HML_CLOSURE_ENV_PARENT_STRIDE + slot
+// where depth is how many parent links to follow and slot is the index in
+// that environment. Must match HML_CLOSURE_ENV_PARENT_STRIDE in
+// include/hemlock_limits.h (compiler side).
+#ifndef HML_CLOSURE_ENV_PARENT_STRIDE
+#define HML_CLOSURE_ENV_PARENT_STRIDE 65536
+#endif
 
 // Create a new closure environment with given capacity
 HmlClosureEnv* hml_closure_env_new(int num_vars);
+
+// Create a new closure environment chained to a parent environment.
+// Retains the parent; slots indexed with the parent-slot encoding above
+// resolve through the parent chain.
+HmlClosureEnv* hml_closure_env_new_with_parent(int num_vars, HmlClosureEnv *parent);
 
 // Free a closure environment
 void hml_closure_env_free(HmlClosureEnv *env);
@@ -803,6 +987,9 @@ void hml_ffi_struct_cleanup(void);
 
 // Load a shared library, returns opaque handle
 HmlValue hml_ffi_load(const char *path);
+// import-statement variant: identical when FFI is available, warns
+// instead of throwing in no-FFI builds (platform-gated module imports)
+HmlValue hml_ffi_load_import(const char *path);
 
 // Close a library handle
 void hml_ffi_close(HmlValue lib);
@@ -899,14 +1086,19 @@ HmlValue hml_lws_http_get_with_headers(HmlValue url, HmlValue headers);
 
 // HTTP POST request
 HmlValue hml_lws_http_post(HmlValue url, HmlValue body, HmlValue content_type);
+HmlValue hml_lws_http_post_with_headers(HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers);
 
 // Generic HTTP request (any method: PUT, DELETE, PATCH, etc.)
 HmlValue hml_lws_http_request(HmlValue method, HmlValue url, HmlValue body, HmlValue content_type);
+HmlValue hml_lws_http_request_with_headers(HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers);
 
 // HTTP requests with configurable timeout (timeout_ms in milliseconds)
 HmlValue hml_lws_http_get_timeout(HmlValue url, HmlValue timeout_ms);
+HmlValue hml_lws_http_get_timeout_with_headers(HmlValue url, HmlValue timeout_ms, HmlValue headers);
 HmlValue hml_lws_http_post_timeout(HmlValue url, HmlValue body, HmlValue content_type, HmlValue timeout_ms);
+HmlValue hml_lws_http_post_timeout_with_headers(HmlValue url, HmlValue body, HmlValue content_type, HmlValue timeout_ms, HmlValue headers);
 HmlValue hml_lws_http_request_timeout(HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue timeout_ms);
+HmlValue hml_lws_http_request_timeout_with_headers(HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue timeout_ms, HmlValue headers);
 
 // Get HTTP response status code
 HmlValue hml_lws_response_status(HmlValue resp);
@@ -928,8 +1120,11 @@ HmlValue hml_lws_response_body_binary(HmlValue resp);
 
 // Builtin wrappers for function-as-value
 HmlValue hml_builtin_lws_http_get(HmlClosureEnv *env, HmlValue url);
+HmlValue hml_builtin_lws_http_get_with_headers(HmlClosureEnv *env, HmlValue url, HmlValue headers);
 HmlValue hml_builtin_lws_http_post(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type);
+HmlValue hml_builtin_lws_http_post_with_headers(HmlClosureEnv *env, HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers);
 HmlValue hml_builtin_lws_http_request(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type);
+HmlValue hml_builtin_lws_http_request_with_headers(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue headers);
 HmlValue hml_builtin_lws_response_status(HmlClosureEnv *env, HmlValue resp);
 HmlValue hml_builtin_lws_response_body(HmlClosureEnv *env, HmlValue resp);
 HmlValue hml_builtin_lws_response_headers(HmlClosureEnv *env, HmlValue resp);
@@ -940,6 +1135,7 @@ HmlValue hml_builtin_lws_response_body_binary(HmlClosureEnv *env, HmlValue resp)
 // Streaming HTTP functions (chunked/SSE responses)
 HmlValue hml_lws_http_stream_start(HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue timeout_ms);
 HmlValue hml_lws_http_stream_read(HmlValue stream, HmlValue timeout_ms);
+HmlValue hml_lws_http_stream_read_binary(HmlValue stream, HmlValue timeout_ms);
 HmlValue hml_lws_http_stream_status(HmlValue stream);
 HmlValue hml_lws_http_stream_headers(HmlValue stream);
 HmlValue hml_lws_http_stream_close(HmlValue stream);
@@ -947,6 +1143,7 @@ HmlValue hml_lws_http_stream_close(HmlValue stream);
 // Streaming HTTP builtin wrappers
 HmlValue hml_builtin_lws_http_stream_start(HmlClosureEnv *env, HmlValue method, HmlValue url, HmlValue body, HmlValue content_type, HmlValue timeout);
 HmlValue hml_builtin_lws_http_stream_read(HmlClosureEnv *env, HmlValue stream, HmlValue timeout);
+HmlValue hml_builtin_lws_http_stream_read_binary(HmlClosureEnv *env, HmlValue stream, HmlValue timeout);
 HmlValue hml_builtin_lws_http_stream_status(HmlClosureEnv *env, HmlValue stream);
 HmlValue hml_builtin_lws_http_stream_headers(HmlClosureEnv *env, HmlValue stream);
 HmlValue hml_builtin_lws_http_stream_close(HmlClosureEnv *env, HmlValue stream);
@@ -986,6 +1183,28 @@ HmlValue hml_builtin_lws_msg_free(HmlClosureEnv *env, HmlValue msg);
 HmlValue hml_builtin_lws_ws_server_create(HmlClosureEnv *env, HmlValue host, HmlValue port);
 HmlValue hml_builtin_lws_ws_server_accept(HmlClosureEnv *env, HmlValue server, HmlValue timeout_ms);
 HmlValue hml_builtin_lws_ws_server_close(HmlClosureEnv *env, HmlValue server);
+
+// ========== TERMINAL CONTROL ==========
+
+// Raw mode, single-byte reads with timeout, terminal size, tty check
+// (POSIX termios / Windows console API)
+HmlValue hml_term_is_tty(void);
+HmlValue hml_term_raw(HmlValue enable);
+HmlValue hml_term_read_byte(HmlValue timeout_val);
+HmlValue hml_term_size(void);
+
+// Builtin wrappers for function-as-value usage
+HmlValue hml_builtin_term_is_tty(HmlClosureEnv *env);
+HmlValue hml_builtin_term_raw(HmlClosureEnv *env, HmlValue enable);
+HmlValue hml_builtin_term_read_byte(HmlClosureEnv *env, HmlValue timeout_val);
+HmlValue hml_builtin_term_size(HmlClosureEnv *env);
+
+// ========== CSPRNG ==========
+
+// Cryptographically secure random bytes (CNG on Windows, /dev/urandom
+// elsewhere) - returns buffer
+HmlValue hml_random_bytes(HmlValue size_val);
+HmlValue hml_builtin_random_bytes(HmlClosureEnv *env, HmlValue size_val);
 
 // ========== CRYPTOGRAPHIC HASH FUNCTIONS ==========
 
@@ -1041,6 +1260,13 @@ HmlValue hml_builtin_regex_replace_all(HmlClosureEnv *env, HmlValue preg, HmlVal
 // Can be overridden by defining HML_MAX_CALL_DEPTH before including this header
 #ifndef HML_MAX_CALL_DEPTH
 #define HML_MAX_CALL_DEPTH 10000
+#endif
+
+// Maximum nesting depth when parsing JSON via string.deserialize().
+// Must match HML_MAX_JSON_DEPTH in include/hemlock_limits.h so the interpreter
+// and compiled runtime reject deeply nested JSON identically.
+#ifndef HML_MAX_JSON_DEPTH
+#define HML_MAX_JSON_DEPTH 1000
 #endif
 
 // Call depth tracking - called at function entry/exit to detect stack overflow
@@ -1131,6 +1357,16 @@ HmlValue hml_builtin_atomic_cas_i64(HmlClosureEnv *env, HmlValue ptr, HmlValue e
 HmlValue hml_builtin_atomic_exchange_i64(HmlClosureEnv *env, HmlValue ptr, HmlValue value);
 
 HmlValue hml_builtin_atomic_fence(HmlClosureEnv *env);
+
+// ========== MEMORY-MAPPED FILE I/O ==========
+
+HmlValue hml_builtin_mmap_open(HmlClosureEnv *env, HmlValue path, HmlValue mode);
+HmlValue hml_builtin_mmap_open_anon(HmlClosureEnv *env, HmlValue size);
+HmlValue hml_builtin_mmap_sync(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_mmap_close(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_mmap_size(HmlClosureEnv *env, HmlValue ptr);
+HmlValue hml_builtin_mmap_advise(HmlClosureEnv *env, HmlValue ptr, HmlValue advice);
+HmlValue hml_builtin_mmap_protect(HmlClosureEnv *env, HmlValue ptr, HmlValue prot);
 
 // ========== BYTE ORDER OPERATIONS ==========
 

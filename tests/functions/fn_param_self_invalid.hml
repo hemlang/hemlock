@@ -1,0 +1,6 @@
+// @expect-compile-fail 'self' is not a valid parameter name
+// 'self' is a keyword bound implicitly in methods - it cannot be declared
+// as a parameter name. Regression: this used to hang the parser (the
+// block_statement error-recovery loop made no forward progress and grew
+// the block until OOM) instead of reporting a parse error.
+let f = fn(self) { return 1; };

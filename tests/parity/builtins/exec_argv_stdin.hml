@@ -1,0 +1,10 @@
+// Test: exec_argv stdin option
+import { exec_argv } from "@stdlib/process";
+
+let r = exec_argv(["cat"], { stdin: "piped input\n" });
+print(r.exit_code);
+print(r.output);
+
+let r2 = exec_argv(["wc", "-c"], { stdin: "hello" });
+print(r2.exit_code);
+print(r2.output);

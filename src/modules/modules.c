@@ -1,5 +1,6 @@
 #define _XOPEN_SOURCE 500
 #include "modules.h"
+#include "hemlock_compat.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -11,18 +12,13 @@
 #include <mach-o/dyld.h>
 #endif
 
+#include "shared/hash.h"
+
 // ========== SHARED CACHE MAP ==========
 
 #define MODULE_CACHE_INITIAL_SIZE 64
 
-static unsigned long module_path_hash(const char *str) {
-    unsigned long hash = 5381;
-    int c;
-    while ((c = *str++)) {
-        hash = ((hash << 5) + hash) + c;
-    }
-    return hash;
-}
+#define module_path_hash(s) ((unsigned long)hml_hash_string(s))
 
 void module_cache_map_init(ModuleCacheMap *map) {
     map->size = MODULE_CACHE_INITIAL_SIZE;
@@ -118,9 +114,23 @@ void module_cache_map_free(ModuleCacheMap *map) {
 
 // ========== PATH SECURITY ==========
 
+// Absolute-path test that understands Windows paths (C:/, C:\, \\server)
+// in addition to POSIX ones
+static int path_is_absolute(const char *path) {
+    if (path[0] == '/') return 1;
+#ifdef _WIN32
+    if (path[0] == '\\') return 1;
+    if (((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z'))
+        && path[1] == ':' && (path[2] == '/' || path[2] == '\\')) {
+        return 1;
+    }
+#endif
+    return 0;
+}
+
 static int is_safe_subpath(const char *path) {
     if (path == NULL) return 0;
-    if (path[0] == '\0' || path[0] == '/') return 0;
+    if (path[0] == '\0' || path_is_absolute(path)) return 0;
 
     const char *p = path;
     while (*p) {
@@ -183,6 +193,10 @@ static char* find_stdlib_path(void) {
             found_exe = 1;
         }
     }
+#elif defined(_WIN32)
+    if (hml_get_executable_path(exe_path, sizeof(exe_path))) {
+        found_exe = 1;
+    }
 #else
     ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
     if (len != -1) {
@@ -202,6 +216,13 @@ static char* find_stdlib_path(void) {
         }
 
         snprintf(resolved, PATH_MAX, "%s/../stdlib", dir);
+        if (access(resolved, F_OK) == 0) {
+            free(exe_copy);
+            return realpath(resolved, NULL);
+        }
+
+        // install.sh layout: <prefix>/bin/hemlockc + <prefix>/lib/hemlock/stdlib
+        snprintf(resolved, PATH_MAX, "%s/../lib/hemlock/stdlib", dir);
         if (access(resolved, F_OK) == 0) {
             free(exe_copy);
             return realpath(resolved, NULL);
@@ -239,18 +260,24 @@ static char* find_hem_modules(const char *start_path) {
             return strdup(hem_modules_path);
         }
 
-        char *parent = dirname(search_path);
-        if (strcmp(parent, search_path) == 0 || strcmp(parent, "/") == 0) {
+        // Walk up by truncating at last '/'
+        char *last_slash = strrchr(search_path, '/');
+        if (!last_slash || last_slash == search_path) {
+            // At root or no slash — check root hem_modules then stop
+            if (last_slash == search_path && search_path[1] != '\0') {
+                search_path[1] = '\0';
+                continue;
+            }
             break;
         }
-        strncpy(search_path, parent, PATH_MAX - 1);
+        *last_slash = '\0';
     }
 
     return NULL;
 }
 
 static int is_package_import(const char *import_path) {
-    if (import_path[0] == '.' || import_path[0] == '/') {
+    if (import_path[0] == '.' || path_is_absolute(import_path)) {
         return 0;
     }
 
@@ -355,7 +382,7 @@ char* resolve_module_path(ModuleResolution *resolver, const char *importer_path,
             fprintf(stderr, "Error: Module path '%s' resolves outside stdlib directory\n", import_path);
             return NULL;
         }
-    } else if (import_path[0] == '/') {
+    } else if (path_is_absolute(import_path)) {
         strncpy(resolved, import_path, PATH_MAX - 1);
         resolved[PATH_MAX - 1] = '\0';
     } else if (is_package_import(import_path)) {
@@ -366,7 +393,10 @@ char* resolve_module_path(ModuleResolution *resolver, const char *importer_path,
         search_dir[PATH_MAX - 1] = '\0';
 
         if (importer_path) {
-            dirname(search_dir);
+            char *last_slash = strrchr(search_dir, '/');
+            if (last_slash) {
+                *last_slash = '\0';
+            }
         }
 
         char *hem_modules = find_hem_modules(search_dir);

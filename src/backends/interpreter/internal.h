@@ -165,7 +165,7 @@ void visited_set_add(VisitedSet *set, void *ptr);
 
 // ========== ENVIRONMENT (environment.c) ==========
 
-// DJB2 hash function for variable names
+// DJB2 hash function for variable names (delegates to shared inline)
 uint32_t hash_string(const char *str);
 
 Environment* env_new(Environment *parent);
@@ -201,14 +201,28 @@ int object_lookup_field_with_hash(Object *obj, const char *name, uint32_t hash);
 int object_validate_ic(Object *obj, int cached_idx, const char *name);  // Validate IC cache entry
 int object_hash_insert(Object *obj, const char *name, int field_index);  // Insert field into hash table
 
-// Value cleanup and reference counting
-void value_free(Value val);
+// Set to 1 (monotonic, never reset) the first time any async task is
+// spawned. The per-AST-node property inline cache is shared across all
+// spawned task threads and is unsynchronized; once concurrency is
+// possible the cache fast-path must be bypassed. Accessed via
+// __atomic_* (SEQ_CST). Defined in builtins/concurrency.c.
+extern int g_interp_has_spawned;
 
 // Fast path macro: check if type needs refcounting before calling
-// Types that need refcounting: STRING, BUFFER, ARRAY, OBJECT, FUNCTION, TASK, CHANNEL, REF
+// Types that need refcounting: STRING, BUFFER, ARRAY, OBJECT, FUNCTION, TASK,
+// SOCKET, WEBSOCKET, CHANNEL, REF
+// MUST stay in sync with value_needs_refcount() in values.c (which gates the
+// switch in value_retain()/value_release()).
+// VAL_SOCKET was historically missing here, so macro-based VALUE_RETAIN/RELEASE were
+// no-ops for sockets while object_free_internal/array_free_internal released them via
+// the value_release() function directly — a net over-release that freed sockets stored
+// in objects/arrays prematurely (flaky use-after-free, e.g. poll() result/input arrays).
+// VAL_WEBSOCKET had the identical desync (macro no-op, function release) with the
+// same over-release consequence for websockets stored in objects/arrays/environments.
 #define VALUE_NEEDS_REFCOUNT(type) \
     ((type) == VAL_STRING || (type) == VAL_BUFFER || (type) == VAL_ARRAY || \
      (type) == VAL_OBJECT || (type) == VAL_FUNCTION || (type) == VAL_TASK || \
+     (type) == VAL_SOCKET || (type) == VAL_WEBSOCKET || \
      (type) == VAL_CHANNEL || (type) == VAL_REF)
 
 // Fast path macros - skip function call for primitives
@@ -217,6 +231,7 @@ void value_free(Value val);
 
 // Printing
 void print_value(Value val);
+void fprint_value(FILE *out, Value val);
 char* value_to_string(Value val);  // Caller must free result
 
 // ========== TYPES (types.c) ==========
