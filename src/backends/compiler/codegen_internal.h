@@ -106,6 +106,12 @@ int codegen_is_func_param(CodegenContext *ctx, const char *name);
 // Apply default values for optional parameters
 void funcgen_apply_defaults(CodegenContext *ctx, Expr *func);
 
+// Convert typed parameters to their annotated primitive types (interpreter
+// parity, #654). Emitted after funcgen_apply_defaults, so a default is
+// converted too; the tail-call rebinding converts each new value itself.
+void funcgen_convert_param(CodegenContext *ctx, Expr *func, int i, const char *target);
+void funcgen_convert_params(CodegenContext *ctx, Expr *func);
+
 // Promote parameters to owned references: emit hml_retain_if_needed() for
 // every non-ref parameter (and the rest parameter). Must be emitted BEFORE
 // funcgen_apply_defaults so an applied default (an owned value assigned over

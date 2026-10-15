@@ -2238,6 +2238,34 @@ void funcgen_apply_defaults(CodegenContext *ctx, Expr *func) {
     }
 }
 
+// Convert parameter i to its annotated primitive type, as the interpreter does
+// when it binds an argument: a float argument to an integer parameter
+// truncates, integers are range-checked, and an integer argument takes the
+// parameter's width, so u8/u32 arithmetic on parameters wraps. A nullable
+// annotation lets null through. Non-primitive annotations get static checks
+// only. `target` is the C variable holding the parameter's value.
+void funcgen_convert_param(CodegenContext *ctx, Expr *func, int i, const char *target) {
+    if (!func->as.function.param_types) return;
+    if (func->as.function.param_is_ref && func->as.function.param_is_ref[i]) return;
+    Type *annot = func->as.function.param_types[i];
+    const char *hml_type = codegen_annot_primitive_name(annot);
+    if (!hml_type) return;
+    if (annot->nullable) {
+        codegen_writeln(ctx, "if (%s.type != HML_VAL_NULL) %s = hml_convert_to_type(%s, %s);",
+                        target, target, target, hml_type);
+    } else {
+        codegen_writeln(ctx, "%s = hml_convert_to_type(%s, %s);", target, target, hml_type);
+    }
+}
+
+void funcgen_convert_params(CodegenContext *ctx, Expr *func) {
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
+        funcgen_convert_param(ctx, func, i, safe_param);
+        free(safe_param);
+    }
+}
+
 // If `var` is a captured variable of the enclosing closure (and not shadowed
 // by one of the closure function's own parameters), return its slot index in
 // that closure's _closure_env (may itself use the parent-slot encoding).

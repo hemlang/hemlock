@@ -1471,6 +1471,7 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                         char *safe_param = codegen_sanitize_ident(func->as.function.param_names[i]);
                         codegen_writeln(ctx, "hml_release(&%s);", safe_param);
                         codegen_writeln(ctx, "%s = %s;", safe_param, new_arg_vals[i]);
+                        funcgen_convert_param(ctx, func, i, safe_param);
                         free(safe_param);
                         free(new_arg_vals[i]);
                     }

@@ -196,6 +196,7 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
     funcgen_add_params(ctx, func);
     funcgen_retain_params(ctx, func);
     funcgen_apply_defaults(ctx, func);
+    funcgen_convert_params(ctx, func);
 
     // Body-locals start after params (for cleanup at function exit)
     ctx->locals_body_start = ctx->num_locals;
@@ -359,8 +360,9 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
         free(safe_var);
     }
 
-    // Apply defaults and track call depth
+    // Apply defaults, convert typed parameters, and track call depth
     funcgen_apply_defaults(ctx, func);
+    funcgen_convert_params(ctx, func);
 
     // Body-locals start after params + captures (for cleanup at function exit)
     ctx->locals_body_start = ctx->num_locals;

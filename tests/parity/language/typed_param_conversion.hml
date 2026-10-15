@@ -1,0 +1,32 @@
+// Regression test (#654): a typed parameter takes its declared type in both
+// backends. hemlockc used to keep the argument's own type, so floats were not
+// truncated and u8/u32 arithmetic on parameters did not wrap, through direct
+// calls, the inliner, tail calls and closures alike.
+fn add32(a: u32, b: u32): u32 {
+    return a + b;
+}
+fn add8(a: u8, b: u8) {
+    let c = a + b;
+    return c;
+}
+fn add_i32(a: i32, b: i32) {
+    return a + b;
+}
+fn sum_to(n: u8, acc: u8) {
+    if (n == 0) { return acc; }
+    return sum_to(n - 1, acc + n);
+}
+fn maybe(x: u8?) {
+    if (x == null) { return "none"; }
+    return typeof(x);
+}
+print(add32(4294967295, 2));
+print(add8(100, 200));
+print(add_i32(5, 10.5));
+print(add_i32(5.5, 10.5));
+print(typeof(add_i32(5, 10.5)));
+print(sum_to(30, 0));
+print(maybe(null));
+print(maybe(7));
+let mul = fn(a: u16, b: u16) { return a * b; };
+print(mul(300, 300));
