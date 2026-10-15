@@ -3252,9 +3252,15 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
 
                 // Now bind all parameters to their evaluated argument values
                 for (int i = 0; i < num_params; i++) {
-                    // Infer argument type for type specialization
+                    // Infer argument type for type specialization; a parameter
+                    // with a primitive annotation has that type instead
+                    Type *param_annot = func_ast->as.function.param_types
+                        ? func_ast->as.function.param_types[i] : NULL;
+                    int param_converts = codegen_annot_primitive_name(param_annot) != NULL;
                     if (ctx->type_ctx) {
-                        CheckedType *arg_type = type_check_infer_expr(ctx->type_ctx, expr->as.call.args[i]);
+                        CheckedType *arg_type = param_converts
+                            ? checked_type_from_ast_ctx(ctx->type_ctx, param_annot)
+                            : type_check_infer_expr(ctx->type_ctx, expr->as.call.args[i]);
                         if (arg_type && arg_type->kind != CHECKED_UNKNOWN && arg_type->kind != CHECKED_ANY) {
                             // Bind parameter name to inferred type (is_const=0, is_param=1).
                             // is_param=1 prevents unboxing optimization from treating
@@ -3270,6 +3276,7 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
 
                     char *param_name = codegen_sanitize_ident(func_ast->as.function.param_names[i]);
                     codegen_writeln(ctx, "HmlValue %s = %s;", param_name, arg_vals[i]);
+                    funcgen_convert_param(ctx, func_ast, i, param_name);
                     codegen_add_local(ctx, func_ast->as.function.param_names[i]);
                     // Also add as shadow so inlined params shadow main-level vars
                     // (without this, `a` resolves to `_main_a` during main-scope inlining)
