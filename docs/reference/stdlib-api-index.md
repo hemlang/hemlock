@@ -8,7 +8,7 @@ complete importable API surface, generated from `stdlib/*.hml` by
 are verbatim from source; `[native]` marks re-exported native builtins
 whose parameter list comes from the module's documentation.
 
-53 modules, 1052 exported symbols. Import with
+54 modules, 1070 exported symbols. Import with
 `import { name } from "@stdlib/<module>";` — see
 [Standard Library Overview](stdlib-overview.md) and `stdlib/docs/` for
 full documentation.
@@ -567,6 +567,29 @@ fn is_null(value): bool
 fn type_of(value): string  // Get JSON type as string
 fn clone(value)  // Deep clone value (creates independent copy)
 fn merge(base, update)  // Deep merge objects (combines nested objects)
+```
+
+## @stdlib/json_schema
+
+```
+fn validate(value, schema)  // Validate a value against a JSON Schema.
+fn is_valid(value, schema): bool  // Check if a value matches a schema (returns bool only).
+fn validate_json(json_str: string, schema)  // Validate a JSON string against a schema.
+fn string_type(opts?: null)  // Build a schema for a string type
+fn number_type(opts?: null)  // Build a schema for a number type
+fn integer_type(opts?: null)  // Build a schema for an integer type
+fn boolean_type()  // Build a schema for a boolean type
+fn null_type()  // Build a schema for null type
+fn array_type(item_schema?: null, opts?: null)  // Build a schema for an array type
+fn object_type(properties?: null, required?: null, opts?: null)  // Build a schema for an object type
+fn nullable(schema)  // Create a nullable type (allows type or null)
+fn enum_type(values: array)  // Create an enum schema
+fn const_type(value)  // Create a const schema
+fn any_of(schemas: array)  // Create an anyOf schema (value must match at least one)
+fn one_of(schemas: array)  // Create a oneOf schema (value must match exactly one)
+fn all_of(schemas: array)  // Create an allOf schema (value must match all)
+fn not_schema(schema)  // Create a not schema (value must NOT match)
+fn format_errors(errors: array): string  // Format validation errors as a human-readable string.
 ```
 
 ## @stdlib/logging
