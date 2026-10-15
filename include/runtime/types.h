@@ -63,6 +63,9 @@ typedef struct Buffer {
     int ref_count;       // Reference count for memory management
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
     struct Buffer *parent; // Non-NULL for zero-copy slice views (keeps parent alive)
+    _Atomic int view_count; // Roots only: number of live slice views into this
+                            // buffer. free() refuses while > 0, so a view can
+                            // never dangle into a freed root allocation.
 } Buffer;
 
 // Array struct (dynamic array)
@@ -188,6 +191,13 @@ typedef struct {
     int sender_waiting;         // Flag: sender is blocked waiting for receiver
     int receiver_waiting;       // Flag: receiver is blocked waiting for sender
     void *rendezvous;           // pthread_cond_t for rendezvous completion
+    // Count of completed rendezvous handoffs. A staged sender records the
+    // current value and waits until it changes: with multiple senders, a
+    // bare "sender_waiting == 0" check can't tell "my value was consumed"
+    // from "another sender has staged a new value", and a signal() wakeup
+    // can go to the wrong sender (lost wakeup -> deadlock). Consumers bump
+    // this and broadcast `rendezvous`.
+    unsigned long long rendezvous_gen;
 } Channel;
 
 // Reference types for pass-by-reference

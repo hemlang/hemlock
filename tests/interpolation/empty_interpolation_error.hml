@@ -1,0 +1,3 @@
+// @expect-compile-fail parse error: this file is intentionally malformed
+// Regression: an empty ${} used to segfault the parser (uninitialized token)
+print(`${}`);

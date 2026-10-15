@@ -569,6 +569,8 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
+                // Parity with interpreter: indexing any other type throws.
+                codegen_writeln(ctx, "hml_runtime_error_loc(\"Only strings, buffers, arrays, pointers, and objects can be indexed\");");
                 codegen_writeln(ctx, "%s = hml_val_null();", result);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
@@ -607,6 +609,8 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "} else {");
                 codegen_indent_inc(ctx);
+                // Parity with interpreter: indexing any other type throws.
+                codegen_writeln(ctx, "hml_runtime_error_loc(\"Only strings, buffers, arrays, pointers, and objects can be indexed\");");
                 codegen_writeln(ctx, "%s = hml_val_null();", result);
                 codegen_indent_dec(ctx);
                 codegen_writeln(ctx, "}");
@@ -814,10 +818,14 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                     free(spread_key);
                     free(spread_field);
                 } else {
-                    // Normal field: name: value
+                    // Normal field: name: value. Keys may come from quoted
+                    // string literals ({"a\"b": 1}), so they must be escaped
+                    // before being interpolated into a C string literal.
                     char *val = codegen_expr(ctx, expr->as.object_literal.field_values[i]);
+                    char *escaped_key = codegen_escape_string(expr->as.object_literal.field_names[i]);
                     codegen_writeln(ctx, "hml_object_set_field(%s, \"%s\", %s);",
-                                  result, expr->as.object_literal.field_names[i], val);
+                                  result, escaped_key, val);
+                    free(escaped_key);
                     codegen_writeln(ctx, "hml_release(&%s);", val);
                     free(val);
                 }
@@ -1660,6 +1668,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 codegen_writeln(ctx, "// Match arm %d", i);
                 codegen_writeln(ctx, "%s:;", arm_labels[i]);
                 int arm_locals_start = ctx->num_locals;
+                int arm_unbox_mark = codegen_match_unbox_mark();
                 codegen_push_scope(ctx);
                 codegen_writeln(ctx, "{");
                 codegen_indent_inc(ctx);
@@ -1706,6 +1715,7 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 // Restore num_locals (match arm bindings are out of C scope)
                 ctx->num_locals = arm_locals_start;
                 codegen_pop_scope(ctx);
+                codegen_match_unbox_restore(ctx, arm_unbox_mark);
             }
 
             // No match - runtime error

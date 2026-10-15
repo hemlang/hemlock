@@ -375,8 +375,25 @@ int unsetenv(const char *name) {
 // ---- Binary-mode file I/O ----
 // Hemlock treats files as byte streams; MSVCRT defaults to text mode
 // (CRLF translation), which corrupts byte counts and written data.
+//
+// _fmode only covers files opened from here on: stdout/stderr are already
+// open in text mode by the time any constructor runs, so print() emitted
+// "\r\n" for every "\n" — every byte count, hash, and diff of a Hemlock
+// program's output differed from the same program on POSIX (the whole
+// parity suite failed on Windows with "\r" as the only difference).
+// _setmode() them explicitly.
+//
+// stdin is deliberately left in text mode: its CRLF->LF translation is
+// what makes read_line() return "abc" rather than "abc\r" for input typed
+// at the console or piped from a CRLF file, matching POSIX line semantics.
+void hml_win32_set_binary_stdio(void) {
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+}
+
 static void __attribute__((constructor)) hml_default_binary_mode(void) {
     _fmode = _O_BINARY;
+    hml_win32_set_binary_stdio();
 }
 
 // ---- Socket error formatting ----

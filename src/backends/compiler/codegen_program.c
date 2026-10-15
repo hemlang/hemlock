@@ -186,6 +186,7 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
     // Save state and initialize for function body
     FuncGenState saved_state;
     funcgen_save_state(ctx, &saved_state);
+    ctx->function_has_try = codegen_body_has_try(func->as.function.body);
 
     // Note: Type inference scope management is disabled.
     // Type checking is done in a separate pass before codegen.
@@ -195,6 +196,7 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
     funcgen_add_params(ctx, func);
     funcgen_retain_params(ctx, func);
     funcgen_apply_defaults(ctx, func);
+    funcgen_convert_params(ctx, func);
 
     // Body-locals start after params (for cleanup at function exit)
     ctx->locals_body_start = ctx->num_locals;
@@ -279,6 +281,7 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     // Save state and initialize for closure body
     FuncGenState saved_state;
     funcgen_save_state(ctx, &saved_state);
+    ctx->function_has_try = codegen_body_has_try(func->as.function.body);
     ctx->current_module = closure->source_module;
     ctx->current_closure = closure;
 
@@ -357,8 +360,9 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
         free(safe_var);
     }
 
-    // Apply defaults and track call depth
+    // Apply defaults, convert typed parameters, and track call depth
     funcgen_apply_defaults(ctx, func);
+    funcgen_convert_params(ctx, func);
 
     // Body-locals start after params + captures (for cleanup at function exit)
     ctx->locals_body_start = ctx->num_locals;
@@ -563,10 +567,18 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
                     // Typed array: let arr: array<type> = [...]
                     Type *elem_type = stmt->as.let.type_annotation->element_type;
                     if (elem_type && elem_type->kind == TYPE_CUSTOM_OBJECT && elem_type->type_name) {
-                        // Validate each element against the registered object type so
-                        // optional fields get auto-filled (parity with interpreter).
-                        codegen_writeln(ctx, "%s = hml_validate_typed_array_object(%s, \"%s\");",
-                                      mangled, value, elem_type->type_name);
+                        const char *elem_builtin =
+                            is_user_defined_type_name(ctx->type_ctx, elem_type->type_name)
+                            ? NULL : builtin_type_name_to_hml_val(elem_type->type_name);
+                        if (elem_builtin) {
+                            codegen_writeln(ctx, "%s = hml_validate_typed_array(%s, %s);",
+                                          mangled, value, elem_builtin);
+                        } else {
+                            // Validate each element against the registered object type so
+                            // optional fields get auto-filled (parity with interpreter).
+                            codegen_writeln(ctx, "%s = hml_validate_typed_array_object(%s, \"%s\");",
+                                          mangled, value, elem_type->type_name);
+                        }
                     } else {
                         const char *arr_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
                         if (!arr_type) arr_type = "HML_VAL_NULL";
@@ -575,9 +587,30 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
                     }
                 } else if (stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
                            stmt->as.let.type_annotation->type_name) {
-                    // Custom object type for duck typing
-                    codegen_writeln(ctx, "%s = hml_validate_object_type(%s, \"%s\");",
-                                  mangled, value, stmt->as.let.type_annotation->type_name);
+                    const char *custom_name = stmt->as.let.type_annotation->type_name;
+                    // Builtin identifier-lexed types (task/file/channel) validate
+                    // as value types; user-defined types shadow them.
+                    const char *builtin_val =
+                        is_user_defined_type_name(ctx->type_ctx, custom_name)
+                        ? NULL : builtin_type_name_to_hml_val(custom_name);
+                    if (builtin_val) {
+                        if (stmt->as.let.type_annotation->nullable) {
+                            // Nullable annotation: skip conversion if value is null
+                            codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", value);
+                            codegen_writeln(ctx, "    %s = %s;", mangled, value);
+                            codegen_writeln(ctx, "} else {");
+                            codegen_writeln(ctx, "    %s = hml_convert_to_type(%s, %s);",
+                                          mangled, value, builtin_val);
+                            codegen_writeln(ctx, "}");
+                        } else {
+                            codegen_writeln(ctx, "%s = hml_convert_to_type(%s, %s);",
+                                          mangled, value, builtin_val);
+                        }
+                    } else {
+                        // Custom object type for duck typing
+                        codegen_writeln(ctx, "%s = hml_validate_object_type(%s, \"%s\");",
+                                      mangled, value, custom_name);
+                    }
                 } else {
                     // Primitive type annotation: let x: rune = 27;
                     // Convert value to the annotated type
@@ -604,8 +637,16 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
                 if (stmt->as.const_stmt.type_annotation->kind == TYPE_ARRAY) {
                     Type *elem_type = stmt->as.const_stmt.type_annotation->element_type;
                     if (elem_type && elem_type->kind == TYPE_CUSTOM_OBJECT && elem_type->type_name) {
-                        codegen_writeln(ctx, "%s = hml_validate_typed_array_object(%s, \"%s\");",
-                                      mangled, value, elem_type->type_name);
+                        const char *elem_builtin =
+                            is_user_defined_type_name(ctx->type_ctx, elem_type->type_name)
+                            ? NULL : builtin_type_name_to_hml_val(elem_type->type_name);
+                        if (elem_builtin) {
+                            codegen_writeln(ctx, "%s = hml_validate_typed_array(%s, %s);",
+                                          mangled, value, elem_builtin);
+                        } else {
+                            codegen_writeln(ctx, "%s = hml_validate_typed_array_object(%s, \"%s\");",
+                                          mangled, value, elem_type->type_name);
+                        }
                     } else {
                         const char *arr_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
                         if (!arr_type) arr_type = "HML_VAL_NULL";
@@ -614,8 +655,29 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
                     }
                 } else if (stmt->as.const_stmt.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
                            stmt->as.const_stmt.type_annotation->type_name) {
-                    codegen_writeln(ctx, "%s = hml_validate_object_type(%s, \"%s\");",
-                                  mangled, value, stmt->as.const_stmt.type_annotation->type_name);
+                    const char *custom_name = stmt->as.const_stmt.type_annotation->type_name;
+                    // Builtin identifier-lexed types (task/file/channel) validate
+                    // as value types; user-defined types shadow them.
+                    const char *builtin_val =
+                        is_user_defined_type_name(ctx->type_ctx, custom_name)
+                        ? NULL : builtin_type_name_to_hml_val(custom_name);
+                    if (builtin_val) {
+                        if (stmt->as.const_stmt.type_annotation->nullable) {
+                            // Nullable annotation: skip conversion if value is null
+                            codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", value);
+                            codegen_writeln(ctx, "    %s = %s;", mangled, value);
+                            codegen_writeln(ctx, "} else {");
+                            codegen_writeln(ctx, "    %s = hml_convert_to_type(%s, %s);",
+                                          mangled, value, builtin_val);
+                            codegen_writeln(ctx, "}");
+                        } else {
+                            codegen_writeln(ctx, "%s = hml_convert_to_type(%s, %s);",
+                                          mangled, value, builtin_val);
+                        }
+                    } else {
+                        codegen_writeln(ctx, "%s = hml_validate_object_type(%s, \"%s\");",
+                                      mangled, value, custom_name);
+                    }
                 } else {
                     const char *hml_type = type_kind_to_hml_val(stmt->as.const_stmt.type_annotation->kind);
                     if (hml_type) {
@@ -722,6 +784,7 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, MemBuffer
             // Save state and initialize for function body
             FuncGenState saved_state;
             funcgen_save_state(ctx, &saved_state);
+            ctx->function_has_try = codegen_body_has_try(func->as.function.body);
 
             // Add parameters (taking ownership), apply defaults, set up
             // shared env, and generate body
@@ -1369,6 +1432,9 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                         case CHECKED_FUNCTION: hml_type = "HML_VAL_FUNCTION"; break;
                         case CHECKED_ARRAY: hml_type = "HML_VAL_ARRAY"; break;
                         case CHECKED_OBJECT: hml_type = "HML_VAL_OBJECT"; break;
+                        case CHECKED_TASK: hml_type = "HML_VAL_TASK"; break;
+                        case CHECKED_FILE: hml_type = "HML_VAL_FILE"; break;
+                        case CHECKED_CHANNEL: hml_type = "HML_VAL_CHANNEL"; break;
                         case CHECKED_CUSTOM:
                             // Custom type alias - validate as object type
                             if (resolved_type->type_name) {
@@ -1391,19 +1457,38 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                 } else if (stmt->as.let.type_annotation &&
                     stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
                     stmt->as.let.type_annotation->type_name) {
+                    const char *custom_name = stmt->as.let.type_annotation->type_name;
+                    // Builtin identifier-lexed types (task/file/channel) validate
+                    // as value types; user-defined types shadow them.
+                    const char *builtin_val =
+                        is_user_defined_type_name(ctx->type_ctx, custom_name)
+                        ? NULL : builtin_type_name_to_hml_val(custom_name);
                     // Check if this is an enum type (use enum validation) or object type
                     int is_enum = 0;
-                    if (ctx->type_ctx) {
+                    if (!builtin_val && ctx->type_ctx) {
                         EnumDef *enum_def = type_check_lookup_enum(ctx->type_ctx,
-                            stmt->as.let.type_annotation->type_name);
+                            custom_name);
                         is_enum = (enum_def != NULL);
                     }
-                    if (is_enum) {
+                    if (builtin_val) {
+                        if (stmt->as.let.type_annotation->nullable) {
+                            // Nullable annotation: skip conversion if value is null
+                            codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", value);
+                            codegen_writeln(ctx, "    _main_%s = %s;", stmt->as.let.name, value);
+                            codegen_writeln(ctx, "} else {");
+                            codegen_writeln(ctx, "    _main_%s = hml_convert_to_type(%s, %s);",
+                                          stmt->as.let.name, value, builtin_val);
+                            codegen_writeln(ctx, "}");
+                        } else {
+                            codegen_writeln(ctx, "_main_%s = hml_convert_to_type(%s, %s);",
+                                          stmt->as.let.name, value, builtin_val);
+                        }
+                    } else if (is_enum) {
                         codegen_writeln(ctx, "_main_%s = hml_validate_enum_value(%s, \"%s\");",
-                                      stmt->as.let.name, value, stmt->as.let.type_annotation->type_name);
+                                      stmt->as.let.name, value, custom_name);
                     } else {
                         codegen_writeln(ctx, "_main_%s = hml_validate_object_type(%s, \"%s\");",
-                                      stmt->as.let.name, value, stmt->as.let.type_annotation->type_name);
+                                      stmt->as.let.name, value, custom_name);
                     }
                 } else if (stmt->as.let.type_annotation &&
                            stmt->as.let.type_annotation->kind == TYPE_COMPOUND) {
@@ -1423,8 +1508,16 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                         // Typed array: let arr: array<type> = [...]
                         Type *elem_type = stmt->as.let.type_annotation->element_type;
                         if (elem_type && elem_type->kind == TYPE_CUSTOM_OBJECT && elem_type->type_name) {
-                            codegen_writeln(ctx, "_main_%s = hml_validate_typed_array_object(%s, \"%s\");",
-                                          stmt->as.let.name, value, elem_type->type_name);
+                            const char *elem_builtin =
+                                is_user_defined_type_name(ctx->type_ctx, elem_type->type_name)
+                                ? NULL : builtin_type_name_to_hml_val(elem_type->type_name);
+                            if (elem_builtin) {
+                                codegen_writeln(ctx, "_main_%s = hml_validate_typed_array(%s, %s);",
+                                              stmt->as.let.name, value, elem_builtin);
+                            } else {
+                                codegen_writeln(ctx, "_main_%s = hml_validate_typed_array_object(%s, \"%s\");",
+                                              stmt->as.let.name, value, elem_type->type_name);
+                            }
                         } else {
                             const char *arr_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
                             if (!arr_type) arr_type = "HML_VAL_NULL";

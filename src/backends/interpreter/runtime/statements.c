@@ -866,7 +866,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
                     // Check for break, return, continue, or exception
                     if (ctx->loop_state.is_breaking) {
-                        ctx->loop_state.is_breaking = 0;
+                        // A plain `break` ends the switch; `break label`
+                        // propagates to the labeled enclosing loop.
+                        if (ctx->loop_state.target_label == NULL) {
+                            ctx->loop_state.is_breaking = 0;
+                        }
                         break;
                     }
                     if (ctx->loop_state.is_continuing) {

@@ -811,7 +811,22 @@ words.sort();
 print(words);  // ["apple", "banana", "cherry"]
 ```
 
-**Note:** Default comparison orders by value type, then by value within type. Uses stable insertion sort.
+**Note:** Default comparison orders by value type, then by value within type.
+
+Uses a stable bottom-up merge sort: equal-comparing elements keep their original
+relative order, and every input costs O(n log n) comparisons — there is no input
+that degrades it to quadratic time. Already-sorted input is detected run by run
+and costs O(n) comparisons with no data movement. The sort is iterative, so no
+array size can exhaust the C stack. It allocates a scratch buffer of `n` values
+for the duration of the sort.
+
+If the comparator throws, the sort is abandoned and the exception propagates. The
+array is left as a valid permutation of its elements — every element is still
+present exactly once — but the ordering is unspecified.
+
+A comparator that resizes the array being sorted (via `push`, `pop`, and so on)
+throws `sort() comparator resized the array being sorted`. Sorting a *different*
+array from inside a comparator is fine.
 
 ---
 

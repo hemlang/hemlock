@@ -36,6 +36,7 @@ typedef struct {
     volatile int shutdown;
     int has_own_thread;
     int owns_memory;
+    volatile int close_requested; /* server side: close() called, lws not told yet */
 } ws_connection_t;
 
 typedef struct ws_server {
@@ -102,8 +103,29 @@ Value get_websocket_property(WebSocketHandle *ws, const char *property, Executio
 static void ws_connection_close(ws_connection_t *conn) {
     if (!conn) return;
 
+    /* A server-side connection belongs to the server's lws context, which only
+     * its service thread may touch. Ask that thread to close it: the wake-up
+     * arrives as LWS_CALLBACK_EVENT_WAIT_CANCELLED, which requests a writeable
+     * callback, and returning -1 from that sends the close frame. */
+    if (!conn->has_own_thread && conn->wsi && !conn->closed) {
+        conn->close_requested = 1;
+        if (conn->context) {
+            lws_cancel_service(conn->context);
+        }
+    }
+
     conn->closed = 1;
     conn->shutdown = 1;
+
+    // Wake the service thread so it re-checks `shutdown`. Its loop is
+    // `while (!shutdown) lws_service(ctx, 50)`, and that timeout argument has
+    // been ignored since lws 3.2 -- under the libuv event loop lws_service()
+    // blocks until something happens, so setting the flag alone never gets
+    // noticed and the join below waits forever. lws_cancel_service() is the
+    // documented way to interrupt it from another thread.
+    if (conn->has_own_thread && conn->context) {
+        lws_cancel_service(conn->context);
+    }
 
     if (conn->has_own_thread) {
         pthread_join(conn->service_thread, NULL);
@@ -116,6 +138,8 @@ static void ws_connection_close(ws_connection_t *conn) {
         free(msg);
         msg = next;
     }
+    conn->msg_queue_head = NULL; /* recv may still look at the queue */
+    conn->msg_queue_tail = NULL;
 
     if (conn->send_buffer) {
         free(conn->send_buffer);
@@ -145,6 +169,14 @@ static void ws_server_close_internal(ws_server_t *server) {
     // spawned recv tasks before reaching this point, but we keep a
     // safety sleep to guard against direct __lws_ws_server_close use.
     usleep(200000);
+
+    // Wake the service thread so it re-checks `shutdown` -- see the note in
+    // ws_connection_close. Without this the join below never returns and the
+    // whole process hangs after its last statement, which is what made a
+    // program that spawn()s a task holding a server fail to exit.
+    if (server->context) {
+        lws_cancel_service(server->context);
+    }
 
     pthread_join(server->service_thread, NULL);
     pthread_mutex_destroy(&server->pending_mutex);
@@ -220,6 +252,7 @@ static int ws_callback(struct lws *wsi, enum lws_callback_reasons reason,
             }
             break;
 
+        case LWS_CALLBACK_CLIENT_CLOSED: /* how lws reports a client connection closing */
         case LWS_CALLBACK_CLOSED:
             if (conn) {
                 conn->closed = 1;
@@ -247,6 +280,12 @@ static int ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
     ws_connection_t *conn = (ws_connection_t *)user;
 
     switch (reason) {
+        case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
+            /* lws_cancel_service() from another thread: a connection may
+             * have been closed; let each check in SERVER_WRITEABLE */
+            lws_callback_on_writable_all_protocol(lws_get_context(wsi), lws_get_protocol(wsi));
+            break;
+
         case LWS_CALLBACK_ESTABLISHED:
             if (conn) {
                 conn->wsi = wsi;
@@ -291,6 +330,11 @@ static int ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
             break;
 
         case LWS_CALLBACK_SERVER_WRITEABLE:
+            if (conn && conn->close_requested) {
+                conn->close_requested = 0;
+                lws_close_reason(wsi, LWS_CLOSE_STATUS_NORMAL, NULL, 0);
+                return -1; /* lws sends the close frame and drops the connection */
+            }
             if (conn && conn->send_pending && conn->send_buffer) {
                 lws_write(wsi, (unsigned char *)conn->send_buffer + LWS_PRE,
                          conn->send_len, LWS_WRITE_TEXT);
@@ -474,10 +518,20 @@ Value builtin_lws_ws_connect(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    // Wait for connection (timeout 10 seconds)
-    int timeout = 100;
-    while (timeout-- > 0 && !conn->closed && !conn->failed && !conn->established) {
-        lws_service(conn->context, 100);
+    // Wait for connection (timeout 10 seconds).
+    //
+    // Paced with usleep, like ws_server_accept below, rather than by counting
+    // lws_service() calls: lws_service()'s timeout argument has been ignored
+    // since lws 3.2, and under the libuv event loop (what MSYS2's lws 4.5 is
+    // built with) it can return immediately. Counting 100 iterations of it was
+    // therefore not a 10-second timeout but a busy-spin that could expire in
+    // microseconds — losing the race on the first, coldest connect in a
+    // process while every later one succeeded.
+    int wait_ms = HML_WS_CONNECT_TIMEOUT_MS;
+    while (wait_ms > 0 && !conn->closed && !conn->failed && !conn->established) {
+        lws_service(conn->context, 0);
+        usleep(HML_WS_CONNECT_POLL_US);
+        wait_ms -= HML_WS_CONNECT_POLL_US / 1000;
     }
 
     if (conn->failed || conn->closed || !conn->established) {
@@ -653,7 +707,8 @@ Value builtin_lws_ws_recv(Value *args, int num_args, ExecutionContext *ctx) {
         ctx->exception_state.exception_value = val_string("__lws_ws_recv() expects websocket or ptr as first argument");
         return val_null();
     }
-    if (!conn || conn->closed) {
+    /* a closed connection still delivers what it received first */
+    if (!conn || (conn->closed && !conn->msg_queue_head)) {
         return val_null();
     }
 
@@ -672,7 +727,7 @@ Value builtin_lws_ws_recv(Value *args, int num_args, ExecutionContext *ctx) {
         }
 
         usleep(10000);  // 10ms sleep
-        if (conn->closed) return val_null();
+        if (conn->closed && !conn->msg_queue_head) return val_null();
         if (iterations > 0) iterations--;
     }
 

@@ -33,6 +33,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             if (expr->as.call.func->type == EXPR_GET_PROPERTY) {
                 is_method_call = 1;
                 method_self = eval_expr(expr->as.call.func->as.get_property.object, env, ctx);
+                // Receiver threw: propagate instead of dispatching on its
+                // placeholder value (which reported "'m' is not a function").
+                if (ctx->exception_state.is_throwing) {
+                    VALUE_RELEASE(method_self);
+                    return val_null();
+                }
 
                 // METHOD DISPATCH INLINE CACHE:
                 // Cache the receiver type to skip the if-chain on subsequent calls
@@ -212,7 +218,9 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         view->ref_count = 1;
                         atomic_store(&view->freed, 0);
                         view->parent = root;
+                        atomic_store(&view->view_count, 0);
                         buffer_retain(root);  // Keep root alive
+                        atomic_fetch_add(&root->view_count, 1);  // Block free() while view lives
 
                         Value result = {0};
                         result.type = VAL_BUFFER;
@@ -255,7 +263,10 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                 VALUE_RELEASE(method_self);
                                 return val_null();
                             }
-                            memcpy((uint8_t *)buf->data + off, src->data, len);
+                            // memmove: dest and src may be overlapping views of one root
+                            if (len > 0) {
+                                memmove((uint8_t *)buf->data + off, src->data, len);
+                            }
                             VALUE_RELEASE(off_val); VALUE_RELEASE(src_val); VALUE_RELEASE(len_val);
                             VALUE_RELEASE(method_self);
                             return val_null();
@@ -396,7 +407,10 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             new_buf->ref_count = 1;
                             atomic_store(&new_buf->freed, 0);
                             new_buf->parent = NULL;
-                            memcpy(new_buf->data, (uint8_t *)buf->data + off, len);
+                            atomic_store(&new_buf->view_count, 0);
+                            if (len > 0) {
+                                memcpy(new_buf->data, (uint8_t *)buf->data + off, len);
+                            }
                             Value result = {0};
                             result.type = VAL_BUFFER;
                             result.as.as_buffer = new_buf;
@@ -1064,8 +1078,13 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         // passed to a ref parameter).
                         args[i] = val_null();
                     } else if (has_arg) {
-                        // Regular parameter - use provided argument
+                        // Regular parameter - use provided argument. Take our own
+                        // reference: convert_to_type consumes its input on failure,
+                        // and args[i] is still released by the post-call cleanup
+                        // loop (borrowing it double-released heap args on a type
+                        // annotation error).
                         arg_value = args[i];
+                        VALUE_RETAIN(arg_value);
                     } else {
                         // Argument missing - use default value
                         if (fn->param_defaults && fn->param_defaults[i]) {
@@ -1085,25 +1104,36 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     // Use fast param binding with pre-computed hash (skips redundant checks)
                     env_define_param(call_env, fn->param_names[i], fn->param_hashes[i], arg_value);
 
-                    // Release default param value if we created it (not from args array)
-                    // For default params or ref params, arg_value was created locally and needs release
-                    if (!has_arg || is_ref_param) {
-                        VALUE_RELEASE(arg_value);
+                    // arg_value is always owned here (retained arg, default, ref,
+                    // or the result of convert_to_type); env_define_param retained it.
+                    VALUE_RELEASE(arg_value);
+
+                    // Stop at the first failing parameter so its error is the one
+                    // reported (a later failure would overwrite and leak it).
+                    if (ctx->exception_state.is_throwing) {
+                        break;
                     }
                 }
 
                 // Bind rest parameter if present (collect extra args into array)
-                if (fn->rest_param) {
+                if (fn->rest_param && !ctx->exception_state.is_throwing) {
                     Array *rest_arr = array_new();
                     int extra_count = expr->as.call.num_args - fn->num_params;
                     if (extra_count > 0 && args) {
                         for (int i = fn->num_params; i < expr->as.call.num_args; i++) {
+                            // Own a reference: convert_to_type consumes it on failure,
+                            // and args[i] is released by the post-call cleanup loop.
                             Value arg = args[i];
+                            VALUE_RETAIN(arg);
                             // Type check if rest param has type annotation (array element type)
                             if (fn->rest_param_type) {
                                 arg = convert_to_type(arg, fn->rest_param_type, call_env, ctx);
                             }
-                            array_push(rest_arr, arg);
+                            array_push(rest_arr, arg);  // retains
+                            VALUE_RELEASE(arg);
+                            if (ctx->exception_state.is_throwing) {
+                                break;
+                            }
                         }
                     }
                     Value rest_val = val_array(rest_arr);
@@ -1123,7 +1153,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 // Execute body - reset return state first
                 ctx->return_state.is_returning = 0;
                 ctx->return_state.return_value = val_null();  // Reset to prevent stale values
-                eval_stmt(fn->body, call_env, ctx);
+                // A parameter that failed its type annotation (or a throwing
+                // default) leaves an exception pending: don't run the body,
+                // or its first failure would replace the real error.
+                if (!ctx->exception_state.is_throwing) {
+                    eval_stmt(fn->body, call_env, ctx);
+                }
 
                 // Execute deferred calls (in LIFO order) before returning
                 // This happens even if there was an exception

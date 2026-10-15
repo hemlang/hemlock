@@ -1,0 +1,22 @@
+// Shadowing: user-defined channel/task/file take precedence over the
+// builtins in annotations, including through type aliases. Both backends
+// must agree (the compiler used to resolve alias targets before user
+// types were collected, freezing them as the builtins).
+
+// 1. Object shadows builtin `channel`, used through an alias.
+define channel { cap: i32 }
+type C = channel;
+let x: C = { cap: 5 };
+print(x.cap);
+
+// 2. Enum shadows builtin `task`.
+enum task { PENDING, DONE }
+let t: task = task.DONE;
+print(t == task.DONE);
+
+// 3. Object shadows builtin `file`, aliased through array<...>.
+define file { name: string }
+type Files = array<file>;
+let fs: Files = [{ name: "a" }, { name: "b" }];
+print(fs[1].name);
+print("done");

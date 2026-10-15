@@ -1,0 +1,7 @@
+// Regression coverage for stdlib fixes (part 4).
+import { parse as yaml_parse, stringify as yaml_stringify } from "@stdlib/yaml";
+
+print(yaml_parse("k:\n- a\n- b\nz: 1").serialize());
+print(yaml_parse("\"x\": 1\nq: # note\nr: 2").serialize());
+let ys = {v: " sp", w: "0x1F", k: "a:"};
+print(yaml_parse(yaml_stringify(ys)).serialize() == ys.serialize());

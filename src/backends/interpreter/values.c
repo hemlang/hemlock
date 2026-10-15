@@ -367,7 +367,9 @@ Value val_rune(uint32_t codepoint) {
 void buffer_free(Buffer *buf) {
     if (buf) {
         if (buf->parent) {
-            // Zero-copy view: release parent instead of freeing data
+            // Zero-copy view: the root becomes freeable again once its last
+            // view is gone, then release the parent instead of freeing data
+            atomic_fetch_sub(&buf->parent->view_count, 1);
             buffer_release(buf->parent);
         } else {
             free(buf->data);
@@ -391,7 +393,7 @@ void buffer_release(Buffer *buf) {
 }
 
 Value val_buffer(int size) {
-    if (size <= 0) {
+    if (size < 0) {
         fprintf(stderr, "Runtime error: buffer size must be positive\n");
         exit(1);
     }
@@ -400,7 +402,11 @@ Value val_buffer(int size) {
     if (!buf) {
         return val_null();
     }
-    buf->data = malloc(size);
+    // Zero-initialized for deterministic contents and parity with the
+    // compiled runtime. size == 0 (internal callers: empty reads,
+    // read_bytes(off, 0), deep copies of freed buffers) still gets a valid
+    // 1-byte allocation so data is never NULL.
+    buf->data = calloc(size > 0 ? size : 1, 1);
     if (buf->data == NULL) {
         free(buf);
         return val_null();
@@ -413,6 +419,7 @@ Value val_buffer(int size) {
     buf->ref_count = 1;  // Start with 1 - caller owns the first reference
     atomic_store(&buf->freed, 0);  // Not freed
     buf->parent = NULL;            // Not a view
+    atomic_store(&buf->view_count, 0);
     v.as.as_buffer = buf;
     return v;
 }
@@ -499,9 +506,9 @@ static void array_grow(Array *arr) {
 }
 
 // Helper function to check if value matches array element type
-static void check_array_element_type(Array *arr, Value val) {
+static int array_element_type_matches(Array *arr, Value val) {
     if (!arr->element_type) {
-        return;  // Untyped array, allow any value
+        return 1;  // Untyped array, allow any value
     }
 
     TypeKind expected = arr->element_type->kind;
@@ -528,7 +535,11 @@ static void check_array_element_type(Array *arr, Value val) {
             exit(1);
     }
 
-    if (!type_matches) {
+    return type_matches;
+}
+
+static void check_array_element_type(Array *arr, Value val) {
+    if (!array_element_type_matches(arr, val)) {
         fprintf(stderr, "Runtime error: Type mismatch in typed array - expected element of specific type\n");
         exit(1);
     }
@@ -582,12 +593,19 @@ void array_set(Array *arr, int index, Value val, ExecutionContext *ctx) {
         return;
     }
 
-    // Check type constraint for typed arrays
-    check_array_element_type(arr, val);
+    // Check type constraint for typed arrays (catchable)
+    if (!array_element_type_matches(arr, val)) {
+        runtime_error(ctx, "Type mismatch in typed array - expected element of specific type");
+        return;
+    }
 
-    // Extend array if needed, filling with nulls
+    // Extend array if needed, filling with nulls (the gap is untyped
+    // padding, as in the compiled runtime - don't type-check it)
     while (index >= arr->length) {
-        array_push(arr, val_null());
+        if (arr->length >= arr->capacity) {
+            array_grow(arr);
+        }
+        arr->elements[arr->length++] = val_null();
     }
 
     // Release old value, retain new value (reference counting)
@@ -1098,6 +1116,7 @@ Channel* channel_new(int capacity) {
     }
     ch->sender_waiting = 0;
     ch->receiver_waiting = 0;
+    ch->rendezvous_gen = 0;
 
     return ch;
 }
@@ -1278,6 +1297,24 @@ Value val_null(void) {
     return v;
 }
 
+// Arrays currently being printed/stringified on this thread, as a linked
+// list of frames on the C stack. A self-referential array (`a.push(a)`)
+// would otherwise recurse until the stack overflows; a back-reference
+// prints as "[...]" instead.
+typedef struct ArrayPrintFrame {
+    const void *arr;
+    const struct ArrayPrintFrame *prev;
+} ArrayPrintFrame;
+
+static __thread const ArrayPrintFrame *g_array_print_frames = NULL;
+
+static int array_print_in_progress(const void *arr) {
+    for (const ArrayPrintFrame *f = g_array_print_frames; f; f = f->prev) {
+        if (f->arr == arr) return 1;
+    }
+    return 0;
+}
+
 void fprint_value(FILE *out, Value val) {
     switch (val.type) {
         case VAL_I8:
@@ -1337,12 +1374,19 @@ void fprint_value(FILE *out, Value val) {
             break;
         case VAL_ARRAY: {
             Array *arr = val.as.as_array;
+            if (array_print_in_progress(arr)) {
+                fprintf(out, "[...]");
+                break;
+            }
+            ArrayPrintFrame frame = { arr, g_array_print_frames };
+            g_array_print_frames = &frame;
             fprintf(out, "[");
             for (int i = 0; i < arr->length; i++) {
                 if (i > 0) fprintf(out, ", ");
                 fprint_value(out, arr->elements[i]);
             }
             fprintf(out, "]");
+            g_array_print_frames = frame.prev;
             break;
         }
         case VAL_FILE: {
@@ -1508,6 +1552,11 @@ char* value_to_string(Value val) {
         case VAL_ARRAY: {
             // Simple array representation
             Array *arr = val.as.as_array;
+            if (array_print_in_progress(arr)) {
+                return strdup("[...]");
+            }
+            ArrayPrintFrame frame = { arr, g_array_print_frames };
+            g_array_print_frames = &frame;
             size_t total_len = 2;  // [ and ]
             char **parts = malloc(sizeof(char*) * (arr->length > 0 ? arr->length : 1));
             size_t *part_lens = malloc(sizeof(size_t) * (arr->length > 0 ? arr->length : 1));
@@ -1517,6 +1566,7 @@ char* value_to_string(Value val) {
                 total_len += part_lens[i];
                 if (i > 0) total_len += 2;  // ", "
             }
+            g_array_print_frames = frame.prev;
 
             // SECURITY: Use memcpy with explicit position tracking instead of strcat
             char *result = malloc(total_len + 1);
@@ -1913,8 +1963,12 @@ Value value_deep_copy(Value val) {
         case VAL_BUFFER:
             if (val.as.as_buffer) {
                 Buffer *src = val.as.as_buffer;
+                // A freed source has data == NULL and length == 0; the copy
+                // degenerates to a valid empty buffer without touching data.
                 result = val_buffer(src->length);
-                memcpy(result.as.as_buffer->data, src->data, src->length);
+                if (result.type == VAL_BUFFER && src->length > 0) {
+                    memcpy(result.as.as_buffer->data, src->data, src->length);
+                }
             } else {
                 result = val_null();
             }

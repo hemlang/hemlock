@@ -8,6 +8,13 @@ ifneq (,$(findstring mingw,$(CC))$(findstring MINGW,$(shell uname))$(findstring 
     HEMLOCK_WINDOWS = 1
 endif
 
+# Building ON Windows vs cross-compiling for it -- see the top-level Makefile
+ifeq ($(HEMLOCK_WINDOWS),1)
+ifneq (,$(findstring MINGW,$(shell uname))$(findstring MSYS,$(shell uname)))
+    HEMLOCK_WINDOWS_NATIVE = 1
+endif
+endif
+
 # Platform-specific settings
 ifeq ($(HEMLOCK_WINDOWS),1)
     # FFI enabled when the toolchain can link libffi (mirrors the top-level
@@ -64,17 +71,34 @@ ifneq ($(HEMLOCK_WINDOWS),1)
 LDFLAGS += -lssl -lcrypto
 endif
 
-# Check if zlib is available (both header AND library must exist)
+# Check if zlib is available (both header AND library must exist).
+# On Windows the compile-and-link probe is unusable: MinGW gcc is a native
+# Windows program, so `-o /dev/null` names a nonexistent directory and the
+# probe fails even when zlib is installed (which silently compiled the
+# compression builtins as "zlib not installed" stubs). Ask the toolchain
+# where libz.a is instead — it echoes the bare name back when missing.
+ifeq ($(HEMLOCK_WINDOWS),1)
+MINGW_ZLIB_PATH := $(shell $(CC) --print-file-name=libz.a 2>/dev/null)
+ifneq ($(MINGW_ZLIB_PATH),libz.a)
+ZLIB_CHECK := yes
+endif
+else
 ZLIB_CHECK := $(shell echo 'int main(){return 0;}' | $(CC) -x c - -lz -o /dev/null 2>/dev/null && echo yes)
+endif
 ifeq ($(ZLIB_CHECK),yes)
     CFLAGS += -DHML_HAVE_ZLIB
     LDFLAGS += -lz
 endif
 
-# Check if libwebsockets is available (host pkg-config is meaningless when
-# cross-compiling for Windows, so skip the probe there)
+# Check if libwebsockets is available. A native MSYS2 build can ask its own
+# pkg-config; a cross build's host pkg-config would answer about the Linux
+# copy, so it gets no probe (mirrors the top-level Makefile).
 ifeq ($(HEMLOCK_WINDOWS),1)
+ifeq ($(HEMLOCK_WINDOWS_NATIVE),1)
+LWS_CHECK := $(shell pkg-config --exists libwebsockets 2>/dev/null && echo yes)
+else
 LWS_CHECK :=
+endif
 else
 LWS_CHECK := $(shell pkg-config --exists libwebsockets 2>/dev/null && echo yes)
 endif

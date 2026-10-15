@@ -291,7 +291,7 @@ Value eval_match_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             if (arm->guard) {
                 Value guard_result = eval_expr(arm->guard, match_env, ctx);
                 if (ctx->exception_state.is_throwing) {
-                    env_free(match_env);
+                    env_release(match_env);
                     VALUE_RELEASE(scrutinee);
                     return val_null();
                 }
@@ -307,14 +307,14 @@ Value eval_match_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // Pattern matched (and guard passed if present)
             // Evaluate the arm body
             Value result = eval_expr(arm->body, match_env, ctx);
-            env_free(match_env);
+            env_release(match_env);
             VALUE_RELEASE(scrutinee);
             return result;
         }
     }
 
     // No arm matched - clean up and error
-    env_free(match_env);
+    env_release(match_env);
     VALUE_RELEASE(scrutinee);
     runtime_error(ctx, "No pattern matched in match expression");
     return val_null();

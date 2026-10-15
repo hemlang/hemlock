@@ -291,6 +291,19 @@ let p: ptr = alloc(64);
 free(p);
 ```
 
+A `ptr` holding the NULL address compares equal to `null`, which is how you
+check an FFI call that failed:
+
+```hemlock
+let win = SDL_CreateWindow(...);   // returns ptr
+if (win == null) { throw "window creation failed"; }
+```
+
+Two `ptr` values compare by address, so `ptr_null() == ptr_null()` is also
+true. Note that a NULL `ptr` is still *truthy* and is not treated as null by
+`??` or `?.` — only `==`/`!=` (and the `switch`/`match` cases built on them)
+recognize it.
+
 **Safe buffer:**
 ```hemlock
 let buf: buffer = buffer(64);
@@ -422,8 +435,8 @@ Represents an open file handle.
 
 ```hemlock
 async fn compute(): i32 { return 42; }
-let task = spawn(compute);
-let result: i32 = join(task);
+let t: task = spawn(compute);
+let result: i32 = join(t);
 ```
 
 Represents an async task handle.
@@ -437,6 +450,10 @@ let value = ch.recv();
 ```
 
 Represents a communication channel between tasks.
+
+> **Note:** `file`, `task`, and `channel` are builtin type names, but a
+> user-defined `define`, `enum`, or `type` with the same name takes
+> precedence in annotations.
 
 ### Void Type
 
@@ -850,12 +867,14 @@ let p: Person = { name: "Alice", age: 30 };
 ### Generic Type Aliases
 
 ```hemlock
-// Generic type alias
-type Pair<T> = { first: T, second: T };
-type Result<T, E> = { value: T?, error: E? };
+// Generic type alias (aliases name a generic define; inline
+// object types like `{ first: T }` are not supported)
+define Pair<A, B> { first: A, second: B }
+type Point2<T> = Pair<T, T>;
 
 // Using generic aliases
-let coords: Pair<f64> = { first: 3.14, second: 2.71 };
+let coords: Point2<f64> = { first: 3.14, second: 2.71 };
+print(coords.first);  // 3.14
 ```
 
 **Note:** Type aliases are transparent - `typeof()` returns the underlying type name, not the alias.
@@ -923,12 +942,14 @@ fn divide(a, b) {
 **Use duck typing for flexibility:**
 ```hemlock
 define Printable {
-    toString: fn,
+    fn toString(): string,
 }
 
 fn print_item(item: Printable) {
     print(item.toString());
 }
+
+print_item({ name: "widget", toString: fn() { return "widget"; } });
 ```
 
 ## Next Steps

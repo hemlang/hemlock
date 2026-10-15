@@ -1,0 +1,12 @@
+// Regression coverage for stdlib fixes (part 3).
+import { parse as csv_parse, stringify as csv_stringify } from "@stdlib/csv";
+import { frange } from "@stdlib/iter";
+import { to_fixed, to_precision } from "@stdlib/decimal";
+
+print(csv_parse("a\n\"\"").length);
+print(csv_parse(csv_stringify([["a"], [""]])).length);
+print(frange(0.0, 1.0, 0.1).length);
+
+print(to_fixed(1e10, 2));
+print(to_fixed(1.5, 19));
+print(to_precision(9.99, 2));

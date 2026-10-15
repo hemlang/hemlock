@@ -558,14 +558,14 @@ print(typeof(p));      // "object" (original is still anonymous)
 
 ## Method Signatures in Define
 
-Define blocks can specify method signatures, creating interface-like contracts:
+Define blocks can specify method signatures, creating interface-like contracts. Method signatures are separated by commas, just like fields (a `;` after a signature is a parse error):
 
 ### Required Methods
 
 ```hemlock
 define Comparable {
     value: i32,
-    fn compare(other: Self): i32;  // Required method signature
+    fn compare(other: Self): i32,  // Required method signature
 }
 
 // Objects must provide the required method
@@ -579,8 +579,8 @@ let a: Comparable = {
 
 ```hemlock
 define Serializable {
-    fn serialize(): string;       // Required
-    fn pretty?(): string;         // Optional method (may be absent)
+    fn serialize(): string,       // Required
+    fn pretty?(): string,         // Optional method (may be absent)
 }
 ```
 
@@ -590,12 +590,12 @@ define Serializable {
 
 ```hemlock
 define Cloneable {
-    fn clone(): Self;  // Returns same type as the object
+    fn clone(): Self,  // Returns same type as the object
 }
 
 define Comparable {
-    fn compare(other: Self): i32;  // Takes same type as parameter
-    fn equals(other: Self): bool;
+    fn compare(other: Self): i32,  // Takes same type as parameter
+    fn equals(other: Self): bool,
 }
 
 let item: Cloneable = {
@@ -612,15 +612,15 @@ let item: Cloneable = {
 define Entity {
     id: i32,
     name: string,
-    fn validate(): bool;
-    fn serialize(): string;
+    fn validate(): bool,
+    fn serialize(): string,
 }
 
 let user: Entity = {
     id: 1,
     name: "Alice",
     validate: fn() { return self.id > 0 && self.name != ""; },
-    serialize: fn() { return '{"id":' + self.id + ',"name":"' + self.name + '"}'; }
+    serialize: fn() { return `{"id":${self.id},"name":"${self.name}"}`; }
 };
 ```
 
@@ -726,10 +726,19 @@ JSON serialization supports:
 - **Objects**: Nested objects
 - **Arrays**: Nested arrays
 
+Floats are written with the shortest representation that reads back to
+the same value, so `serialize()`/`deserialize()` round-trips numbers exactly.
+
 **Not supported:**
 - Functions (silently omitted)
 - Pointers (error)
 - Buffers (error)
+- NaN and Infinity (error - JSON has no representation for them)
+
+`deserialize()` accepts strict JSON only: malformed numbers (`01`, `1.`,
+`.5`, `+1`), trailing commas and trailing text after the value are errors.
+Integers that fit i32 become `i32`, larger ones `i64`, and integers beyond
+the i64 range become `f64`.
 
 ### Error Handling
 
@@ -1000,6 +1009,8 @@ let p: Point = obj;
 ### Example: Vector Math
 
 ```hemlock
+import { sqrt } from "@stdlib/math";
+
 fn createVector(x, y) {
     return {
         x: x,
@@ -1017,7 +1028,7 @@ fn createVector(x, y) {
         },
 
         toString: fn() {
-            return "(" + typeof(self.x) + ", " + typeof(self.y) + ")";
+            return "(" + self.x + ", " + self.y + ")";
         }
     };
 }

@@ -5,7 +5,9 @@
 # For each tests/check/<name>.hml there is a <name>.expected file holding the
 # exact stdout `hemlock check` should produce (diagnostics in source order
 # plus the trailing summary line, or the full --json object). An optional
-# <name>.flags file supplies extra flags (e.g. --json, --lint-strict).
+# <name>.flags file supplies extra flags (e.g. --json, --lint-strict). An optional
+# <name>.exit file states the expected exit code when it is not implied by the
+# diagnostics (--deny-warnings makes a warning-only run exit 1).
 #
 # The checker is run from inside this directory so the path prefix in
 # diagnostics is just "<name>.hml". The expected exit code is derived from
@@ -73,8 +75,13 @@ for test_file in *.hml; do
     actual_err=$(cat /tmp/check_stderr.txt)
     expected_out=$(cat "$expected_file")
 
-    # Expected exit code: 1 when the expected output reports errors, else 0
-    if echo "$expected_out" | grep -qE '(: error: |"errors": [1-9])'; then
+    # Expected exit code: 1 when the expected output reports errors, else 0.
+    # An optional <name>.exit overrides that derivation, for cases where the
+    # exit code is the thing under test rather than a consequence of the
+    # diagnostics — --deny-warnings turns a warning-only run into exit 1.
+    if [ -f "$test_name.exit" ]; then
+        expected_exit=$(cat "$test_name.exit")
+    elif echo "$expected_out" | grep -qE '(: error: |"errors": [1-9])'; then
         expected_exit=1
     else
         expected_exit=0

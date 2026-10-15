@@ -224,6 +224,17 @@ static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
             const char *expr_start = ptr;
             int brace_count = 1;
             while (*ptr != '\0' && brace_count > 0) {
+                // Skip string/rune literals so braces inside them don't count
+                if (*ptr == '"' || *ptr == '\'') {
+                    char quote = *ptr++;
+                    while (*ptr != '\0' && *ptr != quote) {
+                        if (*ptr == '\\' && *(ptr + 1) != '\0') ptr++;
+                        ptr++;
+                    }
+                    if (*ptr == '\0') break;
+                    ptr++;
+                    continue;
+                }
                 if (*ptr == '{') brace_count++;
                 if (*ptr == '}') brace_count--;
                 if (brace_count > 0) ptr++;
@@ -264,8 +275,22 @@ static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
 
             Parser expr_parser;
             parser_init(&expr_parser, &expr_lexer);
+            expr_parser.collect_errors = p->collect_errors;
 
-            Expr *interpolated_expr = expression(&expr_parser);
+            Expr *interpolated_expr = NULL;
+            if (expr_parser.current.type == TOK_EOF) {
+                error(p, "Empty expression in string interpolation");
+            } else {
+                interpolated_expr = expression(&expr_parser);
+                // The whole ${...} body must be exactly one expression
+                if (expr_parser.had_error || expr_parser.current.type != TOK_EOF) {
+                    error(p, "Invalid expression in string interpolation");
+                }
+            }
+            parser_free_errors(&expr_parser);
+            if (!interpolated_expr) {
+                interpolated_expr = expr_string("");
+            }
             expr_parts[num_parts] = interpolated_expr;
 
             // Safe to free expr_text now - token_text() makes copies of all string data
@@ -441,6 +466,9 @@ static Pattern* parse_primary_pattern(Parser *p) {
         char *rest_name = NULL;
 
         while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+            // After an error nothing below is guaranteed to consume a token;
+            // bail out and let the closing consume() report/recover.
+            if (p->panic_mode) break;
             if (num_fields >= field_capacity) {
                 field_capacity *= 2;
                 ObjectFieldPattern *new_fields = realloc(fields, sizeof(ObjectFieldPattern) * field_capacity);
@@ -473,8 +501,9 @@ static Pattern* parse_primary_pattern(Parser *p) {
             }
 
             num_fields++;
-            if (!check(p, TOK_RBRACE)) {
-                match(p, TOK_COMMA);
+            if (!check(p, TOK_RBRACE) && !match(p, TOK_COMMA)) {
+                error_at_current(p, "Expect ',' or '}' in object pattern");
+                break;
             }
         }
 
@@ -497,6 +526,8 @@ static Pattern* parse_primary_pattern(Parser *p) {
         int num_elements = 0;
 
         while (!check(p, TOK_RBRACKET) && !check(p, TOK_EOF)) {
+            // After an error nothing below is guaranteed to consume a token
+            if (p->panic_mode) break;
             if (num_elements >= elem_capacity) {
                 elem_capacity *= 2;
                 ArrayElementPattern *new_elements = realloc(elements, sizeof(ArrayElementPattern) * elem_capacity);
@@ -524,8 +555,9 @@ static Pattern* parse_primary_pattern(Parser *p) {
             elements[num_elements].pattern = parse_pattern(p);
             num_elements++;
 
-            if (!check(p, TOK_RBRACKET)) {
-                match(p, TOK_COMMA);
+            if (!check(p, TOK_RBRACKET) && !match(p, TOK_COMMA)) {
+                error_at_current(p, "Expect ',' or ']' in array pattern");
+                break;
             }
         }
 

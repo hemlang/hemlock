@@ -222,6 +222,18 @@ static void* task_thread_wrapper(void* arg) {
     return NULL;
 }
 
+// pthread_create() failed: no thread will ever complete this task, so drop
+// both references (caller's and thread's) and throw, matching the
+// interpreter's "Failed to create thread" error instead of hanging join().
+__attribute__((noreturn))
+static void spawn_failed(HmlTask *task, int rc) {
+    task->detached = 1;  // there is no pthread to detach in task_free()
+    task->ref_count = 1;
+    HmlValue task_val = { .type = HML_VAL_TASK, .as.as_task = task };
+    hml_release(&task_val);
+    hml_runtime_error("Failed to create thread: %d", rc);
+}
+
 HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
     if (fn.type != HML_VAL_FUNCTION) {
         hml_runtime_error("spawn() expects a function");
@@ -275,8 +287,11 @@ HmlValue hml_spawn(HmlValue fn, HmlValue *args, int num_args) {
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setstacksize(&attr, atomic_load(&g_default_stack_size));
-    pthread_create(&task->sync->thread, &attr, task_thread_wrapper, task);
+    int rc = pthread_create(&task->sync->thread, &attr, task_thread_wrapper, task);
     pthread_attr_destroy(&attr);
+    if (rc != 0) {
+        spawn_failed(task, rc);
+    }
 
     // Return task value
     HmlValue result;
@@ -370,8 +385,11 @@ HmlValue hml_spawn_with(HmlValue options, HmlValue fn, HmlValue *args, int num_a
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setstacksize(&attr, stack_size);
-    pthread_create(&task->sync->thread, &attr, task_thread_wrapper, task);
+    int rc = pthread_create(&task->sync->thread, &attr, task_thread_wrapper, task);
     pthread_attr_destroy(&attr);
+    if (rc != 0) {
+        spawn_failed(task, rc);
+    }
 
     HmlValue result;
     result.type = HML_VAL_TASK;
@@ -559,6 +577,7 @@ HmlValue hml_channel(int32_t capacity) {
     ch->unbuffered_value = hml_val_null();
     ch->sender_waiting = 0;
     ch->receiver_waiting = 0;
+    ch->rendezvous_gen = 0;
 
     HmlValue result;
     result.type = HML_VAL_CHANNEL;
@@ -598,17 +617,22 @@ void hml_channel_send(HmlValue channel, HmlValue value) {
         hml_retain(&value);
         ch->unbuffered_value = value;
         ch->sender_waiting = 1;
+        // Remember the handoff generation at staging time. "My value was
+        // consumed" is detected as a generation bump, NOT as
+        // sender_waiting == 0: with multiple senders another sender may
+        // have re-staged (setting the flag back to 1) before we wake.
+        unsigned long long my_gen = ch->rendezvous_gen;
 
         // Signal any waiting receiver that data is available
         pthread_cond_signal(&ch->sync->not_empty);
 
         // Wait for receiver to pick up the value
-        while (ch->sender_waiting && !ch->closed) {
+        while (ch->rendezvous_gen == my_gen && !ch->closed) {
             pthread_cond_wait(&ch->sync->rendezvous, &ch->sync->mutex);
         }
 
-        // Check if we were woken because channel closed
-        if (ch->closed && ch->sender_waiting) {
+        // Woken because channel closed with our value still staged
+        if (ch->closed && ch->rendezvous_gen == my_gen) {
             ch->sender_waiting = 0;
             hml_release(&ch->unbuffered_value);
             ch->unbuffered_value = hml_val_null();
@@ -667,10 +691,13 @@ HmlValue hml_channel_recv(HmlValue channel) {
         HmlValue value = ch->unbuffered_value;
         ch->unbuffered_value = hml_val_null();
         ch->sender_waiting = 0;
+        ch->rendezvous_gen++;
 
-        // Signal sender that value was received, and wake any sender
+        // Wake the sender whose value was consumed (broadcast: signal()
+        // could deliver the wakeup to a different staged-and-waiting
+        // sender, leaving the right one asleep), and wake any sender
         // queued waiting for the rendezvous slot to free up
-        pthread_cond_signal(&ch->sync->rendezvous);
+        pthread_cond_broadcast(&ch->sync->rendezvous);
         pthread_cond_signal(&ch->sync->not_full);
         pthread_mutex_unlock(&ch->sync->mutex);
 
@@ -741,10 +768,12 @@ HmlValue hml_channel_recv_timeout(HmlValue channel, HmlValue timeout_val) {
         HmlValue value = ch->unbuffered_value;
         ch->unbuffered_value = hml_val_null();
         ch->sender_waiting = 0;
+        ch->rendezvous_gen++;
 
-        // Signal sender that value was received, and wake any sender
-        // queued waiting for the rendezvous slot to free up
-        pthread_cond_signal(&ch->sync->rendezvous);
+        // Wake the sender whose value was consumed (broadcast - see
+        // hml_channel_recv), and wake any sender queued waiting for the
+        // rendezvous slot to free up
+        pthread_cond_broadcast(&ch->sync->rendezvous);
         pthread_cond_signal(&ch->sync->not_full);
         pthread_mutex_unlock(&ch->sync->mutex);
 
@@ -824,26 +853,34 @@ HmlValue hml_channel_send_timeout(HmlValue channel, HmlValue value, HmlValue tim
         hml_retain(&value);
         ch->unbuffered_value = value;
         ch->sender_waiting = 1;
+        // Generation at staging time - see hml_channel_send for why success
+        // is detected as a generation bump rather than sender_waiting == 0.
+        unsigned long long my_gen = ch->rendezvous_gen;
 
         // Signal any waiting receiver that data is available
         pthread_cond_signal(&ch->sync->not_empty);
 
         // Wait for receiver to pick up the value (with timeout)
-        while (ch->sender_waiting && !ch->closed) {
+        while (ch->rendezvous_gen == my_gen && !ch->closed) {
             int rc = pthread_cond_timedwait(&ch->sync->rendezvous,
                                             &ch->sync->mutex, &deadline);
             if (rc == ETIMEDOUT) {
-                // Timeout - clean up and return failure
+                if (ch->rendezvous_gen != my_gen) {
+                    break;  // Consumed right at the deadline - success
+                }
+                // Timeout with our value still staged - withdraw it and
+                // free the slot for any sender queued behind us
                 ch->sender_waiting = 0;
                 hml_release(&ch->unbuffered_value);
                 ch->unbuffered_value = hml_val_null();
+                pthread_cond_signal(&ch->sync->not_full);
                 pthread_mutex_unlock(&ch->sync->mutex);
                 return hml_val_bool(0);  // Timeout - send failed
             }
         }
 
-        // Check if we were woken because channel closed
-        if (ch->closed && ch->sender_waiting) {
+        // Woken because channel closed with our value still staged
+        if (ch->closed && ch->rendezvous_gen == my_gen) {
             ch->sender_waiting = 0;
             hml_release(&ch->unbuffered_value);
             ch->unbuffered_value = hml_val_null();
@@ -952,10 +989,12 @@ HmlValue hml_select(HmlValue channels, HmlValue timeout) {
                 HmlValue msg = ch->unbuffered_value;
                 ch->unbuffered_value = hml_val_null();
                 ch->sender_waiting = 0;
+                ch->rendezvous_gen++;
 
-                // Signal sender that value was received, and wake any sender
-                // queued waiting for the rendezvous slot to free up
-                pthread_cond_signal(&ch->sync->rendezvous);
+                // Wake the sender whose value was consumed (broadcast - a
+                // signal() could wake a different staged sender), and wake
+                // any sender queued waiting for the rendezvous slot
+                pthread_cond_broadcast(&ch->sync->rendezvous);
                 pthread_cond_signal(&ch->sync->not_full);
                 pthread_mutex_unlock(&ch->sync->mutex);
 

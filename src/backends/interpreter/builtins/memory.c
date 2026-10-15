@@ -79,19 +79,30 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
             return val_null();
         }
 
-        // Atomically check and set the freed flag to detect double-free
-        int expected = 0;
-        if (!atomic_compare_exchange_strong(&buf->freed, &expected, 1)) {
-            runtime_error(ctx, "double free detected on buffer"); return val_null();
+        // Temporal safety: a live slice view's data points into this
+        // allocation, so freeing now would leave the view dangling with a
+        // stale nonzero length (the bounds check alone cannot save it).
+        int live_views = atomic_load(&buf->view_count);
+        if (live_views > 0) {
+            runtime_error(ctx, "Cannot free buffer with %d live slice view%s",
+                    live_views, live_views == 1 ? "" : "s");
+            return val_null();
         }
 
-        // Safety check: don't allow free on buffers shared outside the environment
-        // Note: we check BEFORE calling value_release since that would skip due to freed flag
+        // Safety check: don't allow free on buffers shared outside the environment.
+        // Checked BEFORE the freed CAS: bailing out after the CAS would leave the
+        // buffer marked freed but its data leaked and unusable.
         if (buf->ref_count > 3) {  // 3 = creation + env + env_get
             int active_refs = buf->ref_count - 3;
             runtime_error(ctx, "Cannot free buffer with %d active reference%s",
                     active_refs, active_refs == 1 ? "" : "s");
             return val_null();
+        }
+
+        // Atomically check and set the freed flag to detect double-free
+        int expected = 0;
+        if (!atomic_compare_exchange_strong(&buf->freed, &expected, 1)) {
+            runtime_error(ctx, "double free detected on buffer"); return val_null();
         }
 
         // Untrack pointer to update original allocation site's current_bytes (for leak detection)
@@ -279,7 +290,14 @@ Value builtin_memcpy(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    memcpy(dest, src, (size_t)size);
+    if (args[0].type == VAL_BUFFER && args[1].type == VAL_BUFFER) {
+        // Two buffers may be overlapping views of one root; C memcpy would be
+        // UB there, and safe-fragment code must never reach UB. Raw pointers
+        // keep memcpy and its no-overlap obligation.
+        memmove(dest, src, (size_t)size);
+    } else {
+        memcpy(dest, src, (size_t)size);
+    }
     return val_null();
 }
 
@@ -314,6 +332,12 @@ Value builtin_buffer(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     int32_t size = value_to_int(args[0]);
+
+    // Catchable error, matching alloc(); zero-length buffers stay internal
+    // (empty file reads, read_bytes(off, 0)) and are not user-constructible.
+    if (size <= 0) {
+        runtime_error(ctx, "buffer() size must be positive"); return val_null();
+    }
 
     Value result = val_buffer(size);
 

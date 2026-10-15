@@ -1,0 +1,71 @@
+// Regression tests for closure/unboxing interaction fixes:
+// - a top-level while accumulator captured (read or written) by a closure
+//   must not be shadowed by a native local
+// - closures whose bodies reference captured vars only inside a match
+//   expression capture them correctly
+// - unboxed accumulators updated inside try are readable in catch
+//   (setjmp clobbering)
+// - closures embedded in template strings are seen by escape analysis
+
+// Closure reads the accumulator while the loop runs
+let sum = 0;
+let reader = fn() { print(sum); };
+while (sum < 3) {
+    sum = sum + 1;
+    reader();
+}
+reader();
+
+// Closure writes the accumulator; the loop must see (not clobber) the writes
+let acc = 0;
+let writer = fn() { acc = acc + 10; };
+while (acc < 5) {
+    acc = acc + 1;
+    writer();
+}
+print(acc);
+
+// Named top-level function mutating the accumulator during the loop
+let tally = 0;
+fn bump_tally() { tally = tally + 100; }
+while (tally < 3) {
+    tally = tally + 1;
+    bump_tally();
+}
+print(tally);
+
+// Captured variable referenced only inside a match expression
+fn match_capture() {
+    let x = 42;
+    let f = fn() {
+        return match (x) {
+            42 => "yes",
+            n => "no"
+        };
+    };
+    print(f());
+}
+match_capture();
+
+// Unboxed accumulator updated in try, read in catch
+fn try_acc() {
+    let n = 0;
+    try {
+        n = n + 1;
+        n = n + 1;
+        throw "stop";
+    } catch (e) {
+        print(n);
+    }
+    print(n);
+}
+try_acc();
+
+// Closure inside a template string mutating a local
+fn interp_closure() {
+    let x = 1;
+    let s = `${fn() { x = x + 1; return x; }()}`;
+    print(s);
+    print(x);
+}
+interp_closure();

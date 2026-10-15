@@ -258,6 +258,7 @@ typedef struct {
     const char *sandbox_root;    // Optional sandbox root directory for file access
     int target_wasm;             // Target WebAssembly via Emscripten (--target wasm)
     int wasm_threads;            // Enable pthreads in WASM (Web Workers + SharedArrayBuffer)
+    int wasm_asyncify;           // Link WASM with -sASYNCIFY (needed by sleep(); default: on)
 } Options;
 
 static void print_usage(const char *progname) {
@@ -292,6 +293,8 @@ static void print_usage(const char *progname) {
     fprintf(stderr, "  --target wasm   Compile for WebAssembly via Emscripten (emcc)\n");
     fprintf(stderr, "  --threads       Enable threading in WASM (Web Workers + SharedArrayBuffer)\n");
     fprintf(stderr, "                  Requires: --target wasm, browser COOP/COEP headers\n");
+    fprintf(stderr, "  --no-asyncify   Link WASM without -sASYNCIFY (smaller/faster, but sleep()\n");
+    fprintf(stderr, "                  stops working: drive frames with main_loop() instead)\n");
     fprintf(stderr, "  -v, --verbose   Verbose output\n");
     fprintf(stderr, "  -h, --help      Show this help message\n");
     fprintf(stderr, "  --version       Show version\n");
@@ -326,7 +329,8 @@ static Options parse_args(int argc, char **argv) {
         .sandbox = 0,
         .sandbox_root = NULL,
         .target_wasm = 0,
-        .wasm_threads = 0
+        .wasm_threads = 0,
+        .wasm_asyncify = 1       // Asyncify ON by default so sleep() works in WASM
     };
 
     // Static-by-default on Linux (since 2.6.0): the host's shared libraries —
@@ -424,6 +428,8 @@ static Options parse_args(int argc, char **argv) {
             }
         } else if (strcmp(argv[i], "--threads") == 0) {
             opts.wasm_threads = 1;
+        } else if (strcmp(argv[i], "--no-asyncify") == 0) {
+            opts.wasm_asyncify = 0;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             exit(1);
@@ -445,6 +451,12 @@ static Options parse_args(int argc, char **argv) {
     // Validate --threads requires --target wasm
     if (opts.wasm_threads && !opts.target_wasm) {
         fprintf(stderr, "Error: --threads requires --target wasm\n");
+        exit(1);
+    }
+
+    // Validate --no-asyncify requires --target wasm
+    if (!opts.wasm_asyncify && !opts.target_wasm) {
+        fprintf(stderr, "Error: --no-asyncify requires --target wasm\n");
         exit(1);
     }
 
@@ -567,9 +579,23 @@ static int compile_c(const Options *opts, const char *c_file) {
     // Check if -lz is linkable (same check as runtime Makefile)
     char zlib_flag[8] = "";
 #ifdef _WIN32
-    // cmd.exe has no /dev/null or single-quote echo; MSYS2's gcc ships zlib
-    if (system("gcc --version >/dev/null 2>NUL") == 0) {
-        memcpy(zlib_flag, " -lz", 5);
+    // cmd.exe has no /dev/null or single-quote echo, and MinGW gcc cannot
+    // write to a POSIX null device either — so ask the toolchain where
+    // libz.a is (bare name echoed back when missing), the same probe the
+    // runtime Makefile uses. The old `>/dev/null` spelling made cmd.exe
+    // print "The system cannot find the path specified." on every compile
+    // and always report zlib as absent.
+    {
+        char zprobe_cmd[512];
+        snprintf(zprobe_cmd, sizeof(zprobe_cmd), "%s --print-file-name=libz.a", opts->cc);
+        FILE *zfp = popen(zprobe_cmd, "r");
+        if (zfp) {
+            char zprobe_buf[PATH_MAX];
+            if (fgets(zprobe_buf, sizeof(zprobe_buf), zfp) && strpbrk(zprobe_buf, "/\\")) {
+                memcpy(zlib_flag, " -lz", 5);
+            }
+            pclose(zfp);
+        }
     }
 #else
     if (system("echo 'int main(){return 0;}' | gcc -x c - -lz -o /dev/null 2>/dev/null") == 0) {
@@ -648,9 +674,9 @@ static int compile_c(const Options *opts, const char *c_file) {
     }
 #endif
 
-    // Check if -lwebsockets is linkable (with extra paths)
-    char websockets_flag[16] = "";
-    (void)websockets_flag;  // only read in the POSIX link commands below
+    // Check if -lwebsockets is linkable (with extra paths).
+    // Sized for the Windows spelling, which needs an explicit -Bdynamic.
+    char websockets_flag[48] = "";
 #ifndef _WIN32
     char ws_test_cmd[1024];
     snprintf(ws_test_cmd, sizeof(ws_test_cmd),
@@ -658,6 +684,36 @@ static int compile_c(const Options *opts, const char *c_file) {
         extra_lib_paths);
     if (system(ws_test_cmd) == 0) {
         memcpy(websockets_flag, " -lwebsockets", 14);  // Safe: 14 bytes including null, fits in 16-byte buffer
+    }
+#else
+    // A native MSYS2 runtime is built with libwebsockets when pkg-config finds
+    // it, and then every compiled program that touches @stdlib/http or
+    // @stdlib/websocket needs it on the link line too — without this the
+    // runtime's lws objects get pulled in and the link dies on
+    // "undefined reference to lws_client_connect_via_info". Probed the same
+    // way as zlib/libffi above, since cmd.exe cannot run the compile-and-link
+    // test the POSIX branch uses.
+    //
+    // -Wl,-Bdynamic is required, not cosmetic: these link commands pass
+    // -static, under which the linker looks for libwebsockets.a and fails
+    // ("have you installed the static version of the websockets library ?").
+    // MSYS2 ships an import library (libwebsockets.dll.a) plus a differently
+    // named libwebsockets_static.a, so ask for the shared one explicitly --
+    // exactly what the interpreter's own LDFLAGS do by putting -lwebsockets
+    // after -Wl,-Bdynamic. Nothing follows it on the command line.
+    {
+        char wsprobe_cmd[512];
+        snprintf(wsprobe_cmd, sizeof(wsprobe_cmd),
+                 "%s --print-file-name=libwebsockets.dll.a", opts->cc);
+        FILE *wfp = popen(wsprobe_cmd, "r");
+        if (wfp) {
+            char wsprobe_buf[PATH_MAX];
+            if (fgets(wsprobe_buf, sizeof(wsprobe_buf), wfp) && strpbrk(wsprobe_buf, "/\\")) {
+                snprintf(websockets_flag, sizeof(websockets_flag),
+                         " -Wl,-Bdynamic -lwebsockets");
+            }
+            pclose(wfp);
+        }
     }
 #endif
 
@@ -759,12 +815,19 @@ static int compile_c(const Options *opts, const char *c_file) {
             return 1;
         }
 
+        // -sASYNCIFY: hml_sleep() calls emscripten_sleep(), which only exists
+        // when Asyncify is on. Without the flag Emscripten links a stub that
+        // throws "Please compile your program with async support..." the first
+        // time sleep() runs, so every timed/animated program dies on frame one
+        // in the browser. Asyncify is not free (it instruments the whole
+        // module); --no-asyncify drops it for programs that drive their
+        // frames with main_loop() instead of sleep().
+        const char *asyncify_flag = opts->wasm_asyncify ? "-sASYNCIFY " : "";
         if (opts->wasm_threads) {
             // Threaded WASM: pthreads mapped to Web Workers via SharedArrayBuffer
             // -pthread: enable pthreads support (Web Workers)
             // -sPROXY_TO_PTHREAD: run main() in a worker so it can block
             // -sPTHREAD_POOL_SIZE=4: pre-create worker pool for faster spawn
-            // -sASYNCIFY: enable async unwinding for sleep() on main thread
             n = snprintf(cmd, sizeof(cmd),
                 "emcc %s -o %s %s -I%s %s "
                 "-pthread "
@@ -774,9 +837,10 @@ static int compile_c(const Options *opts, const char *c_file) {
                 "-sSTACK_SIZE=1048576 "
                 "-sPTHREAD_POOL_SIZE=4 "
                 "-sPROXY_TO_PTHREAD "
+                "%s"
                 "-D__HEMLOCK_WASM__=1",
                 opt_flag, q_out, q_c,
-                q_inc, q_wasm_runtime);
+                q_inc, q_wasm_runtime, asyncify_flag);
         } else {
             n = snprintf(cmd, sizeof(cmd),
                 "emcc %s -o %s %s -I%s %s "
@@ -784,9 +848,10 @@ static int compile_c(const Options *opts, const char *c_file) {
                 "-sEXPORTED_RUNTIME_METHODS=\"['ccall','cwrap']\" "
                 "-sALLOW_MEMORY_GROWTH=1 "
                 "-sSTACK_SIZE=1048576 "
+                "%s"
                 "-D__HEMLOCK_WASM__=1",
                 opt_flag, q_out, q_c,
-                q_inc, q_wasm_runtime);
+                q_inc, q_wasm_runtime, asyncify_flag);
         }
     } else if (opts->static_link) {
         // Hybrid static/dynamic linking:
@@ -808,9 +873,10 @@ static int compile_c(const Options *opts, const char *c_file) {
         q_out = shell_quote(opts->output_file);
         char *q_runtime_path_s = shell_quote(runtime_path);
         n = (q_out && q_runtime_path_s) ? snprintf(cmd, sizeof(cmd),
-            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32 -lbcrypt%s",
+            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32 -lbcrypt%s%s",
             opts->cc, opt_flag, q_out, q_c,
-            q_inc, q_runtime_path_s, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag)
+            q_inc, q_runtime_path_s, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag,
+            websockets_flag)
             : (int)sizeof(cmd);
         free(q_runtime_path_s);
 #elif defined(__APPLE__)
@@ -858,9 +924,10 @@ static int compile_c(const Options *opts, const char *c_file) {
         // <repo>/include.
         char *q_runtime_path = shell_quote(runtime_path);
         n = (q_out && q_runtime_path) ? snprintf(cmd, sizeof(cmd),
-            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32 -lbcrypt%s",
+            "%s %s -o %s %s -I%s -I%s/include %s%s -static -lm%s -lws2_32 -lbcrypt%s%s",
             opts->cc, opt_flag, q_out, q_c,
-            q_inc, q_runtime_path, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag)
+            q_inc, q_runtime_path, q_runtime_lib, extra_lib_paths, ffi_flag, zlib_flag,
+            websockets_flag)
             : (int)sizeof(cmd);
         free(q_runtime_path);
 #else

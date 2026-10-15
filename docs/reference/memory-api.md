@@ -160,6 +160,7 @@ free(buf);
 **Behavior:**
 - Initializes memory to zero
 - Provides bounds checking on index access
+- Throws a catchable error for `size <= 0` (same as `alloc()`)
 - Returns `null` on allocation failure (caller must check)
 - Must be manually freed
 
@@ -192,8 +193,19 @@ free(buf);
 
 **Behavior:**
 - Frees memory allocated by `alloc()` or `buffer()`
-- Double-free causes crash (user's responsibility to avoid)
-- Freeing invalid pointers causes undefined behavior
+- For raw pointers: double-free causes a crash, and freeing invalid
+  pointers is undefined behavior (user's responsibility to avoid)
+- For buffers, `free()` is validated with catchable errors instead:
+  - double-free raises "double free detected on buffer"
+  - freeing a slice view raises "cannot free() a buffer slice view"
+  - freeing a buffer that still has live slice views raises "Cannot free
+    buffer with N live slice views" — release the views first, or the
+    views' windows would dangle into freed memory
+  - after a successful `free()`, every alias sees `length == 0` and all
+    accesses raise catchable bounds errors
+
+See [Memory-Safety Model](../design/memory-safety-model.md) for the
+invariants behind these rules.
 
 **Important:** You allocate, you free. No automatic cleanup.
 
@@ -398,6 +410,16 @@ free(p);
 ```
 
 This eliminates the need to call `buffer_ptr()` before every typed read/write operation, making buffer-based code more concise while preserving buffer bounds checks for direct buffer operands.
+
+**Warning — `buffer_ptr()` leaves the safe world.** The returned `ptr` is
+the buffer's raw interior address: it does not keep the buffer alive, it
+carries no length, and it dangles the moment the buffer is freed or its
+last reference is released. Calling `buffer_ptr()` on an already-freed
+buffer raises a catchable error, but keeping the pointer past the buffer's
+lifetime is on you. Prefer the direct buffer operands above, or the
+buffer's typed `read_*`/`write_*` methods, which stay bounds-checked at any
+offset. See [Memory-Safety Model](../design/memory-safety-model.md) for the
+exact obligations.
 
 ---
 

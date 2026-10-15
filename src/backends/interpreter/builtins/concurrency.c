@@ -56,15 +56,25 @@ static void* task_thread_wrapper(void* arg) {
     // Bind parameters (these are deep-copied, so safe to use directly)
     for (int i = 0; i < fn->num_params && i < task->num_args; i++) {
         Value param_arg = task->args[i];
+        // Own a reference: convert_to_type consumes it on failure, and
+        // task_free() still releases task->args[i].
+        VALUE_RETAIN(param_arg);
         // Type check if parameter has type annotation
         if (fn->param_types[i]) {
             param_arg = convert_to_type(param_arg, fn->param_types[i], func_env, task->ctx);
         }
-        env_define(func_env, fn->param_names[i], param_arg, 0, task->ctx);
+        env_define(func_env, fn->param_names[i], param_arg, 0, task->ctx);  // retains
+        VALUE_RELEASE(param_arg);
+        if (task->ctx->exception_state.is_throwing) {
+            break;
+        }
     }
 
     // Execute function body
-    eval_stmt(fn->body, func_env, task->ctx);
+    // Skip the body if binding a typed parameter threw
+    if (!task->ctx->exception_state.is_throwing) {
+        eval_stmt(fn->body, func_env, task->ctx);
+    }
 
     // Get return value
     Value result = val_null();
@@ -629,10 +639,12 @@ Value builtin_select(Value *args, int num_args, ExecutionContext *ctx) {
                 Value msg = *(ch->unbuffered_value);
                 *(ch->unbuffered_value) = val_null();
                 ch->sender_waiting = 0;
+                ch->rendezvous_gen++;
 
-                // Signal sender that value was received, and wake any sender
-                // queued waiting for the rendezvous slot to free up
-                pthread_cond_signal((pthread_cond_t*)ch->rendezvous);
+                // Wake the sender whose value was consumed (broadcast - a
+                // signal() could wake a different staged sender), and wake
+                // any sender queued waiting for the rendezvous slot
+                pthread_cond_broadcast((pthread_cond_t*)ch->rendezvous);
                 pthread_cond_signal((pthread_cond_t*)ch->not_full);
                 pthread_mutex_unlock(mutex);
 

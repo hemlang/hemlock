@@ -64,6 +64,10 @@ export fn stringify(value) {
 
 // Helper: Format number to string
 fn format_number(value) {
+	// NaN and Infinity have no JSON representation
+	if (value != value || value - value != 0) {
+		throw "Cannot stringify NaN or Infinity as JSON";
+	}
 	// Convert number to string using string concatenation
 	return "" + value;
 }
@@ -194,6 +198,18 @@ fn format_object(obj, depth: i32, indent_str: string): string {
 	return result;
 }
 
+// Internal: JSON escape for a control character (code < 0x20)
+fn escape_control_char(code: i32): string {
+	if (code == 8) {
+		return "\\b";
+	}
+	if (code == 12) {
+		return "\\f";
+	}
+	let hex = "0123456789abcdef";
+	return "\\u00" + hex.char_at(code >> 4) + hex.char_at(code & 15);
+}
+
 // Internal: Escape string for JSON
 fn escape_json_string(s: string): string {
 	let result = "\"";
@@ -211,6 +227,9 @@ fn escape_json_string(s: string): string {
 			result = result + "\\r";
 		} else if (ch == '\t') {
 			result = result + "\\t";
+		} else if (i32(ch) < 0x20) {
+			// Remaining control characters are not allowed raw in JSON
+			result = result + escape_control_char(i32(ch));
 		} else {
 			// Concatenate rune with string (rune is automatically converted)
 			result = result + ("" + ch);
@@ -375,9 +394,43 @@ export fn set(obj, path: string, value) {
 
 // Check if path exists
 export fn has(obj, path: string): bool {
-	let sentinel = {};  // Unique object as sentinel
-	let result = get(obj, path, sentinel);
-	return result != sentinel;
+	// Walk to the parent and test for the final key/index itself, so a
+	// property that exists with a null value still counts as present.
+	if (path.length == 0) {
+		return true;
+	}
+
+	let parts = path.split(".");
+	let current = obj;
+
+	for (let i = 0; i < parts.length; i++) {
+		let part = parts[i];
+		let last = i == parts.length - 1;
+
+		if (is_numeric(part)) {
+			if (typeof(current) != "array") {
+				return false;
+			}
+			let idx = parse_int(part);
+			if (idx < 0 || idx >= current.length) {
+				return false;
+			}
+			if (last) {
+				return true;
+			}
+			current = current[idx];
+		} else {
+			if (typeof(current) != "object" || !current.has(part)) {
+				return false;
+			}
+			if (last) {
+				return true;
+			}
+			current = current[part];
+		}
+	}
+
+	return true;
 }
 
 // Delete value by path (dot notation)
@@ -459,7 +512,7 @@ export fn validate(json_str: string) {
 		parse(json_str);
 		return { valid: true, message: "Valid JSON", line: 0 };
 	} catch (e) {
-		return { valid: false, message: typeof(e), line: -1 };
+		return { valid: false, message: "" + e, line: -1 };
 	}
 }
 
@@ -532,18 +585,20 @@ export fn merge(base, update) {
 	let update_keys = update.keys();
 	for (let i = 0; i < update_keys.length; i++) {
 		let key = update_keys[i];
-		let update_val = get(update, key);
+		// Keys are literal property names here, not dot paths: a key like
+		// "a.b" or "0" must not be routed through get()/set().
+		let update_val = update[key];
 
 		if (result.has(key)) {
-			let base_val = get(result, key);
+			let base_val = result[key];
 			// Deep merge if both values are objects
 			if (is_object(base_val) && is_object(update_val)) {
-				set(result, key, merge(base_val, update_val));
+				result[key] = merge(base_val, update_val);
 			} else {
-				set(result, key, clone(update_val));
+				result[key] = clone(update_val);
 			}
 		} else {
-			set(result, key, clone(update_val));
+			result[key] = clone(update_val);
 		}
 	}
 
@@ -563,7 +618,7 @@ fn patch(base, update) {
 	for (let i = 0; i < update_keys.length; i++) {
 		let key = update_keys[i];
 		// Shallow: just replace values directly (no deep merge)
-		set(result, key, clone(get(update, key)));
+		result[key] = clone(update[key]);
 	}
 
 	return result;

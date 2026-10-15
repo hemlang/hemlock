@@ -164,7 +164,6 @@ void hml_runtime_error_loc(const char *format, ...) {
             HmlValue error_msg = hml_val_string(formatted);
             free(formatted);
             hml_throw(error_msg);
-            return;
         }
     }
     hml_throw(hml_val_string(buffer));
@@ -708,7 +707,7 @@ HmlValue hml_call_method(HmlValue obj, const char *method, HmlValue *args, int n
         }
         if ((strcmp(method, "reduce") == 0) && (num_args == 1 || num_args == 2)) {
             HmlValue initial = (num_args == 2) ? args[1] : hml_val_null();
-            return hml_array_reduce(obj, args[0], initial);
+            return hml_array_reduce_n(obj, args[0], initial, num_args == 2);
         }
         hml_runtime_error("Array has no method '%s'", method);
     }

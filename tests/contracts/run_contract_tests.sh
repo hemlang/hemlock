@@ -24,6 +24,7 @@
 # suite and how to add new contracts.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/timeout.sh"  # portable `timeout` (macOS has none)
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 HEMLOCK="$ROOT_DIR/hemlock"
 HEMLOCKC="$ROOT_DIR/hemlockc"

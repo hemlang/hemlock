@@ -1,0 +1,35 @@
+iter 1
+finally 1
+iter 2
+finally 2
+done 2
+body 0
+finally 0
+finally 1
+body 2
+finally 2
+inner finally
+outer finally
+1
+finally saw x
+11
+inner 1
+fin-a 1
+fin-b 1
+fin-a 2
+fin-b 2
+after 2
+0
+fin 0
+1
+fin 1
+2
+fin 2
+10
+fin 10
+fin 11
+after labeled
+loop done 2
+outer finally runs once
+finally before catch
+caught boom

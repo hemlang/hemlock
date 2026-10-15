@@ -84,7 +84,12 @@ typedef struct {
     int num_func_params;      // Saved ctx->num_func_params
     int *func_param_is_ref;   // Saved ctx->func_param_is_ref
     const char *func_rest_param; // Saved ctx->func_rest_param
+    int function_has_try;     // Saved ctx->function_has_try
 } FuncGenState;
+
+// Recursively check whether a statement tree contains a try statement
+// (skips nested function bodies - they get their own scan).
+int codegen_body_has_try(Stmt *stmt);
 
 // Save function generation state before entering a function body
 void funcgen_save_state(CodegenContext *ctx, FuncGenState *state);
@@ -100,6 +105,12 @@ int codegen_is_func_param(CodegenContext *ctx, const char *name);
 
 // Apply default values for optional parameters
 void funcgen_apply_defaults(CodegenContext *ctx, Expr *func);
+
+// Convert typed parameters to their annotated primitive types (interpreter
+// parity, #654). Emitted after funcgen_apply_defaults, so a default is
+// converted too; the tail-call rebinding converts each new value itself.
+void funcgen_convert_param(CodegenContext *ctx, Expr *func, int i, const char *target);
+void funcgen_convert_params(CodegenContext *ctx, Expr *func);
 
 // Promote parameters to owned references: emit hml_retain_if_needed() for
 // every non-ref parameter (and the rest parameter). Must be emitted BEFORE
@@ -164,6 +175,8 @@ void codegen_pop_try_finally(CodegenContext *ctx);
 const char* codegen_get_finally_label(CodegenContext *ctx);
 const char* codegen_get_return_value_var(CodegenContext *ctx);
 const char* codegen_get_has_return_var(CodegenContext *ctx);
+int codegen_try_finally_pending_code(CodegenContext *ctx, int is_continue, const char *label);
+void codegen_try_finally_free_pending(TfPendingJump *pending, int num_pending);
 
 // Switch context tracking (for break -> goto)
 void codegen_push_switch(CodegenContext *ctx, const char *end_label);
@@ -276,12 +289,26 @@ Stmt** parse_module_file(const char *path, int *stmt_count);
 // Generate code to match a pattern against a value, jumping to fail_label if no match
 // Creates local variables for any bindings in the pattern
 void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *scrutinee, const char *fail_label);
+// A match arm's bindings clear unboxable marks of same-named outer variables;
+// take a mark before the arm and restore those marks once the arm ends.
+int codegen_match_unbox_mark(void);
+void codegen_match_unbox_restore(CodegenContext *ctx, int mark);
 
 // ========== TYPE MAPPING HELPERS ==========
 
 // Convert TypeKind to HML_VAL_* string (e.g., TYPE_I8 -> "HML_VAL_I8")
 // Returns NULL for types that don't have a direct HML_VAL mapping
 const char* type_kind_to_hml_val(TypeKind kind);
+
+// Map a TYPE_CUSTOM_OBJECT annotation's type name to an HML_VAL_* string for
+// the builtin identifier-lexed types (task/file/channel). Returns NULL for
+// user-defined types; callers check the type context for shadowing first.
+const char* builtin_type_name_to_hml_val(const char *type_name);
+
+// True if `type_name` names a user-defined type (enum, object, or alias).
+// Lets user definitions shadow the builtin identifier-lexed type names,
+// mirroring the interpreter's lookup order.
+int is_user_defined_type_name(TypeCheckContext *type_ctx, const char *type_name);
 
 // Convert TypeKind to HML_FFI_* string (e.g., TYPE_I8 -> "HML_FFI_I8")
 // Returns "HML_FFI_VOID" for unknown types

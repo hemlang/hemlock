@@ -105,6 +105,8 @@ print(response.body);
 Perform an HTTP PUT request.
 
 ```hemlock
+import { put } from "@stdlib/http";
+
 let body = '{"name":"Bob"}';
 let response = put("https://api.example.com/users/1", body, null);
 ```
@@ -114,6 +116,8 @@ let response = put("https://api.example.com/users/1", body, null);
 Perform an HTTP DELETE request.
 
 ```hemlock
+import { delete } from "@stdlib/http";
+
 let response = delete("https://api.example.com/users/1", null);
 ```
 
@@ -122,6 +126,8 @@ let response = delete("https://api.example.com/users/1", null);
 Perform a generic HTTP request with any method.
 
 ```hemlock
+import { request } from "@stdlib/http";
+
 let response = request("PATCH", "https://api.example.com/users/1", '{"name":"Charlie"}', null);
 ```
 
@@ -446,6 +452,8 @@ let result3 = await task3;
 This module wraps the curl CLI tool via Hemlock's `exec()` builtin:
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // Simplified internal implementation
 let cmd = "curl -s -w '\\n%{http_code}' -L -X POST";
 cmd = cmd + " -H 'Content-Type: application/json'";
@@ -634,6 +642,7 @@ Fields are separated by newlines, events by double newlines. Lines starting with
 ```hemlock
 import { post_json_stream } from "@stdlib/http";
 import { parse } from "@stdlib/json";
+import { getenv } from "@stdlib/env";
 
 let api_key = getenv("OPENAI_API_KEY");
 

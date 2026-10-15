@@ -11,6 +11,16 @@ ifneq (,$(findstring mingw,$(CC))$(findstring MINGW,$(shell uname))$(findstring 
     EXE = .exe
 endif
 
+# Building ON Windows, as opposed to cross-compiling for it from a POSIX host.
+# The difference matters wherever a probe asks the host about a library: a
+# cross build's pkg-config describes the Linux copy, which is worse than no
+# answer at all.
+ifeq ($(HEMLOCK_WINDOWS),1)
+ifneq (,$(findstring MINGW,$(shell uname))$(findstring MSYS,$(shell uname)))
+    HEMLOCK_WINDOWS_NATIVE = 1
+endif
+endif
+
 # -MMD -MP: emit a .d file alongside each .o that lists every (non-system)
 # header the .c file pulled in. Without these, `make` only rebuilds .o files
 # when their .c source changes — touching a header silently produces a
@@ -65,8 +75,19 @@ endif
 
 # Detect libffi, OpenSSL, and libwebsockets (Homebrew on macOS puts them in non-standard locations)
 ifeq ($(HEMLOCK_WINDOWS),1)
-    # No pkg-config probing for cross builds; FFI/OpenSSL are disabled above
-    HAS_LIBWEBSOCKETS := 0
+    # A native MSYS2 build can ask its own pkg-config, so @stdlib/websocket and
+    # @stdlib/http work on Windows when libwebsockets is installed
+    # (pacman -S mingw-w64-ucrt-x86_64-libwebsockets). Cross builds get no
+    # probe: the host's pkg-config would answer about the Linux copy.
+    ifeq ($(HEMLOCK_WINDOWS_NATIVE),1)
+        HAS_LIBWEBSOCKETS := $(shell pkg-config --exists libwebsockets 2>/dev/null && echo 1 || echo 0)
+        ifeq ($(HAS_LIBWEBSOCKETS),1)
+            CFLAGS += $(shell pkg-config --cflags libwebsockets)
+            LDFLAGS_LIBWEBSOCKETS := $(shell pkg-config --libs-only-L libwebsockets)
+        endif
+    else
+        HAS_LIBWEBSOCKETS := 0
+    endif
 else ifeq ($(shell uname),Darwin)
     # On macOS, prefer Homebrew's libffi (system pkg-config points to SDK without headers)
     BREW_LIBFFI := $(shell brew --prefix libffi 2>/dev/null)
@@ -114,15 +135,58 @@ ifeq ($(HEMLOCK_WINDOWS),1)
 # no -ldl/-lcrypto. winpthreads, zlib, and (when present) libffi are
 # linked statically so hemlock.exe is self-contained (ws2_32/bcrypt are
 # system DLLs present on every Windows install).
-LDFLAGS = -static-libgcc -Wl,-Bstatic -lpthread -lz $(WIN_FFI_LIB) -Wl,-Bdynamic -lm -lws2_32 -lbcrypt $(EXTRA_LDFLAGS)
+#
+# --stack raises the main thread's reserved stack from the PE default
+# (2 MB) so the tree-walking interpreter reaches its own
+# HML_DEFAULT_MAX_STACK_DEPTH (8000 frames) guard and throws a catchable
+# "Maximum call stack depth exceeded" instead of dying on a
+# STATUS_STACK_OVERFLOW with no output — the guard is what POSIX builds
+# hit first, and 8000 eval frames need well over 8 MB here. Reserve is
+# address space, not commit, so unused pages cost nothing.
+WIN_STACK_RESERVE = 67108864
+LDFLAGS = -static-libgcc -Wl,--stack,$(WIN_STACK_RESERVE) -Wl,-Bstatic -lpthread -lz $(WIN_FFI_LIB) -Wl,-Bdynamic -lm -lws2_32 -lbcrypt $(EXTRA_LDFLAGS)
+
+# make WIN_LWS_STATIC=1 links libwebsockets (and its TLS/event-loop deps) into
+# hemlock.exe and hemlockc.exe instead of leaning on the DLLs. Costs ~7.6 MB
+# (4.6 -> 12.2 MB measured on UCRT64) and buys binaries that run from cmd.exe
+# or PowerShell: a dynamic build needs libwebsockets.dll, libssl-3-x64.dll and
+# libuv-1.dll on PATH, so outside an MSYS2 shell it exits without a word.
+#
+# The winsock/system libraries have to come AFTER the archives that reference
+# them -- the -lws2_32 already in LDFLAGS above is long past by the time the
+# linker scans libwebsockets_static.a. MSYS2 names the static archive
+# libwebsockets_static.a, not libwebsockets.a, which is also why a plain
+# -static -lwebsockets fails with "have you installed the static version".
+# Ask only for the archives that are actually present. Which ones libwebsockets
+# needs depends on how the local package was built -- an MSYS2 libwebsockets is
+# not always linked against libuv or OpenSSL -- and naming a -l for a static
+# archive that does not exist fails the whole link ("cannot find -luv: have you
+# installed the static version of the uv library ?") rather than being ignored.
+# --print-file-name echoes a full path when found and the bare name when not.
+win_static_lib = $(if $(findstring /,$(shell $(CC) --print-file-name=lib$(1).a)),-l$(1),)
+ifeq ($(WIN_LWS_STATIC),1)
+ifeq (,$(findstring /,$(shell $(CC) --print-file-name=libwebsockets_static.a)))
+$(error WIN_LWS_STATIC=1 needs libwebsockets_static.a, which this toolchain does not have. On MSYS2: pacman -S mingw-w64-ucrt-x86_64-libwebsockets)
+endif
+endif
+WIN_LWS_STATIC_LIBS = -Wl,-Bstatic -lwebsockets_static \
+                      $(call win_static_lib,ssl) $(call win_static_lib,crypto) \
+                      $(call win_static_lib,uv) $(call win_static_lib,ev) \
+                      -Wl,-Bdynamic -lws2_32 -lmswsock -liphlpapi -lcrypt32 \
+                      -lsecur32 -lbcrypt -ladvapi32 -luser32 -lgdi32 -lpsapi \
+                      -luserenv -ldbghelp -lole32 -lshell32 -lsynchronization
 else
 LDFLAGS = $(LDFLAGS_LIBFFI) $(LDFLAGS_OPENSSL) -lm -lpthread -lffi -ldl -lz -lcrypto $(EXTRA_LDFLAGS)
 endif
 
 # Conditionally add libwebsockets
 ifeq ($(HAS_LIBWEBSOCKETS),1)
-LDFLAGS += $(LDFLAGS_LIBWEBSOCKETS) -lwebsockets
 CFLAGS += -DHAVE_LIBWEBSOCKETS=1
+ifeq ($(WIN_LWS_STATIC),1)
+LDFLAGS += $(LDFLAGS_LIBWEBSOCKETS) $(WIN_LWS_STATIC_LIBS)
+else
+LDFLAGS += $(LDFLAGS_LIBWEBSOCKETS) -lwebsockets
+endif
 endif
 
 # ========== SOURCE FILES (New Structure) ==========
@@ -225,6 +289,10 @@ run: $(TARGET)
 test: $(TARGET) stdlib
 	@bash tests/run_tests.sh
 
+# Portable `timeout` for recipes: uses GNU timeout on Linux, gtimeout or a
+# perl fallback on macOS (which ships no `timeout`). See tests/lib/timeout.sh.
+HML_TIMEOUT = tests/lib/hml-timeout
+
 # Test the persistent WASM context API (native, no Emscripten needed)
 TEST_WASM_CTX_SRC = tests/wasm/test_persistent_context.c
 TEST_WASM_CTX_BIN = $(BUILD_DIR)/test_persistent_context
@@ -239,7 +307,7 @@ test-wasm-context: $(INTERP_OBJS) $(LIBTOOLS) $(LIBCOMMON)
 	@$(CC) $(CFLAGS) $(TEST_WASM_CTX_SRC) $(TEST_WASM_CTX_OBJS) $(LIBTOOLS) $(LIBCOMMON) \
 		-o $(TEST_WASM_CTX_BIN) $(LDFLAGS)
 	@echo "Running persistent context API test..."
-	@timeout 30 $(TEST_WASM_CTX_BIN)
+	@$(HML_TIMEOUT) 30 $(TEST_WASM_CTX_BIN)
 
 test-formatter: $(TARGET)
 	@bash tests/formatter/run_tests.sh
@@ -252,6 +320,17 @@ test-cli: $(TARGET)
 .PHONY: test-check
 test-check: $(TARGET)
 	@bash tests/check/run_check_tests.sh
+
+# Regenerate the stdlib API index (docs/reference/stdlib-api-index.md)
+.PHONY: stdlib-api
+stdlib-api:
+	@python3 tests/gen_stdlib_api.py
+
+# Documentation audit: link/doc pairing checks + stdlib API index freshness
+.PHONY: docs-check
+docs-check:
+	@python3 tests/check_docs.py
+	@python3 tests/gen_stdlib_api.py --check
 
 # ========== STDLIB C MODULES ==========
 
@@ -375,7 +454,7 @@ asan-test: asan
 	@echo "Running test suite with AddressSanitizer (leak detection enabled)..."
 	@echo "This will report any memory leaks in the runtime."
 	@echo ""
-	ASAN_OPTIONS="detect_leaks=1:halt_on_error=0:print_stats=1" timeout 120 $(MAKE) test || true
+	ASAN_OPTIONS="detect_leaks=1:halt_on_error=0:print_stats=1" $(HML_TIMEOUT) 120 $(MAKE) test || true
 	@echo ""
 	@echo "✓ ASAN test run complete. Check output above for leak reports."
 
@@ -917,7 +996,7 @@ test-memory: compiler
 
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler test-borrow test-lint parity test-contracts test-bundler test-lsp test-memory test-formatter test-cli test-check
+test-all: test test-compiler test-borrow test-lint parity test-contracts test-bundler test-lsp test-memory test-formatter test-cli test-check docs-check
 
 # ========== RELEASE BUILD ==========
 

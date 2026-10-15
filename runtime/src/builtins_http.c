@@ -116,6 +116,14 @@ static void hml_lws_init_logging(void) {
 #define HML_LWS_HTTP_DEFAULT_TIMEOUT_MS 5000
 #define HML_LWS_HTTP_SERVICE_POLL_MS 10
 
+// WebSocket client connect wait (must match HML_WS_CONNECT_TIMEOUT_MS /
+// HML_WS_CONNECT_POLL_US in include/hemlock_limits.h). The poll sleep is what
+// makes the timeout real: lws_service()'s own timeout argument has been
+// ignored since lws 3.2 and returns immediately under the libuv event loop, so
+// counting service calls is a busy-spin, not a wait.
+#define HML_WS_CONNECT_TIMEOUT_MS 10000
+#define HML_WS_CONNECT_POLL_US    10000
+
 static int hml_lws_timeout_iterations_from_ms(int timeout_ms) {
     int iterations = timeout_ms / HML_LWS_HTTP_SERVICE_POLL_MS;
     return iterations < 1 ? 1 : iterations;
@@ -1762,6 +1770,7 @@ typedef struct {
     volatile int shutdown;
     int has_own_thread;
     int owns_memory;
+    volatile int close_requested; /* server side: close() called, lws not told yet */
 } hml_ws_connection_t;
 
 // WebSocket server structure
@@ -1848,6 +1857,7 @@ static int hml_ws_callback(struct lws *wsi, enum lws_callback_reasons reason,
             }
             break;
 
+        case LWS_CALLBACK_CLIENT_CLOSED: /* how lws reports a client connection closing */
         case LWS_CALLBACK_CLOSED:
             if (conn) {
                 conn->closed = 1;
@@ -1875,6 +1885,12 @@ static int hml_ws_server_callback(struct lws *wsi, enum lws_callback_reasons rea
     hml_ws_connection_t *conn = (hml_ws_connection_t *)user;
 
     switch (reason) {
+        case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
+            /* lws_cancel_service() from another thread: a connection may
+             * have been closed; let each check in SERVER_WRITEABLE */
+            lws_callback_on_writable_all_protocol(lws_get_context(wsi), lws_get_protocol(wsi));
+            break;
+
         case LWS_CALLBACK_ESTABLISHED:
             if (conn) {
                 conn->wsi = wsi;
@@ -1919,6 +1935,11 @@ static int hml_ws_server_callback(struct lws *wsi, enum lws_callback_reasons rea
             break;
 
         case LWS_CALLBACK_SERVER_WRITEABLE:
+            if (conn && conn->close_requested) {
+                conn->close_requested = 0;
+                lws_close_reason(wsi, LWS_CLOSE_STATUS_NORMAL, NULL, 0);
+                return -1; /* lws sends the close frame and drops the connection */
+            }
             if (conn && conn->send_pending && conn->send_buffer) {
                 lws_write(wsi, (unsigned char *)conn->send_buffer + LWS_PRE,
                          conn->send_len, LWS_WRITE_TEXT);
@@ -2073,10 +2094,16 @@ HmlValue hml_lws_ws_connect(HmlValue url_val) {
         hml_runtime_error("Failed to connect WebSocket");
     }
 
-    // Wait for connection (timeout 10 seconds)
-    int timeout = 100;
-    while (timeout-- > 0 && !conn->closed && !conn->failed && !conn->established) {
-        lws_service(conn->context, 100);
+    // Wait for connection (timeout 10 seconds), paced with usleep so the
+    // timeout is enforced by the clock rather than by how fast lws_service()
+    // happens to return -- see HML_WS_CONNECT_TIMEOUT_MS above. Counting
+    // service calls made the first, coldest connect in a process fail
+    // intermittently while every later one succeeded.
+    int wait_ms = HML_WS_CONNECT_TIMEOUT_MS;
+    while (wait_ms > 0 && !conn->closed && !conn->failed && !conn->established) {
+        lws_service(conn->context, 0);
+        usleep(HML_WS_CONNECT_POLL_US);
+        wait_ms -= HML_WS_CONNECT_POLL_US / 1000;
     }
 
     if (conn->failed || conn->closed || !conn->established) {
@@ -2170,7 +2197,8 @@ HmlValue hml_lws_ws_recv(HmlValue conn_val, HmlValue timeout_val) {
     }
 
     hml_ws_connection_t *conn = (hml_ws_connection_t *)conn_val.as.as_ptr;
-    if (!conn || conn->closed) {
+    /* a closed connection still delivers what it received first */
+    if (!conn || (conn->closed && !conn->msg_queue_head)) {
         return hml_val_null();
     }
 
@@ -2189,7 +2217,7 @@ HmlValue hml_lws_ws_recv(HmlValue conn_val, HmlValue timeout_val) {
         }
 
         usleep(10000);  // 10ms sleep
-        if (conn->closed) return hml_val_null();
+        if (conn->closed && !conn->msg_queue_head) return hml_val_null();
         if (iterations > 0) iterations--;
     }
 
@@ -2278,8 +2306,29 @@ HmlValue hml_lws_ws_close(HmlValue conn_val) {
 
     hml_ws_connection_t *conn = (hml_ws_connection_t *)conn_val.as.as_ptr;
     if (conn) {
+        /* A server-side connection belongs to the server's lws context, which
+         * only its service thread may touch. Ask that thread to close it: the
+         * wake-up arrives as LWS_CALLBACK_EVENT_WAIT_CANCELLED, which requests
+         * a writeable callback, and returning -1 from that sends the close
+         * frame. */
+        if (!conn->has_own_thread && conn->wsi && !conn->closed) {
+            conn->close_requested = 1;
+            if (conn->context) {
+                lws_cancel_service(conn->context);
+            }
+        }
+
         conn->closed = 1;
         conn->shutdown = 1;
+
+        // Wake the service thread so it re-checks `shutdown`: its loop is
+        // `while (!shutdown) lws_service(ctx, 50)`, and that timeout argument
+        // has been ignored since lws 3.2 -- under the libuv event loop
+        // lws_service() blocks until something happens, so the flag alone is
+        // never noticed and the join below waits forever.
+        if (conn->has_own_thread && conn->context) {
+            lws_cancel_service(conn->context);
+        }
 
         if (conn->has_own_thread) {
             pthread_join(conn->service_thread, NULL);
@@ -2292,6 +2341,8 @@ HmlValue hml_lws_ws_close(HmlValue conn_val) {
             free(msg);
             msg = next;
         }
+        conn->msg_queue_head = NULL; /* recv may still look at the queue */
+        conn->msg_queue_tail = NULL;
 
         if (conn->send_buffer) {
             free(conn->send_buffer);
@@ -2424,6 +2475,12 @@ HmlValue hml_lws_ws_server_close(HmlValue server_val) {
         // be in the middle of a 100ms timeout, so 200ms gives plenty of
         // margin.
         usleep(200000);
+        // Wake the service thread so it re-checks `shutdown` -- see the note
+        // in the connection close above. Without this the join never returns
+        // and the process hangs after its last statement.
+        if (server->context) {
+            lws_cancel_service(server->context);
+        }
         pthread_join(server->service_thread, NULL);
         pthread_mutex_destroy(&server->pending_mutex);
         if (server->context) {

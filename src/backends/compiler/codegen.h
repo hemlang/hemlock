@@ -18,6 +18,14 @@ typedef struct DeferEntry DeferEntry;
 typedef struct CompiledModule CompiledModule;
 typedef struct CompilerModuleCache CompilerModuleCache;
 
+// A labeled break/continue routed through a try-finally block. Registered on
+// the innermost try-finally context when the jump site is generated; the
+// dispatch chain after the finally re-emits the jump for its action code.
+typedef struct {
+    int is_continue;    // 0 = labeled break, 1 = labeled continue
+    char *label;        // The user-written loop label (owned)
+} TfPendingJump;
+
 // Deferred expression entry for LIFO execution
 struct DeferEntry {
     Expr *expr;           // The expression to defer
@@ -192,11 +200,24 @@ typedef struct {
     int num_const_vars;           // Count of const variables
     int const_vars_capacity;      // Capacity of const_vars array
 
-    // Try-finally support (for return/break/continue to jump to finally first)
+    // Try-finally support (for return/break/continue to jump to finally first).
+    // The "has return" variable is really a pending-ACTION code:
+    //   0 = none, 1 = return, 2 = unlabeled break, 3 = unlabeled continue,
+    //   4+i = the i-th labeled break/continue registered on that context.
+    // After the finally block runs, a dispatch chain re-emits the jump -
+    // routing through the next-outer finally when the jump crosses it too.
     int try_finally_depth;        // Current nesting depth of try-finally blocks
     char **finally_labels;        // Stack of finally labels (for goto)
     char **return_value_vars;     // Stack of return value variable names
-    char **has_return_vars;       // Stack of "has return" flag variable names
+    char **has_return_vars;       // Stack of pending-action variable names
+    int *tf_try_depth;            // Stack of try_body_depth at push (relative pops)
+    int *tf_loop_body;            // Stack of loop_body_depth at push (jump crossing)
+    int *tf_switch_depth;         // Stack of switch_depth at push (jump crossing)
+    int *tf_num_locals;           // Stack of num_locals at push (release try-scoped
+                                  // locals before the goto to the finally label)
+    TfPendingJump **tf_pending;   // Per-level list of labeled jumps routed through
+    int *tf_num_pending;          // Count per level
+    int *tf_pending_cap;          // Capacity per level
     int try_finally_capacity;     // Capacity of the stacks
 
     // Try-body tracking (for return/break/continue to pop pushed exception
@@ -216,6 +237,9 @@ typedef struct {
     // Switch tracking (for break/continue handling)
     int switch_depth;             // Current switch nesting depth (0 = not in switch)
     char **switch_end_labels;     // Stack of switch end labels (for break -> goto)
+    int *switch_loop_depths;      // Stack of loop_body_depth at switch entry (a break
+                                  // targets the switch only if no loop was entered
+                                  // after it - i.e. loop_body_depth is unchanged)
     int switch_end_capacity;      // Capacity of switch_end_labels stack
 
     // For-loop continue tracking (continue jumps to increment, not condition)
@@ -227,15 +251,45 @@ typedef struct {
     char **loop_labels;           // Stack of loop labels (user-defined)
     char **loop_break_labels;     // Stack of generated break target labels
     char **loop_continue_labels;  // Stack of generated continue target labels
-    int *loop_label_body_locals;  // Stack of num_locals at labeled loop body entry
+    int *loop_label_body_locals;  // Stack of num_locals at label push (labeled
+                                  // BREAK cleanup base: everything the loop
+                                  // registered - iterable temp, loop vars -
+                                  // is released, since the goto skips the
+                                  // loop's own end-of-loop releases)
+    int *loop_label_continue_locals; // Stack of num_locals at loop BODY entry
+                                  // (labeled CONTINUE cleanup base: the
+                                  // target loop keeps running, so its own
+                                  // iterable/loop vars must NOT be released)
     int *loop_label_try_depth;    // Stack of try_body_depth at labeled loop body entry
+    int *loop_label_loop_body;    // Stack of loop_body_depth at label push (for
+                                  // deciding which unboxed shadows a labeled
+                                  // break/continue exits)
     int loop_label_depth;         // Current labeled loop nesting depth
     int loop_label_capacity;      // Capacity of loop label stacks
+
+    // Active while-loop unboxed main-var shadows. While a top-level while loop
+    // runs with native shadows of _main_ variables, any goto that leaves the
+    // shadow's region (labeled break/continue) must write the shadow back to
+    // its _main_ variable first, or every update made through the shadow is
+    // lost. Entries record the loop_body_depth at which the shadow's while
+    // loop lives so jump sites know which shadows they exit.
+    char **unboxed_shadow_names;      // Main variable names (owned strdups)
+    int *unboxed_shadow_types;        // CheckedTypeKind of each shadow
+    int *unboxed_shadow_body_depth;   // loop_body_depth at shadow creation
+    int num_unboxed_shadows;
+    int unboxed_shadow_capacity;
 
     // Type checking context (for optimized code generation)
     TypeCheckContext *type_ctx;   // Type check context (NULL if --no-type-check)
     int optimize;                 // Optimization level (0 = none, 1+ = optimize)
     int stack_check;              // Enable stack overflow checking (1 = on, 0 = off)
+
+    // Whether the current function's body contains a try statement. When it
+    // does, unboxed native locals are declared `volatile`: try compiles to
+    // setjmp, and a non-volatile local modified between setjmp and longjmp
+    // has an indeterminate value after the longjmp - a native accumulator
+    // updated in a try body read garbage in the catch block.
+    int function_has_try;
 
     // Defer optimization tracking
     int has_defers;               // Whether any defer statements exist in current function
@@ -428,6 +482,24 @@ const char* codegen_get_labeled_break(CodegenContext *ctx, const char *label);
 // Get the continue label for a given user-defined label (returns NULL if not found)
 const char* codegen_get_labeled_continue(CodegenContext *ctx, const char *label);
 
+// Check whether any closure generated so far captures `name`
+int codegen_var_captured_by_any_closure(CodegenContext *ctx, const char *name);
+
+// ========== UNBOXED MAIN-VAR SHADOW TRACKING ==========
+
+// Register an active while-loop unboxed shadow of a _main_ variable.
+// `checked_type` is a CheckedTypeKind (stored as int to avoid a header cycle).
+void codegen_push_unboxed_shadow(CodegenContext *ctx, const char *name, int checked_type);
+
+// Pop the most recent `count` unboxed shadows.
+void codegen_pop_unboxed_shadows(CodegenContext *ctx, int count);
+
+// Emit `_main_<name> = box(<shadow>)` write-backs for every active shadow a
+// labeled break/continue to `label` would jump out of. Must be emitted
+// before the goto; without it, updates made through the native shadows in
+// loops nested inside the target loop are silently lost.
+void codegen_emit_labeled_jump_shadow_writeback(CodegenContext *ctx, const char *label);
+
 // ========== LOOP BODY LOCALS TRACKING ==========
 
 // Push the current num_locals as the loop body start (call before loop body)
@@ -444,6 +516,17 @@ void codegen_emit_break_cleanup(CodegenContext *ctx);
 
 // Emit cleanup for block-scoped locals before labeled break/continue
 void codegen_emit_labeled_break_cleanup(CodegenContext *ctx, const char *label);
+
+// Emit cleanup before a labeled continue: releases everything registered
+// after the target loop's body entry, but keeps the target loop's own
+// iterable/loop-var state alive (the loop continues running).
+void codegen_emit_labeled_continue_cleanup(CodegenContext *ctx, const char *label);
+
+// Record the current num_locals as the innermost labeled loop's body-entry
+// base (call after the loop registers its iterable temp and loop variables,
+// before generating the body). No-op if the innermost label entry is not
+// the one being set up.
+void codegen_loop_label_set_continue_base(CodegenContext *ctx);
 
 // ========== TRY-BODY EXCEPTION CONTEXT POPS ==========
 // Helpers used to pop exception contexts that were pushed by enclosing try

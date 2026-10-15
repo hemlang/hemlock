@@ -463,12 +463,20 @@ Value builtin_eprint(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    // Print to stderr with the same formatting as print()
+    // Print to stderr with the same formatting as print().
+    // Flush stdout first: print() leaves its output in the stdio buffer when
+    // stdout is a pipe or file, so without this the stderr line jumps ahead
+    // of everything printed before it. The compiled runtime flushes after
+    // every print (see hml_print), so only the interpreter was reordering —
+    // visible on Windows, where MSVCRT never line-buffers a redirected
+    // stdout, and on any platform once output is piped.
+    fflush(stdout);
     for (int i = 0; i < num_args; i++) {
         if (i > 0) fprintf(stderr, " ");
         fprint_value(stderr, args[i]);
     }
     fprintf(stderr, "\n");
+    fflush(stderr);
     return val_null();
 }
 

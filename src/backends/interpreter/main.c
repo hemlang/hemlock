@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <time.h>
 #include <zlib.h>
 #include "frontend.h"
 #include "hemlock_compat.h"
@@ -918,7 +919,15 @@ static int is_compiled_file(const char *path) {
     return magic == HMLC_MAGIC || magic == HMLB_MAGIC;
 }
 
+typedef struct {
+    Stmt **statements;
+    int count;
+} ReplHistoryEntry;
+
 static void run_repl(int stack_depth) {
+    ReplHistoryEntry *history = NULL;
+    int history_count = 0;
+    int history_capacity = 0;
     char line[1024];
     char input_buffer[2048];  // Buffer for input with optional semicolon
     Environment *env = env_new(NULL);
@@ -978,19 +987,46 @@ static void run_repl(int stack_depth) {
         Stmt **statements = parse_program(&parser, &stmt_count);
 
         if (parser.had_error) {
+            for (int i = 0; i < stmt_count; i++) {
+                stmt_free(statements[i]);
+            }
+            free(statements);
             continue;
         }
 
         // Execute
         for (int i = 0; i < stmt_count; i++) {
             eval_stmt(statements[i], env, ctx);
+
+            // Report an uncaught exception and reset, so later lines still
+            // run (previously the pending exception silenced the REPL).
+            if (ctx->exception_state.is_throwing) {
+                char *error_msg = value_to_string(ctx->exception_state.exception_value);
+                fprintf(stderr, "Uncaught exception: %s\n", error_msg ? error_msg : "");
+                free(error_msg);
+                VALUE_RELEASE(ctx->exception_state.exception_value);
+                ctx->exception_state.exception_value = val_null();
+                ctx->exception_state.is_throwing = 0;
+                ctx->call_stack.count = 0;
+                break;
+            }
         }
 
-        // Cleanup
-        for (int i = 0; i < stmt_count; i++) {
-            stmt_free(statements[i]);
+        // Keep this line's AST alive for the rest of the session: functions
+        // and closures defined on it point into the AST (their bodies).
+        if (history_count >= history_capacity) {
+            int new_capacity = history_capacity ? history_capacity * 2 : 16;
+            ReplHistoryEntry *grown = realloc(history, sizeof(ReplHistoryEntry) * (size_t)new_capacity);
+            if (!grown) {
+                fprintf(stderr, "Error: out of memory in REPL\n");
+                break;
+            }
+            history = grown;
+            history_capacity = new_capacity;
         }
-        free(statements);
+        history[history_count].statements = statements;
+        history[history_count].count = stmt_count;
+        history_count++;
     }
 
     // Cleanup FFI
@@ -999,6 +1035,14 @@ static void run_repl(int stack_depth) {
     exec_context_free(ctx);
     env_break_cycles(env);  // Break circular references before release
     env_release(env);
+
+    for (int h = 0; h < history_count; h++) {
+        for (int i = 0; i < history[h].count; i++) {
+            stmt_free(history[h].statements[i]);
+        }
+        free(history[h].statements);
+    }
+    free(history);
 }
 
 static void print_version(void) {
@@ -1430,6 +1474,7 @@ typedef struct CheckOptions {
     int lint_strict;
     int strict_types;
     int borrow_strict;
+    int deny_warnings;
 } CheckOptions;
 
 static void check_collect(CheckDiagList *list, const char *file, int line,
@@ -1630,6 +1675,7 @@ static int run_check(int argc, char **argv) {
         .lint_strict = 0,
         .strict_types = 0,
         .borrow_strict = 0,
+        .deny_warnings = 0,
     };
     const char **files = malloc(sizeof(char*) * (size_t)(argc > 2 ? argc : 2));
     int num_files = 0;
@@ -1645,6 +1691,8 @@ static int run_check(int argc, char **argv) {
             opts.lint_strict = 1;
         } else if (strcmp(argv[i], "--no-lint") == 0) {
             opts.lint = 0;
+        } else if (strcmp(argv[i], "--deny-warnings") == 0) {
+            opts.deny_warnings = 1;
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             printf("Hemlock Static Checker\n\n");
             printf("Parses and analyzes source files without executing them, running the\n");
@@ -1658,6 +1706,7 @@ static int run_check(int argc, char **argv) {
             printf("    --strict-types   Strict type checking (warn on implicit any)\n");
             printf("    --borrow-strict  Strict borrow checking (move tracking + leak detection)\n");
             printf("    --lint-strict    Strict lint (also flag unused variables)\n");
+            printf("    --deny-warnings  Exit 1 when any warning is reported (for CI)\n");
             printf("    --no-lint        Disable the lint pass\n");
             printf("    -h, --help       Display this help message\n\n");
             printf("EXIT CODE:\n");
@@ -1709,7 +1758,12 @@ static int run_check(int argc, char **argv) {
         check_print_text(&list, files_checked);
     }
 
-    int exit_code = io_error ? 2 : (list.errors > 0 ? 1 : 0);
+    // Warnings do not fail the check by default; `warnings_exit_zero` pins that.
+    // --deny-warnings is the opt-in for a caller that wants the borrow pass to
+    // gate something. Without it a proven double free exits 0, so the checker
+    // could diagnose a fault it could not stop.
+    int failing = list.errors > 0 || (opts.deny_warnings && list.warnings > 0);
+    int exit_code = io_error ? 2 : (failing ? 1 : 0);
 
     for (int i = 0; i < list.count; i++) {
         free(list.items[i].message);
@@ -1723,6 +1777,28 @@ static int run_check(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+    // Seed the RNG backing rand()/randint()/etc. (@stdlib/random, @stdlib/math)
+    // before anything else runs. Without this, every process starts from the
+    // C standard's fixed default rand() state, so the first N random draws
+    // of every fresh Hemlock process are 100% deterministic and identical
+    // across processes -- e.g. two servers picking a "random" port on
+    // startup will always pick the exact same one. Prefer /dev/urandom for
+    // real entropy; fall back to time+pid if it's unavailable.
+    {
+        unsigned int seed_value = 0;
+        FILE *urandom = fopen("/dev/urandom", "rb");
+        if (urandom) {
+            if (fread(&seed_value, sizeof(seed_value), 1, urandom) != 1) {
+                seed_value = 0;
+            }
+            fclose(urandom);
+        }
+        if (seed_value == 0) {
+            seed_value = (unsigned int)time(NULL) ^ (unsigned int)getpid();
+        }
+        srand(seed_value);
+    }
+
     // Check for embedded payload FIRST (before any argument parsing)
     // This allows packaged executables to run their embedded code
     size_t payload_size;
@@ -1942,7 +2018,44 @@ int main(int argc, char **argv) {
     if (command_to_run != NULL) {
         // Execute code string
         ffi_init();
-        run_source(command_to_run, 0, NULL, stack_depth, sandbox_flags, sandbox_root);
+        if (has_modules(command_to_run)) {
+            // Route through the module system so imports work, mirroring
+            // run_file(). Without this, import statements in -e code bind
+            // nothing and every imported name is undefined.
+            set_current_source_file("<command-line>");
+            set_current_source_code(command_to_run);
+
+            ExecutionContext *ctx = exec_context_new();
+            if (stack_depth > 0) {
+                ctx->max_stack_depth = stack_depth;
+            }
+            if (sandbox_flags != 0) {
+                ctx->sandbox_flags = sandbox_flags;
+                if (sandbox_root) {
+                    ctx->sandbox_root = strdup(sandbox_root);
+                }
+            }
+
+            Environment *global_env = env_new(NULL);
+            register_builtins(global_env, 0, NULL, ctx);
+
+            int result = execute_source_with_modules(command_to_run, global_env, 0, NULL, ctx);
+
+            env_break_cycles(global_env);
+            env_release(global_env);
+            exec_context_free(ctx);
+            set_current_source_file(NULL);
+            set_current_source_code(NULL);
+
+            if (result != 0) {
+                ffi_cleanup();
+                cleanup_object_types();
+                cleanup_enum_types();
+                return 1;
+            }
+        } else {
+            run_source(command_to_run, 0, NULL, stack_depth, sandbox_flags, sandbox_root);
+        }
         ffi_cleanup();
 
         if (interactive_mode) {

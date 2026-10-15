@@ -248,8 +248,9 @@ class LlamaServer:
 
     def __init__(self, model_path: str, llama_bin: str = "llama-server",
                  port: int = DEFAULT_PORT, n_ctx: int = 8192, n_gpu_layers: int = -1,
-                 llm_timeout: int = LLM_TIMEOUT_SEC):
+                 llm_timeout: int = LLM_TIMEOUT_SEC, lora_scaled: str = ""):
         self.model_path = model_path
+        self.lora_scaled = lora_scaled
         self.llama_bin = llama_bin
         self.port = port
         self.n_ctx = n_ctx
@@ -270,6 +271,12 @@ class LlamaServer:
             "--jinja",
             "--reasoning-format", "auto",
         ]
+
+        # Benchmarking an adapter without baking a merged GGUF first. llama.cpp wants one
+        # comma-separated FNAME:SCALE list -- repeating the flag silently keeps only the last,
+        # which reads as a working run against the wrong model.
+        if self.lora_scaled:
+            cmd += ["--lora-scaled", self.lora_scaled]
 
         log(f"  Starting llama-server on port {self.port}...", C.DIM)
         log(f"  Model: {Path(self.model_path).name}", C.DIM)
@@ -988,6 +995,9 @@ Examples:
                         help="Context size for llama-server (default: 32768)")
     parser.add_argument("--n-gpu-layers", type=int, default=-1,
                         help="GPU layers (-1 = all, 0 = CPU only)")
+    parser.add_argument("--lora-scaled", type=str, default="",
+                        help="LoRA adapters as a comma-separated FNAME:SCALE list, e.g. "
+                             "a.gguf:1.0,b.gguf:0.5")
 
     # Task filtering
     parser.add_argument("--level", type=str, default="",
@@ -1126,6 +1136,7 @@ Examples:
                     n_ctx=args.ctx_size,
                     n_gpu_layers=args.n_gpu_layers,
                     llm_timeout=args.llm_timeout,
+                    lora_scaled=args.lora_scaled,
                 )
                 if not server.start():
                     log(f"Failed to start server for {model_name}, skipping.", C.RED)

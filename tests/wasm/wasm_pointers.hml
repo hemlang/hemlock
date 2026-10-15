@@ -1,0 +1,43 @@
+// Raw pointer arithmetic under WASM.
+//
+// ptr_offset / ptr_read_* / ptr_write_* / ptr_deref_* used to be panicking
+// stubs in the WASM build because they live in builtins_ffi.c, which is
+// excluded for Emscripten. They need neither dlopen nor libffi -- they are
+// loads, stores and address arithmetic over linear memory -- so they must
+// work here exactly as they do natively.
+
+// Walk a 4-element i32 array by hand
+let p = alloc(16);
+
+ptr_write_i32(p, 10);
+ptr_write_i32(ptr_offset(p, 1, 4), 20);
+ptr_write_i32(ptr_offset(p, 2, 4), 30);
+ptr_write_i32(ptr_offset(p, 3, 4), 40);
+
+let sum = 0;
+for (let i = 0; i < 4; i++) {
+    sum = sum + ptr_read_i32(ptr_offset(p, i, 4));
+}
+print("sum = " + sum);
+print("first = " + ptr_deref_i32(p));
+print("last = " + ptr_read_i32(ptr_offset(p, 3, 4)));
+
+// Negative offsets walk backwards
+let tail = ptr_offset(p, 3, 4);
+print("back one = " + ptr_read_i32(ptr_offset(tail, -1, 4)));
+
+free(p);
+
+// The width-specific readers were not even defined in the WASM runtime
+// before -- a program using them failed to link.
+let b = buffer(8);
+ptr_write_f32(b, 1.5);
+print("f32 = " + ptr_read_f32(b));
+
+let q = alloc(8);
+ptr_write_i32(q, -7);
+print("i8 = " + ptr_read_i8(q));
+print("u8 = " + ptr_read_u8(q));
+free(q);
+
+print("Done!");

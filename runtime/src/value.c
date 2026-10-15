@@ -77,6 +77,14 @@ static int obj_is_pooled(HmlObject *obj) {
     return obj >= &obj_pool.objects[0] && obj < &obj_pool.objects[OBJ_POOL_SIZE];
 }
 
+// True while a pooled object's fields still live in the pool's inline
+// storage (i.e. they have never been grown onto the heap).
+int hml_obj_fields_in_pool_storage(HmlObject *obj) {
+    if (!obj_is_pooled(obj)) return 0;
+    int idx = (int)(obj - &obj_pool.objects[0]);
+    return obj->fields == obj_pool.fields_storage[idx];
+}
+
 static void obj_pool_free(HmlObject *obj) {
     if (!obj_is_pooled(obj)) return;
     int idx = (int)(obj - &obj_pool.objects[0]);
@@ -378,11 +386,16 @@ HmlValue hml_val_ptr(void *ptr) {
 }
 
 HmlValue hml_val_buffer(int size) {
+    if (size < 0) {
+        hml_runtime_error("buffer() size must be positive");
+    }
     HmlBuffer *b = calloc(1, sizeof(HmlBuffer));
     if (!b) {
         return hml_val_null();
     }
-    b->data = calloc(size, 1);  // Zero-initialized
+    // size == 0 (internal callers: empty reads, deep copies of freed
+    // buffers) still gets a valid 1-byte allocation so data is never NULL.
+    b->data = calloc(size > 0 ? size : 1, 1);  // Zero-initialized
     if (!b->data) {
         free(b);
         return hml_val_null();
@@ -709,7 +722,9 @@ static void string_free(HmlString *str) {
 static void buffer_free(HmlBuffer *buf) {
     if (buf) {
         if (buf->parent) {
-            // Zero-copy view: release parent instead of freeing data
+            // Zero-copy view: the root becomes freeable again once its last
+            // view is gone, then release the parent instead of freeing data
+            atomic_fetch_sub(&buf->parent->view_count, 1);
             if (atomic_fetch_sub(&buf->parent->ref_count, 1) <= 1) {
                 buffer_free(buf->parent);
             }

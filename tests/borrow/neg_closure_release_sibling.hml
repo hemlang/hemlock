@@ -1,0 +1,12 @@
+// A closure runs at an unknown time (perhaps never): a `destroy`-style closure
+// releasing a captured resource must not make a sibling closure's use of that
+// resource a use-after-free, and delegating the release to a closure is not a
+// leak when the defining scope ends.
+fn make_arena() {
+    let memory = alloc(64);
+    let handle = {
+        destroy: fn() { free(memory); },
+        base: fn() { return memory; }
+    };
+    return handle;
+}

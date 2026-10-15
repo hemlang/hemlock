@@ -21,6 +21,7 @@ static ResolverScope *scope_new(ResolverScope *parent) {
     scope->names = malloc(sizeof(char *) * scope->capacity);
     scope->annotations = malloc(sizeof(Annotation **) * scope->capacity);
     scope->annotation_counts = malloc(sizeof(int) * scope->capacity);
+    scope->is_dynamic = 0;
     scope->parent = parent;
     return scope;
 }
@@ -154,6 +155,9 @@ int resolver_lookup(ResolverContext *ctx, const char *name, int *depth, int *slo
         // Search this scope
         for (int i = 0; i < scope->count; i++) {
             if (strcmp(scope->names[i], name) == 0) {
+                // Dynamic-scope names have no stable slot; the runtime
+                // finds them by name.
+                if (scope->is_dynamic) return 0;
                 *depth = d;
                 *slot = i;
                 return 1;
@@ -201,6 +205,55 @@ static void resolve_expr_internal(ResolverContext *ctx, Expr *expr);
 /*
  * Resolve an expression.
  */
+/*
+ * Declare every name a match pattern can bind in the current scope.
+ */
+static void resolve_pattern_bindings(ResolverContext *ctx, Pattern *pattern) {
+    if (!pattern) return;
+    switch (pattern->type) {
+        case PATTERN_BINDING:
+            if (pattern->as.binding.name) {
+                resolver_define(ctx, pattern->as.binding.name, NULL, 0);
+            }
+            break;
+        case PATTERN_TYPED:
+            if (pattern->as.typed.name) {
+                resolver_define(ctx, pattern->as.typed.name, NULL, 0);
+            }
+            break;
+        case PATTERN_OR:
+            for (int i = 0; i < pattern->as.or_pattern.num_alternatives; i++) {
+                resolve_pattern_bindings(ctx, pattern->as.or_pattern.alternatives[i]);
+            }
+            break;
+        case PATTERN_OBJECT:
+            for (int i = 0; i < pattern->as.object.num_fields; i++) {
+                ObjectFieldPattern *field = &pattern->as.object.fields[i];
+                if (field->pattern) {
+                    resolve_pattern_bindings(ctx, field->pattern);
+                } else if (field->name) {
+                    resolver_define(ctx, field->name, NULL, 0);
+                }
+            }
+            if (pattern->as.object.has_rest && pattern->as.object.rest_name) {
+                resolver_define(ctx, pattern->as.object.rest_name, NULL, 0);
+            }
+            break;
+        case PATTERN_ARRAY:
+            for (int i = 0; i < pattern->as.array.num_elements; i++) {
+                ArrayElementPattern *el = &pattern->as.array.elements[i];
+                if (el->is_rest) {
+                    if (el->rest_name) resolver_define(ctx, el->rest_name, NULL, 0);
+                } else {
+                    resolve_pattern_bindings(ctx, el->pattern);
+                }
+            }
+            break;
+        default:
+            break;
+    }
+}
+
 static void resolve_expr_internal(ResolverContext *ctx, Expr *expr) {
     if (!expr) return;
 
@@ -393,25 +446,29 @@ static void resolve_expr_internal(ResolverContext *ctx, Expr *expr) {
         case EXPR_MATCH:
             // Resolve the scrutinee expression
             resolve_expr_internal(ctx, expr->as.match_expr.scrutinee);
-            // Resolve each match arm
-            // Note: We do NOT define pattern bindings here because the interpreter's
-            // pattern matching creates bindings at runtime in a different way than
-            // the resolver tracks. Marking them as resolved would interfere with
-            // the runtime binding mechanism.
+            // The interpreter evaluates each arm (pattern literals, guard,
+            // body) in a fresh child environment holding the pattern
+            // bindings, so resolve them one scope deeper. Binding slots
+            // depend on runtime match order, so the arm scope is dynamic:
+            // bindings resolve by name while outer variables still get
+            // correct (depth, slot) pairs.
             for (int i = 0; i < expr->as.match_expr.num_arms; i++) {
                 MatchArm *arm = &expr->as.match_expr.arms[i];
+
+                resolver_enter_scope(ctx);
+                ctx->current->is_dynamic = 1;
+                resolve_pattern_bindings(ctx, arm->pattern);
 
                 // Resolve literal patterns (they may contain expressions)
                 if (arm->pattern && arm->pattern->type == PATTERN_LITERAL) {
                     resolve_expr_internal(ctx, arm->pattern->as.literal);
                 }
 
-                // Resolve guard if present
                 if (arm->guard) {
                     resolve_expr_internal(ctx, arm->guard);
                 }
-                // Resolve body (pattern bindings will use hash lookup at runtime)
                 resolve_expr_internal(ctx, arm->body);
+                resolver_exit_scope(ctx);
             }
             break;
 

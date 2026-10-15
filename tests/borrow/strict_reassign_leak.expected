@@ -1,0 +1,1 @@
+strict_reassign_leak.hml:5: warning: reassigning 'p' drops the last reference to the memory acquired at line 4 (possible leak)

@@ -153,7 +153,16 @@ int codegen_call_async(CodegenContext *ctx, Expr *expr, char *result,
     // Handle channel builtin
     if (strcmp(func_name, "channel") == 0 && num_args == 1) {
         char *cap = codegen_expr(ctx, call_args[0]);
-        codegen_writeln(ctx, "HmlValue %s = hml_channel(%s.as.as_i32);", result, cap);
+        // Validate the capacity like the interpreter: only i32/u32 accepted,
+        // must be non-negative. Reading .as.as_i32 unchecked reinterpreted
+        // e.g. an f64's low bits as the capacity and never threw.
+        codegen_writeln(ctx, "if (%s.type != HML_VAL_I32 && %s.type != HML_VAL_U32) "
+                             "hml_runtime_error_loc(\"channel() capacity must be an integer\");",
+                        cap, cap);
+        codegen_writeln(ctx, "if (hml_to_i32(%s) < 0) "
+                             "hml_runtime_error_loc(\"channel() capacity cannot be negative\");",
+                        cap);
+        codegen_writeln(ctx, "HmlValue %s = hml_channel(hml_to_i32(%s));", result, cap);
         codegen_writeln(ctx, "hml_release(&%s);", cap);
         free(cap);
         return 1;

@@ -10,6 +10,7 @@
 // (src/shared/regex_win32, on the include path for MinGW builds), so the
 // same POSIX implementation compiles on every platform.
 #include <regex.h>
+#include "regex_flags.h"
 
 // ========== REGEX BUILTINS ==========
 
@@ -33,7 +34,7 @@ Value builtin_regex_compile(Value *args, int num_args, ExecutionContext *ctx) {
 
     int cflags = REG_EXTENDED;  // Default to extended regex
     if (num_args >= 2 && args[1].type != VAL_NULL) {
-        cflags = (int)value_to_int64(args[1]);
+        cflags = hml_regex_native_cflags(value_to_int64(args[1]));
     }
 
     // Allocate regex_t
@@ -87,7 +88,7 @@ Value builtin_regex_test(Value *args, int num_args, ExecutionContext *ctx) {
 
     int flags = 0;
     if (num_args >= 3 && args[2].type != VAL_NULL) {
-        flags = (int)value_to_int64(args[2]);
+        flags = hml_regex_native_eflags(value_to_int64(args[2]));
     }
 
     regex_t *regex = (regex_t *)preg_val.as.as_ptr;
@@ -116,83 +117,42 @@ Value builtin_regex_match(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "regex_match: text must be a string");
     }
 
-    int nmatch = 10;  // Default max matches
+    // max_matches: null or <= 0 means no limit
+    int64_t max_matches = 0;
     if (num_args >= 3 && args[2].type != VAL_NULL) {
-        nmatch = (int)value_to_int64(args[2]);
-        if (nmatch <= 0) nmatch = 10;
-        if (nmatch > 100) nmatch = 100;  // Cap at 100
+        max_matches = value_to_int64(args[2]);
     }
 
     regex_t *regex = (regex_t *)preg_val.as.as_ptr;
     const char *text_data = text.as.as_string->data;
-    regmatch_t *pmatch = (regmatch_t *)malloc(nmatch * sizeof(regmatch_t));
-    if (!pmatch) {
-        runtime_error(ctx, "regex_match: failed to allocate memory");
-        return val_null();
-    }
+    size_t text_len = (size_t)text.as.as_string->length;
 
     Array *result = array_new();
 
-    int exec_result = regexec(regex, text_data, nmatch, pmatch, 0);
-    if (exec_result == 0) {
-        // Add all valid matches to the array
-        for (int i = 0; i < nmatch; i++) {
-            if (pmatch[i].rm_so == -1) break;  // No more matches
-
-            // Create match object with 3 fields
-            Object *match = object_new(NULL, 3);
-
-            // Extract matched text
-            int len = pmatch[i].rm_eo - pmatch[i].rm_so;
-            char *matched = (char *)malloc(len + 1);
-            if (matched) {
-                strncpy(matched, text_data + pmatch[i].rm_so, len);
-                matched[len] = '\0';
-            }
-
-            // Set fields
-            match->fields[0].name = strdup("start");
-            if (!match->fields[0].name) {
-                if (matched) free(matched);
-                object_free(match);
-                free(pmatch);
-                array_free(result);
-                return val_null();
-            }
-            match->fields[0].value = val_i32((int32_t)pmatch[i].rm_so);
-            match->num_fields++;
-
-            match->fields[1].name = strdup("end");
-            if (!match->fields[1].name) {
-                if (matched) free(matched);
-                object_free(match);
-                free(pmatch);
-                array_free(result);
-                return val_null();
-            }
-            match->fields[1].value = val_i32((int32_t)pmatch[i].rm_eo);
-            match->num_fields++;
-
-            match->fields[2].name = strdup("text");
-            if (!match->fields[2].name) {
-                if (matched) free(matched);
-                object_free(match);
-                free(pmatch);
-                array_free(result);
-                return val_null();
-            }
-            match->fields[2].value = matched ? val_string(matched) : val_null();
-            match->num_fields++;
-
-            if (matched) free(matched);
-
-            Value obj_val = val_object(match);
-            array_push(result, obj_val);
-            value_release(obj_val);  // array_push retains, so release our reference
+    // Successive whole-pattern matches (not the capture groups of one match)
+    size_t pos = 0, so = 0, eo = 0;
+    while ((max_matches <= 0 || result->length < max_matches) &&
+           hml_regex_next_match(regex, text_data, text_len, &pos, &so, &eo)) {
+        Object *match = object_new(NULL, 3);
+        match->fields[0].name = strdup("start");
+        match->fields[0].value = val_i32((int32_t)so);
+        match->fields[1].name = strdup("end");
+        match->fields[1].value = val_i32((int32_t)eo);
+        match->fields[2].name = strdup("text");
+        match->fields[2].value = val_string_take(strndup(text_data + so, eo - so), (int)(eo - so), (int)(eo - so) + 1);
+        match->num_fields = 3;
+        if (!match->fields[0].name || !match->fields[1].name || !match->fields[2].name) {
+            object_free(match);
+            array_free(result);
+            runtime_error(ctx, "regex_match: failed to allocate memory");
+            return val_null();
         }
+
+        Value obj_val = val_object(match);
+        array_push(result, obj_val);
+        value_release(obj_val);  // array_push retains, so release our reference
     }
 
-    free(pmatch);
     // Ownership of array transfers to caller via return value
     return val_array(result);
 }
@@ -275,7 +235,7 @@ Value builtin_regex_replace(Value *args, int num_args, ExecutionContext *ctx) {
     const char *repl_data = replacement.as.as_string->data;
     regmatch_t pmatch[1];
 
-    int result = regexec(regex, text_data, 1, pmatch, 0);
+    int result = hml_regexec_positions(regex, text_data, 1, pmatch, 0);
     if (result != 0) {
         // No match, return a retained copy of the original string
         value_retain(text);
@@ -339,7 +299,7 @@ Value builtin_regex_replace_all(Value *args, int num_args, ExecutionContext *ctx
     const char *p = src;
     regmatch_t pmatch[1];
 
-    while (*p && regexec(regex, p, 1, pmatch, (p == src) ? 0 : REG_NOTBOL) == 0) {
+    while (*p && hml_regexec_positions(regex, p, 1, pmatch, (p == src) ? 0 : REG_NOTBOL) == 0) {
         // Prevent infinite loop on zero-length matches
         if (pmatch[0].rm_so == pmatch[0].rm_eo) {
             if (p[pmatch[0].rm_eo] == '\0') break;
@@ -371,7 +331,7 @@ Value builtin_regex_replace_all(Value *args, int num_args, ExecutionContext *ctx
     char *dst = result;
     p = src;
 
-    while (*p && regexec(regex, p, 1, pmatch, (p == src) ? 0 : REG_NOTBOL) == 0) {
+    while (*p && hml_regexec_positions(regex, p, 1, pmatch, (p == src) ? 0 : REG_NOTBOL) == 0) {
         // Prevent infinite loop on zero-length matches
         if (pmatch[0].rm_so == pmatch[0].rm_eo) {
             if (p[pmatch[0].rm_eo] == '\0') break;

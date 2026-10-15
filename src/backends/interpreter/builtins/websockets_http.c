@@ -609,6 +609,18 @@ Value builtin_lws_http_get(Value *args, int num_args, ExecutionContext *ctx) {
         lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
     }
 
+    // Detach resp from the wsi now that we're done reading it. resp->complete
+    // can be set as soon as headers are parsed (e.g. on a 3xx redirect),
+    // before libwebsockets has actually finished tearing the connection down
+    // -- especially since get_http_context() caches and reuses one lws_context
+    // per scheme, so a later call's lws_service() can still dispatch a stray
+    // callback for this wsi. Without this, the Hemlock stdlib layer frees
+    // resp (e.g. to follow the redirect) while the wsi can still deliver a
+    // callback into it, causing a use-after-free write in http_callback().
+    if (wsi) {
+        lws_set_wsi_user(wsi, NULL);
+    }
+
     if (!ssl) lws_context_destroy(context);
 
     if (resp->failed || !resp->complete) {
@@ -745,6 +757,18 @@ Value builtin_lws_http_post(Value *args, int num_args, ExecutionContext *ctx) {
     int timeout = lws_timeout_iterations_from_ms(LWS_HTTP_DEFAULT_TIMEOUT_MS);
     while (!resp->complete && !resp->failed && timeout-- > 0) {
         lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
+    }
+
+    // Detach resp from the wsi now that we're done reading it. resp->complete
+    // can be set as soon as headers are parsed (e.g. on a 3xx redirect),
+    // before libwebsockets has actually finished tearing the connection down
+    // -- especially since get_http_context() caches and reuses one lws_context
+    // per scheme, so a later call's lws_service() can still dispatch a stray
+    // callback for this wsi. Without this, the Hemlock stdlib layer frees
+    // resp (e.g. to follow the redirect) while the wsi can still deliver a
+    // callback into it, causing a use-after-free write in http_callback().
+    if (wsi) {
+        lws_set_wsi_user(wsi, NULL);
     }
 
     if (!ssl) lws_context_destroy(context);
@@ -890,6 +914,18 @@ Value builtin_lws_http_request(Value *args, int num_args, ExecutionContext *ctx)
         lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
     }
 
+    // Detach resp from the wsi now that we're done reading it. resp->complete
+    // can be set as soon as headers are parsed (e.g. on a 3xx redirect),
+    // before libwebsockets has actually finished tearing the connection down
+    // -- especially since get_http_context() caches and reuses one lws_context
+    // per scheme, so a later call's lws_service() can still dispatch a stray
+    // callback for this wsi. Without this, the Hemlock stdlib layer frees
+    // resp (e.g. to follow the redirect) while the wsi can still deliver a
+    // callback into it, causing a use-after-free write in http_callback().
+    if (wsi) {
+        lws_set_wsi_user(wsi, NULL);
+    }
+
     if (!ssl) lws_context_destroy(context);
 
     // Request body is no longer needed once the call completes.
@@ -1026,6 +1062,18 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
         lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
+    }
+
+    // Detach resp from the wsi now that we're done reading it. resp->complete
+    // can be set as soon as headers are parsed (e.g. on a 3xx redirect),
+    // before libwebsockets has actually finished tearing the connection down
+    // -- especially since get_http_context() caches and reuses one lws_context
+    // per scheme, so a later call's lws_service() can still dispatch a stray
+    // callback for this wsi. Without this, the Hemlock stdlib layer frees
+    // resp (e.g. to follow the redirect) while the wsi can still deliver a
+    // callback into it, causing a use-after-free write in http_callback().
+    if (wsi) {
+        lws_set_wsi_user(wsi, NULL);
     }
 
     if (!ssl) lws_context_destroy(context);
@@ -1176,6 +1224,18 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
         lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
+    }
+
+    // Detach resp from the wsi now that we're done reading it. resp->complete
+    // can be set as soon as headers are parsed (e.g. on a 3xx redirect),
+    // before libwebsockets has actually finished tearing the connection down
+    // -- especially since get_http_context() caches and reuses one lws_context
+    // per scheme, so a later call's lws_service() can still dispatch a stray
+    // callback for this wsi. Without this, the Hemlock stdlib layer frees
+    // resp (e.g. to follow the redirect) while the wsi can still deliver a
+    // callback into it, causing a use-after-free write in http_callback().
+    if (wsi) {
+        lws_set_wsi_user(wsi, NULL);
     }
 
     if (!ssl) lws_context_destroy(context);
@@ -1331,6 +1391,18 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     int timeout = timeout_iterations;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
         lws_service(context, LWS_HTTP_SERVICE_POLL_MS);
+    }
+
+    // Detach resp from the wsi now that we're done reading it. resp->complete
+    // can be set as soon as headers are parsed (e.g. on a 3xx redirect),
+    // before libwebsockets has actually finished tearing the connection down
+    // -- especially since get_http_context() caches and reuses one lws_context
+    // per scheme, so a later call's lws_service() can still dispatch a stray
+    // callback for this wsi. Without this, the Hemlock stdlib layer frees
+    // resp (e.g. to follow the redirect) while the wsi can still deliver a
+    // callback into it, causing a use-after-free write in http_callback().
+    if (wsi) {
+        lws_set_wsi_user(wsi, NULL);
     }
 
     if (!ssl) lws_context_destroy(context);

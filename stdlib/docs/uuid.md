@@ -38,6 +38,7 @@ Generate a UUID v7 (time-ordered, sortable). The first 48 bits encode the Unix t
 
 ```hemlock
 import { v7 } from "@stdlib/uuid";
+import { sleep } from "@stdlib/time";
 
 let id1 = v7();
 sleep(0.001);  // Wait 1ms

@@ -23,13 +23,14 @@ Options:
 | `--borrow-strict` | Strict borrow checking (move tracking + leak detection) |
 | `--lint-strict` | Strict lint (also flag unused variables) |
 | `--no-lint` | Disable the lint pass |
+| `--deny-warnings` | Exit 1 when any warning is reported |
 
 Exit codes:
 
 | Code | Meaning |
 |------|---------|
-| 0 | No errors (warnings do not fail the check) |
-| 1 | One or more errors found |
+| 0 | No errors (warnings do not fail the check, unless `--deny-warnings`) |
+| 1 | One or more errors found, or any warning under `--deny-warnings` |
 | 2 | Usage or I/O error (unknown flag, unreadable file) |
 
 ## What runs

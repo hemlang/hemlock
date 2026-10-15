@@ -191,7 +191,7 @@ import { open } from "@stdlib/fs";
 
 let f = open("output.txt", "w");
 let written = f.write("Hello, World!\n");
-print("Wrote " + typeof(written) + " bytes");  // "Wrote 14 bytes"
+print("Wrote " + written + " bytes");  // "Wrote 14 bytes"
 f.close();
 ```
 
@@ -237,7 +237,7 @@ buf[1] = 66;  // 'B'
 buf[2] = 67;  // 'C'
 
 let bytes = f.write_bytes(buf);
-print("Wrote " + typeof(bytes) + " bytes");
+print("Wrote " + bytes + " bytes");
 
 f.close();
 ```
@@ -335,7 +335,7 @@ let content = f.read();
 let end = f.tell();
 
 let bytes_read = end - start;
-print("Read " + typeof(bytes_read) + " bytes");
+print("Read " + bytes_read + " bytes");
 
 f.close();
 ```
@@ -639,7 +639,7 @@ fn read_lines(path: string) {
 let lines = read_lines("data.txt");
 let i = 0;
 while (i < lines.length) {
-    print("Line " + typeof(i) + ": " + lines[i]);
+    print("Line " + i + ": " + lines[i]);
     i = i + 1;
 }
 ```
@@ -742,7 +742,7 @@ fn file_size(path: string): i32 {
 }
 
 let size = file_size("data.txt");
-print("File size: " + typeof(size) + " bytes");
+print("File size: " + size + " bytes");
 ```
 
 ### Conditional Read/Write

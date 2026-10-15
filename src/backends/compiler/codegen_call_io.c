@@ -19,52 +19,41 @@ int codegen_call_io(CodegenContext *ctx, Expr *expr, char *result,
         return 1;
     }
 
-    // Handle print builtin (supports any number of arguments)
-    if (strcmp(func_name, "print") == 0 && num_args >= 1) {
-        // Print each argument, with space separator between them
-        for (int i = 0; i < num_args; i++) {
-            char *arg = codegen_expr(ctx, call_args[i]);
-            if (i > 0) {
-                codegen_writeln(ctx, "hml_print_value(hml_val_string(\" \"));");
-            }
-            codegen_writeln(ctx, "hml_print_value(%s);", arg);
-            codegen_writeln(ctx, "hml_release(&%s);", arg);
-            free(arg);
+    // Handle print/write/eprint builtins (any number of arguments).
+    // Evaluate ALL arguments first, then emit the output calls: the
+    // interpreter evaluates the full argument list before printing, so
+    // interleaving evaluation with output diverges when an argument
+    // expression itself writes (e.g. `print(f(), f())` where f writes).
+    int is_print = (strcmp(func_name, "print") == 0);
+    int is_write = (strcmp(func_name, "write") == 0);
+    int is_eprint = (strcmp(func_name, "eprint") == 0);
+    if ((is_print || is_write || is_eprint) && num_args >= 1) {
+        const char *emit_fn = is_eprint ? "hml_eprint_value" : "hml_print_value";
+        char **args = malloc((size_t)num_args * sizeof(char *));
+        if (!args) {
+            codegen_error(ctx, expr->line, "Memory allocation failed for %s arguments", func_name);
+            codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
+            return 1;
         }
-        codegen_writeln(ctx, "hml_print_newline();");
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
-        return 1;
-    }
-
-    // Handle write builtin (like print but no trailing newline)
-    if (strcmp(func_name, "write") == 0 && num_args >= 1) {
         for (int i = 0; i < num_args; i++) {
-            char *arg = codegen_expr(ctx, call_args[i]);
-            if (i > 0) {
-                codegen_writeln(ctx, "hml_print_value(hml_val_string(\" \"));");
-            }
-            codegen_writeln(ctx, "hml_print_value(%s);", arg);
-            codegen_writeln(ctx, "hml_release(&%s);", arg);
-            free(arg);
+            args[i] = codegen_expr(ctx, call_args[i]);
         }
-        codegen_writeln(ctx, "hml_write_flush();");
-        codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
-        return 1;
-    }
-
-    // Handle eprint builtin (supports any number of arguments)
-    if (strcmp(func_name, "eprint") == 0 && num_args >= 1) {
-        // Print each argument to stderr, with space separator between them
         for (int i = 0; i < num_args; i++) {
-            char *arg = codegen_expr(ctx, call_args[i]);
             if (i > 0) {
-                codegen_writeln(ctx, "hml_eprint_value(hml_val_string(\" \"));");
+                codegen_writeln(ctx, "%s(hml_val_string(\" \"));", emit_fn);
             }
-            codegen_writeln(ctx, "hml_eprint_value(%s);", arg);
-            codegen_writeln(ctx, "hml_release(&%s);", arg);
-            free(arg);
+            codegen_writeln(ctx, "%s(%s);", emit_fn, args[i]);
+            codegen_writeln(ctx, "hml_release(&%s);", args[i]);
+            free(args[i]);
         }
-        codegen_writeln(ctx, "hml_eprint_newline();");
+        free(args);
+        if (is_print) {
+            codegen_writeln(ctx, "hml_print_newline();");
+        } else if (is_write) {
+            codegen_writeln(ctx, "hml_write_flush();");
+        } else {
+            codegen_writeln(ctx, "hml_eprint_newline();");
+        }
         codegen_writeln(ctx, "HmlValue %s = hml_val_null();", result);
         return 1;
     }

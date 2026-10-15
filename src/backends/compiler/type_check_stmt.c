@@ -646,9 +646,11 @@ void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int count)
         if (!stmt) continue;
 
         if (stmt->type == STMT_TYPE_ALIAS) {
-            CheckedType *aliased = checked_type_from_ast(stmt->as.type_alias.aliased_type);
+            // Registered unresolved; the target is lowered lazily on first
+            // use (see checked_type_from_ast_ctx), after user-defined
+            // objects/enums have been collected.
             type_check_register_type_alias(ctx, stmt->as.type_alias.name,
-                aliased,
+                stmt->as.type_alias.aliased_type,
                 stmt->as.type_alias.type_params,
                 stmt->as.type_alias.num_type_params);
         }
@@ -657,9 +659,8 @@ void collect_function_signatures(TypeCheckContext *ctx, Stmt **stmts, int count)
         if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_declaration) {
             Stmt *decl = stmt->as.export_stmt.declaration;
             if (decl && decl->type == STMT_TYPE_ALIAS) {
-                CheckedType *aliased = checked_type_from_ast(decl->as.type_alias.aliased_type);
                 type_check_register_type_alias(ctx, decl->as.type_alias.name,
-                    aliased,
+                    decl->as.type_alias.aliased_type,
                     decl->as.type_alias.type_params,
                     decl->as.type_alias.num_type_params);
             }

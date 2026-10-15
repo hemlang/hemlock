@@ -5,12 +5,18 @@
 
 // ========== EXPRESSION CONSTRUCTORS ==========
 
+// The three number constructors set every field, not just the one the flags
+// select: consumers that compare whole literals (the linter's duplicate-case
+// check) otherwise read whichever of int_value/uint_value/is_u64 this literal
+// left untouched, and malloc hands back different garbage per allocation.
 Expr* expr_number_int(int64_t value) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_NUMBER;
     expr->line = 0;
     expr->column = 0;
     expr->as.number.int_value = value;
+    expr->as.number.uint_value = 0;
+    expr->as.number.float_value = 0.0;
     expr->as.number.is_float = 0;
     expr->as.number.is_u64 = 0;
     return expr;
@@ -21,7 +27,9 @@ Expr* expr_number_u64(uint64_t value) {
     expr->type = EXPR_NUMBER;
     expr->line = 0;
     expr->column = 0;
+    expr->as.number.int_value = 0;
     expr->as.number.uint_value = value;
+    expr->as.number.float_value = 0.0;
     expr->as.number.is_float = 0;
     expr->as.number.is_u64 = 1;
     return expr;
@@ -32,8 +40,11 @@ Expr* expr_number_float(double value) {
     expr->type = EXPR_NUMBER;
     expr->line = 0;
     expr->column = 0;
+    expr->as.number.int_value = 0;
+    expr->as.number.uint_value = 0;
     expr->as.number.float_value = value;
     expr->as.number.is_float = 1;
+    expr->as.number.is_u64 = 0;
     return expr;
 }
 
@@ -920,7 +931,7 @@ Stmt* stmt_import_named(char **import_names, char **import_aliases, int num_impo
     stmt->as.import_stmt.import_names = import_names;
     stmt->as.import_stmt.import_aliases = import_aliases;
     stmt->as.import_stmt.num_imports = num_imports;
-    stmt->as.import_stmt.module_path = strdup(module_path);
+    stmt->as.import_stmt.module_path = module_path ? strdup(module_path) : NULL;
     return stmt;
 }
 
@@ -934,7 +945,7 @@ Stmt* stmt_import_namespace(const char *namespace_name, const char *module_path)
     stmt->as.import_stmt.import_names = NULL;
     stmt->as.import_stmt.import_aliases = NULL;
     stmt->as.import_stmt.num_imports = 0;
-    stmt->as.import_stmt.module_path = strdup(module_path);
+    stmt->as.import_stmt.module_path = module_path ? strdup(module_path) : NULL;
     return stmt;
 }
 
@@ -948,7 +959,7 @@ Stmt* stmt_import_star(const char *module_path) {
     stmt->as.import_stmt.import_names = NULL;
     stmt->as.import_stmt.import_aliases = NULL;
     stmt->as.import_stmt.num_imports = 0;
-    stmt->as.import_stmt.module_path = strdup(module_path);
+    stmt->as.import_stmt.module_path = module_path ? strdup(module_path) : NULL;
     return stmt;
 }
 
@@ -993,7 +1004,7 @@ Stmt* stmt_export_reexport(char **export_names, char **export_aliases, int num_e
     stmt->as.export_stmt.export_names = export_names;
     stmt->as.export_stmt.export_aliases = export_aliases;
     stmt->as.export_stmt.num_exports = num_exports;
-    stmt->as.export_stmt.module_path = strdup(module_path);
+    stmt->as.export_stmt.module_path = module_path ? strdup(module_path) : NULL;
     return stmt;
 }
 

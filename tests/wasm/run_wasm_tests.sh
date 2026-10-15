@@ -16,6 +16,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Portable timeout (Linux timeout / macOS gtimeout / perl fallback)
+source "$SCRIPT_DIR/../lib/timeout.sh"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TEST_DIR="$SCRIPT_DIR"
 BUILD_DIR="$TEST_DIR/build"

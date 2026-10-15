@@ -32,6 +32,7 @@ Welcome to the Hemlock programming language documentation!
 ### Advanced Topics
 - [WebAssembly (WASM)](getting-started/installation.md#webassembly-wasm-build) - Run Hemlock in the browser via Emscripten
 - [Async & Concurrency](advanced/async-concurrency.md) - True multi-threading with async/await
+- [The Memory Model](advanced/memory-model.md) - What crosses threads, happens-before edges, and the race-free fragment
 - [Atomic Operations](advanced/atomics.md) - Lock-free concurrent programming
 - [Bundling & Packaging](advanced/bundling-packaging.md) - Create bundles and standalone executables
 - [Foreign Function Interface](advanced/ffi.md) - Call C functions from shared libraries
@@ -50,6 +51,7 @@ Welcome to the Hemlock programming language documentation!
 
 ### API Reference
 - [Standard Library Overview](reference/stdlib-overview.md) - All 53 stdlib modules by category
+- [Stdlib API Index](reference/stdlib-api-index.md) - Generated one-line-per-symbol index of every stdlib export
 - [Type System Reference](reference/type-system.md) - Complete type reference
 - [Operators Reference](reference/operators.md) - All operators and precedence
 - [Built-in Functions](reference/builtins.md) - Global functions and constants
@@ -61,6 +63,7 @@ Welcome to the Hemlock programming language documentation!
 
 ### Design & Philosophy
 - [Design Philosophy](design/philosophy.md) - Core principles and goals
+- [Memory-Safety Model](design/memory-safety-model.md) - The buffer invariants, the safe-fragment theorem, and the proof obligations at every `ptr` crossing
 - [Implementation Details](design/implementation.md) - How Hemlock works internally
 - [Signature Syntax](design/signature-syntax.md) - Type system extensions and design
 - [Gradual Typing Analysis](design/gradual-typing-analysis.md) - Does Hemlock satisfy the gradual guarantee? (negative result, with witnesses)

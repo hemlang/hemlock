@@ -138,6 +138,9 @@ struct HmlBuffer {
     _Atomic int ref_count;
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
     HmlBuffer *parent;   // Non-NULL for zero-copy slice views (keeps parent alive)
+    _Atomic int view_count; // Roots only: number of live slice views into this
+                            // buffer. free() refuses while > 0, so a view can
+                            // never dangle into a freed root allocation.
 };
 
 // Array struct (dynamic array)
@@ -242,6 +245,13 @@ struct HmlChannel {
     HmlValue unbuffered_value;   // Value being transferred in rendezvous (inline, no separate alloc)
     int sender_waiting;          // Flag: sender is blocked waiting for receiver
     int receiver_waiting;        // Flag: receiver is blocked waiting for sender
+    // Count of completed rendezvous handoffs. A staged sender records the
+    // current value and waits until it changes: with multiple senders, a
+    // bare "sender_waiting == 0" check can't tell "my value was consumed"
+    // from "another sender has staged a new value", and a signal() wakeup
+    // can go to the wrong sender (lost wakeup -> deadlock). Consumers bump
+    // this and broadcast `rendezvous`.
+    unsigned long long rendezvous_gen;
 };
 
 // Socket (TCP/UDP networking)
@@ -381,8 +391,8 @@ static inline int hml_both_i32(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i32_add(HmlValue left, HmlValue right) {
     int32_t result;
     if (__builtin_add_overflow(left.as.as_i32, right.as.as_i32, &result)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Integer overflow: i32 addition");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Integer overflow: i32 addition");
     }
     return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = result };
 }
@@ -391,8 +401,8 @@ static inline HmlValue hml_i32_add(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i32_sub(HmlValue left, HmlValue right) {
     int32_t result;
     if (__builtin_sub_overflow(left.as.as_i32, right.as.as_i32, &result)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Integer overflow: i32 subtraction");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Integer overflow: i32 subtraction");
     }
     return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = result };
 }
@@ -401,8 +411,8 @@ static inline HmlValue hml_i32_sub(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i32_mul(HmlValue left, HmlValue right) {
     int32_t result;
     if (__builtin_mul_overflow(left.as.as_i32, right.as.as_i32, &result)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Integer overflow: i32 multiplication");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Integer overflow: i32 multiplication");
     }
     return (HmlValue){ .type = HML_VAL_I32, .as.as_i32 = result };
 }
@@ -502,8 +512,8 @@ static inline int hml_both_i64(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i64_add(HmlValue left, HmlValue right) {
     int64_t result;
     if (__builtin_add_overflow(left.as.as_i64, right.as.as_i64, &result)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Integer overflow: i64 addition");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Integer overflow: i64 addition");
     }
     return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = result };
 }
@@ -511,8 +521,8 @@ static inline HmlValue hml_i64_add(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i64_sub(HmlValue left, HmlValue right) {
     int64_t result;
     if (__builtin_sub_overflow(left.as.as_i64, right.as.as_i64, &result)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Integer overflow: i64 subtraction");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Integer overflow: i64 subtraction");
     }
     return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = result };
 }
@@ -520,8 +530,8 @@ static inline HmlValue hml_i64_sub(HmlValue left, HmlValue right) {
 static inline HmlValue hml_i64_mul(HmlValue left, HmlValue right) {
     int64_t result;
     if (__builtin_mul_overflow(left.as.as_i64, right.as.as_i64, &result)) {
-        extern __attribute__((noreturn)) void hml_runtime_error(const char *fmt, ...);
-        hml_runtime_error("Integer overflow: i64 multiplication");
+        extern __attribute__((noreturn)) void hml_runtime_error_line(const char *fmt, ...);
+        hml_runtime_error_line("Integer overflow: i64 multiplication");
     }
     return (HmlValue){ .type = HML_VAL_I64, .as.as_i64 = result };
 }
@@ -658,8 +668,7 @@ static inline void hml_array_set_i32_fast(HmlArray *arr, int32_t index, HmlValue
         // hml_array_set(): typed arrays must reject mismatched values before
         // mutating or changing reference counts.
         if (arr->element_type != HML_VAL_NULL && val.type != arr->element_type) {
-            extern __attribute__((noreturn)) void hml_fatal_error(const char *message);
-            hml_fatal_error("Type mismatch in typed array - expected element of specific type");
+            hml_runtime_error("Type mismatch in typed array - expected element of specific type");
         }
 
         HmlValue old = arr->elements[index];

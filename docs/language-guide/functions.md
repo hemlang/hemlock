@@ -89,13 +89,13 @@ fn add(a: i32, b: i32): i32 {
 }
 
 add(5, 10);      // OK
-add(5, 10.5);    // Runtime type check promotes to f64
+add(5, 10.5);    // Truncates to i32 → 15
 ```
 
 **Type checking:**
 - Parameter types are checked at call time if annotated
-- Implicit type conversions follow standard promotion rules
-- Type mismatches cause runtime errors
+- Numeric arguments are converted to the annotated type (float → integer truncates toward zero, no promotion to f64; an integer takes the parameter's width, so `u8`/`u32` arithmetic on it wraps)
+- Type mismatches (e.g. a string for an `i32` parameter) are errors
 
 ### Pass-by-Value
 
@@ -559,8 +559,8 @@ fn add(a: i32, b: i32): i32 {
 }
 
 add(5, 10);        // OK
-add(5.5, 10.5);    // Promotes to f64, returns f64
-add("a", "b");     // Runtime error: type mismatch
+add(5.5, 10.5);    // Truncates to i32 (5 + 10) → 15
+add("a", "b");     // Error: type mismatch (compile-time in hemlockc, runtime in the interpreter)
 ```
 
 ### Scope Rules
