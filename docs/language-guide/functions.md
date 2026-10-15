@@ -89,12 +89,12 @@ fn add(a: i32, b: i32): i32 {
 }
 
 add(5, 10);      // OK
-add(5, 10.5);    // 10.5 is converted to i32 (truncates): returns 15
+add(5, 10.5);    // Interpreter: truncates to i32 → 15. hemlockc currently differs (returns f64 15.5) — [#654](https://github.com/hemlang/hemlock/issues/654)
 ```
 
 **Type checking:**
 - Parameter types are checked at call time if annotated
-- Numeric arguments are converted to the annotated type; float → integer truncates toward zero (no promotion to f64)
+- Numeric arguments are converted to the annotated type in the interpreter (float → integer truncates toward zero, no promotion to f64); hemlockc currently differs — [#654](https://github.com/hemlang/hemlock/issues/654)
 - Type mismatches (e.g. a string for an `i32` parameter) are errors
 
 ### Pass-by-Value
