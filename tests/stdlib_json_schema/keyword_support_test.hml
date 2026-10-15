@@ -1,0 +1,59 @@
+// Test @stdlib/json_schema - pattern, multipleOf tolerance, and keywords it cannot check
+
+import { validate, is_valid } from "@stdlib/json_schema";
+
+// --- pattern ---
+let zip = { type: "string", pattern: "^[0-9]{5}$" };
+assert(is_valid("16802", zip) == true, "pattern: five digits match");
+assert(is_valid("1680", zip) == false, "pattern: four digits do not");
+assert(is_valid("abc", { type: "string", pattern: "^z" }) == false, "pattern: 'abc' does not start with z");
+
+// ECMA class escapes are translated for POSIX ERE
+let digits = { type: "string", pattern: "^\\d+$" };
+assert(is_valid("12345", digits) == true, "pattern: \\d+ matches digits");
+assert(is_valid("12a45", digits) == false, "pattern: \\d+ rejects a letter");
+let ident = { type: "string", pattern: "^[\\w-]+$" };
+assert(is_valid("snake_case-ok", ident) == true, "pattern: \\w inside a class");
+assert(is_valid("no spaces", ident) == false, "pattern: \\w class rejects a space");
+let no_space = { type: "string", pattern: "^\\S+$" };
+assert(is_valid("tight", no_space) == true, "pattern: \\S+ matches");
+assert(is_valid("two words", no_space) == false, "pattern: \\S+ rejects a space");
+
+// pattern applies to strings only
+assert(is_valid(42, { pattern: "^z" }) == true, "pattern: ignored for numbers");
+
+// a pattern that does not compile is an error, not a pass
+let bad = validate("abc", { type: "string", pattern: "(" });
+assert(bad.valid == false, "pattern: uncompilable pattern fails");
+assert(bad.errors[0].message.contains("could not be compiled"), "pattern: error says why");
+
+let miss = validate("abc", zip);
+assert(miss.errors[0].message.contains("does not match pattern"), "pattern: mismatch message");
+assert(miss.errors[0].schema_path.contains("pattern"), "pattern: schema path names the keyword");
+
+// --- multipleOf with binary fractions ---
+let tenth = { type: "number", multipleOf: 0.1 };
+assert(is_valid(0.3, tenth) == true, "multipleOf: 0.3 is a multiple of 0.1");
+assert(is_valid(1.7, tenth) == true, "multipleOf: 1.7 is a multiple of 0.1");
+assert(is_valid(0.35, tenth) == false, "multipleOf: 0.35 is not");
+assert(is_valid(15, { type: "integer", multipleOf: 5 }) == true, "multipleOf: 15 of 5");
+assert(is_valid(16, { type: "integer", multipleOf: 5 }) == false, "multipleOf: 16 of 5");
+assert(is_valid(-10, { type: "integer", multipleOf: 5 }) == true, "multipleOf: negative");
+
+// --- keywords this module cannot check fail instead of passing silently ---
+let ref_schema = { "$ref": "#/definitions/name", definitions: { name: { type: "string" } } };
+let r = validate(5, ref_schema);
+assert(r.valid == false, "$ref: unsupported, so not silently valid");
+assert(r.errors[0].message.contains("not supported"), "$ref: error says not supported");
+assert(is_valid([1, 2], { type: "array", contains: { type: "string" } }) == false, "contains: unsupported");
+assert(is_valid({ a: 1 }, { type: "object", patternProperties: { "^a": { type: "string" } } }) == false, "patternProperties: unsupported");
+
+// an unsupported keyword nested in properties is reported at its path
+let nested = validate({ tag: "x" }, { type: "object", properties: { tag: { "$ref": "#/x" } } });
+assert(nested.valid == false, "nested $ref: fails");
+assert(nested.errors[0].path.contains("tag"), "nested $ref: path names the property");
+
+// format is an annotation in Draft 7: accepted and ignored
+assert(is_valid("not an email", { type: "string", format: "email" }) == true, "format: annotation only");
+
+print("All keyword support tests passed!");

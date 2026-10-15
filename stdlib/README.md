@@ -72,6 +72,7 @@ The module list below is intentionally generated from the checked-in stdlib inve
 | `iter` | `@stdlib/iter` | [docs/iter.md](docs/iter.md) |
 | `jinja` | `@stdlib/jinja` | [docs/jinja.md](docs/jinja.md) |
 | `json` | `@stdlib/json` | [docs/json.md](docs/json.md) |
+| `json_schema` | `@stdlib/json_schema` | [docs/json_schema.md](docs/json_schema.md) |
 | `logging` | `@stdlib/logging` | [docs/logging.md](docs/logging.md) |
 | `math` | `@stdlib/math` | [docs/math.md](docs/math.md) |
 | `matrix` | `@stdlib/matrix` | [docs/matrix.md](docs/matrix.md) |

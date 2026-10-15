@@ -76,6 +76,7 @@ import { ThreadPool } from "@stdlib/async";
 | Module | Import | Description |
 |--------|--------|-------------|
 | [`json`](../../stdlib/docs/json.md) | `@stdlib/json` | JSON parse, stringify, pretty, path access |
+| [`json_schema`](../../stdlib/docs/json_schema.md) | `@stdlib/json_schema` | JSON Schema (Draft 7 subset) validation and schema builders |
 | [`toml`](../../stdlib/docs/toml.md) | `@stdlib/toml` | TOML parsing and generation |
 | [`yaml`](../../stdlib/docs/yaml.md) | `@stdlib/yaml` | YAML parsing and generation |
 | [`csv`](../../stdlib/docs/csv.md) | `@stdlib/csv` | CSV parsing and generation |

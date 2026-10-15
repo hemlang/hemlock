@@ -1,0 +1,31 @@
+// Test @stdlib/json_schema - string constraints
+
+import { validate, is_valid } from "@stdlib/json_schema";
+
+// --- minLength ---
+let min_schema = { type: "string", minLength: 3 };
+assert(is_valid("abc", min_schema) == true, "minLength: 'abc' has length 3");
+assert(is_valid("abcd", min_schema) == true, "minLength: 'abcd' has length 4");
+assert(is_valid("ab", min_schema) == false, "minLength: 'ab' has length 2");
+assert(is_valid("", min_schema) == false, "minLength: empty string too short");
+
+// --- maxLength ---
+let max_schema = { type: "string", maxLength: 5 };
+assert(is_valid("hello", max_schema) == true, "maxLength: 'hello' has length 5");
+assert(is_valid("hi", max_schema) == true, "maxLength: 'hi' has length 2");
+assert(is_valid("helloo", max_schema) == false, "maxLength: 'helloo' has length 6");
+
+// --- combined minLength and maxLength ---
+let len_schema = { type: "string", minLength: 2, maxLength: 5 };
+assert(is_valid("ab", len_schema) == true, "length range: 'ab' ok");
+assert(is_valid("abcde", len_schema) == true, "length range: 'abcde' ok");
+assert(is_valid("a", len_schema) == false, "length range: 'a' too short");
+assert(is_valid("abcdef", len_schema) == false, "length range: 'abcdef' too long");
+
+// --- error details ---
+let result = validate("a", min_schema);
+assert(result.valid == false, "validate short string");
+assert(result.errors.length == 1, "one error for short string");
+assert(result.errors[0].message.contains("minLength"), "error mentions minLength");
+
+print("All string constraint tests passed!");

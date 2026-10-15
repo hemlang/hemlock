@@ -1,0 +1,54 @@
+// Test @stdlib/json_schema - array validation
+
+import { validate, is_valid } from "@stdlib/json_schema";
+
+// --- items schema ---
+let items_schema = {
+	type: "array",
+	items: { type: "integer" }
+};
+assert(is_valid([1, 2, 3], items_schema) == true, "items: all integers");
+assert(is_valid([], items_schema) == true, "items: empty array ok");
+assert(is_valid([1, "two", 3], items_schema) == false, "items: string in integer array");
+
+// --- minItems ---
+let min_items = { type: "array", minItems: 2 };
+assert(is_valid([1, 2], min_items) == true, "minItems: 2 elements ok");
+assert(is_valid([1, 2, 3], min_items) == true, "minItems: 3 elements ok");
+assert(is_valid([1], min_items) == false, "minItems: 1 element not enough");
+assert(is_valid([], min_items) == false, "minItems: empty not enough");
+
+// --- maxItems ---
+let max_items = { type: "array", maxItems: 3 };
+assert(is_valid([1, 2, 3], max_items) == true, "maxItems: 3 elements ok");
+assert(is_valid([1], max_items) == true, "maxItems: 1 element ok");
+assert(is_valid([1, 2, 3, 4], max_items) == false, "maxItems: 4 too many");
+
+// --- uniqueItems ---
+let unique_schema = { type: "array", uniqueItems: true };
+assert(is_valid([1, 2, 3], unique_schema) == true, "uniqueItems: all unique");
+assert(is_valid([], unique_schema) == true, "uniqueItems: empty ok");
+assert(is_valid([1, 2, 1], unique_schema) == false, "uniqueItems: duplicate 1");
+assert(is_valid(["a", "b", "a"], unique_schema) == false, "uniqueItems: duplicate string");
+
+// --- nested array items ---
+let nested_schema = {
+	type: "array",
+	items: {
+		type: "object",
+		properties: {
+			name: { type: "string" }
+		},
+		required: ["name"]
+	}
+};
+assert(is_valid([{ name: "Alice" }, { name: "Bob" }], nested_schema) == true, "nested: valid objects");
+assert(is_valid([{ name: "Alice" }, {}], nested_schema) == false, "nested: missing required");
+
+// --- error paths for array items ---
+let result = validate([1, "bad", 3], items_schema);
+assert(result.valid == false, "array item error detected");
+assert(result.errors.length == 1, "one error for bad item");
+assert(result.errors[0].path.contains("[1]"), "error path includes index");
+
+print("All array validation tests passed!");
