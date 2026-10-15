@@ -1,0 +1,11 @@
+define Person { name: string, age: i32, active?: true }
+let alice = { name: "Alice", age: 30.7 };
+let p: Person = alice;
+print(alice.age);
+print(alice.active);
+let category = match (alice) {
+    q: Person => "is Person",
+    _ => "not Person"
+};
+print(category);
+print(alice.keys().length);
