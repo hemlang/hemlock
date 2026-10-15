@@ -5,11 +5,16 @@ Runnable counterexamples for `../gradual-typing-analysis.md`. Each `*_typed.hml`
 guarantee the pair must behave identically (except that the untyped version may
 succeed where the typed one raises a cast error — never the reverse).
 
+Re-checked against main in October 2026: `blame4_exit.hml` is now caught (see the note at
+the top of the analysis), and a `hemlockc` build of `blame1`, `blame4_exit` and
+`blame5_brand` skips the checks the interpreter makes.
+
 These programs are intentionally **not** part of the test suites:
 
 - several exit non-zero or crash *by design* (that is the finding);
-- `blame3_ref.hml` is accepted and runs under the interpreter but is rejected by
-  `hemlock check` / `hemlockc`, so it cannot be a parity test;
+- `blame3_ref.hml`, `b8_argblame.hml` and `sgg1_untyped.hml` are rejected by
+  `hemlock check` / `hemlockc` (that is the finding), so they carry
+  `@expect-compile-fail` for the repository compile check;
 - if any of the semantics documented in the analysis are changed (see §6 of the
   analysis), the expected outputs below change with them — update both.
 
@@ -30,7 +35,7 @@ Run with:
 | `blame1.hml` | untyped fn through typed HOF: error surfaces in, and names, typed code | uncaught exception blaming `applyf` | — |
 | `blame2.hml` | same, surfacing at a distant `let x: i32 = ...` binding | uncaught exception at typed binding | — |
 | `blame3_ref.hml` | `ref` param annotations unenforced (interpreter) vs rejected (checker) | prints `hi1 / string` | — |
-| `blame4_exit.hml` | fn-signature cast failure is uncatchable `exit(1)`, no location | `catch` never runs | — |
+| `blame4_exit.hml` | fn-signature cast failure was uncatchable `exit(1)`, no location | July 2026: `catch` never ran. Now: `caught: ...` | — |
 | `blame5_brand.hml` | brand-time coercion vs exact-tag `push` check | error on `a.push(3)` | — |
 | `b6_fnalias.hml` | `fn`-typed binding installs no runtime monitoring | prints `hello / string` | — |
 | `b8_argblame.hml` | the correct case: first-order arg check, catchable at boundary | prints `caught: ...` | — |

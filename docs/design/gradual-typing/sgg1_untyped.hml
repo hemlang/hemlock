@@ -1,3 +1,4 @@
 let a = [1, 2, 3];
 a = ["x", "y"];
 print(a.length);
+// @expect-compile-fail erasing the annotation introduces a static type error; that is the finding

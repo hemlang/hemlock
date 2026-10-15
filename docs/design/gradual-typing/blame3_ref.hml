@@ -3,3 +3,4 @@ let s = "hi";
 inc(s);
 print(s);
 print(typeof(s));
+// @expect-compile-fail the checker rejects what the interpreter runs; that divergence is the finding

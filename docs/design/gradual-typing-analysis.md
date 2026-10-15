@@ -1,6 +1,16 @@
 # Hemlock and the Gradual Guarantee: A Formal Analysis
 
 **Status:** Research analysis (negative result with witnesses)
+**Re-checked October 2026** against main after #656. Two things changed since this was written:
+
+- B4 no longer holds: a function-signature mismatch is now a catchable exception, so
+  `blame4_exit.hml` prints `caught: Function parameter 1 type mismatch ...`. The
+  uncatchable `exit(1)` row in §5.4 describes the July 2026 interpreter.
+- "Both backends agree" no longer holds for three witnesses. A `hemlockc` build skips
+  checks the interpreter makes: `blame1.hml` prints `oops1 / string`, `blame4_exit.hml`
+  prints `no error` and `blame5_brand.hml` prints `3`.
+
+The other witnesses behave as documented.
 **Question:** Hemlock has optional type annotations enforced statically by `hemlockc` and
 at runtime by the interpreter — a gradual type system. Does it satisfy the
 *gradual guarantee* (Siek, Vitousek, Cimini & Boyland, SNAPL 2015)? Does its runtime
