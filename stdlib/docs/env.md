@@ -328,6 +328,7 @@ create_pid_file("myapp");
 
 ```hemlock
 import { get_pid } from "@stdlib/env";
+import { now } from "@stdlib/time";
 
 fn create_temp_filename(prefix: string, extension: string): string {
     let pid = get_pid();

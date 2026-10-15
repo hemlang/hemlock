@@ -57,6 +57,8 @@ open(path: string, mode?: string): file
 
 **Examples:**
 ```hemlock
+import { open } from "@stdlib/fs";
+
 // Read mode (default)
 let f = open("data.txt");
 let f_read = open("data.txt", "r");
@@ -79,6 +81,8 @@ let f_ra = open("log.txt", "a+");
 
 **Error Handling:**
 ```hemlock
+import { open } from "@stdlib/fs";
+
 try {
     let f = open("missing.txt", "r");
 } catch (e) {
@@ -111,6 +115,8 @@ file.read(size?: i32): string
 
 **Examples:**
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("data.txt", "r");
 
 // Read entire file
@@ -150,6 +156,8 @@ file.read_bytes(size: i32): buffer
 
 **Examples:**
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("data.bin", "r");
 
 // Read 256 bytes
@@ -191,6 +199,8 @@ file.write(data: string): i32
 
 **Examples:**
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("output.txt", "w");
 
 // Write text
@@ -232,6 +242,8 @@ file.write_bytes(data: buffer): i32
 
 **Examples:**
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("output.bin", "w");
 
 // Create buffer
@@ -272,6 +284,8 @@ file.seek(position: i32): i32
 
 **Examples:**
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("data.txt", "r");
 
 // Jump to byte 100
@@ -309,6 +323,8 @@ file.tell(): i32
 
 **Examples:**
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("data.txt", "r");
 
 print(f.tell());        // 0 (at start)
@@ -339,6 +355,8 @@ file.close(): null
 
 **Examples:**
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("data.txt", "r");
 let content = f.read();
 f.close();
@@ -370,6 +388,8 @@ Get file path.
 
 **Examples:**
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("/path/to/file.txt", "r");
 print(f.path);          // "/path/to/file.txt"
 f.close();
@@ -387,6 +407,8 @@ Get open mode.
 
 **Examples:**
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("data.txt", "r");
 print(f.mode);          // "r"
 f.close();
@@ -408,6 +430,8 @@ Check if file is closed.
 
 **Examples:**
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("data.txt", "r");
 print(f.closed);        // false
 
@@ -423,12 +447,16 @@ All file operations include proper error messages with context:
 
 ### File Not Found
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("missing.txt", "r");
 // Error: Failed to open 'missing.txt': No such file or directory
 ```
 
 ### Reading from Closed File
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("data.txt", "r");
 f.close();
 f.read();
@@ -437,6 +465,8 @@ f.read();
 
 ### Writing to Read-Only File
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("readonly.txt", "r");
 f.write("data");
 // Error: Cannot write to file 'readonly.txt' opened in read-only mode
@@ -444,6 +474,8 @@ f.write("data");
 
 ### Using try/catch
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = null;
 try {
     f = open("data.txt", "r");
@@ -465,6 +497,8 @@ try {
 ### Basic Pattern
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("data.txt", "r");
 let content = f.read();
 f.close();
@@ -473,6 +507,8 @@ f.close();
 ### With Error Handling
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = open("data.txt", "r");
 try {
     let content = f.read();
@@ -485,6 +521,8 @@ try {
 ### Safe Pattern
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let f = null;
 try {
     f = open("data.txt", "r");
@@ -506,6 +544,8 @@ try {
 ### Read Entire File
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 fn read_file(filename: string): string {
     let f = open(filename, "r");
     let content = f.read();
@@ -520,6 +560,8 @@ print(text);
 ### Write Text File
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 fn write_file(filename: string, content: string) {
     let f = open(filename, "w");
     f.write(content);
@@ -532,6 +574,8 @@ write_file("output.txt", "Hello, World!\n");
 ### Append to File
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 fn append_file(filename: string, line: string) {
     let f = open(filename, "a");
     f.write(line + "\n");
@@ -545,6 +589,8 @@ append_file("log.txt", "Log entry 2");
 ### Read Binary File
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 fn read_binary(filename: string, size: i32): buffer {
     let f = open(filename, "r");
     let data = f.read_bytes(size);
@@ -559,6 +605,8 @@ print("Read", binary.length, "bytes");
 ### Write Binary File
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 fn write_binary(filename: string, data: buffer) {
     let f = open(filename, "w");
     f.write_bytes(data);
@@ -573,6 +621,8 @@ write_binary("output.bin", buf);
 ### Read File Line by Line
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 fn read_lines(filename: string): array {
     let f = open(filename, "r");
     let content = f.read();
@@ -591,6 +641,8 @@ while (i < lines.length) {
 ### Copy File
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 fn copy_file(src: string, dest: string) {
     let f_in = open(src, "r");
     let f_out = open(dest, "w");
@@ -608,6 +660,8 @@ copy_file("input.txt", "output.txt");
 ### Read File in Chunks
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 fn process_chunks(filename: string) {
     let f = open(filename, "r");
 
@@ -663,6 +717,8 @@ process_chunks("large_file.txt");
 
 **Migration Example:**
 ```hemlock
+import { read_file, write_file, open } from "@stdlib/fs";
+
 // Old (v0.0)
 let content = read_file("data.txt");
 write_file("output.txt", content);

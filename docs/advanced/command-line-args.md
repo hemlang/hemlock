@@ -532,6 +532,8 @@ print("Input: " + arguments.input);
 ### Example 1: File Processor
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 // Usage: ./hemlock process.hml <input> <output>
 
 fn show_usage() {
@@ -566,6 +568,8 @@ if (args.length < 3) {
 ### Example 2: Batch File Processor
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 // Usage: ./hemlock batch.hml <file1> <file2> <file3> ...
 
 if (args.length < 2) {

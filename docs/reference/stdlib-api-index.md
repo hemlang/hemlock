@@ -341,7 +341,7 @@ fn get_pid()  [native]
 fn callback(fn, param_types, return_type)  [native]  // Create a C-callable function pointer from a Hemlock function
 fn callback_free(cb)  [native]
 fn ffi_sizeof(...)  [native]
-let FFI_VOID = 0  // Common libffi type constants for use with ffi_bind()
+let FFI_VOID = 0  // Numeric libffi type codes (informational; extern fn declarations use Hemlock type names)
 let FFI_INT = 1
 let FFI_FLOAT = 2
 let FFI_DOUBLE = 3

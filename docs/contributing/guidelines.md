@@ -387,6 +387,8 @@ Why: Makes syntax ambiguous, hides errors
 
 **2. RAII/destructors**
 ```hemlock
+import { open } from "@stdlib/fs";
+
 // BAD: This would be rejected
 let f = open("file.txt");
 // File automatically closed at end of scope

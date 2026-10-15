@@ -232,6 +232,8 @@ ch.send(value); let val = ch.recv(); ch.close();
 
 ### I/O
 ```hemlock
+import { open } from "@stdlib/fs";
+
 let name = read_line();          // stdin (returns null on EOF)
 print("hello"); write("no newline"); eprint("stderr");
 let f = open("file.txt", "r");  // modes: r, w, a, r+, w+, a+
@@ -337,16 +339,24 @@ changing stdlib exports (`make docs-check` verifies freshness in CI).
 ## FFI (Foreign Function Interface)
 
 ```hemlock
-import "libc.so.6";
+import "libc.so.6";  // Linux; use "libc.dylib" on macOS
+import { callback, callback_free } from "@stdlib/ffi";
 extern fn strlen(s: string): i32;
+extern fn qsort(base: ptr, n: u64, size: u64, cmp: ptr): void;
 let len = strlen("Hello!");  // 6
 
-// Dynamic FFI
-let lib = ffi_open("libc.so.6");
-let puts = ffi_bind(lib, "puts", [FFI_POINTER], FFI_INT);
-puts("Hello from C!");
-ffi_close(lib);
+// Callbacks: pass a Hemlock function to C as a function pointer
+fn cmp_i32(a: ptr, b: ptr): i32 { return ptr_deref_i32(a) - ptr_deref_i32(b); }
+let cb = callback(cmp_i32, ["ptr", "ptr"], "i32");
+let arr = alloc(12);
+ptr_write_i32(arr, 3); ptr_write_i32(ptr_offset(arr, 1, 4), 1); ptr_write_i32(ptr_offset(arr, 2, 4), 2);
+qsort(arr, 3, 4, cb);        // arr is now [1, 2, 3]
+callback_free(cb);
+free(arr);
 ```
+
+There is no runtime `ffi_open`/`ffi_bind` API: libraries are loaded with
+`import "lib"` and functions declared with `extern fn` (both backends).
 
 See `docs/advanced/ffi.md` for full documentation.
 

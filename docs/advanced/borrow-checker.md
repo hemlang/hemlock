@@ -50,7 +50,7 @@ uniformly:
 | `open(path, mode)` | file handle | `x.close()` |
 | `channel(n)` | channel | `x.close()` |
 | `spawn(fn, …)` / `spawn_with(…)` | async task | `join(x)`, `detach(x)`, or `await x` |
-| `ffi_open(path)` | dynamic FFI library | `ffi_close(x)` |
+| `callback(fn, types, ret)` | callback wrapper | `callback_free(x)` |
 | `mmap_open(…)` / `mmap_open_anon(…)` | memory mapping | `mmap_close(x)` |
 
 Releasing a resource with the wrong operation — `free()` on a file, `.close()`
@@ -58,6 +58,8 @@ on raw memory, `free()` on a task — is reported as a **release mismatch** and 
 resource is treated as still live (so any real leak is still caught):
 
 ```hemlock
+import { open } from "@stdlib/fs";
+
 fn main() {
     let f = open("x.txt", "r");
     free(f);   // warning: 'f' (file) cannot be released with free(); use .close()
@@ -335,7 +337,7 @@ without changing the surface:
 - **Cross-module summaries** — summaries cover the file under analysis;
   functions imported from other modules are treated as borrowing.
 - **Custom allocators** — only the built-in acquisitions (`alloc`, `buffer`,
-  `open`, `channel`, `spawn`, `ffi_open`, `mmap_open`) are recognized; arena and
+  `open`, `channel`, `spawn`, `callback`, `mmap_open`) are recognized; arena and
   other stdlib allocators are not yet tracked.
 
 The implementation lives in `src/backends/compiler/borrow_check.c` with the
