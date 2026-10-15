@@ -4,7 +4,7 @@
 // defined as JSON Schema objects (subset of JSON Schema Draft 7).
 //
 // Usage:
-// import { validate, is_valid, ValidationError } from "@stdlib/json_schema";
+// import { validate, is_valid } from "@stdlib/json_schema";
 //
 // let schema = {
 //     type: "object",
@@ -21,6 +21,56 @@
 // }
 
 import { parse, stringify } from "@stdlib/json";
+import { test as regex_test } from "@stdlib/regex";
+import { floor, abs } from "@stdlib/math";
+
+// Keywords this module cannot check. A schema that uses one fails validation
+// with a "not supported" error rather than passing silently. (`format` is not
+// here: Draft 7 makes it an annotation by default, so ignoring it is correct.
+// `definitions`/`$defs` are only containers for `$ref`, which is here.)
+let UNSUPPORTED_KEYWORDS = [
+	"$ref", "patternProperties", "propertyNames", "contains", "prefixItems",
+	"additionalItems", "dependencies", "dependentRequired", "dependentSchemas"
+];
+
+// JSON Schema patterns are ECMA-262 regexes; @stdlib/regex is POSIX ERE.
+// Translate the common class escapes, which ERE lacks, so "^\\d+$" works.
+fn ecma_to_posix(pattern: string): string {
+	let out = "";
+	let in_class = false;
+	let i = 0;
+	let n = pattern.length;
+	while (i < n) {
+		let c = pattern.char_at(i);
+		if (c == '\\' && i + 1 < n) {
+			let e = pattern.char_at(i + 1);
+			let body = null;
+			if (e == 'd') { body = "0-9"; }
+			else if (e == 'w') { body = "A-Za-z0-9_"; }
+			else if (e == 's') { body = "[:space:]"; }
+			if (body != null) {
+				if (in_class) { out = out + body; } else { out = out + "[" + body + "]"; }
+				i = i + 2;
+				continue;
+			}
+			if (!in_class && (e == 'D' || e == 'W' || e == 'S')) {
+				if (e == 'D') { out = out + "[^0-9]"; }
+				else if (e == 'W') { out = out + "[^A-Za-z0-9_]"; }
+				else { out = out + "[^[:space:]]"; }
+				i = i + 2;
+				continue;
+			}
+			out = out + c + e;
+			i = i + 2;
+			continue;
+		}
+		if (c == '[') { in_class = true; }
+		else if (c == ']') { in_class = false; }
+		out = out + c;
+		i = i + 1;
+	}
+	return out;
+}
 
 // ============================================================================
 // Internal: Type checking helpers
@@ -133,6 +183,13 @@ fn validate_impl(value, schema, path: string, schema_path: string): array {
 
 	let errors = [];
 
+	// --- keywords this module cannot check ---
+	for (kw in UNSUPPORTED_KEYWORDS) {
+		if (schema.has(kw)) {
+			errors.push(make_error(path, "schema keyword '" + kw + "' is not supported by @stdlib/json_schema", join_path(schema_path, kw)));
+		}
+	}
+
 	// --- const ---
 	if (schema.has("const")) {
 		let expected = schema["const"];
@@ -207,9 +264,12 @@ fn validate_impl(value, schema, path: string, schema_path: string): array {
 		if (schema.has("multipleOf")) {
 			let divisor = schema["multipleOf"];
 			if (divisor != 0) {
-				let remainder = value - (i64(value / divisor) * divisor);
-				if (remainder < 0) { remainder = -remainder; }
-				if (remainder > 0) {
+				// Relative tolerance, so 0.3 is a multiple of 0.1 despite binary floats.
+				let q: f64 = value / divisor;
+				let off: f64 = abs(q - floor(q + 0.5));
+				let scale: f64 = abs(q);
+				if (scale < 1.0) { scale = 1.0; }
+				if (off > 1e-9 * scale) {
 					errors.push(make_error(path, "value " + value + " is not a multiple of " + divisor, join_path(schema_path, "multipleOf")));
 				}
 			}
@@ -228,7 +288,21 @@ fn validate_impl(value, schema, path: string, schema_path: string): array {
 				errors.push(make_error(path, "string length " + value.length + " > maxLength " + schema["maxLength"], join_path(schema_path, "maxLength")));
 			}
 		}
-		// pattern support would require @stdlib/regex -- skip for portability
+		if (schema.has("pattern")) {
+			let pat = schema["pattern"];
+			let matched = false;
+			let compiled = true;
+			try {
+				matched = regex_test(ecma_to_posix(pat), value);
+			} catch (e) {
+				compiled = false;
+			}
+			if (!compiled) {
+				errors.push(make_error(path, "pattern " + format_val(pat) + " could not be compiled", join_path(schema_path, "pattern")));
+			} else if (!matched) {
+				errors.push(make_error(path, "string " + format_val(value) + " does not match pattern " + format_val(pat), join_path(schema_path, "pattern")));
+			}
+		}
 	}
 
 	// --- array constraints ---

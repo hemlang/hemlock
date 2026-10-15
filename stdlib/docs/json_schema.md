@@ -596,14 +596,24 @@ let result = validate(data, schema);
 | `not` | any | Must NOT match |
 | `if`/`then`/`else` | any | Conditional validation |
 
+`pattern` is checked with `@stdlib/regex`, which is POSIX extended regex rather than the
+ECMA-262 regex JSON Schema specifies. `\d`, `\w`, `\s` and their negations are translated;
+lookaheads, lazy quantifiers and other ECMA-only syntax are not. A pattern that does not
+compile is a validation error. `multipleOf` allows a relative error of 1e-9, so `0.3` is a
+multiple of `0.1`.
+
 ## Not Supported
 
-- `$ref` / `$id` / `$defs` (schema references)
-- `pattern` (string regex - would require `@stdlib/regex`)
-- `format` (semantic string formats like "email", "uri")
-- `contains` / `prefixItems` (array keywords)
+A schema that uses one of these keywords **fails validation** with a
+"not supported" error, rather than passing without being checked:
+
+- `$ref` (so `$defs` / `definitions` are unused)
+- `contains` / `prefixItems` / `additionalItems` (array keywords)
 - `patternProperties` / `propertyNames` (object keywords)
-- `dependentRequired` / `dependentSchemas`
+- `dependencies` / `dependentRequired` / `dependentSchemas`
+
+`format` ("email", "uri", ...) is accepted and ignored: Draft 7 treats it as an annotation
+unless a validator opts in.
 
 ## See Also
 
