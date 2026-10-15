@@ -8,7 +8,7 @@ Hemlock is a systems scripting language that combines the power of C with the er
 
 ## Documentation
 
-The checked-in documentation starts at **[docs/README.md](docs/README.md)**. Standard library module references live in **[stdlib/docs/](stdlib/docs/)**, and the release history is in **[CHANGELOG.md](CHANGELOG.md)**. Hemlock v2.11.0 is the current release.
+The checked-in documentation starts at **[docs/README.md](docs/README.md)**. Standard library module references live in **[stdlib/docs/](stdlib/docs/)**, and the release history is in **[CHANGELOG.md](CHANGELOG.md)**. Hemlock v2.12.0 is the current release.
 
 ## Design Philosophy
 
@@ -199,8 +199,9 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v2.11.0 is the current checked-in release. Highlights include:
+Hemlock v2.12.0 is the current checked-in release. Highlights include:
 
+- **v2.12.0 JSON Schema + channel core consolidation** - `@stdlib/json_schema` adds pure-Hemlock JSON Schema Draft 7 validation. Channels share one queueing core across both backends, `select()` is blocking instead of polling, and there is one spawn path per backend. Type annotations `channel`/`task`/`file` now work on both backends, and `hemlockc` converts typed parameters to their declared type.
 - **v2.11.0 JSON strictness + borrow checker precision + wasm frame loop** - JSON (de)serialization is now exact and strict, the borrow checker is substantially more precise, and wasm gains a proper frame loop.
 - **v2.4.0 HTTP/auth + ergonomics batch** - `@stdlib/http` POST/PUT/DELETE/PATCH now actually send custom headers (`Authorization`, `X-Request-Id`, etc. were silently dropped before — only `Content-Type` made it past the wrapper). Interpreter named-module imports are live bindings instead of import-time snapshots, so reassigning an exported `let` propagates to importers and to spawned tasks. Flow null-narrowing follows `?.` field access. Type error labels report the parameter name instead of `'positional'`. `string.lower()`/`upper()` aliases. `get_binary` follows 3xx redirects. C codegen no longer prefixes call symbols with surrounding-scope tokens. macOS libwebsockets picks up Homebrew CA bundles automatically. Default LWS HTTP timeout dropped from ~30s to 5s.
 - **v2.3.1 binary HTTP fixes** - `@stdlib/http.download(url, path)` now actually writes the buffer body (was silently writing zero-byte files in compiled binaries); new `download_streaming(url, path)` for bounded-memory pulls of large artifacts; new `stream.read_binary()` preserves 0x00 bytes that `read()` would have truncated at.

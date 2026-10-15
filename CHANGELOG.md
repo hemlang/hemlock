@@ -5,7 +5,11 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.12.0] - 2026-10-15
+
+### Added
+
+- **`@stdlib/json_schema`** — pure-Hemlock JSON Schema Draft 7 validation. `validate(value, schema)` returns detailed error paths, `is_valid` for boolean checks, `validate_json` to parse and validate in one call, plus schema builder helpers (`string_type`, `object_type`, `array_type`, `nullable`, `enum_type`). Supports `type`, `enum`, `const`, `required`, `properties`, `items`, `additionalProperties`, numeric/string/item constraints, `allOf`/`anyOf`/`oneOf`/`not`, and `if`/`then`/`else`.
 
 ### Changed
 
@@ -70,6 +74,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   It now wakes the server's service thread (`lws_cancel_service`), which
   requests a writeable callback and closes the connection from there with a
   close frame (status 1000), since only that thread may touch the context.
+- **`hemlockc` now converts typed parameters to their declared type.** The
+  interpreter has always done this, but compiled programs passed the argument
+  through unchanged, so `add(5, 10.5)` with `fn add(a: i32, b: i32)` returned
+  15.5 instead of 15, and `u8`/`u32` parameters kept their wider runtime type.
+  Named functions, closures, tail-call rebinding and the inliner now all go
+  through the same type conversion as a typed `let`.
+- **Multiple failing typed parameter conversions no longer crash.** Calling a
+  function with two or more arguments that fail type conversion exited with
+  SIGSEGV/SIGABRT instead of throwing a catchable error, because the
+  conversion freed borrowed argument slots that were released again after the
+  call. Conversion failures now throw, and the interpreter no longer double-
+  frees the arguments.
 
 ## [2.11.0] - 2026-10-06
 
