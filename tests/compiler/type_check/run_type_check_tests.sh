@@ -23,7 +23,7 @@ cat > /tmp/test_fn_arg.hml << 'EOF'
 let add = fn(a: i32, b: i32): i32 { return a + b; };
 let x = add("hello", 2);
 EOF
-if $HEMLOCKC --check /tmp/test_fn_arg.hml 2>&1 | grep -q "argument 1 to 'add'"; then
+if $HEMLOCKC --check /tmp/test_fn_arg.hml 2>&1 | grep -q "argument .* to 'add'"; then
     echo "  PASSED: Caught function argument type mismatch"
     ((PASSED++))
 else
@@ -198,6 +198,147 @@ if $HEMLOCKC --check /tmp/test_property.hml 2>&1 | grep -q "cannot assign"; then
 else
     echo "  FAILED: Did not catch property type mismatch"
     ((FAILED++))
+fi
+
+
+# Test 15: Optional-chain result remains nullable without a guard
+echo "Test 15: Optional-chain nullable field requires guard"
+cat > /tmp/test_optional_chain_no_guard.hml << 'EOF'
+define Profile { default_model: string? }
+fn pick_placement(model: string, profile: Profile): string { return model; }
+fn use_profile(profile: Profile): string {
+    return pick_placement(profile?.default_model, profile);
+}
+EOF
+if $HEMLOCKC --check /tmp/test_optional_chain_no_guard.hml 2>&1 | grep -q "expected 'string', got 'string?'"; then
+    echo "  PASSED: Caught unguarded nullable optional-chain value"
+    ((PASSED++))
+else
+    echo "  FAILED: Did not catch unguarded nullable optional-chain value"
+    ((FAILED++))
+fi
+
+# Test 16: Early-return null guard narrows repeated optional-chain field access
+echo "Test 16: Optional-chain null guard narrows repeated access"
+cat > /tmp/test_optional_chain_narrow.hml << 'EOF'
+define Profile { default_model: string? }
+fn pick_placement(model: string, profile: Profile): string { return model; }
+fn use_profile(profile: Profile): string {
+    if (profile?.default_model == null) { return "missing"; }
+    return pick_placement(profile?.default_model, profile);
+}
+EOF
+if $HEMLOCKC --check /tmp/test_optional_chain_narrow.hml 2>&1 | grep -q "no type errors"; then
+    echo "  PASSED: Null guard narrowed optional-chain value"
+    ((PASSED++))
+else
+    echo "  FAILED: Null guard did not narrow optional-chain value"
+    ((FAILED++))
+fi
+
+
+# Test 17: Positional argument type errors identify argument index and parameter name
+echo "Test 17: Positional function argument mismatch names parameter"
+cat > /tmp/test_fn_arg_label.hml << 'INNEREOF'
+define Profile { default_model: string? }
+fn pick_placement(model: string, profile: Profile): string { return model; }
+let x = pick_placement("fast", "not a profile");
+INNEREOF
+ARG_LABEL_OUTPUT=$($HEMLOCKC --check /tmp/test_fn_arg_label.hml 2>&1)
+if echo "$ARG_LABEL_OUTPUT" | grep -q "argument 2 ('profile')" && ! echo "$ARG_LABEL_OUTPUT" | grep -q "argument 'positional'"; then
+    echo "  PASSED: Positional mismatch includes argument index and parameter name"
+    ((PASSED++))
+else
+    echo "  FAILED: Positional mismatch did not include useful argument label"
+    echo "$ARG_LABEL_OUTPUT"
+    ((FAILED++))
+fi
+# Test 18: Early-return null guard narrows a nullable local from optional-chain access
+echo "Test 18: Local optional-chain value narrows after early return"
+cat > /tmp/test_optional_chain_local_narrow.hml << 'EOF'
+define Profile { default_model: string? }
+fn pick_placement(model: string, profile: Profile): string { return model; }
+fn use_profile(profile: Profile): string {
+    let model_path = profile?.default_model;
+    if (model_path == null) { return "missing"; }
+    return pick_placement(model_path, profile);
+}
+EOF
+if $HEMLOCKC --check /tmp/test_optional_chain_local_narrow.hml 2>&1 | grep -q "no type errors"; then
+    echo "  PASSED: Local optional-chain value was narrowed"
+    ((PASSED++))
+else
+    echo "  FAILED: Local optional-chain value did not narrow"
+    ((FAILED++))
+fi
+
+# Test 19: Positive branch null guard narrows within the guarded branch
+echo "Test 19: Non-null branch narrows within if body"
+cat > /tmp/test_positive_branch_narrow.hml << 'EOF'
+define Profile { default_model: string? }
+fn pick_placement(model: string, profile: Profile): string { return model; }
+fn use_profile(profile: Profile): string {
+    let model_path = profile?.default_model;
+    if (model_path != null) {
+        return pick_placement(model_path, profile);
+    }
+    return "missing";
+}
+EOF
+if $HEMLOCKC --check /tmp/test_positive_branch_narrow.hml 2>&1 | grep -q "no type errors"; then
+    echo "  PASSED: Non-null if branch narrowed local value"
+    ((PASSED++))
+else
+    echo "  FAILED: Non-null if branch did not narrow local value"
+    ((FAILED++))
+fi
+
+# Test 20: Reassignment invalidates earlier non-null narrowing
+echo "Test 20: Reassignment clears non-null narrowing"
+cat > /tmp/test_narrow_reassign.hml << 'EOF'
+define Profile { default_model: string? }
+fn pick_placement(model: string, profile: Profile): string { return model; }
+fn use_profile(profile: Profile): string {
+    let model_path = profile?.default_model;
+    if (model_path == null) { return "missing"; }
+    model_path = null;
+    return pick_placement(model_path, profile);
+}
+EOF
+if $HEMLOCKC --check /tmp/test_narrow_reassign.hml 2>&1 | grep -q "expected 'string', got 'string?'"; then
+    echo "  PASSED: Reassignment invalidated non-null narrowing"
+    ((PASSED++))
+else
+    echo "  FAILED: Reassignment did not invalidate non-null narrowing"
+    ((FAILED++))
+fi
+
+# Test 21: Unknown named argument is rejected
+echo "Test 21: Unknown named argument"
+cat > /tmp/test_unknown_named.hml << 'EOF'
+fn process(name: string, count: i32): string { return name; }
+let x = process(nam: "Alice", count: 5);
+EOF
+if $HEMLOCKC --check /tmp/test_unknown_named.hml 2>&1 | grep -q "unknown named argument 'nam'"; then
+    echo "  PASSED: Caught unknown named argument"
+    ((PASSED++))
+else
+    echo "  FAILED: Did not catch unknown named argument"
+    ((FAILED++))
+fi
+
+# Test 22: Valid named arguments still accepted
+echo "Test 22: Valid named arguments pass"
+cat > /tmp/test_valid_named.hml << 'EOF'
+fn process(name: string, count: i32): string { return name; }
+let x = process(name: "Alice", count: 5);
+EOF
+if $HEMLOCKC --check /tmp/test_valid_named.hml 2>&1 | grep -q "unknown named argument"; then
+    echo "  FAILED: Valid named argument incorrectly flagged"
+    ((FAILED++))
+else
+    echo "  PASSED: Valid named arguments accepted"
+    ((PASSED++))
 fi
 
 echo ""

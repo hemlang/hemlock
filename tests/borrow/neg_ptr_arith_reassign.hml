@@ -1,0 +1,9 @@
+// A value derived from the binding itself keeps the same resource alive:
+// pointer arithmetic like `p = p + 4;` is not a dropped reference.
+fn main() {
+    let p = alloc(64);
+    ptr_write_i32(p, 7);
+    p = p + 4;
+    ptr_write_i32(p, 8);
+    free(p);
+}

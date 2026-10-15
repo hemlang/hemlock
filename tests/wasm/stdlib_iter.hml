@@ -1,0 +1,40 @@
+// WASM test: @stdlib/iter module
+import { range, zip, enumerate, flatten, unique, take, chunk } from "@stdlib/iter";
+
+// Range
+let r = range(1, 6);
+print(r.length);
+print(r[0]);
+print(r[4]);
+
+// Zip
+let zipped = zip([1, 2, 3], ["a", "b", "c"]);
+print(zipped[0][0]);
+print(zipped[0][1]);
+
+// Enumerate
+let enumd = enumerate(["x", "y", "z"]);
+print(enumd[0][0]);
+print(enumd[0][1]);
+print(enumd[2][0]);
+print(enumd[2][1]);
+
+// Flatten
+let flat = flatten([[1, 2], [3, 4], [5]]);
+print(flat.length);
+
+// Unique
+let uniq = unique([1, 2, 2, 3, 3, 3]);
+print(uniq.length);
+
+// Take
+let first3 = take([10, 20, 30, 40, 50], 3);
+print(first3.length);
+print(first3[2]);
+
+// Chunk
+let chunks = chunk([1, 2, 3, 4, 5], 2);
+print(chunks.length);
+print(chunks[0].length);
+
+print("iter done");

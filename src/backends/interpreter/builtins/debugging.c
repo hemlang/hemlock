@@ -1,10 +1,9 @@
 #include "internal.h"
+#include "hemlock_limits.h"
 
 Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx) {
-    (void)ctx;  // Unused
     if (num_args != 1) {
-        fprintf(stderr, "Runtime error: typeof() expects 1 argument\n");
-        exit(1);
+        runtime_error(ctx, "typeof() expects 1 argument"); return val_null();
     }
 
     const char *type_name;
@@ -86,6 +85,18 @@ Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx) {
         case VAL_CHANNEL:
             type_name = "channel";
             break;
+        case VAL_SOCKET:
+            type_name = "socket";
+            break;
+        case VAL_WEBSOCKET:
+            type_name = "websocket";
+            break;
+        case VAL_FFI_FUNCTION:
+            type_name = "ffi function";
+            break;
+        case VAL_REF:
+            type_name = "ref";
+            break;
         default:
             type_name = "unknown";
             break;
@@ -94,10 +105,46 @@ Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx) {
     return val_string(type_name);
 }
 
+Value builtin_typeid(Value *args, int num_args, ExecutionContext *ctx) {
+    if (num_args != 1) {
+        runtime_error(ctx, "typeid() expects 1 argument"); return val_null();
+    }
+
+    int32_t tid;
+    switch (args[0].type) {
+        case VAL_I8:         tid = HML_TYPEID_I8; break;
+        case VAL_I16:        tid = HML_TYPEID_I16; break;
+        case VAL_I32:        tid = HML_TYPEID_I32; break;
+        case VAL_I64:        tid = HML_TYPEID_I64; break;
+        case VAL_U8:         tid = HML_TYPEID_U8; break;
+        case VAL_U16:        tid = HML_TYPEID_U16; break;
+        case VAL_U32:        tid = HML_TYPEID_U32; break;
+        case VAL_U64:        tid = HML_TYPEID_U64; break;
+        case VAL_F32:        tid = HML_TYPEID_F32; break;
+        case VAL_F64:        tid = HML_TYPEID_F64; break;
+        case VAL_BOOL:       tid = HML_TYPEID_BOOL; break;
+        case VAL_STRING:     tid = HML_TYPEID_STRING; break;
+        case VAL_RUNE:       tid = HML_TYPEID_RUNE; break;
+        case VAL_PTR:        tid = HML_TYPEID_PTR; break;
+        case VAL_BUFFER:     tid = HML_TYPEID_BUFFER; break;
+        case VAL_ARRAY:      tid = HML_TYPEID_ARRAY; break;
+        case VAL_OBJECT:     tid = HML_TYPEID_OBJECT; break;
+        case VAL_FILE:       tid = HML_TYPEID_FILE; break;
+        case VAL_FUNCTION:   tid = HML_TYPEID_FUNCTION; break;
+        case VAL_BUILTIN_FN: tid = HML_TYPEID_FUNCTION; break;
+        case VAL_FFI_FUNCTION: tid = HML_TYPEID_FUNCTION; break;
+        case VAL_TASK:       tid = HML_TYPEID_TASK; break;
+        case VAL_CHANNEL:    tid = HML_TYPEID_CHANNEL; break;
+        case VAL_NULL:       tid = HML_TYPEID_NULL; break;
+        default:             tid = HML_TYPEID_NULL; break;
+    }
+
+    return val_i32(tid);
+}
+
 Value builtin_assert(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args < 1 || num_args > 2) {
-        fprintf(stderr, "Runtime error: assert() expects 1-2 arguments (condition, [message])\n");
-        exit(1);
+        runtime_error(ctx, "assert() expects 1-2 arguments (condition, [message])"); return val_null();
     }
 
     // Check if condition is truthy
@@ -150,15 +197,15 @@ Value builtin_assert(Value *args, int num_args, ExecutionContext *ctx) {
     if (!is_truthy) {
         Value exception_msg;
         if (num_args == 2) {
-            // Use provided message
+            // Use provided message - retain it so it survives past the caller
+            // releasing the argument values during unwinding
             exception_msg = args[1];
+            value_retain(exception_msg);
         } else {
-            // Use default message
+            // Use default message - val_string() already returns an owned reference
             exception_msg = val_string("assertion failed");
         }
 
-        // Retain the exception value so it survives past environment cleanups during unwinding
-        value_retain(exception_msg);
         ctx->exception_state.exception_value = exception_msg;
         ctx->exception_state.is_throwing = 1;
     }

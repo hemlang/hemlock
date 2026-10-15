@@ -1,0 +1,69 @@
+// Test @stdlib/debug - Debug utilities
+
+import { inspect, get_stack_limit, set_stack_limit } from "@stdlib/debug";
+
+// ============================================================================
+// Inspect - Primitives
+// ============================================================================
+
+assert(inspect(null) == "null", "inspect null");
+assert(inspect(true) == "true", "inspect true");
+assert(inspect(false) == "false", "inspect false");
+
+let s = inspect("hello");
+assert(s.contains("hello"), "inspect string has value");
+assert(s.contains("string"), "inspect string has type");
+assert(s.contains("len=5"), "inspect string has length");
+
+let n = inspect(42);
+assert(n.contains("42"), "inspect number has value");
+assert(n.contains("i32"), "inspect number has type");
+
+print("PASS: inspect primitives");
+
+// ============================================================================
+// Inspect - Collections
+// ============================================================================
+
+let arr_str = inspect([1, 2, 3]);
+assert(arr_str.contains("1"), "inspect array has elements");
+assert(arr_str.contains("array"), "inspect array has type");
+assert(arr_str.contains("len=3"), "inspect array has length");
+
+let obj_str = inspect({ name: "Alice", age: 30 });
+assert(obj_str.contains("name"), "inspect object has key");
+assert(obj_str.contains("Alice"), "inspect object has value");
+assert(obj_str.contains("object"), "inspect object has type");
+
+// Empty collections
+assert(inspect([]).contains("len=0"), "inspect empty array");
+assert(inspect({}).contains("keys=0"), "inspect empty object");
+
+print("PASS: inspect collections");
+
+// ============================================================================
+// Inspect - Nested
+// ============================================================================
+
+let nested = inspect({ items: [1, 2], name: "test" });
+assert(nested.contains("items"), "inspect nested has key");
+assert(nested.contains("object"), "inspect nested has type");
+
+print("PASS: inspect nested");
+
+// ============================================================================
+// Stack Limit
+// ============================================================================
+
+let limit = get_stack_limit();
+assert(limit > 0, "stack limit is positive");
+assert(typeof(limit) == "i32" || typeof(limit) == "i64", "stack limit is integer");
+
+// Set and get back
+let original = limit;
+set_stack_limit(original);
+assert(get_stack_limit() == original, "stack limit round-trip");
+
+print("PASS: stack limit");
+
+print("All debug tests passed!");

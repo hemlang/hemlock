@@ -11,7 +11,7 @@
 // ============================================================================
 
 // Parse JSON string to value (wrapper around built-in .deserialize())
-fn parse(json_str: string) {
+export fn parse(json_str: string) {
 	if (typeof(json_str) != "string") {
 		throw "parse() requires string argument";
 	}
@@ -20,7 +20,7 @@ fn parse(json_str: string) {
 }
 
 // Serialize value to JSON string
-fn stringify(value) {
+export fn stringify(value) {
 	let t = typeof(value);
 
 	// Primitives - handle directly
@@ -64,13 +64,17 @@ fn stringify(value) {
 
 // Helper: Format number to string
 fn format_number(value) {
+	// NaN and Infinity have no JSON representation
+	if (value != value || value - value != 0) {
+		throw "Cannot stringify NaN or Infinity as JSON";
+	}
 	// Convert number to string using string concatenation
 	return "" + value;
 }
 
 // Parse JSON from file
-fn parse_file(path: string) {
-	let f = open(path, "r");
+export fn parse_file(path: string) {
+	let f = __open(path, "r");
 	defer f.close();
 
 	let content = f.read();
@@ -78,10 +82,10 @@ fn parse_file(path: string) {
 }
 
 // Write JSON to file (compact format)
-fn stringify_file(path: string, value) {
+export fn stringify_file(path: string, value) {
 	let json = stringify(value);
 
-	let f = open(path, "w");
+	let f = __open(path, "w");
 	defer f.close();
 
 	f.write(json);
@@ -194,6 +198,18 @@ fn format_object(obj, depth: i32, indent_str: string): string {
 	return result;
 }
 
+// Internal: JSON escape for a control character (code < 0x20)
+fn escape_control_char(code: i32): string {
+	if (code == 8) {
+		return "\\b";
+	}
+	if (code == 12) {
+		return "\\f";
+	}
+	let hex = "0123456789abcdef";
+	return "\\u00" + hex.char_at(code >> 4) + hex.char_at(code & 15);
+}
+
 // Internal: Escape string for JSON
 fn escape_json_string(s: string): string {
 	let result = "\"";
@@ -211,6 +227,9 @@ fn escape_json_string(s: string): string {
 			result = result + "\\r";
 		} else if (ch == '\t') {
 			result = result + "\\t";
+		} else if (i32(ch) < 0x20) {
+			// Remaining control characters are not allowed raw in JSON
+			result = result + escape_control_char(i32(ch));
 		} else {
 			// Concatenate rune with string (rune is automatically converted)
 			result = result + ("" + ch);
@@ -237,7 +256,7 @@ fn object_keys(obj) {
 
 // Pretty print JSON with indentation
 // indent can be: number of spaces (i32) or string (e.g., "\t")
-fn pretty(value, indent?: null) {
+export fn pretty(value, indent?: null) {
 	let indent_str = "  ";  // Default: 2 spaces
 
 	if (indent != null) {
@@ -256,10 +275,10 @@ fn pretty(value, indent?: null) {
 }
 
 // Pretty print JSON to file
-fn pretty_file(path: string, value, indent?: null) {
+export fn pretty_file(path: string, value, indent?: null) {
 	let formatted = pretty(value, indent);
 
-	let f = open(path, "w");
+	let f = __open(path, "w");
 	defer f.close();
 
 	f.write(formatted);
@@ -294,7 +313,7 @@ fn parse_int(s: string): i32 {
 // Get value by path (dot notation)
 // Example: get(obj, "user.address.city")
 // Example: get(obj, "items.0") for array index
-fn get(obj, path: string, default_val?: null) {
+export fn get(obj, path: string, default_val?: null) {
 	if (path.length == 0) {
 		return obj;
 	}
@@ -336,7 +355,7 @@ fn get(obj, path: string, default_val?: null) {
 
 // Set value by path (dot notation)
 // Modifies object in-place
-fn set(obj, path: string, value) {
+export fn set(obj, path: string, value) {
 	if (path.length == 0) {
 		throw "Cannot set empty path";
 	}
@@ -374,16 +393,50 @@ fn set(obj, path: string, value) {
 }
 
 // Check if path exists
-fn has(obj, path: string): bool {
-	let sentinel = {};  // Unique object as sentinel
-	let result = get(obj, path, sentinel);
-	return result != sentinel;
+export fn has(obj, path: string): bool {
+	// Walk to the parent and test for the final key/index itself, so a
+	// property that exists with a null value still counts as present.
+	if (path.length == 0) {
+		return true;
+	}
+
+	let parts = path.split(".");
+	let current = obj;
+
+	for (let i = 0; i < parts.length; i++) {
+		let part = parts[i];
+		let last = i == parts.length - 1;
+
+		if (is_numeric(part)) {
+			if (typeof(current) != "array") {
+				return false;
+			}
+			let idx = parse_int(part);
+			if (idx < 0 || idx >= current.length) {
+				return false;
+			}
+			if (last) {
+				return true;
+			}
+			current = current[idx];
+		} else {
+			if (typeof(current) != "object" || !current.has(part)) {
+				return false;
+			}
+			if (last) {
+				return true;
+			}
+			current = current[part];
+		}
+	}
+
+	return true;
 }
 
 // Delete value by path (dot notation)
 // Example: delete(obj, "user.address.city")
 // Returns true if the property was deleted, false if not found
-fn delete(obj, path: string): bool {
+export fn delete(obj, path: string): bool {
 	if (path.length == 0) {
 		return false;
 	}
@@ -444,7 +497,7 @@ fn delete(obj, path: string): bool {
 // ============================================================================
 
 // Check if string is valid JSON (lightweight check)
-fn is_valid(json_str: string): bool {
+export fn is_valid(json_str: string): bool {
 	try {
 		parse(json_str);
 		return true;
@@ -454,12 +507,12 @@ fn is_valid(json_str: string): bool {
 }
 
 // Validate JSON and return detailed result
-fn validate(json_str: string) {
+export fn validate(json_str: string) {
 	try {
 		parse(json_str);
 		return { valid: true, message: "Valid JSON", line: 0 };
 	} catch (e) {
-		return { valid: false, message: typeof(e), line: -1 };
+		return { valid: false, message: "" + e, line: -1 };
 	}
 }
 
@@ -467,20 +520,20 @@ fn validate(json_str: string) {
 // Type Checking Utilities
 // ============================================================================
 
-fn is_object(value): bool {
+export fn is_object(value): bool {
 	let t = typeof(value);
 	return t == "object";
 }
 
-fn is_array(value): bool {
+export fn is_array(value): bool {
 	return typeof(value) == "array";
 }
 
-fn is_string(value): bool {
+export fn is_string(value): bool {
 	return typeof(value) == "string";
 }
 
-fn is_number(value): bool {
+export fn is_number(value): bool {
 	let t = typeof(value);
 	return t == "i8" || t == "i16" || t == "i32" || t == "i64" || t == "u8" || t == "u16" || t ==
 		"u32" ||
@@ -491,16 +544,16 @@ fn is_number(value): bool {
 		t == "number";
 }
 
-fn is_bool(value): bool {
+export fn is_bool(value): bool {
 	return typeof(value) == "bool";
 }
 
-fn is_null(value): bool {
+export fn is_null(value): bool {
 	return typeof(value) == "null";
 }
 
 // Get JSON type as string
-fn type_of(value): string {
+export fn type_of(value): string {
 	let t = typeof(value);
 
 	if (is_number(value)) {
@@ -515,13 +568,13 @@ fn type_of(value): string {
 // ============================================================================
 
 // Deep clone value (creates independent copy)
-fn clone(value) {
+export fn clone(value) {
 	// Use serialize/deserialize for deep copy
 	return parse(stringify(value));
 }
 
 // Deep merge objects (combines nested objects)
-fn merge(base, update) {
+export fn merge(base, update) {
 	if (!is_object(base) || !is_object(update)) {
 		return update;
 	}
@@ -532,18 +585,20 @@ fn merge(base, update) {
 	let update_keys = update.keys();
 	for (let i = 0; i < update_keys.length; i++) {
 		let key = update_keys[i];
-		let update_val = get(update, key);
+		// Keys are literal property names here, not dot paths: a key like
+		// "a.b" or "0" must not be routed through get()/set().
+		let update_val = update[key];
 
 		if (result.has(key)) {
-			let base_val = get(result, key);
+			let base_val = result[key];
 			// Deep merge if both values are objects
 			if (is_object(base_val) && is_object(update_val)) {
-				set(result, key, merge(base_val, update_val));
+				result[key] = merge(base_val, update_val);
 			} else {
-				set(result, key, clone(update_val));
+				result[key] = clone(update_val);
 			}
 		} else {
-			set(result, key, clone(update_val));
+			result[key] = clone(update_val);
 		}
 	}
 
@@ -563,7 +618,7 @@ fn patch(base, update) {
 	for (let i = 0; i < update_keys.length; i++) {
 		let key = update_keys[i];
 		// Shallow: just replace values directly (no deep merge)
-		set(result, key, clone(get(update, key)));
+		result[key] = clone(update[key]);
 	}
 
 	return result;

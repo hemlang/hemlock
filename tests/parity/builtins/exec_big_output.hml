@@ -1,0 +1,8 @@
+// Both pipes exceed the 64K pipe capacity; the capture must drain them
+// concurrently or the child deadlocks writing one stream while the
+// parent blocks reading the other.
+let cmd = "head -c 200000 /dev/zero | tr '\\0' x; head -c 150000 /dev/zero | tr '\\0' e 1>&2";
+let r = __exec_argv(["sh", "-c", cmd]);
+print(r.output.length);
+print(r.stderr.length);
+print(r.exit_code);

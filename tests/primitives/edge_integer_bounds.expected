@@ -1,0 +1,8 @@
+i8 overflow caught
+i8 underflow caught
+i16 overflow caught
+i32 overflow caught
+u8 overflow caught
+u16 overflow caught
+u32 wraps to: 0
+PASS

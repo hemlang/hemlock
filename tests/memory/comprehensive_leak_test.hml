@@ -3,6 +3,7 @@
 //
 // This test verifies the runtime is free of memory leaks for core operations.
 // Run with: make leak-stress
+import { sqrt } from "@stdlib/math";
 
 print("═══════════════════════════════════════════════════════════════");
 print("       HEMLOCK RUNTIME MEMORY LEAK VERIFICATION");

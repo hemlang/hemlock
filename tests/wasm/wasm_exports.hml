@@ -1,0 +1,31 @@
+// Test: exported functions for JS interop
+// Tests that export + functions work correctly (EMSCRIPTEN_KEEPALIVE in WASM)
+
+export fn add(a: i32, b: i32): i32 {
+    return a + b;
+}
+
+export fn factorial(n: i32): i32 {
+    if (n <= 1) { return 1; }
+    return n * factorial(n - 1);
+}
+
+export fn greet(name: string): string {
+    return "Hello, " + name + "!";
+}
+
+// Non-exported helper
+fn helper(x: i32): i32 {
+    return x * 2;
+}
+
+export fn double_and_add(a: i32, b: i32): i32 {
+    return helper(a) + helper(b);
+}
+
+// Test calling exported functions from within the program
+print(add(3, 4));
+print(factorial(5));
+print(greet("WASM"));
+print(double_and_add(5, 10));
+print("exports done");

@@ -1,4 +1,5 @@
 // Test process management builtins
+import { get_pid, getppid, getuid, geteuid, getgid, getegid, exec } from "@stdlib/process";
 
 // Test process ID functions
 let pid = get_pid();

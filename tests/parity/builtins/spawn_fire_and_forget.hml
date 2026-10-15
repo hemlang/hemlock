@@ -1,0 +1,35 @@
+// Test spawn() without join - fire-and-forget pattern
+// Regression test: compiled binaries would segfault when spawn result
+// was not stored, because the task was freed while the thread was still running.
+
+import { sleep } from "@stdlib/time";
+
+// Test 1: spawn without storing the result (fire-and-forget)
+async fn worker(msg) {
+    write(msg + "\n");
+}
+
+spawn(worker, "fire-and-forget 1");
+sleep(0.3);
+
+spawn(worker, "fire-and-forget 2");
+sleep(0.3);
+
+spawn(worker, "fire-and-forget 3");
+sleep(0.3);
+
+// Test 2: detach(fn, args) pattern (spawn + immediate detach)
+async fn detached_worker(msg) {
+    write(msg + "\n");
+}
+
+detach(detached_worker, "detached task");
+sleep(0.3);
+
+// Test 3: spawn result used inline for join (temp created and released)
+async fn quick() {
+    write("inline join\n");
+}
+join(spawn(quick));
+
+print("all done");

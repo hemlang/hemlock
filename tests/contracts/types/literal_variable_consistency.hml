@@ -1,0 +1,60 @@
+// CONTRACT: Constant folding is invisible (no separate compile-time
+// semantics). An expression written with literals behaves exactly like the
+// same expression written with variables: same value, same type, same
+// errors. (Regression: the optimizer used to fold 2147483647 + 1 to an i64
+// instead of throwing, compare 64-bit ints in double precision, collapse
+// u64 literals to -1, and give 1 << 31 a different value than its
+// variable form.)
+
+fn caught(f): string {
+    try { f(); return "no error"; } catch (e) {
+        if (e.contains("Integer overflow")) { return "overflow"; }
+        return "other error";
+    }
+}
+
+// i32 overflow throws for literal and variable forms alike
+let big = 65536;
+print(caught(fn() { return 65536 * 65536; }));
+print(caught(fn() { return big * big; }));
+print(caught(fn() { return 2147483647 + 1; }));
+
+// 64-bit equality is exact in both forms
+print(9223372036854775807 == 9223372036854775806);
+let l7 = 9223372036854775807;
+let l6 = 9223372036854775806;
+print(l7 == l6);
+
+// u64 literal arithmetic keeps u64 value and type
+print(18446744073709551615 + 0);
+print(typeof(18446744073709551615 + 0));
+let umax: u64 = 18446744073709551615;
+print(umax + 0);
+print(typeof(umax + 0));
+
+// Shifts have identical value and type in literal and variable form
+print(1 << 31);
+print(typeof(1 << 31));
+let one = 1;
+print(one << 31);
+print(typeof(one << 31));
+
+// Folded i64 results keep the i64 type even when small
+print(typeof(5000000000 - 4999999995));
+let bill5 = 5000000000;
+let bill4 = 4999999995;
+print(typeof(bill5 - bill4));
+
+// Division returns float in literal and variable form (even by 1)
+let seven = 7;
+print(typeof(7 / 1));
+print(typeof(seven / 1));
+print(7 / 2);
+print(seven / 2);
+
+// Identity-looking rewrites must not change promotion results
+let tiny: i8 = 5;
+let zero = 0;
+print(typeof(tiny + 0));
+print(typeof(tiny + zero));
+print(typeof(tiny * 1));

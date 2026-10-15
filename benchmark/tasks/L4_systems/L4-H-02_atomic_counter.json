@@ -1,0 +1,16 @@
+{
+  "id": "L4-H-02",
+  "level": "L4",
+  "difficulty": "hard",
+  "title": "Lock-Free Atomic Counter",
+  "topic": "atomics",
+  "prompt": "Write a Hemlock program that implements a lock-free counter using atomic operations.\n\n1. Allocate 4 bytes for an i32 counter, initialize to 0 with ptr_write_i32\n2. Write an async function `increment_n(ptr, n)` that increments the atomic counter n times using a CAS (compare-and-swap) retry loop:\n   - Load current value with atomic_load_i32\n   - Attempt atomic_cas_i32(ptr, current, current + 1)\n   - If CAS fails (returns false), retry\n3. Spawn 4 tasks, each calling increment_n(counter_ptr, 250)\n4. Join all 4 tasks\n5. Read final value with atomic_load_i32\n6. Print \"final: 1000\" (4 * 250)\n7. Free the counter memory\n\nAlso track total CAS retries across all tasks using a second atomic counter. Print \"retries: N\" where N is the total retry count (will vary, so use semantic validator).",
+  "expected_output": "final: 1000\n",
+  "timeout_ms": 15000,
+  "validator": "starts_with",
+  "validator_config": {
+    "required_prefix": "final: 1000\nretries: "
+  },
+  "notes": "The retry count is non-deterministic. Validator checks that final count is exactly 1000 and retries line exists.",
+  "tags": ["atomics", "async", "spawn", "join", "memory", "lock-free"]
+}

@@ -198,7 +198,7 @@ let s = "Hello" + '!';          // "Hello!"
 
 ## String Methods
 
-Hemlock provides 19 string methods for comprehensive text manipulation.
+Hemlock provides 20 string methods for comprehensive text manipulation.
 
 ### Substring & Slicing
 
@@ -213,16 +213,17 @@ let text = "Hi🚀!";
 let emoji = text.substr(2, 1);  // "🚀" (position 2, length 1)
 ```
 
-**`slice(start, end)`** - Extract substring by range (end exclusive):
+**`slice(start, end?)`** - Extract substring by range (end exclusive, defaults to length):
 ```hemlock
 let s = "hello world";
 let slice = s.slice(0, 5);      // "hello" (index 0 to 4)
 let slice2 = s.slice(6, 11);    // "world"
+let tail = s.slice(6);          // "world" (from index 6 to end)
 ```
 
 **Difference:**
 - `substr(start, length)` - Uses length parameter
-- `slice(start, end)` - Uses end index (exclusive)
+- `slice(start, end?)` - Uses end index (exclusive), end defaults to string length
 
 ### Search & Find
 
@@ -415,6 +416,8 @@ let processed = "foo,bar,baz"
 | `chars()` | - | array | Convert to array of runes |
 | `bytes()` | - | array | Convert to array of u8 bytes |
 | `to_bytes()` | - | buffer | Convert to buffer (must free) |
+| `byte_ptr()` | - | ptr | Get raw byte pointer |
+| `deserialize()` | - | any | Deserialize string to value |
 
 ## Examples
 

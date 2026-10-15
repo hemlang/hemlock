@@ -1,3 +1,4 @@
+// @expect-compile-fail method signature mismatch is a compile error
 // Test: Method signature type checking errors
 // This test checks that invalid method signatures are properly rejected
 // Each test should produce a runtime error

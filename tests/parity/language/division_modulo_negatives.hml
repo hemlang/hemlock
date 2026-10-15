@@ -1,0 +1,41 @@
+// Test division and modulo with negative numbers
+// Covers: /, %, divi() with negative operands
+
+import { divi } from "@stdlib/math";
+
+// Float division with negatives (/ always returns float)
+print(-10 / 3);     // -3.333...
+print(10 / -3);     // -3.333...
+print(-10 / -3);    // 3.333...
+
+// Integer modulo with negatives (C-style: sign follows dividend)
+print(-10 % 3);     // -1
+print(10 % -3);     // 1
+print(-10 % -3);    // -1
+print(-15 % 4);     // -3
+print(15 % -4);     // 3
+
+// divi() - integer division truncating toward zero
+print(divi(7, 2));      // 3
+print(divi(-7, 2));     // -3
+print(divi(7, -2));     // -3
+print(divi(-7, -2));    // 3
+print(divi(10, 3));     // 3
+print(divi(-10, 3));    // -3
+print(divi(10, -3));    // -3
+print(divi(-10, -3));   // 3
+
+// Float modulo with negatives (sign follows dividend)
+print(-10.0 % 3.0);    // -1
+print(10.0 % -3.0);    // 1
+print(-10.0 % -3.0);   // -1
+
+// divi() with larger numbers
+print(divi(100, 7));    // 14
+print(divi(-100, 7));   // -14
+print(divi(1, 3));      // 0
+print(divi(-1, 3));     // 0
+
+// Edge: zero dividend
+print(0 % 5);           // 0
+print(divi(0, 5));      // 0

@@ -65,7 +65,7 @@ async fn process_data(data: string) {
 - Can be spawned as concurrent task (runs on new thread)
 - When spawned, runs on its own OS thread
 
-**Note:** The `await` keyword is reserved for future use but not currently implemented.
+**Note:** The `await` keyword works as an alias for `join()` — it awaits task completion and returns the result. If used on a non-task value, it returns the value as-is.
 
 ---
 
@@ -119,6 +119,109 @@ let r3 = join(t3);
 - Starts executing function immediately
 - Returns task handle for later joining
 - Tasks run in parallel on separate CPU cores
+- **Every argument is deep-copied** into the task before the thread
+  starts (so the new thread never shares mutable state with the
+  caller). Arrays and objects are copied recursively; **strings** are
+  copied; primitives are trivial. **Functions** (and therefore
+  closures) are the exception — they cross by reference (a refcount
+  bump, *not* a deep copy).
+
+**Best practice — don't pass large immutable structures as `spawn()` arguments.**
+
+Because every argument is deep-copied per `spawn()`, passing a big,
+read-only structure (a route table, a config tree, a loaded dataset)
+as an argument copies the *entire structure on every spawn*. In a
+server that does `spawn(handler, conn, routes, ...)` per accepted
+connection this deep-copies the whole `routes` table on every request
+— an unbounded, per-connection memory cost. (This was a real,
+multi-MB-per-minute control-plane bleed.)
+
+Instead, **capture the immutable data by closure** and pass only the
+per-task unique value. A function value crosses the `spawn()` boundary
+by reference, so the captured data is shared, not copied:
+
+```hemlock
+// ❌ routes (large, immutable) deep-copied on EVERY connection
+loop {
+    let conn = listener.accept();
+    detach(spawn(handle, conn, routes, auth));
+}
+
+// ✅ routes/auth shared by reference via closure; only `conn` is copied
+let worker = async fn(conn): null {
+    return handle_one(conn, routes, auth);   // normal call: no deep copy
+};
+loop {
+    let conn = listener.accept();
+    detach(spawn(worker, conn));
+}
+```
+
+This is safe when the captured data is read-only (concurrent reads of
+a shared object/array are fine — see also `@stdlib` thread-safety
+notes). If a task must *mutate* shared state, use a `channel` or an
+explicit lock instead of relying on the per-argument deep copy.
+
+---
+
+### spawn_with
+
+Create and start a new concurrent task with per-thread configuration options.
+
+**Signature:**
+```hemlock
+spawn_with(options: object, async_fn: function, ...args): task
+```
+
+**Parameters:**
+- `options` - Configuration object with optional fields:
+  - `stack_size` - Stack size in bytes for the new thread (default: 16 MB)
+  - `name` - Thread name string (max 16 characters)
+- `async_fn` - Async function to execute
+- `...args` - Arguments to pass to function
+
+**Returns:** Task handle
+
+**Examples:**
+```hemlock
+async fn compute(n: i32): i32 {
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+        sum = sum + i;
+    }
+    return sum;
+}
+
+// Custom stack size (8 MB)
+let t1 = spawn_with({ stack_size: 8 * 1024 * 1024 }, compute, 1000);
+let r1 = join(t1);
+
+// Named thread
+let t2 = spawn_with({ name: "worker-1" }, compute, 500);
+let r2 = join(t2);
+
+// Both options
+let t3 = spawn_with({ stack_size: 16 * 1024 * 1024, name: "compute-3" }, compute, 100);
+let r3 = join(t3);
+
+// Empty options (uses defaults - same as spawn())
+let t4 = spawn_with({}, compute, 50);
+let r4 = join(t4);
+
+// Multiple function arguments
+async fn add(a, b) { return a + b; }
+let t5 = spawn_with({ name: "adder" }, add, 100, 200);
+print(join(t5));  // 300
+```
+
+**Behavior:**
+- Creates new OS thread with the specified configuration
+- `stack_size` controls the thread's stack allocation (useful for deeply recursive tasks)
+- `name` sets the thread name (visible in debuggers/profilers; truncated to 16 characters)
+- Passing `{}` for options is equivalent to calling `spawn()`
+- Returns task handle for later joining, same as `spawn()`
+
+**See Also:** `get_default_stack_size()` / `set_default_stack_size()` in `@stdlib/async` for changing the default stack size for all `spawn()` calls.
 
 ---
 
@@ -515,7 +618,7 @@ try {
 ```hemlock
 async fn work(id: i32, should_fail: i32): i32 {
     if (should_fail == 1) {
-        throw "Task " + typeof(id) + " failed";
+        throw "Task " + id + " failed";
     }
     return id * 10;
 }
@@ -607,7 +710,6 @@ let parallel_time = get_time() - start2;
 
 ## Limitations
 
-- No `select()` for multiplexing multiple channels
 - No work-stealing scheduler (1 thread per task)
 - No async I/O integration (file/network operations block)
 - Channel capacity fixed at creation time
@@ -618,12 +720,13 @@ let parallel_time = get_time() - start2;
 
 ### Functions
 
-| Function  | Signature                         | Returns   | Description                    |
-|-----------|-----------------------------------|-----------|--------------------------------|
-| `spawn`   | `(async_fn: function, ...args)`   | `task`    | Create and start concurrent task|
-| `join`    | `(task: task)`                    | `any`     | Wait for task, get result      |
-| `detach`  | `(task: task)`                    | `null`    | Detach task (fire-and-forget)  |
-| `channel` | `(capacity: i32)`                 | `channel` | Create thread-safe channel     |
+| Function  | Signature                                    | Returns   | Description                    |
+|-----------|----------------------------------------------|-----------|--------------------------------|
+| `spawn`   | `(async_fn: function, ...args)`              | `task`    | Create and start concurrent task|
+| `spawn_with` | `(options: object, async_fn: function, ...args)` | `task` | Spawn with per-thread config (stack_size, name) |
+| `join`    | `(task: task)`                               | `any`     | Wait for task, get result      |
+| `detach`  | `(task: task)`                               | `null`    | Detach task (fire-and-forget)  |
+| `channel` | `(capacity: i32)`                            | `channel` | Create thread-safe channel     |
 
 ### Channel Methods
 

@@ -5,13 +5,33 @@
 
 // ========== EXPRESSION CONSTRUCTORS ==========
 
+// The three number constructors set every field, not just the one the flags
+// select: consumers that compare whole literals (the linter's duplicate-case
+// check) otherwise read whichever of int_value/uint_value/is_u64 this literal
+// left untouched, and malloc hands back different garbage per allocation.
 Expr* expr_number_int(int64_t value) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_NUMBER;
     expr->line = 0;
     expr->column = 0;
     expr->as.number.int_value = value;
+    expr->as.number.uint_value = 0;
+    expr->as.number.float_value = 0.0;
     expr->as.number.is_float = 0;
+    expr->as.number.is_u64 = 0;
+    return expr;
+}
+
+Expr* expr_number_u64(uint64_t value) {
+    Expr *expr = malloc(sizeof(Expr));
+    expr->type = EXPR_NUMBER;
+    expr->line = 0;
+    expr->column = 0;
+    expr->as.number.int_value = 0;
+    expr->as.number.uint_value = value;
+    expr->as.number.float_value = 0.0;
+    expr->as.number.is_float = 0;
+    expr->as.number.is_u64 = 1;
     return expr;
 }
 
@@ -20,8 +40,11 @@ Expr* expr_number_float(double value) {
     expr->type = EXPR_NUMBER;
     expr->line = 0;
     expr->column = 0;
+    expr->as.number.int_value = 0;
+    expr->as.number.uint_value = 0;
     expr->as.number.float_value = value;
     expr->as.number.is_float = 1;
+    expr->as.number.is_u64 = 0;
     return expr;
 }
 
@@ -207,6 +230,7 @@ Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr *
     expr->as.function.rest_param_type = rest_param_type;
     expr->as.function.return_type = return_type;
     expr->as.function.body = body;
+    expr->as.function.param_hashes = NULL;  // Lazily computed on first closure creation
     return expr;
 }
 
@@ -684,6 +708,8 @@ Stmt* stmt_if(Expr *condition, Stmt *then_branch, Stmt *else_branch) {
     stmt->as.if_stmt.condition = condition;
     stmt->as.if_stmt.then_branch = then_branch;
     stmt->as.if_stmt.else_branch = else_branch;
+    stmt->as.if_stmt.annotations = NULL;
+    stmt->as.if_stmt.annotation_count = 0;
     return stmt;
 }
 
@@ -699,6 +725,8 @@ Stmt* stmt_while_labeled(const char *label, Expr *condition, Stmt *body) {
     stmt->as.while_stmt.label = label ? strdup(label) : NULL;
     stmt->as.while_stmt.condition = condition;
     stmt->as.while_stmt.body = body;
+    stmt->as.while_stmt.annotations = NULL;
+    stmt->as.while_stmt.annotation_count = 0;
     return stmt;
 }
 
@@ -713,6 +741,8 @@ Stmt* stmt_loop_labeled(const char *label, Stmt *body) {
     stmt->column = 0;
     stmt->as.loop_stmt.label = label ? strdup(label) : NULL;
     stmt->as.loop_stmt.body = body;
+    stmt->as.loop_stmt.annotations = NULL;
+    stmt->as.loop_stmt.annotation_count = 0;
     return stmt;
 }
 
@@ -730,6 +760,8 @@ Stmt* stmt_for_labeled(const char *label, Stmt *initializer, Expr *condition, Ex
     stmt->as.for_loop.condition = condition;
     stmt->as.for_loop.increment = increment;
     stmt->as.for_loop.body = body;
+    stmt->as.for_loop.annotations = NULL;
+    stmt->as.for_loop.annotation_count = 0;
     return stmt;
 }
 
@@ -747,6 +779,8 @@ Stmt* stmt_for_in_labeled(const char *label, char *key_var, char *value_var, Exp
     stmt->as.for_in.value_var = value_var;
     stmt->as.for_in.iterable = iterable;
     stmt->as.for_in.body = body;
+    stmt->as.for_in.annotations = NULL;
+    stmt->as.for_in.annotation_count = 0;
     return stmt;
 }
 
@@ -897,7 +931,7 @@ Stmt* stmt_import_named(char **import_names, char **import_aliases, int num_impo
     stmt->as.import_stmt.import_names = import_names;
     stmt->as.import_stmt.import_aliases = import_aliases;
     stmt->as.import_stmt.num_imports = num_imports;
-    stmt->as.import_stmt.module_path = strdup(module_path);
+    stmt->as.import_stmt.module_path = module_path ? strdup(module_path) : NULL;
     return stmt;
 }
 
@@ -911,7 +945,7 @@ Stmt* stmt_import_namespace(const char *namespace_name, const char *module_path)
     stmt->as.import_stmt.import_names = NULL;
     stmt->as.import_stmt.import_aliases = NULL;
     stmt->as.import_stmt.num_imports = 0;
-    stmt->as.import_stmt.module_path = strdup(module_path);
+    stmt->as.import_stmt.module_path = module_path ? strdup(module_path) : NULL;
     return stmt;
 }
 
@@ -925,7 +959,7 @@ Stmt* stmt_import_star(const char *module_path) {
     stmt->as.import_stmt.import_names = NULL;
     stmt->as.import_stmt.import_aliases = NULL;
     stmt->as.import_stmt.num_imports = 0;
-    stmt->as.import_stmt.module_path = strdup(module_path);
+    stmt->as.import_stmt.module_path = module_path ? strdup(module_path) : NULL;
     return stmt;
 }
 
@@ -970,7 +1004,7 @@ Stmt* stmt_export_reexport(char **export_names, char **export_aliases, int num_e
     stmt->as.export_stmt.export_names = export_names;
     stmt->as.export_stmt.export_aliases = export_aliases;
     stmt->as.export_stmt.num_exports = num_exports;
-    stmt->as.export_stmt.module_path = strdup(module_path);
+    stmt->as.export_stmt.module_path = module_path ? strdup(module_path) : NULL;
     return stmt;
 }
 
@@ -1017,6 +1051,8 @@ Expr* expr_clone(const Expr *expr) {
         case EXPR_NUMBER:
             if (expr->as.number.is_float) {
                 return expr_number_float(expr->as.number.float_value);
+            } else if (expr->as.number.is_u64) {
+                return expr_number_u64(expr->as.number.uint_value);
             } else {
                 return expr_number_int(expr->as.number.int_value);
             }
@@ -1314,6 +1350,10 @@ void expr_free(Expr *expr) {
             if (expr->as.function.param_is_const) {
                 free(expr->as.function.param_is_const);
             }
+            // Free pre-computed param hashes (lazily allocated)
+            if (expr->as.function.param_hashes) {
+                free(expr->as.function.param_hashes);
+            }
             // Free return type
             if (expr->as.function.return_type) {
                 type_free(expr->as.function.return_type);
@@ -1438,15 +1478,27 @@ void stmt_free(Stmt *stmt) {
             expr_free(stmt->as.if_stmt.condition);
             stmt_free(stmt->as.if_stmt.then_branch);
             stmt_free(stmt->as.if_stmt.else_branch);
+            for (int i = 0; i < stmt->as.if_stmt.annotation_count; i++) {
+                annotation_free(stmt->as.if_stmt.annotations[i]);
+            }
+            free(stmt->as.if_stmt.annotations);
             break;
         case STMT_WHILE:
             free(stmt->as.while_stmt.label);
             expr_free(stmt->as.while_stmt.condition);
             stmt_free(stmt->as.while_stmt.body);
+            for (int i = 0; i < stmt->as.while_stmt.annotation_count; i++) {
+                annotation_free(stmt->as.while_stmt.annotations[i]);
+            }
+            free(stmt->as.while_stmt.annotations);
             break;
         case STMT_LOOP:
             free(stmt->as.loop_stmt.label);
             stmt_free(stmt->as.loop_stmt.body);
+            for (int i = 0; i < stmt->as.loop_stmt.annotation_count; i++) {
+                annotation_free(stmt->as.loop_stmt.annotations[i]);
+            }
+            free(stmt->as.loop_stmt.annotations);
             break;
         case STMT_FOR:
             free(stmt->as.for_loop.label);
@@ -1454,6 +1506,10 @@ void stmt_free(Stmt *stmt) {
             expr_free(stmt->as.for_loop.condition);
             expr_free(stmt->as.for_loop.increment);
             stmt_free(stmt->as.for_loop.body);
+            for (int i = 0; i < stmt->as.for_loop.annotation_count; i++) {
+                annotation_free(stmt->as.for_loop.annotations[i]);
+            }
+            free(stmt->as.for_loop.annotations);
             break;
         case STMT_FOR_IN:
             free(stmt->as.for_in.label);
@@ -1461,6 +1517,10 @@ void stmt_free(Stmt *stmt) {
             free(stmt->as.for_in.value_var);
             expr_free(stmt->as.for_in.iterable);
             stmt_free(stmt->as.for_in.body);
+            for (int i = 0; i < stmt->as.for_in.annotation_count; i++) {
+                annotation_free(stmt->as.for_in.annotations[i]);
+            }
+            free(stmt->as.for_in.annotations);
             break;
         case STMT_BREAK:
             free(stmt->as.break_stmt.label);

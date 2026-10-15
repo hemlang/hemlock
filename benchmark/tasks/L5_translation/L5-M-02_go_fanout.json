@@ -1,0 +1,14 @@
+{
+  "id": "L5-M-02",
+  "level": "L5",
+  "difficulty": "medium",
+  "title": "Go Goroutine Fan-Out",
+  "topic": "Go to Hemlock",
+  "prompt": "Translate this Go concurrent fan-out pattern to Hemlock. Go's goroutines map to Hemlock's `spawn()`, and Go's channels map to Hemlock's `channel()`.\n\n```go\npackage main\n\nimport (\n    \"fmt\"\n    \"sync\"\n)\n\nfunc worker(id int, jobs <-chan int, results chan<- int, wg *sync.WaitGroup) {\n    defer wg.Done()\n    for job := range jobs {\n        result := job * job\n        results <- result\n    }\n}\n\nfunc main() {\n    jobs := make(chan int, 10)\n    results := make(chan int, 10)\n    \n    var wg sync.WaitGroup\n    // Start 3 workers\n    for w := 0; w < 3; w++ {\n        wg.Add(1)\n        go worker(w, jobs, results, &wg)\n    }\n    \n    // Send 9 jobs\n    for j := 1; j <= 9; j++ {\n        jobs <- j\n    }\n    close(jobs)\n    \n    // Wait for workers then close results\n    go func() {\n        wg.Wait()\n        close(results)\n    }()\n    \n    // Collect results\n    sum := 0\n    count := 0\n    for result := range results {\n        sum += result\n        count++\n    }\n    fmt.Printf(\"processed: %d\\n\", count)\n    fmt.Printf(\"sum: %d\\n\", sum)\n}\n```\n\nIn Hemlock, there's no WaitGroup - use join() on tasks. Close channels explicitly. The sum of squares 1-9 is 285.",
+  "expected_output": "processed: 9\nsum: 285\n",
+  "timeout_ms": 15000,
+  "validator": "exact_match",
+  "source_language": "go",
+  "notes": "Tests Go-to-Hemlock concurrency translation. Key differences: no WaitGroup (use join), no range-over-channel (use recv+null check loop), goroutine->spawn.",
+  "tags": ["translation", "go", "channels", "async", "spawn", "concurrency"]
+}

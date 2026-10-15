@@ -1,5 +1,6 @@
 // Test: TCP echo server with async client
 // Server echoes back what client sends
+import { AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, socket_create } from "@stdlib/net";
 
 async fn echo_server(port: i32) {
     let server = socket_create(AF_INET, SOCK_STREAM, 0);

@@ -1,0 +1,23 @@
+// Regression coverage for stdlib fixes (part 1).
+import { compile } from "@stdlib/regex";
+import { stringify, has, merge } from "@stdlib/json";
+import { sprintf } from "@stdlib/fmt";
+import { url_decode } from "@stdlib/encoding";
+
+let re = compile("[0-9]+", null);
+for (m in re.find_all("abc 123 def 456 ghi 789", null)) { print(m.text + "@" + m.start); }
+print(re.find_all("1 2 3 4", 2).length);
+re.free();
+
+print(stringify("a\x01\x08\x0c\t\"z"));
+print(has({a: null}, "a"));
+print(stringify(merge({x: 1}, {"a.b": 2, "0": 3})));
+let back = [1.23456789, 0.1].serialize().deserialize();
+print(back[0] == 1.23456789);
+for (bad in ["01", "[1,2,]", "{\"a\":1,}", "1 2", "+1"]) {
+    try { bad.deserialize(); print("accepted " + bad); } catch (e) { print("rejected " + bad); }
+}
+try { [0.0 / 0.0].serialize(); } catch (e) { print("nan rejected"); }
+
+print(sprintf("%.2f|%.0f|%e|%05d", [1.999, 2.7, 12345.678, -42]));
+print(url_decode("é%20x+中"));

@@ -1,0 +1,127 @@
+// Test complex scoping and nested scope interactions
+
+// 1. Block scope isolation
+print("=== Block scope ===");
+let x = 10;
+{
+    let x = 20;
+    print(x);
+    {
+        let x = 30;
+        print(x);
+    }
+    print(x);
+}
+print(x);
+
+// 2. Function scope with same-named variables
+print("=== Function scope ===");
+let val = "outer";
+fn inner_fn() {
+    let val = "inner";
+    print(val);
+}
+inner_fn();
+print(val);
+
+// 3. Nested function scopes
+print("=== Nested functions ===");
+fn outer() {
+    let a = 1;
+    fn middle() {
+        let b = 2;
+        fn deep() {
+            let c = 3;
+            print(a + b + c);
+        }
+        deep();
+        print(a + b);
+    }
+    middle();
+    print(a);
+}
+outer();
+
+// 4. Loop scope
+print("=== Loop scope ===");
+let sum = 0;
+for (let i = 0; i < 3; i++) {
+    let tmp = i * 10;
+    sum = sum + tmp;
+}
+print(sum);
+
+// 5. If/else scope
+print("=== If/else scope ===");
+let flag = true;
+let result = "";
+if (flag) {
+    let msg = "yes";
+    result = msg;
+} else {
+    let msg = "no";
+    result = msg;
+}
+print(result);
+
+// 6. Scope in match
+print("=== Match scope ===");
+fn format_match(v) {
+    return match (v) {
+        n if n > 0 => "positive: " + n,
+        0 => "zero",
+        n => "negative: " + n
+    };
+}
+print(format_match(42));
+print(format_match(0));
+print(format_match(-5));
+
+// 7. Closure captures correct scope
+print("=== Closure scope ===");
+fn make_closures() {
+    let closures = [];
+    for (let i = 0; i < 3; i++) {
+        let captured_val = i * 100;
+        closures.push(fn() { return captured_val; });
+    }
+    return closures;
+}
+let cls = make_closures();
+for (c in cls) {
+    print(c());
+}
+
+// 8. While loop with nested scope
+print("=== While nested ===");
+let count = 0;
+let results = [];
+while (count < 4) {
+    let doubled = count * 2;
+    results.push(doubled);
+    count++;
+}
+for (r in results) {
+    print(r);
+}
+
+// 9. For loop variable not leaking
+print("=== For loop isolation ===");
+let before = "before";
+for (let i = 0; i < 3; i++) {
+    let inner = i;
+}
+print(before);
+
+// 10. Try/catch scope
+print("=== Try/catch scope ===");
+let outer_val = "outer";
+try {
+    let try_val = "try";
+    throw try_val;
+} catch (e) {
+    print(e);
+    print(outer_val);
+}
+
+print("done");

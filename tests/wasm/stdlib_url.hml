@@ -1,0 +1,19 @@
+// WASM test: @stdlib/url module
+import { parse, format } from "@stdlib/url";
+
+// Parse URL
+let u = parse("https://example.com:8080/path/to/page?q=hello&lang=en#section");
+print(u.scheme);
+print(u.host);
+print(u.port);
+print(u.path);
+print(u.query);
+print(u.fragment);
+
+// Simple URL
+let u2 = parse("http://localhost/test");
+print(u2.scheme);
+print(u2.host);
+print(u2.path);
+
+print("url done");

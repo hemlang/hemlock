@@ -1,0 +1,32 @@
+// The single-char ASCII string pool is a statically-initialized 128-entry
+// table built by macro expansion (runtime/src/value.c). A botched expansion
+// — a wrong index, a duplicated entry, an off-by-one in the 4/16/64 nesting —
+// would not show up in ordinary tests, since most only touch a handful of
+// characters. Walk every entry instead.
+//
+// Also guards the property that made the table worth having: the entries are
+// immortal and shared, so repeatedly materializing the same single-char
+// string must keep returning an identical, uncorrupted value.
+import { from_bytes } from "@stdlib/strings";
+
+let mismatches = 0;
+let i = 1;
+while (i < 128) {
+	let s = from_bytes([i]);
+	if (s.byte_length != 1) { mismatches = mismatches + 1; }
+	if (s.byte_at(0) != i) { mismatches = mismatches + 1; }
+	i = i + 1;
+}
+print("entries checked: 127");
+print("mismatches: " + mismatches);
+
+// Re-materialize a pooled entry many times; it is shared and immortal, so
+// every read must still be the same character.
+let stable = 1;
+let n = 0;
+while (n < 5000) {
+	let a = "q";
+	if (a.byte_at(0) != 113) { stable = 0; }
+	n = n + 1;
+}
+print("pool stable under reuse: " + stable);

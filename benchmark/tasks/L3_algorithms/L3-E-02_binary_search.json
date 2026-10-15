@@ -1,0 +1,13 @@
+{
+  "id": "L3-E-02",
+  "level": "L3",
+  "difficulty": "easy",
+  "title": "Binary Search",
+  "topic": "searching",
+  "prompt": "Write a Hemlock program that implements binary search. Write a function `binary_search(arr, target)` that takes a sorted array of integers and a target value, returning the index if found or -1 if not found. Use `divi()` for integer division when computing the midpoint.\n\nTest with sorted array [2, 5, 8, 12, 16, 23, 38, 56, 72, 91]:\n- Search for 23 -> print \"found 23 at index 5\"\n- Search for 72 -> print \"found 72 at index 8\"\n- Search for 2 -> print \"found 2 at index 0\"\n- Search for 91 -> print \"found 91 at index 9\"\n- Search for 50 -> print \"50 not found\"",
+  "expected_output": "found 23 at index 5\nfound 72 at index 8\nfound 2 at index 0\nfound 91 at index 9\n50 not found\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "notes": "Tests understanding that Hemlock's / operator returns float, so divi() is needed for integer division. This is a key Hemlock gotcha.",
+  "tags": ["algorithms", "searching", "divi", "arrays"]
+}

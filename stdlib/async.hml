@@ -1,172 +1,148 @@
 // Hemlock Standard Library: Async Utilities
-// This module provides ThreadPool for efficient task execution
+// Thread configuration and a fixed-size ThreadPool built on channels.
+
+// ========== THREAD CONFIGURATION ==========
+
+// Get the current default stack size for spawned threads (in bytes)
+export fn get_default_stack_size(): i64 {
+	return __get_default_stack_size();
+}
+
+// Set the default stack size for all subsequent spawn() calls (in bytes)
+// Does not affect already-spawned threads.
+export fn set_default_stack_size(size: i64) {
+	__set_default_stack_size(size);
+}
 
 // ========== THREAD POOL ==========
+//
+// Queueing model
+//   submit() pushes a job onto a bounded work channel (back-pressure: submit
+//   blocks while the queue is full). Each worker is one spawned task that
+//   loops on recv(); recv() blocks while the queue is empty, so idle workers
+//   cost nothing. Every job carries its own one-slot result channel; the
+//   Future returned by submit() receives from it exactly once and memoizes
+//   the outcome, so get() may be called any number of times.
+//
+// Shutdown
+//   shutdown() closes the work channel. Workers keep draining jobs that are
+//   already queued; once the channel is empty, recv() returns null and each
+//   worker exits. shutdown() then joins every worker, so when it returns all
+//   accepted jobs have run and all threads are gone.
+
+// Maximum number of jobs waiting in the pool's queue before submit() blocks
+let POOL_QUEUE_CAPACITY = 1000;
+
 // A fixed-size thread pool for executing async tasks
-// Uses a work queue with worker threads for efficient task distribution
 export fn ThreadPool(num_workers: i32) {
 	if (num_workers <= 0) {
 		panic("ThreadPool requires at least 1 worker");
 	}
-	// Work queue (channel of tasks)
-	let work_queue = channel(1000);  // Buffer up to 1000 pending tasks
-	let result_channels = [];  // Array of result channels for futures
-	let next_task_id = 0;
-	let shutdown_flag = false;
+
+	let work_queue = channel(POOL_QUEUE_CAPACITY);
 	let workers = [];
-	// Worker function - pulls tasks from queue and executes them
-	async fn worker_loop(queue, id) {
+	let next_job_id = 0;
+	let is_shutdown = false;
+
+	// Worker: run queued jobs until the queue is closed and drained.
+	async fn worker_loop(queue) {
 		loop {
-			// Get next task from queue (blocking)
-			let task = queue.recv();
-			// Check for shutdown signal (null task)
-			if (task == null) {
+			let job = queue.recv();
+			if (job == null) {
 				break;
 			}
-			// Execute the task
-			let task_fn = task.func;
-			let task_args = task.args;
-			let result_ch = task.result_ch;
+			let outcome = null;
 			try {
-				// Call function with args using apply()
-				let result = apply(task_fn, task_args);
-				result_ch.send({ success: true, value: result });
+				outcome = { ok: true, value: apply(job.func, job.args) };
 			} catch (e) {
-				result_ch.send({ success: false, error: e });
+				outcome = { ok: false, error: e };
 			}
+			job.result_ch.send(outcome);
 		}
 		return null;
 	}
-	// Start worker threads
+
 	for (let i = 0; i < num_workers; i++) {
-		let w = spawn(worker_loop, work_queue, i);
-		workers.push(w);
+		workers.push(spawn(worker_loop, work_queue));
 	}
-	// Submit a task to the pool
-	// Returns a Future object with get() method
+
+	// Future: a memoized one-shot receive from the job's result channel.
+	fn make_future(id, result_ch) {
+		let outcome = null;
+
+		fn settle(received) {
+			outcome = received;
+			result_ch.close();
+		}
+
+		fn unwrap() {
+			if (outcome.ok) {
+				return outcome.value;
+			}
+			throw outcome.error;
+		}
+
+		return {
+			id,
+			// Block until the job has run, then return its result or rethrow its error.
+			get: fn() {
+				if (outcome == null) {
+					settle(result_ch.recv());
+				}
+				return unwrap();
+			},
+			// Like get(), but returns null if the job has not finished within timeout_ms.
+			get_timeout: fn(timeout_ms) {
+				if (outcome == null) {
+					let received = result_ch.recv_timeout(timeout_ms);
+					if (received == null) {
+						return null;
+					}
+					settle(received);
+				}
+				return unwrap();
+			},
+		};
+	}
+
+	// Queue task_fn(...args) for execution. Returns a Future.
+	// (Rest parameters are avoided here: the compiler does not yet support
+	// them in nested functions, so the fixed-arity entry points build the
+	// argument array themselves.)
+	fn enqueue(task_fn, args) {
+		if (is_shutdown) {
+			panic("ThreadPool is shutdown");
+		}
+		let result_ch = channel(1);
+		let id = next_job_id++;
+		work_queue.send({ func: task_fn, args: args, result_ch: result_ch });
+		return make_future(id, result_ch);
+	}
+
 	fn submit(task_fn) {
-		if (shutdown_flag) {
-			panic("ThreadPool is shutdown");
-		}
-		// Collect remaining arguments
-		let args_arr = [];
-		// Note: In Hemlock, we can't easily access variadic args
-		// So we'll just support submit(fn) for now
-		let result_ch = channel(1);
-		let task_id = next_task_id++;
-		// Send task to queue
-		work_queue.send({ id: task_id, func: task_fn, args: args_arr, result_ch });
-		// Return a Future object
-		return {
-			id: task_id,
-			get: fn() {
-				// Block until result is available
-				let result = result_ch.recv();
-				result_ch.close();
-				if (result.success) {
-					return result.value;
-				} else {
-					throw result.error;
-				}
-			},
-			get_timeout: fn(timeout_ms) {
-				// Check if result is ready (non-blocking)
-				let result = result_ch.recv_timeout(timeout_ms);
-				if (result == null) {
-					return null;  // Not ready yet
-				}
-				result_ch.close();
-				if (result.success) {
-					return result.value;
-				} else {
-					throw result.error;
-				}
-			},
-		};
+		return enqueue(task_fn, []);
 	}
-	// Submit with one argument
+
 	fn submit1(task_fn, arg1) {
-		if (shutdown_flag) {
-			panic("ThreadPool is shutdown");
-		}
-		let result_ch = channel(1);
-		let task_id = next_task_id++;
-		work_queue.send({ id: task_id, func: task_fn, args: [arg1], result_ch });
-		return {
-			id: task_id,
-			get: fn() {
-				let result = result_ch.recv();
-				result_ch.close();
-				if (result.success) {
-					return result.value;
-				} else {
-					throw result.error;
-				}
-			},
-			get_timeout: fn(timeout_ms) {
-				let result = result_ch.recv_timeout(timeout_ms);
-				if (result == null) {
-					return null;
-				}
-				result_ch.close();
-				if (result.success) {
-					return result.value;
-				} else {
-					throw result.error;
-				}
-			},
-		};
+		return enqueue(task_fn, [arg1]);
 	}
-	// Submit with two arguments
+
 	fn submit2(task_fn, arg1, arg2) {
-		if (shutdown_flag) {
-			panic("ThreadPool is shutdown");
-		}
-		let result_ch = channel(1);
-		let task_id = next_task_id++;
-		work_queue.send({ id: task_id, func: task_fn, args: [arg1, arg2], result_ch });
-		return {
-			id: task_id,
-			get: fn() {
-				let result = result_ch.recv();
-				result_ch.close();
-				if (result.success) {
-					return result.value;
-				} else {
-					throw result.error;
-				}
-			},
-			get_timeout: fn(timeout_ms) {
-				let result = result_ch.recv_timeout(timeout_ms);
-				if (result == null) {
-					return null;
-				}
-				result_ch.close();
-				if (result.success) {
-					return result.value;
-				} else {
-					throw result.error;
-				}
-			},
-		};
+		return enqueue(task_fn, [arg1, arg2]);
 	}
-	// Shutdown the pool gracefully
+
+	// Stop accepting jobs, run everything already queued, join all workers.
 	fn shutdown() {
-		if (shutdown_flag) {
-			return;  // Already shutdown
+		if (is_shutdown) {
+			return;
 		}
-		shutdown_flag = true;
-		// Send shutdown signals to all workers
-		for (let i = 0; i < num_workers; i++) {
-			work_queue.send(null);  // null = shutdown signal
-		}
-		// Wait for all workers to finish
+		is_shutdown = true;
+		work_queue.close();
 		for (worker in workers) {
 			join(worker);
 		}
-		work_queue.close();
 	}
-	// Return the pool object
+
 	return {
 		submit,
 		submit1,
@@ -177,18 +153,16 @@ export fn ThreadPool(num_workers: i32) {
 }
 
 // ========== PARALLEL MAP ==========
-// Map a function over an array using thread pool
+// Map a function over an array using a temporary thread pool.
+// Results are returned in input order.
 
 export fn parallel_map(arr, map_fn, num_workers?: 4) {
 	let pool = ThreadPool(num_workers);
 	let futures = [];
-
-	// Submit all tasks
 	for (item in arr) {
 		futures.push(pool.submit1(map_fn, item));
 	}
 
-	// Collect results
 	let results = [];
 	for (future in futures) {
 		results.push(future.get());

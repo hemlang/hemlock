@@ -1,0 +1,82 @@
+// Test defer behavior in loop and scope contexts
+
+// 1. Defer in function (basic - LIFO)
+print("=== Defer LIFO ===");
+fn test_lifo() {
+    defer print("d1");
+    defer print("d2");
+    defer print("d3");
+    print("body");
+}
+test_lifo();
+
+// 2. Defer with early return
+print("=== Defer early return ===");
+fn test_early(x) {
+    defer print("cleanup " + x);
+    if (x < 0) {
+        print("negative");
+        return -1;
+    }
+    print("positive");
+    return x;
+}
+print(test_early(5));
+print(test_early(-3));
+
+// 3. Defer with exception
+print("=== Defer with exception ===");
+fn test_defer_except() {
+    defer print("defer runs despite throw");
+    try {
+        defer print("inner defer");
+        throw "error";
+    } catch (e) {
+        print("caught: " + e);
+    }
+    print("after catch");
+}
+test_defer_except();
+
+// 4. Multiple defers in nested blocks
+print("=== Nested block defers ===");
+fn test_nested_blocks() {
+    defer print("fn defer");
+    {
+        defer print("block defer");
+        print("in block");
+    }
+    print("after block");
+}
+test_nested_blocks();
+
+// 5. Defer in while loop
+print("=== Defer in while ===");
+fn test_while_defer() {
+    let i = 0;
+    while (i < 3) {
+        defer print("while defer");
+        print("while body " + i);
+        i++;
+    }
+}
+test_while_defer();
+
+// 6. Multiple defers in function with branches
+print("=== Defer with branches ===");
+fn test_branch_defer(flag) {
+    defer print("always defer");
+    if (flag) {
+        defer print("true branch defer");
+        print("true path");
+    } else {
+        defer print("false branch defer");
+        print("false path");
+    }
+    print("after if");
+}
+test_branch_defer(true);
+print("---");
+test_branch_defer(false);
+
+print("done");

@@ -1,4 +1,6 @@
 // Test string utility builtins
+// These helper builtins are handled directly by the compiler codegen
+// (compiler-only test - not runnable with interpreter)
 
 // Test to_string
 print(to_string(42) == "42");

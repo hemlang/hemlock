@@ -27,7 +27,7 @@ typedef struct {
 
 // String table for deduplication
 typedef struct {
-    char **strings;          // Array of strings
+    const char **strings;    // Array of strings (borrowed pointers)
     uint32_t *lengths;       // Length of each string
     uint32_t count;          // Number of strings
     uint32_t capacity;       // Allocated capacity
@@ -50,6 +50,7 @@ typedef struct {
     char **strings;          // Reconstructed string table
     uint32_t string_count;   // Number of strings
     uint16_t flags;          // Flags from header
+    int depth;               // Current recursion depth (bounds nested nodes)
 } DeserializeContext;
 
 // ========== PUBLIC API ==========

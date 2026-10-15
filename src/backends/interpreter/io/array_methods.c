@@ -12,7 +12,6 @@ static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...)
     va_end(args);
 
     ctx->exception_state.exception_value = val_string(buffer);
-    value_retain(ctx->exception_state.exception_value);
     ctx->exception_state.is_throwing = 1;
     return val_null();
 }
@@ -32,7 +31,6 @@ static Value throw_runtime_error_at(ExecutionContext *ctx, int line, const char 
     }
 
     ctx->exception_state.exception_value = val_string(full_buffer);
-    value_retain(ctx->exception_state.exception_value);
     ctx->exception_state.is_throwing = 1;
     return val_null();
 }
@@ -59,17 +57,22 @@ static Value call_function_value(Value func, Value *args, int num_args, Executio
     // Bind parameters
     for (int i = 0; i < fn->num_params; i++) {
         Value arg_value = args[i];
+        // Own a reference: convert_to_type consumes it on failure, and the
+        // caller still releases args[i].
+        VALUE_RETAIN(arg_value);
 
         // Type check if parameter has type annotation
         if (fn->param_types[i]) {
             arg_value = convert_to_type(arg_value, fn->param_types[i], call_env, ctx);
             if (ctx->exception_state.is_throwing) {
+                VALUE_RELEASE(arg_value);
                 env_release(call_env);
                 return val_null();
             }
         }
 
-        env_set(call_env, fn->param_names[i], arg_value, ctx);
+        env_set(call_env, fn->param_names[i], arg_value, ctx);  // retains
+        VALUE_RELEASE(arg_value);
         if (ctx->exception_state.is_throwing) {
             env_release(call_env);
             return val_null();
@@ -78,7 +81,10 @@ static Value call_function_value(Value func, Value *args, int num_args, Executio
 
     // Execute body
     ctx->return_state.is_returning = 0;
-    eval_stmt(fn->body, call_env, ctx);
+    // Skip the body if binding a typed parameter threw
+    if (!ctx->exception_state.is_throwing) {
+        eval_stmt(fn->body, call_env, ctx);
+    }
 
     // Get return value
     Value result = ctx->return_state.is_returning ? ctx->return_state.return_value : val_null();
@@ -88,6 +94,157 @@ static Value call_function_value(Value func, Value *args, int num_args, Executio
     env_release(call_env);
 
     return result;
+}
+
+// ========== ARRAY SORTING ==========
+
+// Default ordering used by sort() when no comparator is supplied: values are
+// ordered by type tag first, then by value within a type.
+// Sign of a numeric sort key: integers compare exactly (u64 included),
+// anything involving a float compares as double.
+static int sort_numeric_compare(Value a, Value b) {
+    if (is_float(a) || is_float(b)) {
+        double x = value_to_float(a), y = value_to_float(b);
+        return (x < y) ? -1 : (x > y) ? 1 : 0;
+    }
+    __int128 x = (a.type == VAL_U64) ? (__int128)a.as.as_u64 : (__int128)value_to_int64(a);
+    __int128 y = (b.type == VAL_U64) ? (__int128)b.as.as_u64 : (__int128)value_to_int64(b);
+    return (x < y) ? -1 : (x > y) ? 1 : 0;
+}
+
+static int sort_default_compare(Value a, Value b) {
+    // Numbers of different types order by value ([3, 1.5, 2] -> [1.5, 2, 3])
+    if (a.type != b.type && is_numeric(a) && is_numeric(b)) {
+        return sort_numeric_compare(a, b);
+    }
+    if (a.type != b.type) {
+        return (int)a.type - (int)b.type;
+    }
+
+    switch (a.type) {
+        case VAL_I8:  return (a.as.as_i8 < b.as.as_i8) ? -1 : (a.as.as_i8 > b.as.as_i8) ? 1 : 0;
+        case VAL_I16: return (a.as.as_i16 < b.as.as_i16) ? -1 : (a.as.as_i16 > b.as.as_i16) ? 1 : 0;
+        case VAL_I32: return (a.as.as_i32 < b.as.as_i32) ? -1 : (a.as.as_i32 > b.as.as_i32) ? 1 : 0;
+        case VAL_I64: return (a.as.as_i64 < b.as.as_i64) ? -1 : (a.as.as_i64 > b.as.as_i64) ? 1 : 0;
+        case VAL_U8:  return (a.as.as_u8 < b.as.as_u8) ? -1 : (a.as.as_u8 > b.as.as_u8) ? 1 : 0;
+        case VAL_U16: return (a.as.as_u16 < b.as.as_u16) ? -1 : (a.as.as_u16 > b.as.as_u16) ? 1 : 0;
+        case VAL_U32: return (a.as.as_u32 < b.as.as_u32) ? -1 : (a.as.as_u32 > b.as.as_u32) ? 1 : 0;
+        case VAL_U64: return (a.as.as_u64 < b.as.as_u64) ? -1 : (a.as.as_u64 > b.as.as_u64) ? 1 : 0;
+        case VAL_F32: return (a.as.as_f32 < b.as.as_f32) ? -1 : (a.as.as_f32 > b.as.as_f32) ? 1 : 0;
+        case VAL_F64: return (a.as.as_f64 < b.as.as_f64) ? -1 : (a.as.as_f64 > b.as.as_f64) ? 1 : 0;
+        case VAL_BOOL: return (int)a.as.as_bool - (int)b.as.as_bool;
+        case VAL_STRING: return strcmp(a.as.as_string->data, b.as.as_string->data);
+        default: return 0;  // Objects, arrays, etc. - no default ordering
+    }
+}
+
+// Compare two values with either the default ordering or a user comparator.
+// Writes the result to *out and returns 1; returns 0 if the comparator threw.
+//
+// A comparator that resizes the array mid-sort would invalidate the element
+// pointer the merge is walking, so that is rejected with a clear error rather
+// than left as a use-after-free.
+static int sort_compare(Value a, Value b, Value comparator, int has_comparator,
+                        Array *arr, int expected_length, ExecutionContext *ctx, int *out) {
+    if (!has_comparator) {
+        *out = sort_default_compare(a, b);
+        return 1;
+    }
+
+    Value cmp_args[2] = { a, b };
+    Value cmp_result = call_function_value(comparator, cmp_args, 2, ctx);
+    if (ctx->exception_state.is_throwing) {
+        return 0;
+    }
+    // Only the sign matters. `/` always yields a float, so comparators like
+    // `(a - b) / 10` are common; truncating them to int would treat small
+    // differences as equal (and large i64 results could flip sign).
+    if (!is_numeric(cmp_result)) {
+        value_release(cmp_result);
+        throw_runtime_error(ctx, "sort() comparator must return a number");
+        return 0;
+    }
+    *out = sort_numeric_compare(cmp_result, val_i32(0));
+    value_release(cmp_result);
+
+    if (arr->length != expected_length) {
+        throw_runtime_error(ctx, "sort() comparator resized the array being sorted");
+        return 0;
+    }
+    return 1;
+}
+
+// Merge the adjacent sorted runs arr[lo..mid) and arr[mid..hi).
+//
+// The merged output is built in scratch[lo..hi) and only copied back over the
+// array once the merge has completed, so a comparator that throws part-way
+// through leaves the array as a valid permutation of its elements: no slot is
+// ever duplicated, so no element's reference count is corrupted.
+static int sort_merge_runs(Array *arr, Value *scratch, int lo, int mid, int hi,
+                           Value comparator, int has_comparator, int n,
+                           ExecutionContext *ctx) {
+    Value *elems = arr->elements;
+    int cmp;
+
+    // Fast path: the two runs are already in order, so nothing has to move.
+    // This is what keeps an already-sorted array at O(n) comparisons overall.
+    if (!sort_compare(elems[mid - 1], elems[mid], comparator, has_comparator, arr, n, ctx, &cmp)) {
+        return 0;
+    }
+    if (cmp <= 0) {
+        return 1;
+    }
+
+    int i = lo, j = mid, k = lo;
+    while (i < mid && j < hi) {
+        if (!sort_compare(elems[i], elems[j], comparator, has_comparator, arr, n, ctx, &cmp)) {
+            return 0;
+        }
+        // `<= 0` takes from the left run on ties, which makes the sort stable.
+        if (cmp <= 0) {
+            scratch[k++] = elems[i++];
+        } else {
+            scratch[k++] = elems[j++];
+        }
+    }
+    while (i < mid) scratch[k++] = elems[i++];
+    while (j < hi)  scratch[k++] = elems[j++];
+
+    memcpy(elems + lo, scratch + lo, (size_t)(hi - lo) * sizeof(Value));
+    return 1;
+}
+
+// Sort an array in place with a stable bottom-up merge sort: O(n log n)
+// comparisons on every input, and iterative so no input can exhaust the C
+// stack. Returns 0 if the sort was abandoned (comparator threw, or scratch
+// space could not be allocated), in which case ctx holds the exception.
+static int array_merge_sort(Array *arr, Value comparator, int has_comparator,
+                            ExecutionContext *ctx) {
+    int n = arr->length;
+    if ((size_t)n > SIZE_MAX / sizeof(Value)) {
+        throw_runtime_error(ctx, "sort() array too large");
+        return 0;
+    }
+    Value *scratch = malloc((size_t)n * sizeof(Value));
+    if (!scratch) {
+        throw_runtime_error(ctx, "sort() failed to allocate scratch space for %d elements", n);
+        return 0;
+    }
+
+    // `width` is 64-bit so the doubling cannot overflow for large `n`.
+    for (long long width = 1; width < n; width *= 2) {
+        for (long long lo = 0; lo + width < n; lo += 2 * width) {
+            long long end = lo + 2 * width;
+            if (!sort_merge_runs(arr, scratch, (int)lo, (int)(lo + width),
+                                 end < n ? (int)end : n, comparator, has_comparator, n, ctx)) {
+                free(scratch);
+                return 0;
+            }
+        }
+    }
+
+    free(scratch);
+    return 1;
 }
 
 // ========== ARRAY METHOD HANDLING ==========
@@ -146,12 +303,41 @@ int values_equal(Value a, Value b) {
         case VAL_F32: return a.as.as_f32 == b.as.as_f32;
         case VAL_F64: return a.as.as_f64 == b.as.as_f64;
         case VAL_BOOL: return a.as.as_bool == b.as.as_bool;
+        case VAL_RUNE: return a.as.as_rune == b.as.as_rune;
         case VAL_STRING:
             return strcmp(a.as.as_string->data, b.as.as_string->data) == 0;
         case VAL_PTR: return a.as.as_ptr == b.as.as_ptr;
+        case VAL_OBJECT: return a.as.as_object == b.as.as_object;
+        case VAL_ARRAY: return a.as.as_array == b.as.as_array;
         case VAL_NULL: return 1;
-        default: return 0;  // Objects, arrays, functions compared by reference
+        default: return 0;  // Functions and other types never compare equal
     }
+}
+
+// Loose value equality with `==` operator semantics: numeric values compare
+// across types (2 == 2.0), runes only equal runes, objects/arrays compare by
+// reference, and a ptr holding NULL equals the null literal. Used by switch
+// cases and match literal patterns, which the docs define in terms of value
+// (==) equality.
+int values_equal_loose(Value a, Value b) {
+    // Pointers compare by address, so a NULL ptr only equals another NULL ptr.
+    // Checked first so ptr operands never take the null path below.
+    if (a.type == VAL_PTR && b.type == VAL_PTR) {
+        return a.as.as_ptr == b.as.as_ptr;
+    }
+    // A ptr holding NULL equals the null literal, matching `==`.
+    int a_null = (a.type == VAL_NULL) || (a.type == VAL_PTR && a.as.as_ptr == NULL);
+    int b_null = (b.type == VAL_NULL) || (b.type == VAL_PTR && b.as.as_ptr == NULL);
+    if (a_null || b_null) {
+        return a_null && b_null;
+    }
+    if (is_numeric(a) && is_numeric(b)) {
+        return value_to_float(a) == value_to_float(b);
+    }
+    if (a.type != b.type) {
+        return 0;
+    }
+    return values_equal(a, b);
 }
 
 Value call_array_method(Array *arr, const char *method, Value *args, int num_args, int line, ExecutionContext *ctx) {
@@ -162,6 +348,11 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         if (method[1] == 'u' && strcmp(method, "push") == 0) {
             if (num_args != 1) {
                 return throw_runtime_error(ctx, "push() expects 1 argument");
+            }
+            // Catchable type check (array_push's own check exits the process)
+            Value check_result = check_array_element_type_for_method(arr, args[0], ctx);
+            if (ctx->exception_state.is_throwing) {
+                return check_result;
             }
             array_push(arr, args[0]);
             return val_null();
@@ -221,58 +412,9 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
                 return val_null();  // Already sorted
             }
 
-            // Simple insertion sort (stable, good for small arrays)
-            int has_comparator = (num_args == 1);
-
-            for (int i = 1; i < arr->length; i++) {
-                Value key = arr->elements[i];
-                int j = i - 1;
-
-                while (j >= 0) {
-                    int cmp;
-                    if (has_comparator) {
-                        Value cmp_args[2];
-                        cmp_args[0] = arr->elements[j];
-                        cmp_args[1] = key;
-                        Value cmp_result = call_function_value(args[0], cmp_args, 2, ctx);
-                        if (ctx->exception_state.is_throwing) {
-                            return val_null();
-                        }
-                        cmp = value_to_int(cmp_result);
-                        value_release(cmp_result);
-                    } else {
-                        // Default comparison by value type
-                        Value a = arr->elements[j];
-                        Value b = key;
-
-                        // Compare by type first
-                        if (a.type != b.type) {
-                            cmp = (int)a.type - (int)b.type;
-                        } else {
-                            switch (a.type) {
-                                case VAL_I8:  cmp = (a.as.as_i8 < b.as.as_i8) ? -1 : (a.as.as_i8 > b.as.as_i8) ? 1 : 0; break;
-                                case VAL_I16: cmp = (a.as.as_i16 < b.as.as_i16) ? -1 : (a.as.as_i16 > b.as.as_i16) ? 1 : 0; break;
-                                case VAL_I32: cmp = (a.as.as_i32 < b.as.as_i32) ? -1 : (a.as.as_i32 > b.as.as_i32) ? 1 : 0; break;
-                                case VAL_I64: cmp = (a.as.as_i64 < b.as.as_i64) ? -1 : (a.as.as_i64 > b.as.as_i64) ? 1 : 0; break;
-                                case VAL_U8:  cmp = (a.as.as_u8 < b.as.as_u8) ? -1 : (a.as.as_u8 > b.as.as_u8) ? 1 : 0; break;
-                                case VAL_U16: cmp = (a.as.as_u16 < b.as.as_u16) ? -1 : (a.as.as_u16 > b.as.as_u16) ? 1 : 0; break;
-                                case VAL_U32: cmp = (a.as.as_u32 < b.as.as_u32) ? -1 : (a.as.as_u32 > b.as.as_u32) ? 1 : 0; break;
-                                case VAL_U64: cmp = (a.as.as_u64 < b.as.as_u64) ? -1 : (a.as.as_u64 > b.as.as_u64) ? 1 : 0; break;
-                                case VAL_F32: cmp = (a.as.as_f32 < b.as.as_f32) ? -1 : (a.as.as_f32 > b.as.as_f32) ? 1 : 0; break;
-                                case VAL_F64: cmp = (a.as.as_f64 < b.as.as_f64) ? -1 : (a.as.as_f64 > b.as.as_f64) ? 1 : 0; break;
-                                case VAL_BOOL: cmp = (int)a.as.as_bool - (int)b.as.as_bool; break;
-                                case VAL_STRING: cmp = strcmp(a.as.as_string->data, b.as.as_string->data); break;
-                                default: cmp = 0; break;  // Objects, arrays, etc. - no default ordering
-                            }
-                        }
-                    }
-
-                    if (cmp <= 0) break;
-
-                    arr->elements[j + 1] = arr->elements[j];
-                    j--;
-                }
-                arr->elements[j + 1] = key;
+            Value comparator = (num_args == 1) ? args[0] : val_null();
+            if (!array_merge_sort(arr, comparator, num_args == 1, ctx)) {
+                return val_null();  // Comparator threw, or scratch allocation failed
             }
             return val_null();
         }
@@ -319,14 +461,14 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
         }
         // slice(start, end) - extract subarray (end is exclusive)
         if (method[1] == 'l' && strcmp(method, "slice") == 0) {
-            if (num_args != 2) {
-                return throw_runtime_error(ctx, "slice() expects 2 arguments (start, end)");
+            if (num_args < 1 || num_args > 2) {
+                return throw_runtime_error(ctx, "slice() expects 1-2 arguments (start[, end])");
             }
-            if (!is_integer(args[0]) || !is_integer(args[1])) {
+            if (!is_integer(args[0]) || (num_args == 2 && !is_integer(args[1]))) {
                 return throw_runtime_error(ctx, "slice() arguments must be integers");
             }
             int32_t start = value_to_int(args[0]);
-            int32_t end = value_to_int(args[1]);
+            int32_t end = (num_args == 2) ? value_to_int(args[1]) : arr->length;
 
             // Clamp bounds to valid range (Python/JS/Rust behavior)
             if (start < 0) start = 0;
@@ -405,7 +547,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
             if (index < 0 || index > arr->length) {
                 char error_msg[128];
                 snprintf(error_msg, sizeof(error_msg), "insert index %d out of bounds (length %d)", index, arr->length);
-                return throw_runtime_error(ctx, error_msg);
+                return throw_runtime_error(ctx, "%s", error_msg);
             }
             // Check type constraint
             Value check_result = check_array_element_type_for_method(arr, args[1], ctx);
@@ -453,7 +595,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
             if (index < 0 || index >= arr->length) {
                 char error_msg[128];
                 snprintf(error_msg, sizeof(error_msg), "remove index %d out of bounds (length %d)", index, arr->length);
-                return throw_runtime_error(ctx, error_msg);
+                return throw_runtime_error(ctx, "%s", error_msg);
             }
             Value removed = arr->elements[index];
             // Shift elements left from index using memmove for efficiency
@@ -493,7 +635,11 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
             // Empty array handling
             if (arr->length == 0) {
                 if (num_args == 2) {
-                    return args[1];  // Return initial value
+                    // Return initial value. Retain it: the caller releases
+                    // every args[i] after the method returns, so returning
+                    // it borrowed over-released heap-typed initial values.
+                    value_retain(args[1]);
+                    return args[1];
                 } else {
                     return throw_runtime_error(ctx, "reduce() on empty array with no initial value");
                 }
@@ -533,6 +679,31 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
             }
 
             return accumulator;
+        }
+        // reserve(capacity) - pre-allocate capacity to avoid realloc cascades
+        if (method[1] == 'e' && method[2] == 's' && strcmp(method, "reserve") == 0) {
+            if (num_args != 1) {
+                return throw_runtime_error(ctx, "reserve() expects 1 argument (capacity)");
+            }
+            if (!is_integer(args[0])) {
+                return throw_runtime_error(ctx, "reserve() capacity must be an integer");
+            }
+            int32_t requested = value_to_int(args[0]);
+            if (requested < 0) {
+                return throw_runtime_error(ctx, "reserve() capacity must be non-negative");
+            }
+            if (requested > arr->capacity) {
+                if ((size_t)requested > SIZE_MAX / sizeof(Value)) {
+                    return throw_runtime_error(ctx, "reserve() capacity too large");
+                }
+                Value *new_elements = realloc(arr->elements, sizeof(Value) * (size_t)requested);
+                if (!new_elements) {
+                    return throw_runtime_error(ctx, "reserve() memory allocation failed");
+                }
+                arr->elements = new_elements;
+                arr->capacity = requested;
+            }
+            return val_null();
         }
         break;
 
@@ -584,7 +755,7 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
             return val_null();
         }
         // find(value) - find first occurrence, return index or -1
-        if (method[1] == 'i' && method[2] == 'n' && strcmp(method, "find") == 0) {
+        if (method[1] == 'i' && method[2] == 'n' && method[3] == 'd' && method[4] == '\0') {
             if (num_args != 1) {
                 return throw_runtime_error(ctx, "find() expects 1 argument (value)");
             }
@@ -594,6 +765,52 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
                 }
             }
             return val_i32(-1);
+        }
+        // findIndex(predicate) - find index of first element matching predicate, or -1
+        if (method[1] == 'i' && method[2] == 'n' && method[3] == 'd' && strcmp(method, "findIndex") == 0) {
+            if (num_args != 1) {
+                return throw_runtime_error(ctx, "findIndex() expects 1 argument (predicate function)");
+            }
+            if (args[0].type != VAL_FUNCTION) {
+                return throw_runtime_error(ctx, "findIndex() argument must be a function");
+            }
+
+            for (int i = 0; i < arr->length; i++) {
+                Value callback_args[2];
+                callback_args[0] = arr->elements[i];
+                callback_args[1] = val_i32(i);
+
+                Value predicate_result = call_function_value(args[0], callback_args, 1, ctx);
+                if (ctx->exception_state.is_throwing) {
+                    return val_null();
+                }
+
+                if (value_is_truthy(predicate_result)) {
+                    value_release(predicate_result);
+                    return val_i32(i);
+                }
+                value_release(predicate_result);
+            }
+            return val_i32(-1);
+        }
+        // flat() - flatten one level of nested arrays
+        if (method[1] == 'l' && strcmp(method, "flat") == 0) {
+            if (num_args != 0) {
+                return throw_runtime_error(ctx, "flat() expects no arguments");
+            }
+
+            Array *result = array_new();
+            for (int i = 0; i < arr->length; i++) {
+                if (arr->elements[i].type == VAL_ARRAY) {
+                    Array *inner = arr->elements[i].as.as_array;
+                    for (int j = 0; j < inner->length; j++) {
+                        array_push(result, inner->elements[j]);
+                    }
+                } else {
+                    array_push(result, arr->elements[i]);
+                }
+            }
+            return val_array(result);
         }
         // filter(predicate) - keep elements where predicate returns true
         if (method[1] == 'i' && method[2] == 'l' && strcmp(method, "filter") == 0) {
@@ -635,7 +852,10 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
             if (arr->length == 0) {
                 return val_null();
             }
-            return arr->elements[0];
+            // Retain: array still owns the element; caller takes its own reference
+            Value first = arr->elements[0];
+            VALUE_RETAIN(first);
+            return first;
         }
         break;
 
@@ -678,6 +898,10 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
             if (num_args != 0) {
                 return throw_runtime_error(ctx, "clear() expects no arguments");
             }
+            // Release the elements the array owned, or they leak
+            for (int i = 0; i < arr->length; i++) {
+                VALUE_RELEASE(arr->elements[i]);
+            }
             arr->length = 0;
             return val_null();
         }
@@ -698,15 +922,21 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
                 return val_string("");
             }
 
-            // Calculate total size needed
+            // Convert each element to string via value_to_string, which handles
+            // every value type (including i64/u64, objects, arrays, nested).
+            char **parts = malloc(sizeof(char*) * arr->length);
+            size_t *part_lens = malloc(sizeof(size_t) * arr->length);
+            if (!parts || !part_lens) {
+                free(parts);
+                free(part_lens);
+                return throw_runtime_error(ctx, "Memory allocation failed in join()");
+            }
+
             size_t total_len = 0;
             for (int i = 0; i < arr->length; i++) {
-                if (arr->elements[i].type == VAL_STRING) {
-                    total_len += arr->elements[i].as.as_string->length;
-                } else {
-                    // For non-strings, estimate size (we'll use sprintf later)
-                    total_len += 32;  // Generous estimate for numbers
-                }
+                parts[i] = value_to_string(arr->elements[i]);
+                part_lens[i] = parts[i] ? strlen(parts[i]) : 0;
+                total_len += part_lens[i];
                 if (i < arr->length - 1) {
                     total_len += delim->length;
                 }
@@ -714,68 +944,45 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
 
             char *result = malloc(total_len + 1);
             if (!result) {
+                for (int i = 0; i < arr->length; i++) free(parts[i]);
+                free(parts);
+                free(part_lens);
                 return throw_runtime_error(ctx, "Memory allocation failed in join()");
             }
+
             size_t pos = 0;
-
             for (int i = 0; i < arr->length; i++) {
-                // Convert element to string
-                size_t remaining = total_len + 1 - pos;
-
-                if (arr->elements[i].type == VAL_STRING) {
-                    String *s = arr->elements[i].as.as_string;
-                    memcpy(result + pos, s->data, s->length);
-                    pos += s->length;
-                } else if (arr->elements[i].type == VAL_I8) {
-                    int written = snprintf(result + pos, remaining, "%d", arr->elements[i].as.as_i8);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_I16) {
-                    int written = snprintf(result + pos, remaining, "%d", arr->elements[i].as.as_i16);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_I32) {
-                    int written = snprintf(result + pos, remaining, "%d", arr->elements[i].as.as_i32);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_U8) {
-                    int written = snprintf(result + pos, remaining, "%u", arr->elements[i].as.as_u8);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_U16) {
-                    int written = snprintf(result + pos, remaining, "%u", arr->elements[i].as.as_u16);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_U32) {
-                    int written = snprintf(result + pos, remaining, "%u", arr->elements[i].as.as_u32);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_F32) {
-                    int written = snprintf(result + pos, remaining, "%g", arr->elements[i].as.as_f32);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_F64) {
-                    int written = snprintf(result + pos, remaining, "%g", arr->elements[i].as.as_f64);
-                    pos += (written > 0) ? written : 0;
-                } else if (arr->elements[i].type == VAL_BOOL) {
-                    const char *s = arr->elements[i].as.as_bool ? "true" : "false";
-                    size_t len = strlen(s);
-                    memcpy(result + pos, s, len);
-                    pos += len;
-                } else if (arr->elements[i].type == VAL_NULL) {
-                    memcpy(result + pos, "null", 4);
-                    pos += 4;
-                } else {
-                    memcpy(result + pos, "[object]", 8);
-                    pos += 8;
+                if (part_lens[i] > 0) {
+                    memcpy(result + pos, parts[i], part_lens[i]);
+                    pos += part_lens[i];
                 }
-
-                // Add delimiter between elements
+                free(parts[i]);
                 if (i < arr->length - 1) {
                     memcpy(result + pos, delim->data, delim->length);
                     pos += delim->length;
                 }
             }
             result[pos] = '\0';
+            free(parts);
+            free(part_lens);
 
             return val_string_take(result, pos, total_len + 1);
         }
         break;
 
     case 'l':
+        // lastIndexOf(value) - find last index of value, or -1 if not found
+        if (method[1] == 'a' && method[2] == 's' && method[3] == 't' && method[4] == 'I' && strcmp(method, "lastIndexOf") == 0) {
+            if (num_args != 1) {
+                return throw_runtime_error(ctx, "lastIndexOf() expects 1 argument (value)");
+            }
+            for (int i = arr->length - 1; i >= 0; i--) {
+                if (values_equal(arr->elements[i], args[0])) {
+                    return val_i32(i);
+                }
+            }
+            return val_i32(-1);
+        }
         // last() - get last element
         if (strcmp(method, "last") == 0) {
             if (num_args != 0) {
@@ -784,7 +991,10 @@ Value call_array_method(Array *arr, const char *method, Value *args, int num_arg
             if (arr->length == 0) {
                 return val_null();
             }
-            return arr->elements[arr->length - 1];
+            // Retain: array still owns the element; caller takes its own reference
+            Value last = arr->elements[arr->length - 1];
+            VALUE_RETAIN(last);
+            return last;
         }
         break;
 

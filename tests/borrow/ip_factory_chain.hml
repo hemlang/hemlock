@@ -1,0 +1,13 @@
+// Factory recognition is transitive through the summary fixpoint: a function
+// that returns another factory's fresh resource is a factory too.
+fn make_block(): ptr {
+    return alloc(64);
+}
+fn make_wrapped(): ptr {
+    return make_block();
+}
+fn main() {
+    let p = make_wrapped();
+    free(p);
+    free(p);
+}

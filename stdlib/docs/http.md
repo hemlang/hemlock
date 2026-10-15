@@ -105,6 +105,8 @@ print(response.body);
 Perform an HTTP PUT request.
 
 ```hemlock
+import { put } from "@stdlib/http";
+
 let body = '{"name":"Bob"}';
 let response = put("https://api.example.com/users/1", body, null);
 ```
@@ -114,6 +116,8 @@ let response = put("https://api.example.com/users/1", body, null);
 Perform an HTTP DELETE request.
 
 ```hemlock
+import { delete } from "@stdlib/http";
+
 let response = delete("https://api.example.com/users/1", null);
 ```
 
@@ -122,6 +126,8 @@ let response = delete("https://api.example.com/users/1", null);
 Perform a generic HTTP request with any method.
 
 ```hemlock
+import { request } from "@stdlib/http";
+
 let response = request("PATCH", "https://api.example.com/users/1", '{"name":"Charlie"}', null);
 ```
 
@@ -204,7 +210,9 @@ Check if status code indicates server error (500-599).
 
 ### Timeout Functions
 
-All HTTP functions have corresponding `*_timeout` versions that accept a custom timeout in milliseconds. The default timeout is 30000ms (30 seconds).
+The base HTTP functions (`get`, `post`, `put`, `delete`, `request`) use a **5-second default timeout**. This is intentional for short ad-hoc calls, but will cause failures for any request that legitimately blocks longer — LLM inference, model downloads, large uploads, or any endpoint that proxies slow work. If your call may take more than 5 seconds, use the corresponding `*_timeout` variant with an explicit budget.
+
+All HTTP functions have corresponding `*_timeout` versions that accept a custom timeout in milliseconds. The `*_timeout` variants default to 30000ms (30 seconds) when no `timeout_ms` is supplied.
 
 #### `get_timeout(url: string, headers?: array<string>, timeout_ms?: i32): object`
 
@@ -225,6 +233,26 @@ POST request with custom timeout.
 import { post_timeout } from "@stdlib/http";
 
 let response = post_timeout("https://api.example.com/upload", large_body, null, 120000);
+```
+
+#### `put_timeout(url: string, body?: string, headers?: array<string>, timeout_ms?: i32): object`
+
+PUT request with custom timeout.
+
+```hemlock
+import { put_timeout } from "@stdlib/http";
+
+let response = put_timeout("https://api.example.com/users/1", '{"name":"Bob"}', null, 60000);
+```
+
+#### `delete_timeout(url: string, headers?: array<string>, timeout_ms?: i32): object`
+
+DELETE request with custom timeout.
+
+```hemlock
+import { delete_timeout } from "@stdlib/http";
+
+let response = delete_timeout("https://api.example.com/users/1", null, 60000);
 ```
 
 #### `request_timeout(method: string, url: string, body?: string, headers?: array<string>, timeout_ms?: i32): object`
@@ -424,6 +452,8 @@ let result3 = await task3;
 This module wraps the curl CLI tool via Hemlock's `exec()` builtin:
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // Simplified internal implementation
 let cmd = "curl -s -w '\\n%{http_code}' -L -X POST";
 cmd = cmd + " -H 'Content-Type: application/json'";
@@ -612,6 +642,7 @@ Fields are separated by newlines, events by double newlines. Lines starting with
 ```hemlock
 import { post_json_stream } from "@stdlib/http";
 import { parse } from "@stdlib/json";
+import { getenv } from "@stdlib/env";
 
 let api_key = getenv("OPENAI_API_KEY");
 

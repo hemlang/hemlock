@@ -1,0 +1,19 @@
+{
+  "id": "L6-E-01",
+  "level": "L6",
+  "difficulty": "easy",
+  "title": "Fix Syntax Errors",
+  "topic": "syntax bugs",
+  "prompt": "The following Hemlock program has syntax errors. Fix all bugs so it produces the expected output. Return the corrected program.\n\n```hemlock\n// Calculate sum of even numbers from 1 to 20\nlet sum = 0\nfor (let i = 1; i <= 20; i++) {\n    if (i % 2 == 0)\n        sum += i\n}\nprint(\"Sum of evens: \" + sum)\n\n// Fibonacci\nfn fib(n) {\n    if (n <= 1) { return n }\n    return fib(n - 1) + fib(n - 2)\n}\n\nprint(\"fib(10) = \" + fib(10))\n```\n\nHints: Hemlock requires semicolons after every statement (no ASI). Single-line if/for without braces IS supported, but statements still need semicolons.",
+  "expected_output": "Sum of evens: 110\nfib(10) = 55\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "buggy_code": "// Calculate sum of even numbers from 1 to 20\nlet sum = 0\nfor (let i = 1; i <= 20; i++) {\n    if (i % 2 == 0)\n        sum += i\n}\nprint(\"Sum of evens: \" + sum)\n\n// Fibonacci\nfn fib(n) {\n    if (n <= 1) { return n }\n    return fib(n - 1) + fib(n - 2)\n}\n\nprint(\"fib(10) = \" + fib(10))\n",
+  "bug_descriptions": [
+    "Missing semicolon after 'let sum = 0'",
+    "Missing semicolon after 'sum += i'",
+    "Missing semicolon after 'return n'",
+    "Missing semicolon after last print"
+  ],
+  "tags": ["debugging", "syntax", "semicolons"]
+}

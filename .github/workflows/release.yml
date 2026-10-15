@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+env:
+  USEARCH_VERSION: "v2.24.0"
+
 jobs:
   build-linux:
     runs-on: ubuntu-22.04
@@ -25,7 +28,23 @@ jobs:
           libwebsockets-dev \
           libcap-dev \
           libuv1-dev \
-          libev-dev
+          libev-dev \
+          cmake
+
+    - name: Build and install USearch
+      run: |
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+          -DUSEARCH_BUILD_LIB_C=ON \
+          -DUSEARCH_BUILD_TEST_C=OFF \
+          -DUSEARCH_BUILD_TEST_CPP=OFF \
+          -DUSEARCH_BUILD_BENCH_CPP=OFF
+        cmake --build /tmp/usearch/build --config Release
+        sudo cp $(find /tmp/usearch/build -name 'libusearch_c.so' | head -1) /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
+        sudo ldconfig
+        ls -la /usr/local/lib/libusearch*
 
     - name: Build runtime library
       run: make runtime
@@ -33,11 +52,13 @@ jobs:
     - name: Build release binaries (hybrid static/dynamic)
       run: make release-static
 
-    - name: Run basic tests
+    - name: Build stdlib
+      run: make stdlib
+
+    - name: Run full test suite
       run: |
-        # Test the interpreter works
-        echo 'print("Hello from Hemlock!");' > /tmp/test.hml
-        ./build-static/hemlock /tmp/test.hml
+        make clean && make && make stdlib
+        make test
 
     - name: Verify builds
       run: |
@@ -77,8 +98,28 @@ jobs:
 
     - name: Install dependencies
       run: |
-        brew install coreutils libffi openssl@3 libwebsockets
+        brew install coreutils libffi openssl@3 libwebsockets cmake
         echo "$(brew --prefix coreutils)/libexec/gnubin" >> $GITHUB_PATH
+
+    - name: Build and install USearch
+      run: |
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+          -DUSEARCH_BUILD_LIB_C=ON \
+          -DUSEARCH_BUILD_TEST_C=OFF \
+          -DUSEARCH_BUILD_TEST_CPP=OFF \
+          -DUSEARCH_BUILD_BENCH_CPP=OFF
+        cmake --build /tmp/usearch/build --config Release
+        sudo mkdir -p /usr/local/lib /usr/local/include
+        sudo cp $(find /tmp/usearch -name 'libusearch_c.dylib' -o -name 'libusearch_c.so' | head -1) /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
+        ls -la /usr/local/lib/libusearch*
+
+    - name: Disable macOS firewall
+      run: |
+        sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
+        sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
 
     - name: Build runtime library
       run: make runtime
@@ -88,8 +129,8 @@ jobs:
 
     - name: Run basic tests
       run: |
-        echo 'print("Hello from Hemlock!");' > /tmp/test.hml
-        ./build-static/hemlock /tmp/test.hml
+        make clean && make && make stdlib
+        timeout 300 make test
 
     - name: Package
       run: |
@@ -116,8 +157,28 @@ jobs:
 
     - name: Install dependencies
       run: |
-        brew install coreutils libffi openssl@3 libwebsockets
+        brew install coreutils libffi openssl@3 libwebsockets cmake
         echo "$(brew --prefix coreutils)/libexec/gnubin" >> $GITHUB_PATH
+
+    - name: Build and install USearch
+      run: |
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+          -DUSEARCH_BUILD_LIB_C=ON \
+          -DUSEARCH_BUILD_TEST_C=OFF \
+          -DUSEARCH_BUILD_TEST_CPP=OFF \
+          -DUSEARCH_BUILD_BENCH_CPP=OFF
+        cmake --build /tmp/usearch/build --config Release
+        sudo mkdir -p /usr/local/lib /usr/local/include
+        sudo cp $(find /tmp/usearch -name 'libusearch_c.dylib' -o -name 'libusearch_c.so' | head -1) /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
+        ls -la /usr/local/lib/libusearch*
+
+    - name: Disable macOS firewall
+      run: |
+        sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
+        sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
 
     - name: Build runtime library
       run: make runtime
@@ -125,10 +186,10 @@ jobs:
     - name: Build release binaries (static third-party libs)
       run: make release-static
 
-    - name: Run basic tests
+    - name: Run full tests
       run: |
-        echo 'print("Hello from Hemlock!");' > /tmp/test.hml
-        ./build-static/hemlock /tmp/test.hml
+        make clean && make && make stdlib
+        timeout 300 make test
 
     - name: Package
       run: |
@@ -148,8 +209,148 @@ jobs:
         name: hemlock-macos-arm64
         path: hemlock-macos-arm64.tar.gz
 
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: UCRT64
+        update: false
+        install: >-
+          make
+          zip
+          mingw-w64-ucrt-x86_64-gcc
+          mingw-w64-ucrt-x86_64-zlib
+          mingw-w64-ucrt-x86_64-libffi
+          mingw-w64-ucrt-x86_64-libwebsockets
+          mingw-w64-ucrt-x86_64-pkgconf
+          mingw-w64-ucrt-x86_64-libuv
+
+    # WIN_LWS_STATIC=1 is what makes the shipped .exe usable: a dynamic build
+    # needs libwebsockets.dll, libssl-3-x64.dll and libuv-1.dll on PATH and
+    # exits silently without them, i.e. it would only run inside MSYS2. Costs
+    # ~7.6 MB.
+    - name: Build release binaries (libwebsockets statically linked)
+      run: make -j4 WIN_LWS_STATIC=1 all
+
+    - name: Verify the binaries are self-contained
+      run: |
+        # Only Windows system DLLs may be required
+        objdump -p hemlock.exe | grep -i "DLL Name" | tee deps.txt
+        ! grep -iE "libwebsockets|libssl|libcrypto|libuv|libwinpthread|zlib1|libgcc" deps.txt
+        # And prove it: run with nothing from MSYS2 on PATH
+        env -i PATH="/c/Windows/System32:/c/Windows" ./hemlock.exe --version
+
+    # Fail loudly and early if the build silently came out without lws: the
+    # Makefile probe uses pkg-config, so a missing pkgconf package makes
+    # HAS_LIBWEBSOCKETS 0 and everything still "succeeds" until a user
+    # discovers @stdlib/websocket throws in the shipped zip.
+    - name: Verify libwebsockets is actually compiled in
+      run: |
+        ./hemlock.exe -e 'import { WebSocketServer } from "@stdlib/websocket"; let s = WebSocketServer("127.0.0.1", 19309); s.close(); print("lws: ok");' | tee lws.out
+        grep -q "lws: ok" lws.out
+
+    - name: Smoke test (WebSocket support is the point of this build)
+      run: |
+        cat > ws.hml << 'EOF'
+        import { WebSocketServer, WebSocket } from "@stdlib/websocket";
+        async fn serve(srv) {
+            let c = srv.accept(5000);
+            if (c == null) { print("accept: timeout"); return 1; }
+            let m = c.recv(5000);
+            if (m == null) { print("server recv: timeout"); return 2; }
+            c.send_text("echo: " + m.data);
+            c.close();
+            return 0;
+        }
+        let srv = WebSocketServer("127.0.0.1", 19311);
+        let t = spawn(serve, srv);
+        let ws = WebSocket("ws://127.0.0.1:19311");
+        ws.send_text("hello ws");
+        let r = ws.recv(5000);
+        print("got:", r.data);
+        ws.close();
+        await t;
+        srv.close();
+        EOF
+        # Bounded so a regression of the exit hang fixed in 2.10.x cannot sit
+        # here until the job timeout; the run is expected to exit 0.
+        timeout 60 env -i PATH="/c/Windows/System32:/c/Windows" ./hemlock.exe ws.hml > ws.out 2>&1 || true
+        cat ws.out
+        grep -q "got: echo: hello ws" ws.out
+
+    - name: Package
+      run: |
+        mkdir -p hemlock-windows-x86_64
+        cp hemlock.exe hemlock-windows-x86_64/
+        cp hemlockc.exe hemlock-windows-x86_64/
+        cp libhemlock_runtime.a hemlock-windows-x86_64/
+        cp -r stdlib hemlock-windows-x86_64/
+        mkdir -p hemlock-windows-x86_64/include
+        cp -r runtime/include/* hemlock-windows-x86_64/include/ 2>/dev/null || true
+        cp -r include/* hemlock-windows-x86_64/include/ 2>/dev/null || true
+        cp README.md LICENSE hemlock-windows-x86_64/ 2>/dev/null || cp README.md hemlock-windows-x86_64/
+        zip -r hemlock-windows-x86_64.zip hemlock-windows-x86_64
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: hemlock-windows-x86_64
+        path: hemlock-windows-x86_64.zip
+
+  build-wasm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential zlib1g-dev
+
+    - name: Setup Emscripten
+      uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: 3.1.51
+
+    - name: Verify Emscripten
+      run: emcc --version
+
+    - name: Build WASM interpreter
+      run: make wasm-interpreter
+
+    - name: Smoke test
+      run: |
+        node wasm/hemlock.js --version
+        OUTPUT=$(node -- wasm/hemlock.js -e 'print("hello from wasm");' 2>&1)
+        echo "$OUTPUT" | grep -q "hello from wasm" || { echo "FAIL: expected 'hello from wasm'"; exit 1; }
+
+    - name: Package
+      run: |
+        mkdir -p hemlock-wasm
+        cp wasm/hemlock.js hemlock-wasm/
+        cp wasm/hemlock.wasm hemlock-wasm/
+        cp wasm/hemlock-api.js hemlock-wasm/
+        cp wasm/playground.html hemlock-wasm/ 2>/dev/null || true
+        cp -r stdlib hemlock-wasm/
+        cp README.md LICENSE hemlock-wasm/ 2>/dev/null || cp README.md hemlock-wasm/
+        tar -czvf hemlock-wasm.tar.gz hemlock-wasm
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: hemlock-wasm
+        path: hemlock-wasm.tar.gz
+
   release:
-    needs: [build-linux, build-macos-intel, build-macos-arm]
+    needs: [build-linux, build-macos-intel, build-macos-arm, build-windows, build-wasm]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -168,9 +369,12 @@ jobs:
 
           - **hemlock** (interpreter): Third-party libs statically linked, only requires glibc
           - **hemlockc** (compiler): Fully statically linked for maximum portability
+          - **hemlock-windows-x86_64.zip**: Standalone hemlock.exe / hemlockc.exe - no MSYS2 or DLLs needed
+          - **hemlock-wasm** (WASM interpreter): Run Hemlock in the browser or Node.js
 
           The interpreter supports all features including runtime FFI (`ffi_open`, `ffi_bind`).
           The compiler is a portable code generator that produces native binaries.
+          The WASM interpreter runs Hemlock source directly in any JavaScript environment.
 
           ### Quick Start
           ```bash
@@ -188,12 +392,27 @@ jobs:
           ./hemlockc your_script.hml -o your_program
           ```
 
+          ### WASM Quick Start
+          ```bash
+          tar -xzf hemlock-wasm.tar.gz
+          cd hemlock-wasm
+
+          # Run with Node.js
+          node hemlock.js your_script.hml
+
+          # Or open playground.html in a browser
+          ```
+
           ### Platform Notes
           - **Linux x86_64**: Both binaries work on any glibc-based distro (Ubuntu, Debian, Fedora, etc.)
           - **macOS x86_64/arm64**: Both binaries work out of the box
+          - **Windows x86_64**: Self-contained; only system DLLs required. Includes @stdlib/websocket and @stdlib/http (libwebsockets is linked in). hemlockc.exe needs a MinGW-w64 GCC on PATH to compile programs, since it shells out to gcc.
+          - **WASM**: Runs in any modern browser or Node.js environment
         files: |
           artifacts/hemlock-linux-x86_64/hemlock-linux-x86_64.tar.gz
           artifacts/hemlock-macos-x86_64/hemlock-macos-x86_64.tar.gz
           artifacts/hemlock-macos-arm64/hemlock-macos-arm64.tar.gz
+          artifacts/hemlock-windows-x86_64/hemlock-windows-x86_64.zip
+          artifacts/hemlock-wasm/hemlock-wasm.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

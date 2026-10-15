@@ -185,7 +185,7 @@ fn int_to_octal(val, width) {
 		// Convert digit to character by adding '0'
 		let ch: rune = 48 + digit;  // 48 is ASCII '0'
 		result = ch + result;
-		v = divi(v, 8);
+		v = __divi(v, 8);
 	}
 
 	// Pad with zeros
@@ -283,7 +283,7 @@ export fn TarWriter() {
 				let entry: TarEntry = entries[i];
 				total_size = total_size + BLOCK_SIZE;  // Header
 				// Round content up to block size
-				let content_blocks = divi(entry.size + BLOCK_SIZE - 1, BLOCK_SIZE);
+				let content_blocks = __divi(entry.size + BLOCK_SIZE - 1, BLOCK_SIZE);
 				total_size = total_size + content_blocks * BLOCK_SIZE;
 				i = i + 1;
 			}
@@ -421,7 +421,7 @@ export fn TarWriter() {
 						j = j + 1;
 					}
 					// Pad to block boundary
-					let content_blocks = divi(entry.size + BLOCK_SIZE - 1, BLOCK_SIZE);
+					let content_blocks = __divi(entry.size + BLOCK_SIZE - 1, BLOCK_SIZE);
 					offset = offset + content_blocks * BLOCK_SIZE;
 				}
 
@@ -492,7 +492,7 @@ export fn TarReader(data) {
 				i = i + 1;
 			}
 			// Skip content blocks
-			let content_blocks = divi(size + BLOCK_SIZE - 1, BLOCK_SIZE);
+			let content_blocks = __divi(size + BLOCK_SIZE - 1, BLOCK_SIZE);
 			offset = offset + content_blocks * BLOCK_SIZE;
 		}
 
@@ -581,13 +581,13 @@ fn string_to_buffer(s: string): buffer {
 
 // Compress a file to gzip format
 export fn gzip_file(input_path: string, output_path: string, level?: 6) {
-	let file = open(input_path, "r");
+	let file = __open(input_path, "r");
 	let content = file.read();
 	file.close();
 
 	let compressed = gzip(content, level);
 
-	let out = open(output_path, "w");
+	let out = __open(output_path, "w");
 	out.write_bytes(compressed);
 	out.close();
 
@@ -597,7 +597,7 @@ export fn gzip_file(input_path: string, output_path: string, level?: 6) {
 
 // Decompress a gzip file
 export fn gunzip_file(input_path: string, output_path: string, max_size?: 10485760) {
-	let file = open(input_path, "r");
+	let file = __open(input_path, "r");
 	let content = file.read();
 	file.close();
 
@@ -606,7 +606,7 @@ export fn gunzip_file(input_path: string, output_path: string, max_size?: 104857
 
 	let decompressed = gunzip(compressed, max_size);
 
-	let out = open(output_path, "w");
+	let out = __open(output_path, "w");
 	out.write(decompressed);
 	out.close();
 

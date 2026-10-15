@@ -1,0 +1,32 @@
+// Parity test for @stdlib/toml module
+
+import { parse, stringify } from "@stdlib/toml";
+
+print("=== Integer arrays preserve values (i64 not boxed) ===");
+// Regression: interp's array.join emitted "[object]" for i64 elements
+// because the switch only handled i32/i16/i8/u8/u16/u32/f32/f64.
+let cfg = parse("vals = [1, 2, 3]\nbig = [5000000000, 6000000000]\n");
+print("vals joined: " + cfg.vals.join(","));
+print("big joined: " + cfg.big.join(","));
+print("vals[0]: " + cfg.vals[0]);
+print("vals[1]: " + cfg.vals[1]);
+print("big[0]: " + cfg.big[0]);
+
+print("=== String arrays ===");
+let s = parse("names = [\"a\", \"b\", \"c\"]\n");
+print("names joined: " + s.names.join("|"));
+
+print("=== Mixed scalars ===");
+let m = parse("data = [1, \"two\", 3.0, true]\n");
+print("data[0]: " + m.data[0]);
+print("data[1]: " + m.data[1]);
+print("data[2]: " + m.data[2]);
+print("data[3]: " + m.data[3]);
+
+print("=== Array of tables ===");
+let aot = parse("[[items]]\nname = \"one\"\n[[items]]\nname = \"two\"\n");
+print("items len: " + aot.items.length);
+print("items[0].name: " + aot.items[0].name);
+print("items[1].name: " + aot.items[1].name);
+
+print("=== Done ===");

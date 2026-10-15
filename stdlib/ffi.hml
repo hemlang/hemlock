@@ -1,0 +1,48 @@
+// @stdlib/ffi - FFI Utilities
+//
+// Foreign Function Interface callback and type management.
+// Libraries are loaded with `import "lib"` and functions declared with `extern fn`.
+//
+// Usage:
+// import { callback, callback_free, ffi_sizeof } from "@stdlib/ffi";
+//
+// // Create a C-compatible callback from a Hemlock function
+// let cb = callback(my_func, ["i32"], "i32");
+// // ... pass cb to a C function expecting a function pointer ...
+// callback_free(cb);  // Must free when done!
+//
+// // Check type sizes for struct layout
+// let int_size = ffi_sizeof("i32");  // 4
+
+// ========== CALLBACK MANAGEMENT ==========
+// callback(fn, param_types, return_type) -> ptr - Create a C-callable function pointer from a Hemlock function
+// callback_free(ptr)        - Free a callback (must be called to avoid leaks)
+// ffi_sizeof(type) -> i32   - Get the size of a C type in bytes
+export let callback = __callback;
+export let callback_free = __callback_free;
+export let ffi_sizeof = __ffi_sizeof;
+
+// ========== FFI TYPE CONSTANTS ==========
+// Numeric libffi type codes (informational; extern fn declarations use Hemlock type names)
+export let FFI_VOID = 0;
+export let FFI_INT = 1;
+export let FFI_FLOAT = 2;
+export let FFI_DOUBLE = 3;
+export let FFI_POINTER = 4;
+export let FFI_STRING = 5;
+export let FFI_INT8 = 6;
+export let FFI_INT16 = 7;
+export let FFI_INT32 = 8;
+export let FFI_INT64 = 9;
+export let FFI_UINT8 = 10;
+export let FFI_UINT16 = 11;
+export let FFI_UINT32 = 12;
+export let FFI_UINT64 = 13;
+
+// ========== LOADING LIBRARIES ==========
+// There is no runtime ffi_open/ffi_bind API. Load a library with an
+// import and declare each function with extern fn (both backends):
+//
+//   import "libc.so.6";
+//   extern fn puts(s: string): i32;
+//   puts("Hello!");

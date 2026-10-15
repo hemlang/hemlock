@@ -1,0 +1,12 @@
+héllo
+😀
+wörld
+13
+18
+char_at oob: char_at() index 10 out of bounds (length=3)
+byte_at oob: byte_at() index 10 out of bounds (byte_length=3)
+char_at neg throws
+index oob throws
+bc
+bc
+

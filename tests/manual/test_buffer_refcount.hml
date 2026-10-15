@@ -1,3 +1,5 @@
+import { open } from "@stdlib/fs";
+
 let buf = buffer(10);
 print("After buffer creation");
 

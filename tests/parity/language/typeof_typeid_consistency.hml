@@ -1,0 +1,93 @@
+// Test typeof() and typeid() consistency across all types
+
+// Check each type has consistent typeof/typeid
+print("=== Primitive types ===");
+
+let v_i32 = 42;
+print(typeof(v_i32) + " " + (typeid(v_i32) == TYPEID_I32));
+
+let v_f64 = 3.14;
+print(typeof(v_f64) + " " + (typeid(v_f64) == TYPEID_F64));
+
+let v_bool = true;
+print(typeof(v_bool) + " " + (typeid(v_bool) == TYPEID_BOOL));
+
+let v_str = "hello";
+print(typeof(v_str) + " " + (typeid(v_str) == TYPEID_STRING));
+
+let v_null = null;
+print(typeof(v_null) + " " + (typeid(v_null) == TYPEID_NULL));
+
+print("=== Compound types ===");
+
+let v_arr = [1, 2, 3];
+print(typeof(v_arr) + " " + (typeid(v_arr) == TYPEID_ARRAY));
+
+let v_obj = { x: 10 };
+print(typeof(v_obj) + " " + (typeid(v_obj) == TYPEID_OBJECT));
+
+fn v_fn() { return 1; }
+print(typeof(v_fn) + " " + (typeid(v_fn) == TYPEID_FUNCTION));
+
+print("=== Typed numerics ===");
+
+let v_i8: i8 = 1;
+print(typeof(v_i8) + " " + (typeid(v_i8) == TYPEID_I8));
+
+let v_i16: i16 = 2;
+print(typeof(v_i16) + " " + (typeid(v_i16) == TYPEID_I16));
+
+let v_i64: i64 = 3;
+print(typeof(v_i64) + " " + (typeid(v_i64) == TYPEID_I64));
+
+let v_u8: u8 = 4;
+print(typeof(v_u8) + " " + (typeid(v_u8) == TYPEID_U8));
+
+let v_u16: u16 = 5;
+print(typeof(v_u16) + " " + (typeid(v_u16) == TYPEID_U16));
+
+let v_u32: u32 = 6;
+print(typeof(v_u32) + " " + (typeid(v_u32) == TYPEID_U32));
+
+let v_u64: u64 = 7;
+print(typeof(v_u64) + " " + (typeid(v_u64) == TYPEID_U64));
+
+let v_f32: f32 = 1.5;
+print(typeof(v_f32) + " " + (typeid(v_f32) == TYPEID_F32));
+
+print("=== Type after operations ===");
+
+// Arithmetic should preserve/promote types
+let sum = 10 + 20;
+print(typeof(sum) + " " + (typeid(sum) == TYPEID_I32));
+
+let fsum = 10 + 0.5;
+print(typeof(fsum) + " " + (typeid(fsum) == TYPEID_F64));
+
+// Comparison returns bool
+let cmp = 10 > 5;
+print(typeof(cmp) + " " + (typeid(cmp) == TYPEID_BOOL));
+
+// String concat returns string
+let cat = "a" + "b";
+print(typeof(cat) + " " + (typeid(cat) == TYPEID_STRING));
+
+print("=== typeid constants ===");
+print(TYPEID_I8);
+print(TYPEID_I16);
+print(TYPEID_I32);
+print(TYPEID_I64);
+print(TYPEID_U8);
+print(TYPEID_U16);
+print(TYPEID_U32);
+print(TYPEID_U64);
+print(TYPEID_F32);
+print(TYPEID_F64);
+print(TYPEID_BOOL);
+print(TYPEID_STRING);
+print(TYPEID_ARRAY);
+print(TYPEID_OBJECT);
+print(TYPEID_FUNCTION);
+print(TYPEID_NULL);
+
+print("done");

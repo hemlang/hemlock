@@ -1,4 +1,6 @@
 // Test socket.set_nonblocking method
+import { socket_create } from "@stdlib/net";
+
 print("=== Socket Non-blocking Test ===");
 
 // Create a TCP socket

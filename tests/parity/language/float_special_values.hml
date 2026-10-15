@@ -1,0 +1,14 @@
+// Extreme finite values and folded non-finite constants must compile and
+// print identically (the compiler emits INFINITY/NAN tokens, never the
+// invalid C identifiers inf/nan). NaN is never printed directly - its sign
+// is platform-specific.
+let inf_var = 1.0 / 0.0;
+print(inf_var);
+print(inf_var > 1e308);
+let folded_nan = 0.0 / 0.0;   // constant-folded NaN must still compile
+print(typeof(folded_nan));
+print(folded_nan != folded_nan);
+let tiny: f64 = 5e-324;
+print(tiny);
+print(1e21);
+print(1e-7);

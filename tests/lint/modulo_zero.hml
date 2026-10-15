@@ -1,0 +1,5 @@
+fn r(): i32 {
+    let n = 10;
+    return n % 0;
+}
+print(r());

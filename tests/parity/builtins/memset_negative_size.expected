@@ -1,0 +1,3 @@
+memset negative size caught: true
+memcpy negative size caught: true
+done

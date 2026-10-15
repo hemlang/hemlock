@@ -1,0 +1,55 @@
+// Test: Block-scoped locals in loops are released on break/continue
+// Exercises: break and continue paths releasing heap-allocated locals
+
+fn test_break_cleanup() {
+    let i = 0;
+    while (i < 50000) {
+        let obj = { x: i, name: "break_test" };
+        let arr = [i, i + 1, i + 2];
+        i = i + 1;
+        if (i > 0) {
+            break;
+        }
+    }
+}
+
+fn test_continue_cleanup() {
+    let i = 0;
+    while (i < 50000) {
+        let obj = { x: i, name: "continue_test" };
+        let arr = [i, i + 1, i + 2];
+        i = i + 1;
+        if (i <= 50000) {
+            continue;
+        }
+    }
+}
+
+fn test_for_continue_cleanup() {
+    for (let i = 0; i < 50000; i++) {
+        let obj = { val: i, tag: "loop" };
+        let arr = [1, 2, 3];
+        if (i >= 0) {
+            continue;
+        }
+    }
+}
+
+fn test_nested_continue_cleanup() {
+    let i = 0;
+    while (i < 50000) {
+        let outer = { x: i };
+        let inner = { y: i };
+        i = i + 1;
+        if (i <= 50000) {
+            continue;
+        }
+    }
+}
+
+// Run all tests
+test_break_cleanup();
+test_continue_cleanup();
+test_for_continue_cleanup();
+test_nested_continue_cleanup();
+print("ok");

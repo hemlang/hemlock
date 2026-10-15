@@ -1,0 +1,12 @@
+{
+  "id": "L4-M-01",
+  "level": "L4",
+  "difficulty": "medium",
+  "title": "Ring Buffer",
+  "topic": "buffer and memory",
+  "prompt": "Write a Hemlock program implementing a ring buffer (circular buffer) for i32 values using raw memory allocation.\n\nImplement:\n1. `ring_new(capacity)` - allocates memory for `capacity` i32s (4 bytes each), returns object {ptr, capacity, head: 0, tail: 0, count: 0}\n2. `ring_push(ring, value)` - writes value at tail position, advances tail (wrapping), returns true. If full, returns false.\n3. `ring_pop(ring)` - reads value at head position, advances head (wrapping), returns the value. If empty, returns null.\n4. `ring_free(ring)` - frees the underlying memory\n\nUse ptr_write_i32/ptr_deref_i32 with byte offsets (index * 4). Use modulo for wrapping.\n\nTest with capacity 4:\n- Push 10, 20, 30, 40 (all succeed) - print \"pushed: 10 20 30 40\"\n- Push 50 (full, fails) - print \"full: true\"\n- Pop twice - print \"popped: 10 20\"\n- Push 50, 60 (now succeeds) - print \"pushed: 50 60\"\n- Pop all remaining - print \"popped: 30 40 50 60\"\n- Pop from empty - print \"empty: true\"\n- Free the ring buffer",
+  "expected_output": "pushed: 10 20 30 40\nfull: true\npopped: 10 20\npushed: 50 60\npopped: 30 40 50 60\nempty: true\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["memory", "alloc", "free", "ptr_write", "ptr_deref", "data-structures"]
+}

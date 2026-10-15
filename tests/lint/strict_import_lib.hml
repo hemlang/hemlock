@@ -1,0 +1,4 @@
+// Helper module for neg_strict_import.hml. Has no .expected file, so the
+// lint runner skips it as a test case and only imports it.
+export let GREETING = "hello";
+export let COUNT = 42;

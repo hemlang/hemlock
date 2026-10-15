@@ -1,0 +1,6 @@
+// Freeing the same resource twice.
+fn main() {
+    let p = alloc(64);
+    free(p);
+    free(p);
+}

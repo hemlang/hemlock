@@ -25,40 +25,16 @@ import "libcrypto.so.3";
 // SECURE RANDOM BYTES
 // ============================================================================
 
-// OpenSSL random bytes generation
-// int RAND_bytes(unsigned char *buf, int num)
-extern fn RAND_bytes(buf: ptr, num: i32): i32;
-
 // Generate cryptographically secure random bytes
 // Returns a buffer containing random bytes
+// Backed by the __random_bytes builtin (BCryptGenRandom on Windows,
+// /dev/urandom elsewhere) - no OpenSSL needed
 export fn random_bytes(size) {
 	if (size <= 0) {
 		throw "random_bytes() requires positive size";
 	}
 
-	let buf = alloc(size);
-	let result = RAND_bytes(buf, size);
-
-	if (result != 1) {
-		free(buf);
-		throw "RAND_bytes() failed to generate random data";
-	}
-
-	// Convert ptr to buffer with proper metadata
-	let output = buffer(size);
-	let i = 0;
-	while (i < size) {
-		// Read byte using __read_u32 pattern (align to 4-byte boundary)
-		let word_ptr = buf + (i & ~3);
-		let word = __read_u32(word_ptr);
-		let byte_offset = i % 4;
-		let byte_val = word >> byte_offset * 8 & 255;
-		output[i] = byte_val;
-		i = i + 1;
-	}
-	free(buf);
-
-	return output;
+	return __random_bytes(size);
 }
 
 // ============================================================================
@@ -107,85 +83,49 @@ export fn generate_iv() {
 	return random_bytes(16);
 }
 
-// Helper: Convert buffer to raw pointer (allocates new memory, caller must free)
-fn buffer_to_ptr(buf) {
-	let len = buf.length;
-	let p = alloc(len);
+// Helper: Copy bytes to a raw pointer (allocates new memory, caller must free)
+// Works with both buffer and array-of-bytes sources.
+fn to_ptr(data, len: i32): ptr {
+	let alloc_len = len;
+	if (alloc_len == 0) {
+		alloc_len = 1;  // OpenSSL needs at least 1 byte buffer
+	}
+
+	let p = alloc(alloc_len);
 	let i = 0;
 	while (i < len) {
-		let byte_val = buf[i];
-		let dest = p + i;
-		memset(dest, byte_val, 1);
+		let byte_val: u8 = data[i];
+		memset(p + i, byte_val, 1);
 		i = i + 1;
 	}
-	return p;
-}
 
-// / Helper: Convert string to raw byte pointer (caller must free)
-fn string_to_bytes_ptr(s) {
-	let bytes = s.bytes();
-	let len = bytes.length;
-
-	// Handle empty string
 	if (len == 0) {
-		len = 1;  // OpenSSL needs at least 1 byte buffer
-	}
-
-	let p = alloc(len);
-	let i = 0;
-	while (i < bytes.length) {
-		let byte_val: u8 = bytes[i];
-		// Write byte to memory
-		let dest = p + i;
-		memset(dest, byte_val, 1);
-		i = i + 1;
-	}
-
-	// Pad with zero if we allocated extra
-	if (bytes.length == 0) {
 		memset(p, 0, 1);
 	}
 
 	return p;
 }
 
-// Helper: Convert string to byte buffer (for compatibility)
+// Helper: Convert buffer to raw pointer (allocates new memory, caller must free)
+fn buffer_to_ptr(buf) {
+	return to_ptr(buf, buf.length);
+}
+
+// Helper: Convert string to byte buffer
 fn string_to_bytes(s) {
 	let bytes = s.bytes();
 	let len = bytes.length;
-
-	// Handle empty string
-	if (len == 0) {
-		len = 1;  // OpenSSL needs at least 1 byte buffer
-	}
+	if (len == 0) { len = 1; }
 
 	let buf = buffer(len);
 	let i = 0;
 	while (i < bytes.length) {
-		let byte_val: u8 = bytes[i];
-		buf[i] = byte_val;
+		buf[i] = bytes[i];
 		i = i + 1;
 	}
-
-	// Pad with zero if we allocated extra
-	if (bytes.length == 0) {
-		buf[0] = 0;
-	}
+	if (bytes.length == 0) { buf[0] = 0; }
 
 	return buf;
-}
-
-// Helper: Convert buffer to string
-fn bytes_to_string(buf, len) {
-	let result = "";
-	let i = 0;
-	while (i < len) {
-		let b = buf[i];
-		let r: rune = b;
-		result = result + r;
-		i = i + 1;
-	}
-	return result;
 }
 
 // AES-256-CBC Encryption
@@ -764,7 +704,7 @@ export fn hex_to_buffer(hex) {
 		throw "hex_to_buffer() requires even-length hex string";
 	}
 
-	let len = divi(hex.length, 2);
+	let len = __divi(hex.length, 2);
 	let buf = buffer(len);
 	let i = 0;
 

@@ -1,0 +1,24 @@
+// Test that file_stat() throws a catchable exception for missing paths
+// (parity: interpreter throws, runtime previously exit(1)'d here)
+import { file_stat } from "@stdlib/fs";
+
+// Missing path -> catchable
+try {
+    file_stat("/tmp/__hemlock_definitely_does_not_exist_xyzzy__");
+    print("not thrown");
+} catch (e) {
+    print("threw");
+}
+
+// Wrong type -> catchable
+try {
+    file_stat(42);
+    print("not thrown");
+} catch (e) {
+    print("threw");
+}
+
+// Existing path -> object with size/mode
+let s = file_stat("/tmp");
+print("is_dir: " + s.is_dir);
+print("done");

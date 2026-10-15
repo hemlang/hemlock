@@ -25,20 +25,33 @@ Welcome to the Hemlock programming language documentation!
 - [Functions](language-guide/functions.md) - Functions, closures, and recursion
 - [Objects](language-guide/objects.md) - Object literals, methods, and duck typing
 - [Arrays](language-guide/arrays.md) - Dynamic arrays and operations
+- [Pattern Matching](language-guide/pattern-matching.md) - Match expressions and destructuring
 - [Error Handling](language-guide/error-handling.md) - try/catch/finally/throw/panic
 - [Modules](language-guide/modules.md) - Import/export system and package imports
 
 ### Advanced Topics
+- [WebAssembly (WASM)](getting-started/installation.md#webassembly-wasm-build) - Run Hemlock in the browser via Emscripten
 - [Async & Concurrency](advanced/async-concurrency.md) - True multi-threading with async/await
+- [The Memory Model](advanced/memory-model.md) - What crosses threads, happens-before edges, and the race-free fragment
+- [Atomic Operations](advanced/atomics.md) - Lock-free concurrent programming
 - [Bundling & Packaging](advanced/bundling-packaging.md) - Create bundles and standalone executables
 - [Foreign Function Interface](advanced/ffi.md) - Call C functions from shared libraries
 - [File I/O](advanced/file-io.md) - File operations and resource management
+- [Memory Ownership](advanced/memory-ownership.md) - Memory ownership semantics and lifetime management
+- [Borrow Checker](advanced/borrow-checker.md) - Rust-like ownership analysis (use-after-free, double-free, leaks)
+- [Static Lint](advanced/lint.md) - Catch unreachable code, dead branches, self-assignment, and more before shipping
+- [Static Checking](advanced/static-checking.md) - `hemlock check`: all static passes without execution, with `--json` diagnostics
 - [Signal Handling](advanced/signals.md) - POSIX signal handling
 - [Command-Line Arguments](advanced/command-line-args.md) - Access program arguments
 - [Command Execution](advanced/command-execution.md) - Execute shell commands
+- [Code Formatting](advanced/code-formatting.md) - Built-in code formatter
+- [Compiler Optimizations](advanced/compiler-optimizations.md) - Inlining, unboxing, and annotations
+- [Language Server (LSP)](advanced/lsp.md) - IDE integration for VS Code, Neovim, Vim, Emacs
 - [Profiling](advanced/profiling.md) - CPU time, memory tracking, and leak detection
 
 ### API Reference
+- [Standard Library Overview](reference/stdlib-overview.md) - All 54 stdlib modules by category
+- [Stdlib API Index](reference/stdlib-api-index.md) - Generated one-line-per-symbol index of every stdlib export
 - [Type System Reference](reference/type-system.md) - Complete type reference
 - [Operators Reference](reference/operators.md) - All operators and precedence
 - [Built-in Functions](reference/builtins.md) - Global functions and constants
@@ -50,11 +63,26 @@ Welcome to the Hemlock programming language documentation!
 
 ### Design & Philosophy
 - [Design Philosophy](design/philosophy.md) - Core principles and goals
+- [Memory-Safety Model](design/memory-safety-model.md) - The buffer invariants, the safe-fragment theorem, and the proof obligations at every `ptr` crossing
 - [Implementation Details](design/implementation.md) - How Hemlock works internally
+- [Signature Syntax](design/signature-syntax.md) - Type system extensions and design
+- [Gradual Typing Analysis](design/gradual-typing-analysis.md) - Does Hemlock satisfy the gradual guarantee? (negative result, with witnesses)
+
+### Project
+- [Migration Guide (v1.x → v2.0)](migration-2.0.md) - Upgrading from v1.x to v2.0.0
+- [Versioning](versioning.md) - Version strategy and compatibility guarantees
 
 ### Contributing
 - [Contributing Guidelines](contributing/guidelines.md) - How to contribute
-- [Testing Guide](contributing/testing.md) - Writing and running tests
+- [Testing Guide](contributing/testing.md) - Writing and running tests, including documentation checks
+- [Contract Testing Guide](contributing/contract-testing.md) - Pinning documented language/stdlib guarantees on both backends
+
+### Plans & Proposals
+- [HemlockScript WASM](plans/hemlockscript-wasm.md) - WebAssembly compilation plans
+- [Memory Leak Prevention Plan](plans/MEMORY_LEAK_PREVENTION_PLAN.md) - Memory leak detection and prevention strategy
+- [Compiler Helper Annotations](proposals/compiler-helper-annotations.md) - Compiler optimization annotations proposal
+- [Vector DB Stdlib](proposals/vector-db-stdlib.md) - Vector database stdlib module proposal
+- [Annotations Implementation Summary](annotations-implementation-summary.md) - Annotations implementation overview
 
 ## Quick Reference
 
@@ -112,7 +140,7 @@ We give you the tools to be safe (`buffer`, type annotations, bounds checking) b
 - **Package Manager**: [hpm](https://github.com/hemlang/hpm) - Hemlock Package Manager
 - **Issues**: Report bugs and request features
 - **Examples**: See the `examples/` directory
-- **Tests**: See the `tests/` directory for usage examples
+- **Tests**: See the `tests/` directory for usage examples and run `python3 tests/check_docs.py` for documentation consistency checks
 
 ## License
 

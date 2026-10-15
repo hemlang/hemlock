@@ -1,0 +1,26 @@
+=== Counter closure ===
+1
+2
+3
+2
+2
+=== Accumulator ===
+5
+15
+12
+=== Shared state ===
+0
+42
+100
+=== Loop capture ===
+0
+1
+2
+3
+4
+=== Nested closure ===
+1
+2
+=== String closure ===
+hello, world, !
+done

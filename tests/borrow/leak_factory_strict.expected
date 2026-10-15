@@ -1,0 +1,1 @@
+leak_factory_strict.hml:7: warning: 'b' (buffer) acquired here is never freed before it goes out of scope (possible leak)

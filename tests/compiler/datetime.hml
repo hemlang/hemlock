@@ -1,4 +1,6 @@
 // Test datetime builtins
+import { now } from "@stdlib/time";
+import { localtime, gmtime, mktime, strftime } from "@stdlib/datetime";
 
 // Get current timestamp
 let ts = now();

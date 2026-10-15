@@ -129,6 +129,7 @@ typedef enum {
     // New keywords (added at end to preserve enum values)
     TOK_TYPE,          // 'type' keyword for type aliases
     TOK_MATCH,         // 'match' keyword for pattern matching
+    TOK_QUESTION_LBRACKET,  // ?[  -- safe indexing (e.g. obj?["key"])
 
     // Special
     TOK_EOF,
@@ -145,8 +146,10 @@ typedef struct {
 
     // For numbers
     int64_t int_value;  // Changed to int64_t to support 64-bit literals
+    uint64_t uint_value; // For unsigned 64-bit literals (hex/bin/oct > INT64_MAX)
     double float_value;
     int is_float;
+    int is_u64;         // Flag: 1 = unsigned 64-bit literal
 
     // For strings
     char *string_value; // Must be freed

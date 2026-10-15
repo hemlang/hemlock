@@ -1,0 +1,7 @@
+// Strict mode: reassigning the only binding that still owns a live resource
+// drops the last reference — the old allocation can never be freed.
+fn main() {
+    let p = alloc(64);
+    p = alloc(128);
+    free(p);
+}

@@ -2,9 +2,72 @@
  * Hemlock Runtime Library - Crypto and Compression Operations
  *
  * Cryptographic functions (SHA, MD5, ECDSA) and compression (zlib, gzip).
+ *
+ * WASM: This entire file is excluded when building for Emscripten.
+ * Stub implementations are provided in wasm_shim.c.
  */
 
 #include "builtins_internal.h"
+
+// ========== CSPRNG (available on every build — not OpenSSL-gated) ==========
+
+#ifdef _WIN32
+#include "hemlock_compat.h"
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
+// __random_bytes(n: i32) -> buffer
+// Cryptographically secure random bytes: BCryptGenRandom on Windows,
+// /dev/urandom elsewhere (Emscripten emulates it via getRandomValues).
+HmlValue hml_random_bytes(HmlValue size_val) {
+    int64_t size;
+    if (size_val.type == HML_VAL_I32) {
+        size = size_val.as.as_i32;
+    } else if (size_val.type == HML_VAL_I64) {
+        size = size_val.as.as_i64;
+    } else {
+        hml_runtime_error("__random_bytes() size must be an integer");
+    }
+    if (size <= 0 || size > INT32_MAX) {
+        hml_runtime_error("__random_bytes() size must be positive");
+    }
+
+    HmlValue result = hml_val_buffer((int32_t)size);
+    HmlBuffer *buf = result.as.as_buffer;
+
+#ifdef _WIN32
+    if (hml_win32_random(buf->data, (size_t)size) != 0) {
+        hml_runtime_error("__random_bytes() failed to gather entropy");
+    }
+#else
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd < 0) {
+        hml_runtime_error("__random_bytes() failed to open /dev/urandom");
+    }
+    size_t total = 0;
+    while (total < (size_t)size) {
+        ssize_t n = read(fd, (char *)buf->data + total, (size_t)size - total);
+        if (n <= 0) {
+            close(fd);
+            hml_runtime_error("__random_bytes() failed to gather entropy");
+        }
+        total += (size_t)n;
+    }
+    close(fd);
+#endif
+
+    return result;
+}
+
+HmlValue hml_builtin_random_bytes(HmlClosureEnv *env, HmlValue size_val) {
+    (void)env;
+    return hml_random_bytes(size_val);
+}
+
+#ifndef __EMSCRIPTEN__
+
 #include <stdatomic.h>
 
 // ========== COMPRESSION OPERATIONS ==========
@@ -57,13 +120,28 @@ HmlValue hml_zlib_compress(HmlValue data, HmlValue level_val) {
     return buf;
 }
 
+// Read a decompression size limit out of a Hemlock value.
+//
+// These builtins document their limit as i64, but `zlib_decompress(buf, 1000)`
+// passes an i32 — and reading .as.as_i64 out of a value tagged i32 picks up
+// whatever the union's high half happened to hold, which is how a 1000-byte
+// limit turned into a multi-exabyte malloc ("gzip_decompress() memory
+// allocation failed"). hml_to_i64 goes through the type tag.
+static size_t hml_decompress_max_size(HmlValue val, const char *fn) {
+    int64_t max_size = hml_to_i64(val);
+    if (max_size <= 0) {
+        hml_runtime_error("%s() max_size must be positive, got %lld", fn, (long long)max_size);
+    }
+    return (size_t)max_size;
+}
+
 // zlib_decompress(data: buffer, max_size: i64) -> string
 HmlValue hml_zlib_decompress(HmlValue data, HmlValue max_size_val) {
     if (data.type != HML_VAL_BUFFER || !data.as.as_buffer) {
         hml_runtime_error("zlib_decompress() first argument must be buffer");
     }
 
-    size_t max_size = (size_t)max_size_val.as.as_i64;
+    size_t max_size = hml_decompress_max_size(max_size_val, "zlib_decompress");
     HmlBuffer *buf = data.as.as_buffer;
 
     // Handle empty input
@@ -173,7 +251,7 @@ HmlValue hml_gzip_decompress(HmlValue data, HmlValue max_size_val) {
         hml_runtime_error("gzip_decompress() first argument must be buffer");
     }
 
-    size_t max_size = (size_t)max_size_val.as.as_i64;
+    size_t max_size = hml_decompress_max_size(max_size_val, "gzip_decompress");
     HmlBuffer *buf = data.as.as_buffer;
 
     // Handle empty input
@@ -238,7 +316,14 @@ HmlValue hml_gzip_decompress(HmlValue data, HmlValue max_size_val) {
 
 // zlib_compress_bound(source_len: i64) -> i64
 HmlValue hml_zlib_compress_bound(HmlValue source_len_val) {
-    uLong source_len = (uLong)source_len_val.as.as_i64;
+    // hml_to_i64, not .as.as_i64: callers pass an i32 literal (see
+    // hml_decompress_max_size)
+    int64_t len = hml_to_i64(source_len_val);
+    if (len < 0) {
+        hml_runtime_error("zlib_compress_bound() source_len must not be negative, got %lld",
+                          (long long)len);
+    }
+    uLong source_len = (uLong)len;
     uLong bound = compressBound(source_len);
     return hml_val_i64((int64_t)bound);
 }
@@ -380,7 +465,9 @@ HmlValue hml_builtin_adler32(HmlClosureEnv *env, HmlValue data) {
 
 #endif /* HML_HAVE_ZLIB */
 
-// ========== CRYPTOGRAPHIC HASH FUNCTIONS (OpenSSL) ==========
+// ========== CRYPTOGRAPHIC HASH FUNCTIONS (OpenSSL / Windows CNG) ==========
+
+#if !defined(HEMLOCK_NO_OPENSSL) || defined(_WIN32)
 
 // Helper: Convert bytes to hexadecimal string
 static HmlValue bytes_to_hex_string(const unsigned char *bytes, size_t len) {
@@ -397,6 +484,29 @@ static HmlValue bytes_to_hex_string(const unsigned char *bytes, size_t len) {
     HmlValue result = hml_val_string(hex);
     free(hex);
     return result;
+}
+
+#endif /* !HEMLOCK_NO_OPENSSL || _WIN32 */
+
+#ifndef HEMLOCK_NO_OPENSSL
+
+// SHA-1 hash - returns hex string
+// WARNING: SHA-1 is cryptographically weak, use only for legacy compatibility
+HmlValue hml_hash_sha1(HmlValue input) {
+    if (input.type != HML_VAL_STRING) {
+        hml_runtime_error("sha1() requires string argument");
+    }
+
+    const char *data = input.as.as_string->data;
+    size_t len = input.as.as_string->length;
+
+    unsigned char hash[SHA_DIGEST_LENGTH];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    SHA1((const unsigned char *)data, len, hash);
+#pragma GCC diagnostic pop
+
+    return bytes_to_hex_string(hash, SHA_DIGEST_LENGTH);
 }
 
 // SHA-256 hash - returns hex string
@@ -447,7 +557,76 @@ HmlValue hml_hash_md5(HmlValue input) {
     return bytes_to_hex_string(hash, MD5_DIGEST_LENGTH);
 }
 
+#elif defined(_WIN32)
+
+/* Windows without OpenSSL: hashes are backed by Windows CNG (bcrypt.dll)
+   via hml_win32_hash() in src/shared/platform_win32.c (compiled into the
+   runtime library). ECDSA stays stubbed below. */
+
+#include "hemlock_compat.h"
+
+static HmlValue cng_hash_value(const char *name, const char *alg, HmlValue input) {
+    if (input.type != HML_VAL_STRING) {
+        hml_runtime_error("%s() requires string argument", name);
+    }
+
+    HmlString *str = input.as.as_string;
+    unsigned char hash[HML_WIN32_DIGEST_MAX];
+    int digest_len = hml_win32_hash(alg, str->data, str->length, hash, sizeof(hash));
+    if (digest_len < 0) {
+        hml_runtime_error("%s() hashing failed", name);
+    }
+
+    return bytes_to_hex_string(hash, (size_t)digest_len);
+}
+
+HmlValue hml_hash_sha1(HmlValue input) {
+    return cng_hash_value("sha1", "sha1", input);
+}
+
+HmlValue hml_hash_sha256(HmlValue input) {
+    return cng_hash_value("sha256", "sha256", input);
+}
+
+HmlValue hml_hash_sha512(HmlValue input) {
+    return cng_hash_value("sha512", "sha512", input);
+}
+
+HmlValue hml_hash_md5(HmlValue input) {
+    return cng_hash_value("md5", "md5", input);
+}
+
+#else /* HEMLOCK_NO_OPENSSL && !_WIN32 */
+
+// Stub implementations when OpenSSL is not available
+HmlValue hml_hash_sha1(HmlValue input) {
+    (void)input;
+    hml_runtime_error("sha1() is not available in this build (no OpenSSL)");
+}
+
+HmlValue hml_hash_sha256(HmlValue input) {
+    (void)input;
+    hml_runtime_error("sha256() is not available in this build (no OpenSSL)");
+}
+
+HmlValue hml_hash_sha512(HmlValue input) {
+    (void)input;
+    hml_runtime_error("sha512() is not available in this build (no OpenSSL)");
+}
+
+HmlValue hml_hash_md5(HmlValue input) {
+    (void)input;
+    hml_runtime_error("md5() is not available in this build (no OpenSSL)");
+}
+
+#endif /* HEMLOCK_NO_OPENSSL */
+
 // Builtin wrappers for function-as-value usage
+HmlValue hml_builtin_hash_sha1(HmlClosureEnv *env, HmlValue input) {
+    (void)env;
+    return hml_hash_sha1(input);
+}
+
 HmlValue hml_builtin_hash_sha256(HmlClosureEnv *env, HmlValue input) {
     (void)env;
     return hml_hash_sha256(input);
@@ -465,6 +644,8 @@ HmlValue hml_builtin_hash_md5(HmlClosureEnv *env, HmlValue input) {
 
 // ========== ECDSA OPERATIONS ==========
 
+#ifndef HEMLOCK_NO_OPENSSL
+
 // Helper: Create an object with keypair fields
 static HmlValue create_keypair_object(void *pkey) {
     HmlObject *obj = malloc(sizeof(HmlObject));
@@ -476,6 +657,7 @@ static HmlValue create_keypair_object(void *pkey) {
     atomic_store(&obj->freed, 0);
     obj->hash_table = NULL;  // Lazy initialization
     obj->hash_capacity = 0;
+    obj->is_pooled = 0;
 
     obj->fields[0].name = strdup("private_key");
     obj->fields[0].value = hml_val_ptr(pkey);
@@ -649,6 +831,31 @@ HmlValue hml_ecdsa_verify(HmlValue data_val, HmlValue sig_val, HmlValue keypair)
     return hml_val_bool(result == 1);
 }
 
+#else /* HEMLOCK_NO_OPENSSL */
+
+// Stub implementations when OpenSSL is not available
+HmlValue hml_ecdsa_generate_key(HmlValue curve_arg) {
+    (void)curve_arg;
+    hml_runtime_error("__ecdsa_generate_key() is not available in this build (no OpenSSL)");
+}
+
+HmlValue hml_ecdsa_free_key(HmlValue keypair) {
+    (void)keypair;
+    hml_runtime_error("__ecdsa_free_key() is not available in this build (no OpenSSL)");
+}
+
+HmlValue hml_ecdsa_sign(HmlValue data_val, HmlValue keypair) {
+    (void)data_val; (void)keypair;
+    hml_runtime_error("__ecdsa_sign() is not available in this build (no OpenSSL)");
+}
+
+HmlValue hml_ecdsa_verify(HmlValue data_val, HmlValue sig_val, HmlValue keypair) {
+    (void)data_val; (void)sig_val; (void)keypair;
+    hml_runtime_error("__ecdsa_verify() is not available in this build (no OpenSSL)");
+}
+
+#endif /* HEMLOCK_NO_OPENSSL */
+
 // Builtin wrappers for function-as-value usage
 HmlValue hml_builtin_ecdsa_generate_key(HmlClosureEnv *env, HmlValue curve) {
     (void)env;
@@ -669,3 +876,5 @@ HmlValue hml_builtin_ecdsa_verify(HmlClosureEnv *env, HmlValue data, HmlValue si
     (void)env;
     return hml_ecdsa_verify(data, sig, keypair);
 }
+
+#endif // !__EMSCRIPTEN__

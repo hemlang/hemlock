@@ -1,0 +1,67 @@
+// Parity test for @stdlib/bytes module
+import { bswap16, bswap32, bswap64, htons, htonl, htonll, ntohs, ntohl, ntohll, is_little_endian, read_u16_be, read_u16_le, read_u32_be, read_u32_le, write_u16_be, write_u16_le, write_u32_be, write_u32_le } from "@stdlib/bytes";
+
+// Test byte swap functions
+print("=== bswap tests ===");
+print(bswap16(0x1234));
+print(bswap32(0x12345678));
+print(bswap64(0x0102030405060708));
+
+// Test host-to-network and network-to-host roundtrip
+print("=== hton/ntoh roundtrip ===");
+print(ntohs(htons(0x1234)) == 0x1234);
+print(ntohl(htonl(0x12345678)) == 0x12345678);
+print(ntohll(htonll(0x0102030405060708)) == 0x0102030405060708);
+
+// Test that hton produces big-endian (network) byte order
+// On little-endian systems, htons(0x0102) should swap to 0x0201
+// On big-endian systems, htons(0x0102) should stay as 0x0102
+// Either way, ntoh(hton(x)) == x
+print("roundtrip 16: " + (ntohs(htons(80)) == 80));
+print("roundtrip 32: " + (ntohl(htonl(80)) == 80));
+print("roundtrip 64: " + (ntohll(htonll(80)) == 80));
+
+// Test endianness query
+print("=== endianness ===");
+let le = is_little_endian();
+print(typeof(le));
+
+// Test buffer read/write with explicit endianness
+print("=== buffer read/write ===");
+let buf = alloc(16);
+memset(buf, 0, 16);
+
+// Write big-endian u16
+write_u16_be(buf, 0, 0x0102);
+print(read_u16_be(buf, 0));
+
+// Write little-endian u16
+write_u16_le(buf, 2, 0x0304);
+print(read_u16_le(buf, 2));
+
+// Write big-endian u32
+write_u32_be(buf, 4, 0x05060708);
+print(read_u32_be(buf, 4));
+
+// Write little-endian u32
+write_u32_le(buf, 8, 0x090A0B0C);
+print(read_u32_le(buf, 8));
+
+// Cross-endian read: write BE, read LE (should be byte-swapped)
+write_u16_be(buf, 0, 0xAABB);
+let be_val = read_u16_be(buf, 0);
+let le_val = read_u16_le(buf, 0);
+print(be_val);
+print(le_val);
+print(be_val == bswap16(le_val));
+
+// Cross-endian read: write BE u32, read LE u32
+write_u32_be(buf, 0, 0xDEADBEEF);
+let be32 = read_u32_be(buf, 0);
+let le32 = read_u32_le(buf, 0);
+print(be32);
+print(le32);
+print(be32 == bswap32(le32));
+
+free(buf);
+print("done");

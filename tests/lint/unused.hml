@@ -1,0 +1,7 @@
+fn f(): i32 {
+    let used = 1;
+    let unused = 2;
+    let _ignored = 3;
+    return used;
+}
+print(f());

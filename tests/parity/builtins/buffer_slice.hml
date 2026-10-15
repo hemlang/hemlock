@@ -1,0 +1,54 @@
+// Test buffer.slice() - zero-copy view
+
+// Create and populate a buffer
+let buf = buffer(10);
+for (let i = 0; i < 10; i++) {
+    buf[i] = i + 65;  // A=65, B=66, ...
+}
+
+// Basic slice
+let view = buf.slice(2, 5);
+print(view.length);    // 3
+print(view[0]);        // 67 (C)
+print(view[1]);        // 68 (D)
+print(view[2]);        // 69 (E)
+
+// Zero-copy: modifying original should be visible through view
+buf[3] = 90;           // Change D(68) to Z(90)
+print(view[1]);        // 90 (was 68, now 90 - proves zero-copy)
+
+// Single-arg slice (start to end)
+let tail = buf.slice(7);
+print(tail.length);    // 3
+print(tail[0]);        // 72 (H)
+print(tail[1]);        // 73 (I)
+print(tail[2]);        // 74 (J)
+
+// Empty slice
+let empty = buf.slice(5, 5);
+print(empty.length);   // 0
+
+// Clamping: out-of-bounds end
+let clamped = buf.slice(8, 100);
+print(clamped.length); // 2
+
+// Clamping: negative start
+let from_start = buf.slice(-5, 3);
+print(from_start.length); // 3
+print(from_start[0]);     // 65 (A)
+
+// Slice of slice (chained views)
+let inner = view.slice(1, 3);
+print(inner.length);   // 2
+print(inner[0]);       // 90 (Z - modified earlier)
+print(inner[1]);       // 69 (E)
+
+// Clean up views before freeing parent buffers
+view = null;
+tail = null;
+empty = null;
+clamped = null;
+from_start = null;
+inner = null;
+free(buf);
+print("done");

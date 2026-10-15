@@ -1,0 +1,12 @@
+{
+  "id": "L2-M-01",
+  "level": "L2",
+  "difficulty": "medium",
+  "title": "JSON Data Processor",
+  "topic": "json stdlib",
+  "prompt": "Write a Hemlock program using `@stdlib/json` to process JSON data. Import `parse` and `stringify` from @stdlib/json.\n\n1. Parse this JSON string: '[{\"name\":\"Alice\",\"score\":95},{\"name\":\"Bob\",\"score\":72},{\"name\":\"Charlie\",\"score\":88},{\"name\":\"Diana\",\"score\":64},{\"name\":\"Eve\",\"score\":91}]'\n2. Filter to only entries with score >= 80\n3. Sort the filtered results by score descending\n4. For each result, print \"NAME: SCORE\"\n5. Print the count: \"passing: N\"",
+  "expected_output": "Alice: 95\nEve: 91\nCharlie: 88\npassing: 3\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["stdlib", "json", "arrays", "sorting", "filtering"]
+}

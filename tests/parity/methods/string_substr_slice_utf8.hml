@@ -1,0 +1,29 @@
+// substr/slice operate on codepoint positions in both backends.
+// Regression: the compiled runtime used byte offsets, so any multibyte
+// string produced invalid UTF-8 fragments and diverged from the interpreter.
+let s = "héllo wörld";
+print(s.substr(2, 3));
+print(s.substr(0, 5));
+print(s.slice(1, 4));
+print(s.slice(6, 11));
+print(s.slice(7));
+
+// One-argument substr(start): everything to the end of the string
+print(s.substr(6));
+print("hello".substr(1));
+print("hello".substr(0));
+
+// Clamping
+print(s.substr(0, 100));
+print(s.substr(50));
+print("x" + s.substr(11) + "x");
+print("x" + s.slice(3, 2) + "x");
+print(s.substr(-2, 3));
+
+// Multibyte-heavy string
+let emoji = "a🚀b🌍c";
+print(emoji.substr(1, 1));
+print(emoji.substr(3, 2));
+print(emoji.slice(2, 4));
+print(emoji.substr(2));
+print(emoji.length);

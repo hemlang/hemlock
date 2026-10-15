@@ -1,0 +1,68 @@
+// Stress test: mixed closure patterns
+// Tests closures with varying param counts (0, 1, 2, many),
+// typed params, default params, rest params, and bound methods
+// to ensure AST-borrowed params work for all function signatures.
+
+// 0-param closure
+fn make_counter() {
+    let count = 0;
+    return {
+        inc: fn() { count = count + 1; },
+        get: fn() { return count; }
+    };
+}
+
+let c = make_counter();
+for (let i = 0; i < 50; i++) {
+    c.inc();
+}
+print(c.get());  // 50
+
+// Multi-param closures with types
+fn make_calc() {
+    return {
+        add: fn(a: i32, b: i32) { return a + b; },
+        sub: fn(a: i32, b: i32) { return a - b; },
+        mul: fn(a: i32, b: i32) { return a * b; }
+    };
+}
+
+let calcs = [];
+for (let i = 0; i < 100; i++) {
+    calcs.push(make_calc());
+}
+print(calcs[50].add(10, 20));  // 30
+print(calcs[99].mul(7, 8));    // 56
+
+// Closures with default params
+fn make_greeter(prefix) {
+    return fn(name, greeting?: "Hello") {
+        return greeting + " " + prefix + name;
+    };
+}
+
+let greeters = [];
+for (let i = 0; i < 100; i++) {
+    greeters.push(make_greeter("user_" + i + "_"));
+}
+print(greeters[0]("Alice"));                // Hello user_0_Alice
+print(greeters[99]("Bob", "Hi"));           // Hi user_99_Bob
+
+// Bound methods (shallow function copies sharing AST params)
+fn make_obj(val) {
+    return {
+        data: val,
+        get_data: fn() { return self.data; },
+        set_data: fn(v) { self.data = v; }
+    };
+}
+
+let objects = [];
+for (let i = 0; i < 200; i++) {
+    let o = make_obj(i);
+    o.set_data(i * 2);
+    objects.push(o.get_data());
+}
+print(objects[0]);    // 0
+print(objects[100]);  // 200
+print(objects[199]);  // 398

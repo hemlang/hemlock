@@ -1,0 +1,61 @@
+// Test @stdlib/decimal to_fixed function
+import { to_fixed } from "@stdlib/decimal";
+
+print("Testing to_fixed...");
+
+// Basic usage
+print(to_fixed(3.14159, 2) == "3.14");
+print(to_fixed(3.14159, 4) == "3.1416");
+print(to_fixed(3.14159, 0) == "3");
+
+// Zero decimal places (default)
+print(to_fixed(42) == "42");
+print(to_fixed(42.7) == "43");
+
+// Trailing zeros
+print(to_fixed(3, 4) == "3.0000");
+print(to_fixed(1.5, 4) == "1.5000");
+print(to_fixed(0, 3) == "0.000");
+
+// Rounding up
+print(to_fixed(3.145, 2) == "3.15");
+print(to_fixed(9.999, 2) == "10.00");
+print(to_fixed(0.999, 0) == "1");
+
+// Rounding down
+print(to_fixed(3.141, 2) == "3.14");
+
+// Negative numbers
+print(to_fixed(-1.5, 0) == "-2");
+print(to_fixed(-3.14159, 2) == "-3.14");
+print(to_fixed(-0.5, 1) == "-0.5");
+
+// Small decimals
+print(to_fixed(0.1, 1) == "0.1");
+print(to_fixed(0.01, 2) == "0.01");
+
+// Large numbers
+print(to_fixed(100.0, 0) == "100");
+print(to_fixed(999.999, 1) == "1000.0");
+
+// Edge: places = 1
+print(to_fixed(0, 1) == "0.0");
+
+// Error handling
+let caught = false;
+try {
+    to_fixed(1.0, -1);
+} catch (e) {
+    caught = true;
+}
+print(caught == true);
+
+caught = false;
+try {
+    to_fixed(1.0, 21);
+} catch (e) {
+    caught = true;
+}
+print(caught == true);
+
+print("All to_fixed tests passed!");

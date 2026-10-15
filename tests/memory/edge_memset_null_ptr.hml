@@ -1,0 +1,14 @@
+// Test: memset with null throws error instead of segfaulting
+
+let caught = false;
+try {
+    memset(null, 0, 10);
+} catch (e) {
+    caught = true;
+}
+
+if (caught) {
+    print("PASS: memset null pointer caught");
+} else {
+    print("FAIL: memset null pointer not caught");
+}

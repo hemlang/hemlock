@@ -1,0 +1,43 @@
+// Stress test: pooled objects that grow beyond pool field capacity
+// Pool pre-allocates 8 FieldEntry slots. This test creates objects
+// that start small (pooled) then grow beyond the pool's capacity,
+// triggering the pool-safe realloc path (object_grow_fields).
+
+fn make_record() {
+    let obj = {};
+    // Add 20 fields dynamically - will outgrow pool's 8-field capacity
+    for (let i = 0; i < 20; i++) {
+        let key = "field_" + i;
+        obj[key] = i * i;
+    }
+    return obj;
+}
+
+// Create many objects that grow beyond pool capacity
+let results = [];
+for (let i = 0; i < 100; i++) {
+    let r = make_record();
+    results.push(r["field_5"]);   // 25
+    results.push(r["field_19"]);  // 361
+}
+
+print(results.length);    // 200
+print(results[0]);        // 25
+print(results[1]);        // 361
+print(results[198]);      // 25
+print(results[199]);      // 361
+
+// Objects with exactly pool capacity (8 fields) - boundary test
+let boundary = {
+    a: 1, b: 2, c: 3, d: 4,
+    e: 5, f: 6, g: 7, h: 8
+};
+print(boundary.a + boundary.h);  // 9
+
+// Object with 9 fields - one past pool capacity, triggers growth
+let over = {
+    a: 1, b: 2, c: 3, d: 4,
+    e: 5, f: 6, g: 7, h: 8,
+    i: 9
+};
+print(over.i);  // 9

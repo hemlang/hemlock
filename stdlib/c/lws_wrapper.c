@@ -18,6 +18,62 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#define HEMLOCK_MACOS_OPENSSL_CERT_FILE "/opt/homebrew/etc/openssl@3/cert.pem"
+
+static void hemlock_lws_configure_macos_ca_file(void) {
+#ifdef __APPLE__
+    const char *cert_file = getenv("SSL_CERT_FILE");
+    if ((!cert_file || cert_file[0] == '\0') &&
+        access(HEMLOCK_MACOS_OPENSSL_CERT_FILE, R_OK) == 0) {
+        setenv("SSL_CERT_FILE", HEMLOCK_MACOS_OPENSSL_CERT_FILE, 0);
+    }
+#endif
+}
+
+static const char *hemlock_lws_context_error_message(void) {
+#ifdef __APPLE__
+    return "Failed to create libwebsockets context; on macOS, install openssl@3 with Homebrew or set SSL_CERT_FILE=/opt/homebrew/etc/openssl@3/cert.pem";
+#else
+    return "Failed to create libwebsockets context";
+#endif
+}
+
+// Forward declaration
+static int http_callback(struct lws *wsi, enum lws_callback_reasons reason,
+                         void *user, void *in, size_t len);
+
+static const struct lws_protocols http_client_protocols[] = {
+    { "http", http_callback, 0, 4096, 0, NULL, 0 },
+    { NULL, NULL, 0, 0, 0, NULL, 0 }
+};
+
+// Persistent SSL context — never destroyed to avoid OPENSSL_cleanup() on lws 4.5+
+static struct lws_context *ssl_http_ctx = NULL;
+
+static struct lws_context* get_http_client_context(int needs_ssl) {
+    struct lws_context_creation_info info;
+    memset(&info, 0, sizeof(info));
+    info.port = CONTEXT_PORT_NO_LISTEN;
+    info.protocols = http_client_protocols;
+
+    if (needs_ssl) {
+        if (!ssl_http_ctx) {
+            info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+            ssl_http_ctx = (hemlock_lws_configure_macos_ca_file(), lws_create_context(&info));
+            if (!ssl_http_ctx) {
+                fprintf(stderr, "%s\n", hemlock_lws_context_error_message());
+            }
+        }
+        return ssl_http_ctx;
+    }
+
+    struct lws_context *context = (hemlock_lws_configure_macos_ca_file(), lws_create_context(&info));
+    if (!context) {
+        fprintf(stderr, "%s\n", hemlock_lws_context_error_message());
+    }
+    return context;
+}
+
 // ========== HTTP SUPPORT ==========
 
 typedef struct {
@@ -160,7 +216,6 @@ static int parse_url(const char *url, char *host, int *port, char *path, int *ss
 
 // HTTP GET request
 http_response_t* lws_http_get(const char *url) {
-    struct lws_context_creation_info info;
     struct lws_client_connect_info connect_info;
     struct lws_context *context;
     http_response_t *resp;
@@ -169,12 +224,10 @@ http_response_t* lws_http_get(const char *url) {
     char path[512];
     int port, ssl;
 
-    // Parse URL
     if (parse_url(url, host, &port, path, &ssl) < 0) {
         return NULL;
     }
 
-    // Allocate response structure
     resp = calloc(1, sizeof(http_response_t));
     if (!resp) return NULL;
 
@@ -186,25 +239,13 @@ http_response_t* lws_http_get(const char *url) {
     }
     resp->body[0] = '\0';
 
-    // Create context
-    memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-    info.port = CONTEXT_PORT_NO_LISTEN;
-
-    static const struct lws_protocols protocols[] = {
-        { "http", http_callback, 0, 4096, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
-
-    context = lws_create_context(&info);
+    context = get_http_client_context(ssl);
     if (!context) {
         free(resp->body);
         free(resp);
         return NULL;
     }
 
-    // Connect
     memset(&connect_info, 0, sizeof(connect_info));
     connect_info.context = context;
     connect_info.address = host;
@@ -213,31 +254,24 @@ http_response_t* lws_http_get(const char *url) {
     connect_info.host = host;
     connect_info.origin = host;
     connect_info.method = "GET";
-    connect_info.protocol = protocols[0].name;
+    connect_info.protocol = http_client_protocols[0].name;
     connect_info.userdata = resp;
     connect_info.pwsi = &wsi;
 
     if (ssl) {
-        // SECURITY: Enable SSL with proper certificate validation
-        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
-        // to prevent MITM attacks
         connect_info.ssl_connection = LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
         free(resp->body);
         free(resp);
         return NULL;
     }
 
-    // Event loop (timeout after 30 seconds)
-    int timeout = 3000;  // 30 seconds (100 * 10ms)
+    int timeout = 3000;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
         lws_service(context, 10);
     }
-
-    lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
         free(resp->body);
@@ -250,7 +284,6 @@ http_response_t* lws_http_get(const char *url) {
 
 // HTTP POST request
 http_response_t* lws_http_post(const char *url, const char *body, const char *content_type) {
-    struct lws_context_creation_info info;
     struct lws_client_connect_info connect_info;
     struct lws_context *context;
     http_response_t *resp;
@@ -259,12 +292,10 @@ http_response_t* lws_http_post(const char *url, const char *body, const char *co
     char path[512];
     int port, ssl;
 
-    // Parse URL
     if (parse_url(url, host, &port, path, &ssl) < 0) {
         return NULL;
     }
 
-    // Allocate response structure
     resp = calloc(1, sizeof(http_response_t));
     if (!resp) return NULL;
 
@@ -276,25 +307,13 @@ http_response_t* lws_http_post(const char *url, const char *body, const char *co
     }
     resp->body[0] = '\0';
 
-    // Create context
-    memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-    info.port = CONTEXT_PORT_NO_LISTEN;
-
-    static const struct lws_protocols protocols[] = {
-        { "http", http_callback, 0, 4096, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
-
-    context = lws_create_context(&info);
+    context = get_http_client_context(ssl);
     if (!context) {
         free(resp->body);
         free(resp);
         return NULL;
     }
 
-    // Build POST headers
     char headers[1024];
     snprintf(headers, sizeof(headers),
              "POST %s HTTP/1.1\r\n"
@@ -307,7 +326,6 @@ http_response_t* lws_http_post(const char *url, const char *body, const char *co
              body ? strlen(body) : 0,
              body ? body : "");
 
-    // Connect
     memset(&connect_info, 0, sizeof(connect_info));
     connect_info.context = context;
     connect_info.address = host;
@@ -316,31 +334,24 @@ http_response_t* lws_http_post(const char *url, const char *body, const char *co
     connect_info.host = host;
     connect_info.origin = host;
     connect_info.method = "POST";
-    connect_info.protocol = protocols[0].name;
+    connect_info.protocol = http_client_protocols[0].name;
     connect_info.userdata = resp;
     connect_info.pwsi = &wsi;
 
     if (ssl) {
-        // SECURITY: Enable SSL with proper certificate validation
-        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
-        // to prevent MITM attacks
         connect_info.ssl_connection = LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
         free(resp->body);
         free(resp);
         return NULL;
     }
 
-    // Event loop (timeout after 30 seconds)
     int timeout = 3000;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
         lws_service(context, 10);
     }
-
-    lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
         free(resp->body);
@@ -353,7 +364,6 @@ http_response_t* lws_http_post(const char *url, const char *body, const char *co
 
 // Generic HTTP request with method parameter (for PUT, DELETE, PATCH, etc.)
 http_response_t* lws_http_request(const char *method, const char *url, const char *body, const char *content_type) {
-    struct lws_context_creation_info info;
     struct lws_client_connect_info connect_info;
     struct lws_context *context;
     http_response_t *resp;
@@ -362,12 +372,10 @@ http_response_t* lws_http_request(const char *method, const char *url, const cha
     char path[512];
     int port, ssl;
 
-    // Parse URL
     if (parse_url(url, host, &port, path, &ssl) < 0) {
         return NULL;
     }
 
-    // Allocate response structure
     resp = calloc(1, sizeof(http_response_t));
     if (!resp) return NULL;
 
@@ -379,25 +387,13 @@ http_response_t* lws_http_request(const char *method, const char *url, const cha
     }
     resp->body[0] = '\0';
 
-    // Create context
-    memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-    info.port = CONTEXT_PORT_NO_LISTEN;
-
-    static const struct lws_protocols protocols[] = {
-        { "http", http_callback, 0, 4096, 0, NULL, 0 },
-        { NULL, NULL, 0, 0, 0, NULL, 0 }
-    };
-    info.protocols = protocols;
-
-    context = lws_create_context(&info);
+    context = get_http_client_context(ssl);
     if (!context) {
         free(resp->body);
         free(resp);
         return NULL;
     }
 
-    // Connect
     memset(&connect_info, 0, sizeof(connect_info));
     connect_info.context = context;
     connect_info.address = host;
@@ -405,32 +401,25 @@ http_response_t* lws_http_request(const char *method, const char *url, const cha
     connect_info.path = path;
     connect_info.host = host;
     connect_info.origin = host;
-    connect_info.method = method;  // Use the provided method
-    connect_info.protocol = protocols[0].name;
+    connect_info.method = method;
+    connect_info.protocol = http_client_protocols[0].name;
     connect_info.userdata = resp;
     connect_info.pwsi = &wsi;
 
     if (ssl) {
-        // SECURITY: Enable SSL with proper certificate validation
-        // Removed LCCSCF_ALLOW_SELFSIGNED and LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
-        // to prevent MITM attacks
         connect_info.ssl_connection = LCCSCF_USE_SSL;
     }
 
     if (!lws_client_connect_via_info(&connect_info)) {
-        lws_context_destroy(context);
         free(resp->body);
         free(resp);
         return NULL;
     }
 
-    // Event loop (timeout after 30 seconds)
     int timeout = 3000;
     while (!resp->complete && !resp->failed && timeout-- > 0) {
         lws_service(context, 10);
     }
-
-    lws_context_destroy(context);
 
     if (resp->failed || timeout <= 0) {
         free(resp->body);
@@ -486,6 +475,7 @@ typedef struct {
     volatile int shutdown;
     int has_own_thread;  // 1 if this connection started its own service thread
     int owns_memory;     // 1 if we allocated this struct and should free it
+    volatile int close_requested; // server side: close() called, lws not told yet
 } ws_connection_t;
 
 // Service thread function - runs continuously to service the event loop
@@ -558,6 +548,7 @@ static int ws_callback(struct lws *wsi, enum lws_callback_reasons reason,
             }
             break;
 
+        case LWS_CALLBACK_CLIENT_CLOSED: /* how lws reports a client connection closing */
         case LWS_CALLBACK_CLOSED:
             DEBUG_PRINT("[DEBUG] CLOSED: conn=%p\n", (void*)conn);
             if (conn) {
@@ -668,9 +659,13 @@ ws_connection_t* lws_ws_connect(const char *url) {
     if (!conn) return NULL;
     conn->owns_memory = 1;  // Client connections own their memory
 
-    // Create context
+    // Create context — SSL init only needed for wss:// connections
+    static int ws_ssl_initialized = 0;
     memset(&info, 0, sizeof(info));
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    if (ssl && !ws_ssl_initialized) {
+        info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+        ws_ssl_initialized = 1;
+    }
     info.port = CONTEXT_PORT_NO_LISTEN;
 
     static const struct lws_protocols ws_protocols[] = {
@@ -679,8 +674,9 @@ ws_connection_t* lws_ws_connect(const char *url) {
     };
     info.protocols = ws_protocols;
 
-    conn->context = lws_create_context(&info);
+    conn->context = (hemlock_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!conn->context) {
+        fprintf(stderr, "%s\n", hemlock_lws_context_error_message());
         free(conn);
         return NULL;
     }
@@ -788,7 +784,8 @@ int lws_ws_send_binary(ws_connection_t *conn, const unsigned char *data, size_t 
 
 // WebSocket receive (blocking with timeout)
 ws_message_t* lws_ws_recv(ws_connection_t *conn, int timeout_ms) {
-    if (!conn || conn->closed) {
+    /* a closed connection still delivers what it received first */
+    if (!conn || (conn->closed && !conn->msg_queue_head)) {
         DEBUG_PRINT("[DEBUG] recv: conn=%p, closed=%d\n", (void*)conn, conn ? conn->closed : -1);
         return NULL;
     }
@@ -812,7 +809,7 @@ ws_message_t* lws_ws_recv(ws_connection_t *conn, int timeout_ms) {
         // Service thread handles receiving, we just wait
         usleep(10000);  // 10ms sleep
 
-        if (conn->closed) return NULL;
+        if (conn->closed && !conn->msg_queue_head) return NULL;
         if (iterations > 0) iterations--;
     }
 
@@ -850,6 +847,17 @@ void lws_msg_free(ws_message_t *msg) {
 // WebSocket close
 void lws_ws_close(ws_connection_t *conn) {
     if (conn) {
+        // A server-side connection belongs to the server's lws context, which
+        // only its service thread may touch. Ask that thread to close it: the
+        // wake-up arrives as LWS_CALLBACK_EVENT_WAIT_CANCELLED, which requests
+        // a writeable callback, and returning -1 from that sends the close.
+        if (!conn->has_own_thread && conn->wsi && !conn->closed) {
+            conn->close_requested = 1;
+            if (conn->context) {
+                lws_cancel_service(conn->context);
+            }
+        }
+
         // Mark as closed
         conn->closed = 1;
 
@@ -868,6 +876,8 @@ void lws_ws_close(ws_connection_t *conn) {
             lws_msg_free(msg);
             msg = next;
         }
+        conn->msg_queue_head = NULL; /* recv may still look at the queue */
+        conn->msg_queue_tail = NULL;
 
         if (conn->send_buffer) {
             free(conn->send_buffer);
@@ -925,6 +935,12 @@ static int ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
     DEBUG_PRINT("[DEBUG] ws_server_callback: reason=%d, conn=%p, wsi=%p\n", reason, (void*)conn, (void*)wsi);
 
     switch (reason) {
+        case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
+            // lws_cancel_service() from another thread: a connection may have
+            // been closed; let each check in SERVER_WRITEABLE
+            lws_callback_on_writable_all_protocol(lws_get_context(wsi), lws_get_protocol(wsi));
+            break;
+
         case LWS_CALLBACK_ESTABLISHED:
             fprintf(stderr, "WebSocket server connection established\n");
             // Initialize connection state
@@ -977,6 +993,11 @@ static int ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
 
         case LWS_CALLBACK_SERVER_WRITEABLE:
             DEBUG_PRINT("[DEBUG] SERVER_WRITEABLE callback triggered\n");
+            if (conn && conn->close_requested) {
+                conn->close_requested = 0;
+                lws_close_reason(wsi, LWS_CLOSE_STATUS_NORMAL, NULL, 0);
+                return -1; // lws sends the close frame and drops the connection
+            }
             if (conn && conn->send_pending && conn->send_buffer) {
                 DEBUG_PRINT("[DEBUG] Writing %zu bytes\n", conn->send_len);
                 int flags = LWS_WRITE_TEXT;
@@ -1020,7 +1041,7 @@ ws_server_t* lws_ws_server_create(const char *host, int port) {
     info.port = port;
     info.iface = host;
     info.user = server;
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+    info.options = LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE;
 
     static const struct lws_protocols server_protocols[] = {
         { "ws", ws_server_callback, sizeof(ws_connection_t), 4096, 0, NULL, 0 },
@@ -1028,8 +1049,9 @@ ws_server_t* lws_ws_server_create(const char *host, int port) {
     };
     info.protocols = server_protocols;
 
-    server->context = lws_create_context(&info);
+    server->context = (hemlock_lws_configure_macos_ca_file(), lws_create_context(&info));
     if (!server->context) {
+        fprintf(stderr, "%s\n", hemlock_lws_context_error_message());
         free(server);
         return NULL;
     }
@@ -1081,10 +1103,12 @@ ws_connection_t* lws_ws_server_accept(ws_server_t *server, int timeout_ms) {
 // Close WebSocket server
 void lws_ws_server_close(ws_server_t *server) {
     if (server) {
+        // Signal shutdown - accept() checks this flag before each iteration
         server->closed = 1;
-
-        // Signal service thread to stop
         server->shutdown = 1;
+
+        // Wait for any in-flight accept() call to finish its current iteration
+        usleep(50000);
 
         // Wait for service thread to finish
         pthread_join(server->service_thread, NULL);

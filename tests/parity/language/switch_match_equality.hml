@@ -1,0 +1,29 @@
+// switch cases and match literals use value (==) equality:
+// cross-type numerics match, runes only match runes.
+switch ('x') {
+    case 'x': print("rune literal"); break;
+    default: print("rune literal failed");
+}
+let r = 'a';
+switch (r) {
+    case 'a': print("rune var"); break;
+    default: print("rune var failed");
+}
+switch (2) {
+    case 2.0: print("i32 matches f64 case"); break;
+    default: print("strict");
+}
+let big: i64 = 5;
+switch (big) {
+    case 5: print("i64 matches i32 case"); break;
+    default: print("i64 strict");
+}
+// Runes never match integer cases even with equal codepoints
+switch ('A') {
+    case 65: print("rune matched int"); break;
+    default: print("rune does not match int");
+}
+print(match ('c') { 0 => "zero", 'c' => "rune-c", _ => "other" });
+print(match ('d') { 0 => "zero", _ => "other" });
+print(match (2) { 2.0 => "loose", _ => "strict" });
+print(match (2.5) { 2.5 => "f64 literal", _ => "other" });

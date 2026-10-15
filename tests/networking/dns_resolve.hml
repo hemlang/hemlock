@@ -1,5 +1,6 @@
 // Test: DNS resolution
 // Resolve localhost and check result
+import { dns_resolve } from "@stdlib/net";
 
 let ip = dns_resolve("localhost");
 print("localhost resolves to: " + ip);

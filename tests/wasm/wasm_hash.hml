@@ -1,0 +1,27 @@
+// Test: hash functions (pure C implementations in wasm_bridge.c)
+// These work on both native (via OpenSSL) and WASM (via pure C)
+
+import { sha256, sha512, md5 } from "@stdlib/hash";
+
+// SHA-256
+let h1 = sha256("");
+print(h1);
+
+let h2 = sha256("hello");
+print(h2);
+
+// SHA-512
+let h3 = sha512("");
+print(h3);
+
+let h4 = sha512("hello");
+print(h4);
+
+// MD5
+let h5 = md5("");
+print(h5);
+
+let h6 = md5("hello");
+print(h6);
+
+print("hash done");

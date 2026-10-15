@@ -1,0 +1,25 @@
+// Test: array concat handles edge cases safely
+
+// Test 1: concat two normal arrays
+let a = [1, 2, 3];
+let b = [4, 5, 6];
+let c = a.concat(b);
+print("concat length: " + c.length);
+print("concat first: " + c[0]);
+print("concat last: " + c[5]);
+
+// Test 2: concat with empty arrays
+let d = [].concat([]);
+print("empty concat: " + d.length);
+
+let e = [1, 2].concat([]);
+print("left only: " + e.length);
+
+let f = [].concat([3, 4]);
+print("right only: " + f.length);
+
+// Test 3: concat preserves values
+let g = ["hello"].concat(["world"]);
+print("string concat: " + g[0] + " " + g[1]);
+
+print("done");

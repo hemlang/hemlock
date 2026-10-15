@@ -1,0 +1,11 @@
+fn f(): i32 {
+    if (false) {
+        return 1;
+    }
+    if (true) {
+        return 2;
+    } else {
+        return 3;
+    }
+}
+print(f());

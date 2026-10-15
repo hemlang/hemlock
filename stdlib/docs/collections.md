@@ -55,6 +55,8 @@ let map = HashMap();
 
 **Supported key types:** string, integer types, float types, boolean, null
 
+**Numeric key coercion:** Keys of different numeric types are compared by value, not by type. For example, an `i32` key can be looked up with an `i64` value if both represent the same number.
+
 ### Example
 
 ```hemlock

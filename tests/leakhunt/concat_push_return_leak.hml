@@ -1,0 +1,23 @@
+// cp_get() shape: build an array, push a concat string into it
+// conditionally, then early-return a value computed from a callee
+// using that array — exercising temp ownership of the pushed concat
+// + the array across an early return. Per resolve in the CP.
+fn build_headers(r: i64): i64 {
+	let h = [];
+	let secret = "tok-" + r;
+	if (secret != "") { h.push("Authorization: Bearer " + secret); }
+	h.push("X-Round: " + r);
+	return consume(h);
+}
+fn consume(h): i64 {
+	let n = 0;
+	for (x in h) { n = n + x.length; }
+	return n;
+}
+let round = 0;
+let sink = 0;
+while (round < 3000) {
+	sink = sink + build_headers(round);
+	round = round + 1;
+}
+print("concat_push_return_leak: ok sink=" + sink);

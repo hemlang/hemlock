@@ -1,3 +1,4 @@
+// @expect-compile-fail invalid optional-parameter ordering
 // Test error cases for optional parameters
 
 // Too few arguments (missing required param)

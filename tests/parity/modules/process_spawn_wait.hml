@@ -1,0 +1,10 @@
+// posix_spawn + waitpid round-trip, including the one-argument waitpid
+// form (stdlib wrapper defaults options to 0 so both backends accept it).
+import { posix_spawn, waitpid } from "@stdlib/process";
+
+let p = posix_spawn(["sh", "-c", "exit 7"]);
+print(p.pid > 0);
+
+let r = waitpid(p.pid);
+print(r.pid == p.pid);
+print(r.status >> 8);

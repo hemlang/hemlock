@@ -22,6 +22,10 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 }
             }
             env_define(env, stmt->as.let.name, value, 0, ctx);  // 0 = mutable
+            // Remember the annotation so reassignments enforce it too
+            if (stmt->as.let.type_annotation != NULL && !ctx->exception_state.is_throwing) {
+                env_set_declared_type_last(env, stmt->as.let.type_annotation);
+            }
             VALUE_RELEASE(value);  // Release original reference (env_define retains)
             break;
         }
@@ -185,11 +189,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
         }
 
         case STMT_FOR: {
-            // Create new environment for loop scope
+            // Create new environment for loop scope (holds the loop variable)
             Environment *loop_env = env_new(env);
             const char *loop_label = stmt->as.for_loop.label;
 
-            // Execute initializer
+            // Execute initializer (e.g., "let i = 0" defines i in loop_env)
             if (stmt->as.for_loop.initializer) {
                 eval_stmt(stmt->as.for_loop.initializer, loop_env, ctx);
                 // Check for exception/return after initializer
@@ -199,12 +203,9 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 }
             }
 
-            // Create iteration environment once, reuse each iteration
-            Environment *iter_env = env_new(loop_env);
-
             // Loop
             for (;;) {
-                // Check condition
+                // Check condition (operates on loop_env where the counter lives)
                 if (stmt->as.for_loop.condition) {
                     Value cond = eval_expr(stmt->as.for_loop.condition, loop_env, ctx);
                     // Check for exception after condition evaluation
@@ -219,9 +220,31 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(cond);  // Release condition after checking
                 }
 
-                // Clear and reuse iteration environment
-                env_clear(iter_env);
+                // Create a FRESH iteration environment each iteration.
+                // This provides per-iteration variable binding so that closures
+                // created in the loop body capture their own copy of loop variables
+                // (e.g., for (let i = 0; ...) { fns.push(fn() { return i; }); })
+                Environment *iter_env = env_new(loop_env);
+
+                // Copy loop variables into iter_env for per-iteration capture.
+                // The body sees these copies; condition/increment use loop_env directly.
+                for (int vi = 0; vi < loop_env->count; vi++) {
+                    env_define(iter_env, loop_env->names[vi], loop_env->values[vi], 0, ctx);
+                }
                 eval_stmt(stmt->as.for_loop.body, iter_env, ctx);
+
+                // Copy loop variable values back from iter_env to loop_env
+                // so that body modifications (e.g., i = 100) still affect
+                // the loop counter for condition/increment evaluation.
+                for (int vi = 0; vi < loop_env->count; vi++) {
+                    Value old_val = loop_env->values[vi];
+                    Value new_val = iter_env->values[vi];
+                    VALUE_RETAIN(new_val);
+                    loop_env->values[vi] = new_val;
+                    VALUE_RELEASE(old_val);
+                }
+
+                env_release(iter_env);
 
                 // Check for break/continue/return/exception
                 if (ctx->loop_state.is_breaking) {
@@ -259,7 +282,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     break;
                 }
 
-                // Execute increment
+                // Execute increment (operates on loop_env where the counter lives)
                 if (stmt->as.for_loop.increment) {
                     Value incr_result = eval_expr(stmt->as.for_loop.increment, loop_env, ctx);
                     VALUE_RELEASE(incr_result);  // Release increment expression result
@@ -270,7 +293,6 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 }
             }
 
-            env_release(iter_env);
             env_release(loop_env);
             break;
         }
@@ -294,32 +316,32 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             }
 
             Environment *loop_env = env_new(env);
-            // Create iteration environment once, reuse each iteration
-            Environment *iter_env = env_new(loop_env);
 
             if (iterable.type == VAL_ARRAY) {
                 Array *arr = iterable.as.as_array;
 
                 for (int i = 0; i < arr->length; i++) {
-                    // Clear and reuse iteration environment
-                    env_clear(iter_env);
+                    // Create a FRESH iteration environment each iteration for
+                    // per-iteration variable binding (closure capture correctness)
+                    Environment *iter_env = env_new(loop_env);
 
-                    // Bind variables
+                    // Define variables in iter_env (not env_set, which walks up scope chain)
                     if (stmt->as.for_in.key_var) {
-                        env_set(iter_env, stmt->as.for_in.key_var, val_i32(i), ctx);
-                        // Check for exception from env_set
+                        env_define(iter_env, stmt->as.for_in.key_var, val_i32(i), 0, ctx);
                         if (ctx->exception_state.is_throwing) {
+                            env_release(iter_env);
                             break;
                         }
                     }
-                    env_set(iter_env, stmt->as.for_in.value_var, arr->elements[i], ctx);
-                    // Check for exception from env_set
+                    env_define(iter_env, stmt->as.for_in.value_var, arr->elements[i], 0, ctx);
                     if (ctx->exception_state.is_throwing) {
+                        env_release(iter_env);
                         break;
                     }
 
                     // Execute body
                     eval_stmt(stmt->as.for_in.body, iter_env, ctx);
+                    env_release(iter_env);
 
                     // Check break/continue/return/exception
                     if (ctx->loop_state.is_breaking) {
@@ -356,25 +378,28 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 Object *obj = iterable.as.as_object;
 
                 for (int i = 0; i < obj->num_fields; i++) {
-                    // Clear and reuse iteration environment
-                    env_clear(iter_env);
+                    // Create a FRESH iteration environment each iteration
+                    Environment *iter_env = env_new(loop_env);
 
-                    // Bind variables
+                    // Define variables in iter_env (not env_set, which walks up scope chain)
                     if (stmt->as.for_in.key_var) {
-                        env_set(iter_env, stmt->as.for_in.key_var, val_string(obj->fields[i].name), ctx);
-                        // Check for exception from env_set
+                        Value key_val = val_string(obj->fields[i].name);
+                        env_define(iter_env, stmt->as.for_in.key_var, key_val, 0, ctx);
+                        VALUE_RELEASE(key_val);  // env_define retained it
                         if (ctx->exception_state.is_throwing) {
+                            env_release(iter_env);
                             break;
                         }
                     }
-                    env_set(iter_env, stmt->as.for_in.value_var, obj->fields[i].value, ctx);
-                    // Check for exception from env_set
+                    env_define(iter_env, stmt->as.for_in.value_var, obj->fields[i].value, 0, ctx);
                     if (ctx->exception_state.is_throwing) {
+                        env_release(iter_env);
                         break;
                     }
 
                     // Execute body
                     eval_stmt(stmt->as.for_in.body, iter_env, ctx);
+                    env_release(iter_env);
 
                     // Check break/continue/return/exception
                     if (ctx->loop_state.is_breaking) {
@@ -416,14 +441,14 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 }
 
                 for (int i = 0; i < str->char_length; i++) {
-                    // Clear and reuse iteration environment
-                    env_clear(iter_env);
+                    // Create a FRESH iteration environment each iteration
+                    Environment *iter_env = env_new(loop_env);
 
-                    // Bind index if key_var is specified
+                    // Define index if key_var is specified
                     if (stmt->as.for_in.key_var) {
-                        env_set(iter_env, stmt->as.for_in.key_var, val_i32(i), ctx);
-                        // Check for exception from env_set
+                        env_define(iter_env, stmt->as.for_in.key_var, val_i32(i), 0, ctx);
                         if (ctx->exception_state.is_throwing) {
+                            env_release(iter_env);
                             break;
                         }
                     }
@@ -432,14 +457,15 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     int byte_pos = utf8_byte_offset(str->data, str->length, i);
                     uint32_t codepoint = utf8_decode_at(str->data, byte_pos);
 
-                    env_set(iter_env, stmt->as.for_in.value_var, val_rune(codepoint), ctx);
-                    // Check for exception from env_set
+                    env_define(iter_env, stmt->as.for_in.value_var, val_rune(codepoint), 0, ctx);
                     if (ctx->exception_state.is_throwing) {
+                        env_release(iter_env);
                         break;
                     }
 
                     // Execute body
                     eval_stmt(stmt->as.for_in.body, iter_env, ctx);
+                    env_release(iter_env);
 
                     // Check break/continue/return/exception
                     if (ctx->loop_state.is_breaking) {
@@ -474,7 +500,6 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 }
             }
 
-            env_release(iter_env);
             env_release(loop_env);
             VALUE_RELEASE(iterable);  // Release iterable after loop completes
             break;
@@ -680,6 +705,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             atomic_store(&obj->freed, 0);  // Not freed
             obj->hash_table = NULL;  // No hash table - use linear search fallback
             obj->hash_capacity = 0;
+            obj->is_pooled = 0;  // Heap-allocated, not from the object pool
 
             for (int i = 0; i < type->num_variants; i++) {
                 obj->fields[i].name = strdup(type->variant_names[i]);
@@ -697,6 +723,14 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
         }
 
         case STMT_TRY: {
+            // Remember the stack-trace depth at try entry: unwinding to the
+            // catch block abandons every frame pushed inside the try body
+            // (including the <throw> marker frames pushed by STMT_THROW).
+            // Without truncating, each caught exception permanently leaked
+            // its frames, and enough caught throws made every later call
+            // fail with "Maximum call stack depth exceeded".
+            int try_entry_stack_depth = ctx->call_stack.count;
+
             // Execute try block
             eval_stmt(stmt->as.try_stmt.try_block, env, ctx);
 
@@ -704,6 +738,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             if (ctx->exception_state.is_throwing) {
                 // Exception thrown - execute catch block if present
                 if (stmt->as.try_stmt.catch_block != NULL) {
+                    // The exception is being caught: discard the stale
+                    // stack-trace frames from the unwound try body. (When
+                    // there is no catch block the exception keeps
+                    // propagating and the frames stay for the final trace.)
+                    ctx->call_stack.count = try_entry_stack_depth;
                     // Create new scope for catch parameter
                     Environment *catch_env = env_new(env);
                     // Use env_define (not env_set) to create a new variable that shadows outer scope
@@ -749,6 +788,15 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     ctx->exception_state.exception_value = saved_exception;
                     ctx->loop_state.is_breaking = was_breaking;
                     ctx->loop_state.is_continuing = was_continuing;
+                } else {
+                    // Finally overrode the saved state (e.g. threw its own
+                    // exception) - release the discarded values it owned
+                    if (was_throwing) {
+                        VALUE_RELEASE(saved_exception);
+                    }
+                    if (was_returning) {
+                        VALUE_RELEASE(saved_return);
+                    }
                 }
             }
             break;
@@ -793,7 +841,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                         break;
                     }
 
-                    if (values_equal(switch_value, case_value)) {
+                    if (values_equal_loose(switch_value, case_value)) {
                         VALUE_RELEASE(case_value);  // Release case value after comparison
                         matched_case = i;
                         break;
@@ -818,7 +866,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
                     // Check for break, return, continue, or exception
                     if (ctx->loop_state.is_breaking) {
-                        ctx->loop_state.is_breaking = 0;
+                        // A plain `break` ends the switch; `break label`
+                        // propagates to the labeled enclosing loop.
+                        if (ctx->loop_state.target_label == NULL) {
+                            ctx->loop_state.is_breaking = 0;
+                        }
                         break;
                     }
                     if (ctx->loop_state.is_continuing) {
@@ -906,6 +958,26 @@ void eval_program(Stmt **stmts, int count, Environment *env, ExecutionContext *c
             call_stack_free(&ctx->call_stack);
             // Release exception value before exiting
             VALUE_RELEASE(ctx->exception_state.exception_value);
+            exit(1);
+        }
+    }
+
+    // Execute any top-level defers at normal program end. Compiled programs
+    // drain the remaining defer stack in hml_runtime_cleanup(); doing the
+    // same here keeps `defer` usable for cleanup in top-level scripts.
+    if (ctx->defer_stack.count > 0) {
+        DeferStack pending = ctx->defer_stack;
+        // Detach first so re-entrant pushes don't grow the stack being drained
+        defer_stack_init(&ctx->defer_stack);
+        defer_stack_execute(&pending, ctx);
+        free(pending.calls);
+        free(pending.envs);
+        if (ctx->exception_state.is_throwing) {
+            char *error_msg = value_to_string(ctx->exception_state.exception_value);
+            fprintf(stderr, "Uncaught exception: %s\n", error_msg);
+            free(error_msg);
+            VALUE_RELEASE(ctx->exception_state.exception_value);
+            ctx->exception_state.is_throwing = 0;
             exit(1);
         }
     }

@@ -1,0 +1,63 @@
+// Parity test: runtime errors from builtins are catchable via try/catch
+
+// 1. Division by zero (integer) is catchable
+let caught_count = 0;
+
+try {
+    let x: i32 = 10;
+    let y: i32 = 0;
+    let z = x % y;
+} catch (e) {
+    caught_count++;
+}
+print("div by zero caught: " + (caught_count == 1));
+
+// 2. Float division by zero returns Infinity (IEEE 754), not an error
+let inf_result = 1.0 / 0.0;
+print("float div zero: " + (inf_result > 999999));
+
+// 3. Nested exception handling preserves correct error
+try {
+    try {
+        throw "level1";
+    } catch (e) {
+        throw "level2: " + e;
+    }
+} catch (e) {
+    print("nested: level2: level1");
+}
+
+// 4. Finally executes on normal flow
+let f1 = 0;
+try {
+    f1 = 1;
+} finally {
+    f1 = f1 + 10;
+}
+print("finally normal: " + f1);
+
+// 5. Finally executes on exception flow
+let f2 = 0;
+try {
+    throw "err";
+} catch (e) {
+    f2 = 1;
+} finally {
+    f2 = f2 + 10;
+}
+print("finally exception: " + f2);
+
+// 6. Multiple catches in sequence
+let results = "";
+for (let i = 0; i < 3; i++) {
+    try {
+        if (i == 0) { throw "first"; }
+        if (i == 1) { throw "second"; }
+        if (i == 2) { throw "third"; }
+    } catch (e) {
+        results = results + e + ",";
+    }
+}
+print("sequence: " + results);
+
+print("done");

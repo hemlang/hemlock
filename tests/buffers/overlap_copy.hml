@@ -1,0 +1,28 @@
+// expect: pass
+// Regression test: memcpy() with two buffer arguments and write_bytes() must
+// behave like memmove, because the two ranges can be overlapping slice views
+// of the same root. Previously these called C memcpy, which is undefined
+// behavior for overlapping ranges — reachable from pure buffer code.
+// See docs/design/memory-safety-model.md (F2).
+
+let b = buffer(16);
+let i = 0;
+while (i < 16) { b[i] = i; i = i + 1; }
+
+// Forward overlap: copy bytes [4..12) over [0..8)
+memcpy(b.slice(0, 12), b.slice(4, 16), 8);
+print(b[0]);   // 4
+print(b[7]);   // 11
+print(b[8]);   // 8 (untouched)
+
+// Reset
+i = 0;
+while (i < 16) { b[i] = i; i = i + 1; }
+
+// Backward overlap: copy bytes [0..8) over [4..12)
+b.write_bytes(4, b.slice(0, 12), 8);
+print(b[4]);   // 0
+print(b[11]);  // 7
+print(b[12]);  // 12 (untouched)
+
+print("done");

@@ -1,4 +1,5 @@
 // Test filesystem builtins
+import { exists, remove_file, remove_dir, cwd, is_dir, is_file, make_dir, write_file, read_file, append_file, copy_file, rename, list_dir, file_stat, absolute_path, chdir } from "@stdlib/fs";
 
 let test_dir = "/tmp/hemlock_fs_test";
 let test_file = "/tmp/hemlock_fs_test/test.txt";
@@ -29,7 +30,7 @@ print(is_file("/etc/passwd"));  // true
 print(is_file("/tmp"));  // false (it's a directory)
 
 // Test make_dir()
-make_dir(test_dir);
+make_dir(test_dir, 493);
 print(exists(test_dir));  // true
 print(is_dir(test_dir));  // true
 

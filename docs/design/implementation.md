@@ -691,6 +691,42 @@ Buffer *create_buffer(size_t size) {
 - Environment is heap-allocated
 - Closure environments are properly freed when no longer referenced
 
+### Allocation Pools
+
+The interpreter uses pre-allocated **object pools** to avoid `malloc`/`free` overhead for frequently created short-lived values. This is especially impactful for factory patterns that create objects with closure methods in hot loops.
+
+**Environment Pool** (1024 slots):
+- Pre-allocates `Environment` structs with variable storage for up to 16 vars
+- Free-list stack for O(1) alloc/free
+- Falls back to `malloc` when exhausted
+- Defined in `src/backends/interpreter/environment.c`
+
+**Object Pool** (512 slots):
+- Pre-allocates `Object` structs with embedded `FieldEntry[8]` storage
+- Objects with ≤8 fields use pool storage; more fields trigger heap growth via `object_grow_fields()`
+- Anonymous objects (no `type_name`) are pool candidates
+- Defined in `src/backends/interpreter/values.c`
+
+**Function Pool** (512 slots):
+- Pre-allocates `Function` structs for closure creation
+- Works with AST-borrowed params (see below) to minimize per-closure allocation
+- Defined in `src/backends/interpreter/values.c`
+
+**AST-Borrowed Parameters:**
+Closures created from `EXPR_FUNCTION` evaluation borrow parameter metadata directly from the AST node instead of deep-copying it. Since the AST outlives all closures, this is safe and eliminates ~6 `malloc` + N `strdup` calls per closure:
+- `param_names`, `param_types`, `param_defaults`, `param_is_ref` → borrowed from AST
+- `param_hashes` → lazily computed once on the AST node and shared across all closures
+- `rest_param`, `rest_param_type`, `return_type` → borrowed from AST
+- `borrows_ast_params` flag on `Function` prevents `function_free()` from freeing borrowed data
+
+Pool sizes are defined in `include/hemlock_limits.h`:
+```c
+#define HML_ENV_POOL_SIZE            1024
+#define HML_OBJECT_POOL_SIZE          512
+#define HML_OBJECT_POOL_FIELDS_CAPACITY 8
+#define HML_FUNCTION_POOL_SIZE        512
+```
+
 ---
 
 ## Concurrency Model
@@ -849,8 +885,16 @@ When implementing new features, follow these guidelines:
 - String concatenation (allocates new string each time)
 - Type checking overhead on every operation
 
-**Optimization opportunities:**
-- Cache variable locations (inline caching)
+**Implemented optimizations:**
+- Inline caching (PropertyIC) for repeated property access on same-shape objects
+- Environment pool (1024 slots) for O(1) scope creation in recursive calls
+- Object pool (512 slots) for O(1) allocation of small anonymous objects
+- Function pool (512 slots) for O(1) closure struct allocation
+- AST-borrowed params eliminate deep-copy overhead per closure creation
+- Pre-computed param name hashes (lazily cached on AST nodes)
+- DJB2 hash with lazy hash table initialization for object field lookup
+
+**Remaining optimization opportunities:**
 - Tail call optimization
 - String builder for concatenation
 - Type inference to skip runtime checks

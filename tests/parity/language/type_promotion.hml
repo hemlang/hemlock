@@ -3,9 +3,9 @@
 
 print("=== Integer promotion ===");
 // i8 -> i16 -> i32 -> i64
-let a: i8 = 127;
-let b: i16 = 32767;
-let c: i32 = 2147483647;
+let a: i8 = 42;
+let b: i16 = 1000;
+let c: i32 = 100000;
 
 // Promotion happens in binary ops
 let sum1 = a + b;  // i8 + i16 = i16

@@ -382,8 +382,10 @@ let p: Person = { name: "Alice", age: 30 };
         tests.append(("Hover variable", False))
 
     # Test 9: Syntax error diagnostics
+    # Two independent syntax errors: panic-mode recovery must surface BOTH,
+    # each with the parser's real message (not a generic "Syntax error").
     print("\n=== Test 9: Syntax Error Diagnostics ===")
-    bad_content = "let x = ;"  # syntax error
+    bad_content = "let x = ;\nlet y = ;"
     change_doc = {
         "jsonrpc": "2.0",
         "method": "textDocument/didChange",
@@ -402,14 +404,52 @@ let p: Person = { name: "Alice", age: 30 };
         if 'method' in r and r['method'] == 'textDocument/publishDiagnostics':
             diags = r['params']['diagnostics']
             print(f"Diagnostics: {json.dumps(diags, indent=2)}")
-            if len(diags) > 0:
-                print("✓ Syntax Error Diagnostics OK - error detected")
+            has_real_messages = all(
+                d.get('message') and d['message'] != "Syntax error" for d in diags
+            )
+            on_both_lines = {d['range']['start']['line'] for d in diags} >= {0, 1}
+            if len(diags) >= 2 and has_real_messages and on_both_lines:
+                print("✓ Syntax Error Diagnostics OK - both errors reported with real messages")
                 tests.append(("Syntax Error Diagnostics", True))
                 found_error = True
             break
     if not found_error:
-        print("✗ Syntax Error Diagnostics FAILED - no error reported")
+        print("✗ Syntax Error Diagnostics FAILED - expected 2 diagnostics with parser messages")
         tests.append(("Syntax Error Diagnostics", False))
+
+    # Test 10: Borrow checker diagnostics (use-after-free)
+    print("\n=== Test 10: Borrow Checker Diagnostics ===")
+    uaf_content = "fn main() {\n    let p = alloc(64);\n    free(p);\n    memset(p, 0, 64);\n}\n"
+    change_uaf = {
+        "jsonrpc": "2.0",
+        "method": "textDocument/didChange",
+        "params": {
+            "textDocument": {"uri": test_file_uri, "version": 3},
+            "contentChanges": [{"text": uaf_content}]
+        }
+    }
+    proc.stdin.write(make_message(change_uaf).encode())
+    proc.stdin.flush()
+
+    time.sleep(0.3)
+    responses = read_response(proc)
+    found_borrow = False
+    for r in responses:
+        if 'method' in r and r['method'] == 'textDocument/publishDiagnostics':
+            diags = r['params']['diagnostics']
+            for d in diags:
+                if 'freed' in d.get('message', ''):
+                    print(f"✓ Borrow Checker Diagnostics OK - {d['message']!r} "
+                          f"(severity={d['severity']}, line={d['range']['start']['line']})")
+                    found_borrow = True
+                    break
+            if found_borrow:
+                break
+    if found_borrow:
+        tests.append(("Borrow Checker Diagnostics", True))
+    else:
+        print("✗ Borrow Checker Diagnostics FAILED - no use-after-free reported")
+        tests.append(("Borrow Checker Diagnostics", False))
 
     # Shutdown
     print("\n=== Shutdown ===")

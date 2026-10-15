@@ -32,17 +32,18 @@ export fn HashMap() {
 	fn hash(key) {
 		let value_type = typeof(key);
 		if (value_type == "string") {
-			// djb2 hash algorithm - much better distribution than simple sum
-			let h = 5381;
-			for (let i = 0; i < key.byte_length; i++) {
-				let byte_val = key.byte_at(i);
+			// djb2 hash algorithm - much better distribution than simple sum.
+			// Run the accumulator in i64 and mask to 31 bits each iteration so
+			// intermediate values never blow past i32 max and trigger the
+			// runtime's checked-arithmetic overflow throw.
+			let h: i64 = 5381;
+			let len = key.byte_length;
+			for (let i = 0; i < len; i++) {
+				let byte_val: i64 = key.byte_at(i);
 				// h = h * 33 + byte_val (using bit shift: h * 33 = h * 32 + h)
-				h = (h << 5) + h + byte_val;
+				h = ((h << 5) + h + byte_val) & 2147483647;
 			}
-			if (h < 0) {
-				h = -h;
-			}
-			return h;
+			return i32(h);
 		}
 		if (value_type == "i32") {
 			let val = key;
@@ -91,12 +92,25 @@ export fn HashMap() {
 		}
 		return mod(h, bucket_count);
 	}
-	// Check if two keys are equal
+	// Check if two keys are equal (with numeric type coercion)
 	fn keys_equal(k1, k2) {
-		if (typeof(k1) != typeof(k2)) {
-			return false;
+		if (typeof(k1) == typeof(k2)) {
+			return k1 == k2;
 		}
-		return k1 == k2;
+		// Coerce numeric types for comparison
+		let t1 = typeof(k1);
+		let t2 = typeof(k2);
+		let numeric_types = ["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64"];
+		let is_num1 = false;
+		let is_num2 = false;
+		for (t in numeric_types) {
+			if (t1 == t) { is_num1 = true; }
+			if (t2 == t) { is_num2 = true; }
+		}
+		if (is_num1 && is_num2) {
+			return k1 == k2;
+		}
+		return false;
 	}
 	// Resize when load factor exceeded
 	fn resize() {
@@ -504,7 +518,7 @@ export fn LinkedList() {
 		}
 
 		// Choose direction based on which end is closer
-		let half = divi(count, 2);
+		let half = __divi(count, 2);
 		if (index < half) {
 			// Traverse from head (closer to start)
 			let current = head;

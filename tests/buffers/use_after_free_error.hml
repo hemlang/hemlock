@@ -1,0 +1,34 @@
+// expect: pass
+// Regression test: accessing a buffer after free() must throw a clean,
+// catchable bounds error instead of dereferencing freed memory.
+// free(buffer) nulls the data pointer and zeroes the length, so reads and
+// writes afterwards are "Buffer index N out of bounds (length 0)" errors.
+// Previously the interpreter reported the error but still dereferenced the
+// NULL data pointer, crashing with SIGSEGV.
+
+let b = buffer(8);
+b[0] = 65;
+free(b);
+
+try {
+    print(b[0]);
+    print("no error");
+} catch (e) {
+    print("caught read after free");
+}
+
+try {
+    b[0] = 1;
+    print("no error");
+} catch (e) {
+    print("caught write after free");
+}
+
+// length reports 0 after free
+print(b.length);
+
+// slice on a freed buffer clamps to an empty view (no crash)
+let s = b.slice(0, 4);
+print(s.length);
+
+print("done");

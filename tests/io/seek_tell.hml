@@ -1,4 +1,6 @@
 // Test: Seek and tell
+import { open } from "@stdlib/fs";
+
 let fw = open("tests/temp/test_seek.txt", "w");
 fw.write("ABCDEFGHIJ");
 fw.close();

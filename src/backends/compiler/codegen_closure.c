@@ -80,11 +80,15 @@ int shared_env_add_var(CodegenContext *ctx, const char *var) {
     return idx;
 }
 
-// Get the index of a variable in the shared environment (-1 if not found)
+// Get the actual env slot index of a variable in the shared environment
+// (-1 if not found). When an index mapping is present (closure bodies whose
+// shared env aliases or chains to the enclosing closure's environment), the
+// returned index may use the parent-slot encoding
+// (see HML_CLOSURE_ENV_PARENT_STRIDE).
 int shared_env_get_index(CodegenContext *ctx, const char *var) {
     for (int i = 0; i < ctx->shared_env_num_vars; i++) {
         if (strcmp(ctx->shared_env_vars[i], var) == 0) {
-            return i;
+            return ctx->shared_env_indices ? ctx->shared_env_indices[i] : i;
         }
     }
     return -1;
@@ -101,10 +105,13 @@ void shared_env_clear(CodegenContext *ctx) {
     if (ctx->shared_env_name) {
         free(ctx->shared_env_name);
     }
+    free(ctx->shared_env_indices);
     ctx->shared_env_name = NULL;
     ctx->shared_env_vars = NULL;
     ctx->shared_env_num_vars = 0;
     ctx->shared_env_capacity = 0;
+    ctx->shared_env_indices = NULL;
+    ctx->shared_env_borrowed = 0;
 }
 
 // Helper to count required parameters (those without defaults)
@@ -237,6 +244,38 @@ void scan_closures_expr(CodegenContext *ctx, Expr *expr, Scope *local_scope) {
             scan_closures_expr(ctx, expr->as.await_expr.awaited_expr, local_scope);
             break;
 
+        case EXPR_NULL_COALESCE:
+            scan_closures_expr(ctx, expr->as.null_coalesce.left, local_scope);
+            scan_closures_expr(ctx, expr->as.null_coalesce.right, local_scope);
+            break;
+
+        case EXPR_OPTIONAL_CHAIN:
+            scan_closures_expr(ctx, expr->as.optional_chain.object, local_scope);
+            if (expr->as.optional_chain.index) {
+                scan_closures_expr(ctx, expr->as.optional_chain.index, local_scope);
+            }
+            if (expr->as.optional_chain.args) {
+                for (int i = 0; i < expr->as.optional_chain.num_args; i++) {
+                    scan_closures_expr(ctx, expr->as.optional_chain.args[i], local_scope);
+                }
+            }
+            break;
+
+        case EXPR_MATCH:
+            // Match scrutinee, guards, and arm bodies can all contain
+            // closures. Pattern bindings are NOT added to the scope here -
+            // like catch params, they're C locals a nested closure must
+            // capture as free variables.
+            scan_closures_expr(ctx, expr->as.match_expr.scrutinee, local_scope);
+            for (int i = 0; i < expr->as.match_expr.num_arms; i++) {
+                MatchArm *arm = &expr->as.match_expr.arms[i];
+                if (arm->guard) {
+                    scan_closures_expr(ctx, arm->guard, local_scope);
+                }
+                scan_closures_expr(ctx, arm->body, local_scope);
+            }
+            break;
+
         case EXPR_PREFIX_INC:
             scan_closures_expr(ctx, expr->as.prefix_inc.operand, local_scope);
             break;
@@ -334,10 +373,11 @@ void scan_closures_stmt(CodegenContext *ctx, Stmt *stmt, Scope *local_scope) {
         case STMT_TRY:
             scan_closures_stmt(ctx, stmt->as.try_stmt.try_block, local_scope);
             if (stmt->as.try_stmt.catch_block) {
-                // Add catch param to scope so closures inside catch don't capture it
-                if (stmt->as.try_stmt.catch_param) {
-                    scope_add_var(local_scope, stmt->as.try_stmt.catch_param);
-                }
+                // NOTE: Do NOT add catch param to scope here. Closures inside
+                // the catch block need to capture it as a free variable since the
+                // catch param is only a C local in the catch block, not accessible
+                // from a closure's generated function. Non-closure code accesses it
+                // via the shadow system in codegen_stmt.c.
                 scan_closures_stmt(ctx, stmt->as.try_stmt.catch_block, local_scope);
             }
             if (stmt->as.try_stmt.finally_block) {
@@ -361,9 +401,21 @@ void scan_closures_stmt(CodegenContext *ctx, Stmt *stmt, Scope *local_scope) {
             }
             break;
 
-        case STMT_DEFER:
+        case STMT_DEFER: {
+            // Defer statements are compiled into synthesized zero-arg
+            // closures (see STMT_DEFER in codegen_stmt.c), so the variables
+            // referenced by the deferred expression must be in the shared
+            // environment - exactly as if an explicit closure captured them.
+            FreeVarSet *captured = free_var_set_new();
+            find_free_vars(stmt->as.defer_stmt.call, local_scope, captured);
+            for (int i = 0; i < captured->num_vars; i++) {
+                shared_env_add_var(ctx, captured->vars[i]);
+            }
+            free_var_set_free(captured);
+            // Also scan for explicit closures nested in the deferred expression
             scan_closures_expr(ctx, stmt->as.defer_stmt.call, local_scope);
             break;
+        }
 
         default:
             break;
@@ -372,6 +424,56 @@ void scan_closures_stmt(CodegenContext *ctx, Stmt *stmt, Scope *local_scope) {
 
 // Forward declaration for mutual recursion
 void find_free_vars_stmt(Stmt *stmt, Scope *local_scope, FreeVarSet *free_vars);
+
+// Add every variable a match pattern binds to the scope (so arm bodies
+// referencing them don't report them as free), and collect free variables
+// referenced by literal sub-patterns (their expressions can read outer vars).
+static void find_free_vars_pattern(Pattern *p, Scope *scope, FreeVarSet *free_vars) {
+    if (!p) return;
+    switch (p->type) {
+        case PATTERN_LITERAL:
+            find_free_vars(p->as.literal, scope, free_vars);
+            break;
+        case PATTERN_BINDING:
+            scope_add_var(scope, p->as.binding.name);
+            break;
+        case PATTERN_TYPED:
+            if (p->as.typed.name) {
+                scope_add_var(scope, p->as.typed.name);
+            }
+            break;
+        case PATTERN_OR:
+            for (int i = 0; i < p->as.or_pattern.num_alternatives; i++) {
+                find_free_vars_pattern(p->as.or_pattern.alternatives[i], scope, free_vars);
+            }
+            break;
+        case PATTERN_OBJECT:
+            for (int i = 0; i < p->as.object.num_fields; i++) {
+                if (p->as.object.fields[i].pattern) {
+                    find_free_vars_pattern(p->as.object.fields[i].pattern, scope, free_vars);
+                } else {
+                    scope_add_var(scope, p->as.object.fields[i].name);
+                }
+            }
+            if (p->as.object.has_rest && p->as.object.rest_name) {
+                scope_add_var(scope, p->as.object.rest_name);
+            }
+            break;
+        case PATTERN_ARRAY:
+            for (int i = 0; i < p->as.array.num_elements; i++) {
+                if (p->as.array.elements[i].is_rest) {
+                    if (p->as.array.elements[i].rest_name) {
+                        scope_add_var(scope, p->as.array.elements[i].rest_name);
+                    }
+                } else {
+                    find_free_vars_pattern(p->as.array.elements[i].pattern, scope, free_vars);
+                }
+            }
+            break;
+        default:
+            break;
+    }
+}
 
 void find_free_vars(Expr *expr, Scope *local_scope, FreeVarSet *free_vars) {
     if (!expr) return;
@@ -478,6 +580,25 @@ void find_free_vars(Expr *expr, Scope *local_scope, FreeVarSet *free_vars) {
             find_free_vars(expr->as.null_coalesce.left, local_scope, free_vars);
             find_free_vars(expr->as.null_coalesce.right, local_scope, free_vars);
             break;
+
+        case EXPR_MATCH: {
+            // A captured variable referenced only inside a match expression
+            // was previously never seen (no EXPR_MATCH case), so the closure
+            // failed to capture it and codegen errored with "undefined
+            // variable". Pattern bindings are scoped to their arm.
+            find_free_vars(expr->as.match_expr.scrutinee, local_scope, free_vars);
+            for (int i = 0; i < expr->as.match_expr.num_arms; i++) {
+                MatchArm *arm = &expr->as.match_expr.arms[i];
+                Scope *arm_scope = scope_new(local_scope);
+                find_free_vars_pattern(arm->pattern, arm_scope, free_vars);
+                if (arm->guard) {
+                    find_free_vars(arm->guard, arm_scope, free_vars);
+                }
+                find_free_vars(arm->body, arm_scope, free_vars);
+                scope_free(arm_scope);
+            }
+            break;
+        }
 
         case EXPR_OPTIONAL_CHAIN:
             find_free_vars(expr->as.optional_chain.object, local_scope, free_vars);
@@ -594,10 +715,10 @@ void find_free_vars_stmt(Stmt *stmt, Scope *local_scope, FreeVarSet *free_vars) 
         case STMT_TRY:
             find_free_vars_stmt(stmt->as.try_stmt.try_block, local_scope, free_vars);
             if (stmt->as.try_stmt.catch_block) {
-                // Add catch param to scope temporarily
-                if (stmt->as.try_stmt.catch_param) {
-                    scope_add_var(local_scope, stmt->as.try_stmt.catch_param);
-                }
+                // NOTE: Do NOT add catch param to scope here. If a closure inside
+                // the catch block references the catch param, it must be detected
+                // as a free variable so it gets captured in the closure environment.
+                // The catch param only exists as a C local in the catch block.
                 find_free_vars_stmt(stmt->as.try_stmt.catch_block, local_scope, free_vars);
             }
             if (stmt->as.try_stmt.finally_block) {

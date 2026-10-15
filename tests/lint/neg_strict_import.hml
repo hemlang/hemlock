@@ -1,0 +1,7 @@
+// Imported bindings are declared in another module, so the type checker
+// cannot infer their type -- but they ARE declared, and must not be
+// reported as unknown identifiers. Concat is the case that regressed:
+// it forces inference over the operand where a bare call did not.
+import { GREETING, COUNT } from "./strict_import_lib";
+print("" + GREETING);
+print("" + COUNT);

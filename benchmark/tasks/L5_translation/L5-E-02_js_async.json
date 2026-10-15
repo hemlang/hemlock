@@ -1,0 +1,13 @@
+{
+  "id": "L5-E-02",
+  "level": "L5",
+  "difficulty": "easy",
+  "title": "JavaScript Async to Hemlock",
+  "topic": "JS to Hemlock",
+  "prompt": "Translate this JavaScript async/await pattern to idiomatic Hemlock. Hemlock uses `spawn()` to create tasks and `join()` or `await` to get results. There are no Promises - tasks are real threads.\n\n```javascript\nasync function fetchData(id) {\n  // Simulate async work\n  return { id: id, value: id * 10 };\n}\n\nasync function processAll() {\n  const ids = [1, 2, 3, 4, 5];\n  const promises = ids.map(id => fetchData(id));\n  const results = await Promise.all(promises);\n  \n  let total = 0;\n  for (const result of results) {\n    console.log(`id=${result.id} value=${result.value}`);\n    total += result.value;\n  }\n  console.log(`total: ${total}`);\n}\n\nprocessAll();\n```\n\nIn Hemlock, use `spawn(fn, arg)` instead of Promise, and iterate to join each task.",
+  "expected_output": "id=1 value=10\nid=2 value=20\nid=3 value=30\nid=4 value=40\nid=5 value=50\ntotal: 150\n",
+  "timeout_ms": 10000,
+  "validator": "exact_match",
+  "source_language": "javascript",
+  "tags": ["translation", "javascript", "async", "spawn", "join"]
+}

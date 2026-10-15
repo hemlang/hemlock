@@ -1,0 +1,19 @@
+{
+  "id": "L6-M-02",
+  "level": "L6",
+  "difficulty": "medium",
+  "title": "Fix Memory Management Bugs",
+  "topic": "memory bugs",
+  "prompt": "The following Hemlock program has memory management and output formatting bugs. Fix all bugs so it runs correctly and produces the expected output with no memory leaks. Note: Hemlock's print() always appends a newline.\n\n```hemlock\n// Build a dynamic integer array using raw memory\nfn make_int_array(size) {\n    let p = alloc(size * 4);\n    return { ptr: p, size: size, count: 0 };\n}\n\nfn array_push(arr, value) {\n    if (arr.count >= arr.size) {\n        print(\"full!\");\n        return;\n    }\n    ptr_write_i32(arr.ptr, value);\n    arr.count++;\n}\n\nfn array_get(arr, index) {\n    if (index < 0 || index >= arr.count) {\n        return null;\n    }\n    return ptr_deref_i32(arr.ptr + index);\n}\n\nfn array_print(arr) {\n    for (let i = 0; i < arr.count; i++) {\n        if (i > 0) { print(\", \"); }\n        print(array_get(arr, i));\n    }\n    print(\"\");\n}\n\nlet arr = make_int_array(5);\narray_push(arr, 10);\narray_push(arr, 20);\narray_push(arr, 30);\narray_print(arr);\nprint(\"count: \" + arr.count);\n```\n\nExpected output:\n10, 20, 30\ncount: 3",
+  "expected_output": "10, 20, 30\ncount: 3\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "buggy_code": "fn make_int_array(size) {\n    let p = alloc(size * 4);\n    return { ptr: p, size: size, count: 0 };\n}\n\nfn array_push(arr, value) {\n    if (arr.count >= arr.size) {\n        print(\"full!\");\n        return;\n    }\n    ptr_write_i32(arr.ptr, value);\n    arr.count++;\n}\n\nfn array_get(arr, index) {\n    if (index < 0 || index >= arr.count) {\n        return null;\n    }\n    return ptr_deref_i32(arr.ptr + index);\n}\n\nfn array_print(arr) {\n    for (let i = 0; i < arr.count; i++) {\n        if (i > 0) { print(\", \"); }\n        print(array_get(arr, i));\n    }\n    print(\"\");\n}\n\nlet arr = make_int_array(5);\narray_push(arr, 10);\narray_push(arr, 20);\narray_push(arr, 30);\narray_print(arr);\nprint(\"count: \" + arr.count);\n",
+  "bug_descriptions": [
+    "array_push: writes to arr.ptr (offset 0) every time instead of arr.ptr + arr.count * 4",
+    "array_get: reads from arr.ptr + index (byte offset) instead of arr.ptr + index * 4 (i32 offset)",
+    "Missing free(arr.ptr) at end - memory leak (should use defer)",
+    "array_print: print() adds a newline each call, so printing separator and value separately produces wrong output - must build a single string and print once"
+  ],
+  "tags": ["debugging", "memory", "pointers", "alloc", "free"]
+}

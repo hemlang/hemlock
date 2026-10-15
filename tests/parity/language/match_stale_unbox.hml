@@ -1,0 +1,61 @@
+// Regression: a prior for-loop counter with the same name left an
+// unboxable mark in the type-check context. Match pattern bindings
+// (simple, typed, object-shorthand, object-rest, array-rest) still
+// declared a boxed `HmlValue` for the binding, but codegen_expr_ident
+// treated references to them as native C primitives and produced
+// `hml_val_i32(x)` on an HmlValue — failing C compilation whenever
+// the binding was passed to a function (e.g. a stdlib string-arg
+// call like sha256).
+
+import { sha256 } from "@stdlib/hash";
+import { stringify } from "@stdlib/json";
+
+// --- Simple binding pattern ---
+for (let i = 0; i < 2; i++) {
+    print(i);
+}
+let s1 = "hello";
+let r1 = match (s1) {
+    i => sha256(i)
+};
+print(r1);
+
+// --- Typed pattern with bound name ---
+for (let val = 0; val < 2; val++) {
+    print(val);
+}
+let s2 = "world";
+let r2 = match (s2) {
+    val: string => sha256(val)
+};
+print(r2);
+
+// --- Object shorthand binding ---
+for (let name = 0; name < 2; name++) {
+    print(name);
+}
+let user = { name: "alice" };
+let r3 = match (user) {
+    { name } => sha256(name)
+};
+print(r3);
+
+// --- Object rest pattern ---
+for (let rest = 0; rest < 2; rest++) {
+    print(rest);
+}
+let obj = { a: 1, b: 2, c: 3 };
+let r4 = match (obj) {
+    { a, ...rest } => stringify(rest)
+};
+print(r4);
+
+// --- Array rest pattern ---
+for (let tail = 0; tail < 2; tail++) {
+    print(tail);
+}
+let arr = ["first", "second", "third"];
+let r5 = match (arr) {
+    [_, ...tail] => sha256(tail.join(","))
+};
+print(r5);

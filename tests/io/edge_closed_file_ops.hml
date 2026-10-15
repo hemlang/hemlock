@@ -1,5 +1,6 @@
 // Test file operations on closed files
 // Expected: ERROR
+import { open } from "@stdlib/fs";
 
 let f = open("/tmp/test_closed.txt", "w");
 f.write("test data");

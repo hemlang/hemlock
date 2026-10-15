@@ -1,0 +1,1 @@
+dup_field.hml:1: warning: duplicate field 'a' in object literal; the later value wins

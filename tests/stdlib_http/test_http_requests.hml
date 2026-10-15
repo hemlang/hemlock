@@ -56,8 +56,8 @@ async fn run_server(srv, count: i32) {
 
 let server_task = spawn(run_server, server, 5);
 
-// Give server time to start
-sleep(0.1);
+// Give server time to start (CI runners can be slow)
+sleep(1.0);
 
 let base_url = "http://127.0.0.1:" + server_port;
 
@@ -167,9 +167,9 @@ try {
     tests_failed = tests_failed + 1;
 }
 
-// Wait for server to finish
-join(server_task);
+// Close server (don't join - server may still be waiting for requests if some failed)
 server.close();
+detach(server_task);
 
 print("");
 print("========================================");

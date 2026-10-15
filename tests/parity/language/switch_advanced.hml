@@ -1,0 +1,119 @@
+// Test advanced switch statement behavior
+
+// 1. Fall-through without break
+print("=== Fall-through ===");
+let x = 2;
+switch (x) {
+    case 1:
+        print("one");
+    case 2:
+        print("two");
+    case 3:
+        print("three");
+        break;
+    case 4:
+        print("four");
+        break;
+}
+
+// 2. Switch with return in function
+print("=== Switch return ===");
+fn classify(n) {
+    switch (n) {
+        case 0: return "zero";
+        case 1: return "one";
+        case 2: return "two";
+        default: return "other";
+    }
+}
+print(classify(0));
+print(classify(1));
+print(classify(2));
+print(classify(99));
+
+// 3. Nested switch
+print("=== Nested switch ===");
+fn nested_switch(a, b) {
+    switch (a) {
+        case 1:
+            switch (b) {
+                case 1: print("1,1"); break;
+                case 2: print("1,2"); break;
+                default: print("1,?"); break;
+            }
+            break;
+        case 2:
+            switch (b) {
+                case 1: print("2,1"); break;
+                default: print("2,?"); break;
+            }
+            break;
+        default:
+            print("?,?");
+            break;
+    }
+}
+nested_switch(1, 1);
+nested_switch(1, 2);
+nested_switch(1, 9);
+nested_switch(2, 1);
+nested_switch(2, 5);
+nested_switch(3, 1);
+
+// 4. Switch with string
+print("=== String switch ===");
+fn day_type(day) {
+    switch (day) {
+        case "Mon":
+        case "Tue":
+        case "Wed":
+        case "Thu":
+        case "Fri":
+            return "weekday";
+        case "Sat":
+        case "Sun":
+            return "weekend";
+        default:
+            return "unknown";
+    }
+}
+print(day_type("Mon"));
+print(day_type("Sat"));
+print(day_type("Sun"));
+print(day_type("Fri"));
+print(day_type("xyz"));
+
+// 5. Switch with default in middle (should still work)
+print("=== Default position ===");
+let y = 3;
+switch (y) {
+    case 1:
+        print("one");
+        break;
+    case 2:
+        print("two");
+        break;
+    default:
+        print("default");
+        break;
+    case 4:
+        print("four");
+        break;
+}
+
+// 6. Switch with expressions
+print("=== Switch expressions ===");
+let val = 5;
+switch (val * 2) {
+    case 10:
+        print("ten");
+        break;
+    case 20:
+        print("twenty");
+        break;
+    default:
+        print("other");
+        break;
+}
+
+print("done");

@@ -1,0 +1,110 @@
+// Test buffer typed read/write methods
+// These methods allow writing typed values at arbitrary offsets
+// with bounds checking and explicit endianness.
+
+// === Single-byte operations ===
+let buf = buffer(16);
+
+buf.write_u8(0, 255);
+buf.write_i8(1, -128);
+print(buf.read_u8(0));     // 255
+print(buf.read_i8(1));     // -128
+
+// === 16-bit little-endian ===
+buf.write_u16_le(2, 0x1234);
+print(buf.read_u16_le(2)); // 4660 (0x1234)
+
+buf.write_i16_le(4, -1000);
+print(buf.read_i16_le(4)); // -1000
+
+// === 16-bit big-endian ===
+buf.write_u16_be(6, 0x1234);
+print(buf.read_u16_be(6)); // 4660
+
+buf.write_i16_be(8, -1000);
+print(buf.read_i16_be(8)); // -1000
+
+// === 32-bit little-endian ===
+let buf2 = buffer(32);
+
+buf2.write_u32_le(0, 0xDEADBEEF);
+print(buf2.read_u32_le(0)); // 3735928559
+
+buf2.write_i32_le(4, -123456);
+print(buf2.read_i32_le(4)); // -123456
+
+// === 32-bit big-endian ===
+buf2.write_u32_be(8, 0xDEADBEEF);
+print(buf2.read_u32_be(8)); // 3735928559
+
+buf2.write_i32_be(12, -123456);
+print(buf2.read_i32_be(12)); // -123456
+
+// === 64-bit operations ===
+let buf3 = buffer(32);
+
+buf3.write_i64_le(0, 1234567890123);
+print(buf3.read_i64_le(0)); // 1234567890123
+
+buf3.write_i64_be(8, -9876543210);
+print(buf3.read_i64_be(8)); // -9876543210
+
+// === Float operations ===
+let buf4 = buffer(24);
+
+buf4.write_f32_le(0, 3.14);
+let f32_val = buf4.read_f32_le(0);
+// f32 has limited precision, check it's close
+print(f32_val > 3.13);  // true
+print(f32_val < 3.15);  // true
+
+buf4.write_f64_le(4, 3.14159);
+print(buf4.read_f64_le(4)); // 3.14159
+
+buf4.write_f64_be(12, -273.15);
+print(buf4.read_f64_be(12)); // -273.15
+
+// === write_bytes / read_bytes ===
+let src = buffer(4);
+src.write_u8(0, 0xAA);
+src.write_u8(1, 0xBB);
+src.write_u8(2, 0xCC);
+src.write_u8(3, 0xDD);
+
+let dest = buffer(8);
+// Zero out dest first since buffer() doesn't guarantee zero-init
+for (let i = 0; i < 8; i++) { dest[i] = 0; }
+dest.write_bytes(2, src, 4);
+print(dest.read_u8(0));  // 0
+print(dest.read_u8(2));  // 170 (0xAA)
+print(dest.read_u8(3));  // 187 (0xBB)
+print(dest.read_u8(4));  // 204 (0xCC)
+print(dest.read_u8(5));  // 221 (0xDD)
+
+let chunk = dest.read_bytes(2, 4);
+print(chunk.read_u8(0));  // 170
+print(chunk.read_u8(3));  // 221
+
+// === Endianness verification ===
+// Write 0x0102 in LE: bytes should be [0x02, 0x01]
+let ebuf = buffer(4);
+ebuf.write_u16_le(0, 0x0102);
+print(ebuf.read_u8(0));  // 2 (low byte first)
+print(ebuf.read_u8(1));  // 1 (high byte second)
+
+// Write 0x0102 in BE: bytes should be [0x01, 0x02]
+ebuf.write_u16_be(2, 0x0102);
+print(ebuf.read_u8(2));  // 1 (high byte first)
+print(ebuf.read_u8(3));  // 2 (low byte second)
+
+// Cleanup
+free(buf);
+free(buf2);
+free(buf3);
+free(buf4);
+free(src);
+free(dest);
+free(chunk);
+free(ebuf);
+
+print("done");

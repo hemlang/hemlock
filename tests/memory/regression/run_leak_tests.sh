@@ -8,6 +8,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../../lib/timeout.sh"  # portable `timeout` (macOS has none)
 HEMLOCK_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 HEMLOCK="$HEMLOCK_DIR/hemlock"
 

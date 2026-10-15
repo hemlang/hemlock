@@ -29,7 +29,7 @@ Results follow type promotion rules (see [Type System](type-system.md#type-promo
 let a = 10 + 5;        // 15 (i32)
 let b = 10 - 3;        // 7 (i32)
 let c = 4 * 5;         // 20 (i32)
-let d = 20 / 4;        // 5 (i32)
+let d = 20 / 4;        // 5 (f64) -- `/` always returns float
 
 // Float division
 let e = 10.0 / 3.0;    // 3.333... (f64)
@@ -206,7 +206,7 @@ print(~b);             // 240 (11110000)
 **Examples:**
 ```hemlock
 let s = "hello" + " " + "world";  // "hello world"
-let msg = "Count: " + typeof(42); // "Count: 42"
+let msg = "Count: " + 42; // "Count: 42"
 
 // String + rune
 let greeting = "Hello" + '!';      // "Hello!"
@@ -287,7 +287,9 @@ x >>= 2;           // x is now 4 (shift right by 2)
 
 | Operator | Name       | Example | Description              |
 |----------|------------|---------|--------------------------|
+| `++`     | Increment  | `++a`   | Increment by 1 (prefix)  |
 | `++`     | Increment  | `a++`   | Increment by 1 (postfix) |
+| `--`     | Decrement  | `--a`   | Decrement by 1 (prefix)  |
 | `--`     | Decrement  | `a--`   | Decrement by 1 (postfix) |
 
 **Examples:**
@@ -297,13 +299,19 @@ i++;         // i is now 1
 i++;         // i is now 2
 i--;         // i is now 1
 
+// Prefix vs postfix
+let x = 5;
+let y = ++x;  // x is 6, y is 6 (incremented value)
+let z = x++;  // x is 7, z is 6 (original value)
+let w = --x;  // x is 6, w is 6 (decremented value)
+
 // Common in loops
 for (let j = 0; j < 10; j++) {
     print(j);
 }
 ```
 
-**Note:** Both `++` and `--` are postfix operators (value is returned before increment/decrement)
+**Note:** Prefix forms (`++a`, `--a`) return the value *after* the increment/decrement; postfix forms (`a++`, `a--`) return the value *before*. Both always wrap in-type on overflow.
 
 ---
 
@@ -335,6 +343,34 @@ let result2 = a ?? b ?? c;          // "found"
 fn get_config() { return null; }
 let config = get_config() ?? { default: true };
 ```
+
+### Null Coalescing Assignment (`??=`)
+
+Assigns to the variable only if its current value is null.
+
+| Operator | Name                        | Example      | Description                          |
+|----------|-----------------------------|--------------|--------------------------------------|
+| `??=`    | Null coalescing assignment  | `a ??= b`    | Assign b to a only if a is null      |
+
+**Examples:**
+```hemlock
+let config = null;
+config ??= { timeout: 30 };    // config is now { timeout: 30 }
+config ??= { timeout: 60 };    // config unchanged (not null)
+
+// Works with properties and indices
+let obj = { name: null };
+obj.name ??= "Anonymous";      // obj.name is now "Anonymous"
+obj.name ??= "Other";          // obj.name unchanged
+
+let arr = [null, 2, 3];
+arr[0] ??= "first";            // arr[0] is now "first"
+```
+
+**Behavior:**
+- Evaluates the right-hand side only if the left is null
+- Useful for lazy initialization and default values
+- Combines well with `??` for fallback chains
 
 ---
 
@@ -549,25 +585,31 @@ print(-7 / 3);             // -2.333... (f64)
 
 This prevents the common bug of unexpected integer truncation.
 
-### Floor Division (div / divi)
+### Integer Division (div / divi)
 
-For floor division (like integer division in other languages), use the `div()` and `divi()` functions:
+For integer division (like integer division in other languages), use `divi()`. `div()` is plain float division, equivalent to the `/` operator:
 
 ```hemlock
-// div(a, b) - floor division returning float
-print(div(5, 2));          // 2 (f64)
-print(div(-7, 3));         // -3 (f64)  -- floors toward -infinity
+import { div, divi } from "@stdlib/math";
 
-// divi(a, b) - floor division returning integer
+// div(a, b) - float division (same as /)
+print(div(5, 2));          // 2.5 (f64)
+print(div(-7, 3));         // -2.333... (f64)
+
+// divi(a, b) - integer division, truncates toward zero
 print(divi(5, 2));         // 2 (i64)
-print(divi(-7, 3));        // -3 (i64)
+print(divi(-7, 3));        // -2 (i64)  -- truncates toward zero, not -infinity
 print(typeof(divi(5, 2))); // i64
 ```
+
+Note: `div()` and `divi()` raise a runtime error on division by zero even for float arguments (where `/` would return `inf` or `NaN`).
 
 **Integer-returning math functions:**
 For other rounding operations that return integers:
 
 ```hemlock
+import { floori, ceili, roundi, trunci } from "@stdlib/math";
+
 print(floori(3.7));        // 3 (i64)
 print(ceili(3.2));         // 4 (i64)
 print(roundi(3.5));        // 4 (i64)

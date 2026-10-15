@@ -1,5 +1,6 @@
 // Test seeking to negative position
 // Tests that negative seek throws catchable exception
+import { open } from "@stdlib/fs";
 
 let f = open("/tmp/test_seek_negative.txt", "w");
 f.write("test data");

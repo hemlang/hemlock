@@ -1,0 +1,6 @@
+fn main() {
+    let p = alloc(64);
+    while (true) {
+        free(p);
+    }
+}

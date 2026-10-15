@@ -1,0 +1,22 @@
+findIndex > 25: 2
+findIndex > 100: -1
+findIndex == 10: 0
+findIndex empty: -1
+lastIndexOf 2: 3
+lastIndexOf 1: 4
+lastIndexOf 99: -1
+lastIndexOf empty: -1
+flat nested: 1, 2, 3, 4, 5
+flat mixed: 1, 2, 3, 4, 5, 6
+flat already flat: 1, 2, 3
+flat deep length: 3
+flat empty: 0
+trim_start: [hello  ]
+trim_start tabs: [hi]
+trim_start none: [no_leading]
+trim_start all ws: []
+trim_end: [  hello]
+trim_end tabs: [hi]
+trim_end none: [no_trailing]
+trim_end all ws: []
+All new method tests passed!

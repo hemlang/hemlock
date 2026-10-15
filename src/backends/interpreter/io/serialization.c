@@ -1,3 +1,5 @@
+#include "json_number.h"
+#include <math.h>
 #include "internal.h"
 #include <stdarg.h>
 #include <stdatomic.h>
@@ -14,7 +16,6 @@ static Value throw_runtime_error(ExecutionContext *ctx, const char *format, ...)
     va_end(args);
 
     ctx->exception_state.exception_value = val_string(buffer);
-    value_retain(ctx->exception_state.exception_value);
     ctx->exception_state.is_throwing = 1;
     return val_null();
 }
@@ -77,12 +78,13 @@ static inline int jbuf_append_i64(JsonBuffer *buf, int64_t val) {
     char tmp[24];
     char *p = tmp + sizeof(tmp);
     int negative = val < 0;
-    if (negative) val = -val;
+    // Negate in unsigned space: -INT64_MIN overflows int64_t.
+    uint64_t mag = negative ? 0 - (uint64_t)val : (uint64_t)val;
 
     do {
-        *--p = '0' + (val % 10);
-        val /= 10;
-    } while (val > 0);
+        *--p = (char)('0' + (mag % 10));
+        mag /= 10;
+    } while (mag > 0);
 
     if (negative) *--p = '-';
 
@@ -147,6 +149,20 @@ static int serialize_to_buffer(Value val, JsonBuffer *buf, SerializeVisitedSet *
 
 // Recursive serialization that writes directly to buffer
 // Returns 1 on success, 0 on error (exception thrown or allocation failure)
+// Shortest %g form that parses back to the same value (f32: 6-9 digits,
+// f64: 15-17). Plain "%g" kept only 6 significant digits, so a
+// serialize()/deserialize() round trip silently lost precision.
+static int json_format_float(char *buf, size_t size, double value, int is_f32) {
+    int lo = is_f32 ? 6 : 15, hi = is_f32 ? 9 : 17;
+    int len = 0;
+    for (int prec = lo; prec <= hi; prec++) {
+        len = snprintf(buf, size, "%.*g", prec, value);
+        double back = strtod(buf, NULL);
+        if (is_f32 ? ((float)back == (float)value) : (back == value)) break;
+    }
+    return len;
+}
+
 static int serialize_to_buffer(Value val, JsonBuffer *buf, SerializeVisitedSet *visited, ExecutionContext *ctx) {
     char tmp[32];
 
@@ -176,12 +192,20 @@ static int serialize_to_buffer(Value val, JsonBuffer *buf, SerializeVisitedSet *
             if (!jbuf_append_u64(buf, val.as.as_u64)) goto alloc_fail;
             return 1;
         case VAL_F32: {
-            int len = snprintf(tmp, sizeof(tmp), "%g", val.as.as_f32);
+            if (!isfinite(val.as.as_f32)) {
+                throw_runtime_error(ctx, "serialize() cannot represent NaN or Infinity in JSON");
+                return 0;
+            }
+            int len = json_format_float(tmp, sizeof(tmp), val.as.as_f32, 1);
             if (!jbuf_append_str(buf, tmp, len)) goto alloc_fail;
             return 1;
         }
         case VAL_F64: {
-            int len = snprintf(tmp, sizeof(tmp), "%g", val.as.as_f64);
+            if (!isfinite(val.as.as_f64)) {
+                throw_runtime_error(ctx, "serialize() cannot represent NaN or Infinity in JSON");
+                return 0;
+            }
+            int len = json_format_float(tmp, sizeof(tmp), val.as.as_f64, 0);
             if (!jbuf_append_str(buf, tmp, len)) goto alloc_fail;
             return 1;
         }
@@ -516,90 +540,19 @@ Value json_parse_string(JSONParser *p, ExecutionContext *ctx) {
 
 // Optimized number parsing - parse directly without allocation
 Value json_parse_number(JSONParser *p, ExecutionContext *ctx) {
-    (void)ctx;
-    const char *s = p->input + p->pos;
-    int negative = 0;
-
-    if (*s == '-') {
-        negative = 1;
-        s++;
+    size_t consumed = 0;
+    int64_t ival = 0;
+    double dval = 0.0;
+    HmlJsonNumKind kind = hml_json_scan_number(p->input + p->pos, &consumed, &ival, &dval);
+    if (kind == HML_JSON_NUM_INVALID) {
+        return throw_runtime_error(ctx, "Invalid number in JSON");
     }
-
-    // Parse integer part
-    int64_t int_val = 0;
-    while (*s >= '0' && *s <= '9') {
-        int_val = int_val * 10 + (*s - '0');
-        s++;
+    p->pos += (int)consumed;
+    switch (kind) {
+        case HML_JSON_NUM_I32: return val_i32((int32_t)ival);
+        case HML_JSON_NUM_I64: return val_i64(ival);
+        default:               return val_f64(dval);
     }
-
-    // Check for decimal
-    if (*s == '.') {
-        s++;
-        double frac = 0.0;
-        double divisor = 10.0;
-        while (*s >= '0' && *s <= '9') {
-            frac += (*s - '0') / divisor;
-            divisor *= 10.0;
-            s++;
-        }
-
-        // Handle exponent
-        if (*s == 'e' || *s == 'E') {
-            s++;
-            int exp_negative = 0;
-            if (*s == '-') { exp_negative = 1; s++; }
-            else if (*s == '+') { s++; }
-
-            int exp = 0;
-            while (*s >= '0' && *s <= '9') {
-                exp = exp * 10 + (*s - '0');
-                s++;
-            }
-
-            double multiplier = 1.0;
-            for (int i = 0; i < exp; i++) multiplier *= 10.0;
-            if (exp_negative) {
-                frac = (int_val + frac) / multiplier;
-                int_val = 0;
-            } else {
-                frac = (int_val + frac) * multiplier;
-                int_val = 0;
-            }
-        }
-
-        p->pos = s - p->input;
-        double result = int_val + frac;
-        return val_f64(negative ? -result : result);
-    }
-
-    // Handle exponent on integer
-    if (*s == 'e' || *s == 'E') {
-        s++;
-        int exp_negative = 0;
-        if (*s == '-') { exp_negative = 1; s++; }
-        else if (*s == '+') { s++; }
-
-        int exp = 0;
-        while (*s >= '0' && *s <= '9') {
-            exp = exp * 10 + (*s - '0');
-            s++;
-        }
-
-        p->pos = s - p->input;
-        double result = (double)int_val;
-        double multiplier = 1.0;
-        for (int i = 0; i < exp; i++) multiplier *= 10.0;
-        result = exp_negative ? result / multiplier : result * multiplier;
-        return val_f64(negative ? -result : result);
-    }
-
-    p->pos = s - p->input;
-
-    // Check if value fits in i32
-    if (int_val <= 2147483647) {
-        return val_i32(negative ? -(int32_t)int_val : (int32_t)int_val);
-    }
-    return val_i64(negative ? -int_val : int_val);
 }
 
 Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
@@ -608,7 +561,8 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     }
     p->pos++;  // skip opening brace
 
-    FieldEntry *fields = malloc(sizeof(FieldEntry) * 32);
+    int capacity = 32;
+    FieldEntry *fields = malloc(sizeof(FieldEntry) * (size_t)capacity);
     int num_fields = 0;
 
     json_skip_whitespace(p);
@@ -619,16 +573,43 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
         Object *obj = malloc(sizeof(Object));
         obj->fields = fields;
         obj->num_fields = 0;
-        obj->capacity = 32;
+        obj->capacity = capacity;
         obj->type_name = NULL;
         obj->ref_count = 1;  // Start with 1 - caller owns the first reference
         atomic_store(&obj->freed, 0);  // Not freed
         obj->hash_table = NULL;  // No hash table for empty objects
         obj->hash_capacity = 0;
+        obj->is_pooled = 0;  // Heap-allocated, not from the object pool
         return val_object(obj);
     }
 
     while (p->input[p->pos] != '}' && p->input[p->pos] != '\0') {
+        // Grow the fields array if needed. SECURITY: a JSON object may contain
+        // any number of keys; this array previously had a hardcoded capacity of
+        // 32 and was never grown, so the 33rd key overflowed the heap buffer
+        // with attacker-controlled data. Guard the doubling against overflow.
+        if (num_fields >= capacity) {
+            if (capacity > INT_MAX / 2) {
+                for (int i = 0; i < num_fields; i++) {
+                    free(fields[i].name);
+                    value_release(fields[i].value);
+                }
+                free(fields);
+                return throw_runtime_error(ctx, "JSON object has too many fields");
+            }
+            capacity *= 2;
+            FieldEntry *new_fields = realloc(fields, sizeof(FieldEntry) * (size_t)capacity);
+            if (!new_fields) {
+                for (int i = 0; i < num_fields; i++) {
+                    free(fields[i].name);
+                    value_release(fields[i].value);
+                }
+                free(fields);
+                return throw_runtime_error(ctx, "Out of memory parsing JSON object");
+            }
+            fields = new_fields;
+        }
+
         json_skip_whitespace(p);
 
         // Parse field name (must be a string)
@@ -641,6 +622,30 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
             }
             free(fields);
             return val_null();
+        }
+        // Grow the field array on demand (the initial 32 is only a hint).
+        if (num_fields >= capacity) {
+            if (capacity > INT_MAX / 2 / (int)sizeof(FieldEntry)) {
+                value_release(name_val);
+                for (int i = 0; i < num_fields; i++) {
+                    free(fields[i].name);
+                    value_release(fields[i].value);
+                }
+                free(fields);
+                return throw_runtime_error(ctx, "JSON object too large");
+            }
+            capacity *= 2;
+            FieldEntry *grown = realloc(fields, sizeof(FieldEntry) * capacity);
+            if (!grown) {
+                value_release(name_val);
+                for (int i = 0; i < num_fields; i++) {
+                    free(fields[i].name);
+                    value_release(fields[i].value);
+                }
+                free(fields);
+                return throw_runtime_error(ctx, "Out of memory in JSON parse");
+            }
+            fields = grown;
         }
         fields[num_fields].name = strdup(name_val.as.as_string->data);
         value_release(name_val);  // Release the temporary string after copying
@@ -679,6 +684,15 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
         // Check for comma
         if (p->input[p->pos] == ',') {
             p->pos++;
+            json_skip_whitespace(p);
+            if (p->input[p->pos] == '}') {
+                for (int i = 0; i < num_fields; i++) {
+                    free(fields[i].name);
+                    value_release(fields[i].value);
+                }
+                free(fields);
+                return throw_runtime_error(ctx, "Trailing comma in JSON object");
+            }
         } else if (p->input[p->pos] != '}') {
             // Clean up allocated memory
             for (int i = 0; i < num_fields; i++) {
@@ -704,12 +718,13 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     Object *obj = malloc(sizeof(Object));
     obj->fields = fields;
     obj->num_fields = num_fields;
-    obj->capacity = 32;
+    obj->capacity = capacity;
     obj->type_name = NULL;
     obj->ref_count = 1;  // Start with 1 - caller owns the first reference
     atomic_store(&obj->freed, 0);  // Not freed
     obj->hash_table = NULL;  // No hash table - use linear search fallback
     obj->hash_capacity = 0;
+    obj->is_pooled = 0;  // Heap-allocated, not from the object pool
     return val_object(obj);
 }
 
@@ -740,12 +755,18 @@ Value json_parse_array(JSONParser *p, ExecutionContext *ctx) {
             return val_null();
         }
         array_push(arr, element);
+        VALUE_RELEASE(element);  // array_push retained it
 
         json_skip_whitespace(p);
 
         // Check for comma
         if (p->input[p->pos] == ',') {
             p->pos++;
+            json_skip_whitespace(p);
+            if (p->input[p->pos] == ']') {
+                array_free(arr);
+                return throw_runtime_error(ctx, "Trailing comma in JSON array");
+            }
         } else if (p->input[p->pos] != ']') {
             array_free(arr);
             return throw_runtime_error(ctx, "Expected ',' or ']' in JSON array");
@@ -762,7 +783,23 @@ Value json_parse_array(JSONParser *p, ExecutionContext *ctx) {
 }
 
 // Optimized json_parse_value with direct character comparisons
+static Value json_parse_value_inner(JSONParser *p, ExecutionContext *ctx);
+
+// Public entry: bound recursion on deeply nested JSON so untrusted input raises
+// a catchable error instead of overflowing the C stack. depth is incremented
+// per nesting level and decremented when the subtree finishes, so flat siblings
+// do not accumulate.
 Value json_parse_value(JSONParser *p, ExecutionContext *ctx) {
+    if (p->depth >= HML_MAX_JSON_DEPTH) {
+        return throw_runtime_error(ctx, "JSON nesting too deep (max %d)", HML_MAX_JSON_DEPTH);
+    }
+    p->depth++;
+    Value v = json_parse_value_inner(p, ctx);
+    p->depth--;
+    return v;
+}
+
+static Value json_parse_value_inner(JSONParser *p, ExecutionContext *ctx) {
     json_skip_whitespace(p);
 
     const char *s = p->input + p->pos;
@@ -830,11 +867,16 @@ Value call_object_method(Object *obj, const char *method, Value *args, int num_a
         if (num_args != 1) {
             return throw_runtime_error(ctx, "has() expects 1 argument (key)");
         }
-        if (args[0].type != VAL_STRING) {
-            return throw_runtime_error(ctx, "has() key must be a string");
-        }
 
-        const char *key = args[0].as.as_string->data;
+        const char *key;
+        char key_buf[64];
+        if (args[0].type == VAL_STRING) {
+            key = args[0].as.as_string->data;
+        } else if (value_coerce_to_key(args[0], key_buf, sizeof(key_buf))) {
+            key = key_buf;
+        } else {
+            return throw_runtime_error(ctx, "has() key must be a string, number, bool, or rune");
+        }
         for (int i = 0; i < obj->num_fields; i++) {
             if (strcmp(obj->fields[i].name, key) == 0) {
                 return val_bool(1);
@@ -873,11 +915,16 @@ Value call_object_method(Object *obj, const char *method, Value *args, int num_a
         if (num_args != 1) {
             return throw_runtime_error(ctx, "delete() expects 1 argument (key)");
         }
-        if (args[0].type != VAL_STRING) {
-            return throw_runtime_error(ctx, "delete() key must be a string");
-        }
 
-        const char *key = args[0].as.as_string->data;
+        const char *key;
+        char key_buf[64];
+        if (args[0].type == VAL_STRING) {
+            key = args[0].as.as_string->data;
+        } else if (value_coerce_to_key(args[0], key_buf, sizeof(key_buf))) {
+            key = key_buf;
+        } else {
+            return throw_runtime_error(ctx, "delete() key must be a string, number, bool, or rune");
+        }
 
         // Find the field index
         int found_index = -1;

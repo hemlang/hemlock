@@ -1,0 +1,19 @@
+{
+  "id": "L6-M-01",
+  "level": "L6",
+  "difficulty": "medium",
+  "title": "Fix Type and Division Bugs",
+  "topic": "type system bugs",
+  "prompt": "The following Hemlock program has bugs related to Hemlock's type system, division semantics, and incorrect API usage. Fix all bugs so it produces the expected output.\n\nRemember: In Hemlock, `/` ALWAYS returns a float. Use `divi()` for integer division. Hemlock has no `len()` function — use `.length` property instead.\n\n```hemlock\n// Calculate average grade (should be integer: 85)\nfn average_grade(grades) {\n    let sum = 0;\n    for (g in grades) {\n        sum += g;\n    }\n    return sum / len(grades);\n}\n\n// Integer division for splitting items into groups\nfn split_groups(total, group_size) {\n    let full_groups = total / group_size;\n    let remainder = total % group_size;\n    return { groups: full_groups, leftover: remainder };\n}\n\n// Page calculation\nfn total_pages(items, per_page) {\n    let pages = items / per_page;\n    if (items % per_page > 0) {\n        pages = pages + 1;\n    }\n    return pages;\n}\n\nlet grades = [90, 85, 80, 92, 78];\nprint(\"average: \" + average_grade(grades));\n\nlet result = split_groups(17, 5);\nprint(\"groups: \" + result.groups + \", leftover: \" + result.leftover);\n\nprint(\"pages: \" + total_pages(23, 10));\n```",
+  "expected_output": "average: 85\ngroups: 3, leftover: 2\npages: 3\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "buggy_code": "fn average_grade(grades) {\n    let sum = 0;\n    for (g in grades) {\n        sum += g;\n    }\n    return sum / len(grades);\n}\n\nfn split_groups(total, group_size) {\n    let full_groups = total / group_size;\n    let remainder = total % group_size;\n    return { groups: full_groups, leftover: remainder };\n}\n\nfn total_pages(items, per_page) {\n    let pages = items / per_page;\n    if (items % per_page > 0) {\n        pages = pages + 1;\n    }\n    return pages;\n}\n\nlet grades = [90, 85, 80, 92, 78];\nprint(\"average: \" + average_grade(grades));\n\nlet result = split_groups(17, 5);\nprint(\"groups: \" + result.groups + \", leftover: \" + result.leftover);\n\nprint(\"pages: \" + total_pages(23, 10));\n",
+  "bug_descriptions": [
+    "average_grade: len() does not exist in Hemlock, use grades.length instead",
+    "average_grade: sum/length returns float (85.0), need divi() for integer result",
+    "split_groups: total/group_size returns float (3.4), need divi() for integer",
+    "total_pages: items/per_page returns float (2.3), need divi() for integer, then the +1 logic works correctly"
+  ],
+  "tags": ["debugging", "types", "divi", "division"]
+}

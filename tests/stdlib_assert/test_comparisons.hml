@@ -1,0 +1,93 @@
+// Test assert.hml comparison assertions (operator precedence fix)
+
+import { assert_gt, assert_gte, assert_lt, assert_lte, assert_in_range } from "@stdlib/assert";
+
+// === assert_gt ===
+assert_gt(5, 3, "5 > 3");
+assert_gt(0, -1, "0 > -1");
+assert_gt(100, 99, "100 > 99");
+
+// Should throw when not greater
+let caught = false;
+try {
+	assert_gt(3, 5, "should fail");
+} catch (e) {
+	caught = true;
+}
+assert(caught, "assert_gt(3, 5) should throw");
+
+caught = false;
+try {
+	assert_gt(5, 5, "should fail");
+} catch (e) {
+	caught = true;
+}
+assert(caught, "assert_gt(5, 5) should throw");
+
+// === assert_gte ===
+assert_gte(5, 3, "5 >= 3");
+assert_gte(5, 5, "5 >= 5");
+assert_gte(0, -1, "0 >= -1");
+
+caught = false;
+try {
+	assert_gte(3, 5, "should fail");
+} catch (e) {
+	caught = true;
+}
+assert(caught, "assert_gte(3, 5) should throw");
+
+// === assert_lt ===
+assert_lt(3, 5, "3 < 5");
+assert_lt(-1, 0, "-1 < 0");
+
+caught = false;
+try {
+	assert_lt(5, 3, "should fail");
+} catch (e) {
+	caught = true;
+}
+assert(caught, "assert_lt(5, 3) should throw");
+
+caught = false;
+try {
+	assert_lt(5, 5, "should fail");
+} catch (e) {
+	caught = true;
+}
+assert(caught, "assert_lt(5, 5) should throw");
+
+// === assert_lte ===
+assert_lte(3, 5, "3 <= 5");
+assert_lte(5, 5, "5 <= 5");
+
+caught = false;
+try {
+	assert_lte(5, 3, "should fail");
+} catch (e) {
+	caught = true;
+}
+assert(caught, "assert_lte(5, 3) should throw");
+
+// === assert_in_range ===
+assert_in_range(5, 0, 10, "5 in [0,10]");
+assert_in_range(0, 0, 10, "0 in [0,10]");
+assert_in_range(10, 0, 10, "10 in [0,10]");
+
+caught = false;
+try {
+	assert_in_range(11, 0, 10, "should fail");
+} catch (e) {
+	caught = true;
+}
+assert(caught, "assert_in_range(11, 0, 10) should throw");
+
+caught = false;
+try {
+	assert_in_range(-1, 0, 10, "should fail");
+} catch (e) {
+	caught = true;
+}
+assert(caught, "assert_in_range(-1, 0, 10) should throw");
+
+print("All comparison assertion tests passed!");

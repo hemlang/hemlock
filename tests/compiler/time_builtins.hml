@@ -1,4 +1,5 @@
 // Test time builtins
+import { now, time_ms, clock, sleep } from "@stdlib/time";
 
 // now() returns a timestamp
 let t = now();

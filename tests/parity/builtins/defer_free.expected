@@ -1,0 +1,5 @@
+value: 42
+after defer free
+before defer
+deferred print
+done

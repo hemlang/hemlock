@@ -41,6 +41,20 @@
 // Maximum signal number for signal handlers (POSIX standard)
 #define HML_MAX_SIGNAL 64
 
+// ========== RECURSION / NESTING DEPTH LIMITS ==========
+// These bound recursion driven by untrusted input (source files, JSON passed to
+// deserialize(), and serialized-AST blobs) so deeply nested input raises a
+// catchable error instead of exhausting the native C stack (SIGSEGV).
+
+// Maximum nesting depth for the recursive-descent source parser.
+#define HML_MAX_PARSE_DEPTH 1000
+
+// Maximum nesting depth when parsing JSON via string.deserialize().
+#define HML_MAX_JSON_DEPTH 1000
+
+// Maximum nesting depth when deserializing a serialized AST blob (.hmlc/.hmlb).
+#define HML_MAX_AST_DESERIALIZE_DEPTH 1000
+
 // ========== COMPILER LIMITS ==========
 
 // Buffer size for mangled names (module prefix + symbol name)
@@ -58,6 +72,13 @@
 #define HML_WS_HEADER_BUFFER_SIZE 8192
 #define HML_WS_BODY_BUFFER_SIZE 4096
 #define HML_WS_MAX_HEADER_DATA 16384
+
+// How long a client connect waits for the handshake, and how often it polls
+// while waiting. The poll interval is what makes the timeout real: it must be
+// enforced with a sleep, because lws_service()'s own timeout argument has been
+// ignored since lws 3.2 and returns immediately under the libuv event loop.
+#define HML_WS_CONNECT_TIMEOUT_MS 10000
+#define HML_WS_CONNECT_POLL_US    10000
 
 // ========== I/O LIMITS ==========
 
@@ -113,8 +134,8 @@
 #define HML_NANOSECONDS_PER_MS      1000000L
 #define HML_MILLISECONDS_PER_SECOND 1000
 
-// Default sleep interval for polling (1ms in nanoseconds)
-#define HML_POLL_SLEEP_NS 1000000L
+// Initial capacity of a channel's select() waiter list (grows on demand)
+#define HML_CHAN_WAITERS_INITIAL 4
 
 // ========== ASCII CONSTANTS ==========
 
@@ -178,12 +199,55 @@
 // Maximum interned string length (longer strings bypass interning)
 #define HML_INTERN_MAX_LENGTH 64
 
+// ========== THREAD STACK SIZE ==========
+
+// Stack size for spawned task threads (in bytes)
+// The interpreter's eval_stmt is recursive, so deep Hemlock call stacks
+// (especially with closures in WebSocket callbacks) can overflow the default
+// pthread stack (typically 2 MB on Linux).  16 MB gives comfortable headroom
+// for sequential server-spawn patterns without wasting significant virtual memory.
+#define HML_THREAD_STACK_SIZE (16 * 1024 * 1024)
+
 // ========== ATOMIC OPERATION CONSTANTS ==========
 
 // Required alignment for atomic operations
 // Atomic operations require naturally aligned pointers to guarantee atomicity
 #define HML_ATOMIC_I32_ALIGNMENT 4   // _Alignof(_Atomic int32_t)
 #define HML_ATOMIC_I64_ALIGNMENT 8   // _Alignof(_Atomic int64_t)
+
+// ========== WASM PERSISTENT CONTEXT ==========
+
+// Maximum number of concurrent persistent WASM contexts
+#define HML_MAX_WASM_CONTEXTS 64
+
+// Maximum number of cached (pre-compiled) WASM scripts
+#define HML_MAX_WASM_SCRIPTS 256
+
+// ========== OBJECT POOL ==========
+
+// Object pool size - maximum number of pre-allocated Object structs
+// Exceeding this falls back to malloc (slower but still works)
+#define HML_OBJECT_POOL_SIZE 512
+
+// Default field capacity for pooled objects
+// Pooled objects pre-allocate this many FieldEntry slots to avoid realloc
+#define HML_OBJECT_POOL_FIELDS_CAPACITY 8
+
+// ========== FUNCTION POOL ==========
+
+// Function pool size - maximum number of pre-allocated Function structs
+// Closures in hot loops benefit the most from pooled allocation
+#define HML_FUNCTION_POOL_SIZE 512
+
+// ========== CLOSURE ENVIRONMENTS ==========
+
+// Parent-slot index encoding for closure environments:
+//   index = depth * HML_CLOSURE_ENV_PARENT_STRIDE + slot
+// where depth is the number of parent links to follow and slot is the index
+// within that environment. Used so closures created inside other closures can
+// share (rather than copy) variables captured from an enclosing function.
+// Must match HML_CLOSURE_ENV_PARENT_STRIDE in runtime/include/hemlock_runtime.h
+#define HML_CLOSURE_ENV_PARENT_STRIDE 65536
 
 // ========== INLINE CACHE CONSTANTS ==========
 
@@ -207,5 +271,47 @@
 #define HML_IC_TYPE_SOCKET   5
 #define HML_IC_TYPE_CHANNEL  6
 #define HML_IC_TYPE_BUFFER   7
+
+// Compiler inlining limits
+#define HML_MAX_INLINE_DEPTH 3  // Maximum nesting depth for function inlining
+
+// Maximum unroll factor accepted by the @unroll(n) loop annotation
+#define HML_MAX_UNROLL_FACTOR 256
+
+// ========== TYPEID CONSTANTS ==========
+
+// Stable type identifiers returned by the typeid() builtin.
+// These are fixed integers guaranteed to be the same across both
+// the interpreter and compiler backends (unlike internal enum values
+// which may differ). Use with typeid() for fast integer-based type
+// detection instead of typeof() string comparisons.
+#define HML_TYPEID_I8        0
+#define HML_TYPEID_I16       1
+#define HML_TYPEID_I32       2
+#define HML_TYPEID_I64       3
+#define HML_TYPEID_U8        4
+#define HML_TYPEID_U16       5
+#define HML_TYPEID_U32       6
+#define HML_TYPEID_U64       7
+#define HML_TYPEID_F32       8
+#define HML_TYPEID_F64       9
+#define HML_TYPEID_BOOL     10
+#define HML_TYPEID_STRING   11
+#define HML_TYPEID_RUNE     12
+#define HML_TYPEID_PTR      13
+#define HML_TYPEID_BUFFER   14
+#define HML_TYPEID_ARRAY    15
+#define HML_TYPEID_OBJECT   16
+#define HML_TYPEID_FILE     17
+#define HML_TYPEID_FUNCTION 18
+#define HML_TYPEID_TASK     19
+#define HML_TYPEID_CHANNEL  20
+#define HML_TYPEID_NULL     21
+
+// ========== STATIC ANALYSIS ==========
+
+// Borrow checker: cap on interprocedural summary fixpoint passes. Summaries
+// are monotone so they converge quickly; the cap bounds pathological inputs.
+#define HML_BORROW_SUMMARY_MAX_PASSES 8
 
 #endif // HEMLOCK_LIMITS_H

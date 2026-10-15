@@ -1,0 +1,70 @@
+// Test closure scoping edge cases:
+// - For-loop per-iteration capture
+// - For-in per-iteration capture
+// - Body mutation of loop variable
+// - Shadowing + closures
+// - Catch variable capture
+// - Nested closure capture
+
+// 1. For-loop: closures capture per-iteration value
+let fns = [];
+for (let i = 0; i < 3; i++) {
+    fns.push(fn() { return i; });
+}
+print(fns[0]());
+print(fns[1]());
+print(fns[2]());
+
+// 2. For-in: closures capture per-iteration value
+let fns2 = [];
+let arr = ["a", "b", "c"];
+for (item in arr) {
+    fns2.push(fn() { return item; });
+}
+print(fns2[0]());
+print(fns2[1]());
+print(fns2[2]());
+
+// 3. For-loop: body mutation still affects loop counter
+let count = 0;
+for (let i = 0; i < 10; i++) {
+    count++;
+    if (i == 2) {
+        i = 8;
+    }
+}
+print(count);
+
+// 4. Shadowing: closure captures correct scope
+let x = 10;
+let getX = fn() { return x; };
+{
+    let x = 20;
+    let getX2 = fn() { return x; };
+    print(getX());
+    print(getX2());
+}
+print(getX());
+
+// 5. Catch variable capture
+let caught = null;
+try {
+    throw "test error";
+} catch (e) {
+    caught = fn() { return e; };
+}
+print(caught());
+
+// 6. Nested for-loop capture
+let nested = [];
+for (let i = 0; i < 2; i++) {
+    for (let j = 0; j < 2; j++) {
+        nested.push(fn() { return i * 10 + j; });
+    }
+}
+print(nested[0]());
+print(nested[1]());
+print(nested[2]());
+print(nested[3]());
+
+print("done");

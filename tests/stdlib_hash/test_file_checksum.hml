@@ -2,6 +2,8 @@
 
 import { file_checksum, file_sha256, file_sha512, file_md5, file_djb2, file_fnv1a, file_murmur3 } from "@stdlib/hash";
 import { sha256, sha512, md5, djb2, fnv1a, murmur3 } from "@stdlib/hash";
+import { open } from "@stdlib/fs";
+import { exec } from "@stdlib/process";
 
 // Create test files with known content
 let test_file1 = "/tmp/hash_test1.txt";

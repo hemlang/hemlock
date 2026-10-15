@@ -1,5 +1,6 @@
 // Test cases where precision may be lost
 // i64/u64 + f32 should promote to f64 to preserve precision
+import { div } from "@stdlib/math";
 
 // Large integers that can't be represented exactly in f32
 let big64: i64 = 9007199254740993;  // 2^53 + 1, beyond f64 exact range

@@ -46,6 +46,8 @@ exec(command: string): object
 ### Basic Example
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let result = exec("echo hello");
 print(result.output);      // "hello\n"
 print(result.exit_code);   // 0
@@ -74,6 +76,8 @@ Contains all text written to stdout by the command.
 
 **Examples:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r1 = exec("echo test");
 print(r1.output);  // "test\n"
 
@@ -95,6 +99,8 @@ The command's exit status code.
 
 **Examples:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r1 = exec("true");
 print(r1.exit_code);  // 0 (success)
 
@@ -110,14 +116,18 @@ print(r3.exit_code);  // 2 (file not found, varies by command)
 ### Simple Command
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("ls -la");
 print(r.output);
-print("Exit code: " + typeof(r.exit_code));
+print("Exit code: " + r.exit_code);
 ```
 
 ### Checking Exit Status
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("grep pattern file.txt");
 if (r.exit_code == 0) {
     print("Found: " + r.output);
@@ -129,6 +139,8 @@ if (r.exit_code == 0) {
 ### Commands with Pipes
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("ps aux | grep hemlock");
 print(r.output);
 ```
@@ -136,6 +148,8 @@ print(r.output);
 ### Multiple Commands
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("cd /tmp && ls -la");
 print(r.output);
 ```
@@ -143,6 +157,8 @@ print(r.output);
 ### Command Substitution
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("echo $(date)");
 print(r.output);  // Current date
 ```
@@ -152,9 +168,11 @@ print(r.output);  // Current date
 ### Handling Failures
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("ls /nonexistent");
 if (r.exit_code != 0) {
-    print("Command failed with code: " + typeof(r.exit_code));
+    print("Command failed with code: " + r.exit_code);
     print("Error output: " + r.output);  // Note: stderr not captured
 }
 ```
@@ -162,11 +180,13 @@ if (r.exit_code != 0) {
 ### Processing Multi-Line Output
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("cat file.txt");
 let lines = r.output.split("\n");
 let i = 0;
 while (i < lines.length) {
-    print("Line " + typeof(i) + ": " + lines[i]);
+    print("Line " + i + ": " + lines[i]);
     i = i + 1;
 }
 ```
@@ -175,6 +195,8 @@ while (i < lines.length) {
 
 **With && (AND):**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r1 = exec("mkdir -p /tmp/test && touch /tmp/test/file.txt");
 if (r1.exit_code == 0) {
     print("Setup complete");
@@ -183,12 +205,16 @@ if (r1.exit_code == 0) {
 
 **With || (OR):**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("command1 || command2");
 // Runs command2 only if command1 fails
 ```
 
 **With ; (sequence):**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("command1; command2");
 // Runs both regardless of success/failure
 ```
@@ -196,12 +222,16 @@ let r = exec("command1; command2");
 ### Using Pipes
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("echo 'data' | base64");
 print("Base64: " + r.output);
 ```
 
 **Complex pipelines:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("cat /etc/passwd | grep root | cut -d: -f1");
 print(r.output);
 ```
@@ -211,19 +241,23 @@ print(r.output);
 Different exit codes indicate different conditions:
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("test -f myfile.txt");
 if (r.exit_code == 0) {
     print("File exists");
 } else if (r.exit_code == 1) {
     print("File does not exist");
 } else {
-    print("Test command failed: " + typeof(r.exit_code));
+    print("Test command failed: " + r.exit_code);
 }
 ```
 
 ### Output Redirects
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // Redirect stdout to file (within shell)
 let r1 = exec("echo 'test' > /tmp/output.txt");
 
@@ -234,6 +268,8 @@ let r2 = exec("command 2>&1");
 ### Environment Variables
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("export VAR=value && echo $VAR");
 print(r.output);  // "value\n"
 ```
@@ -241,6 +277,8 @@ print(r.output);  // "value\n"
 ### Working Directory Changes
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("cd /tmp && pwd");
 print(r.output);  // "/tmp\n"
 ```
@@ -252,6 +290,8 @@ print(r.output);  // "/tmp\n"
 The `exec()` function throws an exception if the command cannot be executed:
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 try {
     let r = exec("nonexistent_command_xyz");
 } catch (e) {
@@ -267,6 +307,8 @@ try {
 ### When exec() Does NOT Throw
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // Command runs but returns non-zero exit code
 let r1 = exec("false");
 print(r1.exit_code);  // 1 (not an exception)
@@ -283,11 +325,13 @@ print(r3.exit_code);  // 127 (not an exception)
 ### Safe Execution Pattern
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 fn safe_exec(command: string) {
     try {
         let r = exec(command);
         if (r.exit_code != 0) {
-            print("Warning: Command failed with code " + typeof(r.exit_code));
+            print("Warning: Command failed with code " + r.exit_code);
             return "";
         }
         return r.output;
@@ -350,6 +394,8 @@ let output = safe_exec("ls -la");
 
 **Vulnerable code:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // DANGEROUS - DO NOT DO THIS
 let filename = args[1];  // User input
 let r = exec("cat " + filename);  // Shell injection!
@@ -365,6 +411,8 @@ let r = exec("cat " + filename);  // Shell injection!
 
 **1. Never use unsanitized user input:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // Bad
 let user_input = args[1];
 let r = exec("process " + user_input);  // DANGEROUS
@@ -396,6 +444,8 @@ if (is_safe_filename(filename)) {
 
 **2. Use allowlists, not denylists:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // Good - strict allowlist
 let allowed_commands = ["status", "start", "stop", "restart"];
 let cmd = args[1];
@@ -417,6 +467,8 @@ if (found) {
 
 **3. Escape special characters:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 fn shell_escape(s: string): string {
     // Simple escape - wrap in single quotes and escape single quotes
     let escaped = s.replace_all("'", "'\\''");
@@ -430,6 +482,9 @@ let r = exec("cat " + safe);
 
 **4. Avoid exec() for file operations:**
 ```hemlock
+import { open } from "@stdlib/fs";
+import { exec } from "@stdlib/process";
+
 // Bad - use exec for file operations
 let r = exec("cat file.txt");
 
@@ -444,6 +499,8 @@ f.close();
 Commands run with the same permissions as the Hemlock process:
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // If Hemlock runs as root, exec() commands also run as root!
 let r = exec("rm -rf /important");  // DANGEROUS if running as root
 ```
@@ -457,6 +514,8 @@ let r = exec("rm -rf /important");  // DANGEROUS if running as root
 Only stdout is captured, stderr goes to terminal:
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("ls /nonexistent");
 // r.output is empty
 // Error message appears on terminal, not captured
@@ -464,6 +523,8 @@ let r = exec("ls /nonexistent");
 
 **Workaround - redirect stderr to stdout:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("ls /nonexistent 2>&1");
 // Now error messages are in r.output
 ```
@@ -473,6 +534,8 @@ let r = exec("ls /nonexistent 2>&1");
 Must wait for command completion:
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("long_running_command");
 // Blocks until command finishes
 // Cannot process output incrementally
@@ -483,6 +546,8 @@ let r = exec("long_running_command");
 Commands can run indefinitely:
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("sleep 1000");
 // Blocks for 1000 seconds
 // No way to timeout or cancel
@@ -490,6 +555,8 @@ let r = exec("sleep 1000");
 
 **Workaround - use timeout command:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("timeout 5 long_command");
 // Will timeout after 5 seconds
 ```
@@ -499,6 +566,8 @@ let r = exec("timeout 5 long_command");
 Cannot send signals to running commands:
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("long_command");
 // Cannot send SIGINT, SIGTERM, etc. to the command
 ```
@@ -508,6 +577,8 @@ let r = exec("long_command");
 Cannot interact with command after starting:
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("interactive_program");
 // Cannot send input to the program
 // Cannot control execution
@@ -519,6 +590,8 @@ let r = exec("interactive_program");
 
 **1. Running system utilities:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("ls -la");
 let r = exec("grep pattern file.txt");
 let r = exec("find /path -name '*.txt'");
@@ -526,18 +599,24 @@ let r = exec("find /path -name '*.txt'");
 
 **2. Quick data processing with Unix tools:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("cat data.txt | sort | uniq | wc -l");
 print("Unique lines: " + r.output);
 ```
 
 **3. Checking system state:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("df -h");
 print("Disk usage:\n" + r.output);
 ```
 
 **4. File existence checks:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("test -f myfile.txt");
 if (r.exit_code == 0) {
     print("File exists");
@@ -546,6 +625,8 @@ if (r.exit_code == 0) {
 
 **5. Generating reports:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("ps aux | grep myapp | wc -l");
 let count = r.output.trim();
 print("Running instances: " + count);
@@ -553,6 +634,8 @@ print("Running instances: " + count);
 
 **6. Automation scripts:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 exec("git add .");
 exec("git commit -m 'Auto commit'");
 let r = exec("git push");
@@ -565,30 +648,40 @@ if (r.exit_code != 0) {
 
 **1. Long-running services:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // Bad
 let r = exec("nginx");  // Blocks forever
 ```
 
 **2. Interactive commands:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // Bad - cannot provide input
 let r = exec("ssh user@host");
 ```
 
 **3. Commands producing huge output:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // Bad - loads entire output into memory
 let r = exec("cat 10GB_file.log");
 ```
 
 **4. Real-time streaming:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // Bad - cannot process output incrementally
 let r = exec("tail -f /var/log/app.log");
 ```
 
 **5. Mission-critical error handling:**
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // Bad - stderr not captured
 let r = exec("critical_operation");
 // Cannot see detailed error messages
@@ -599,6 +692,8 @@ let r = exec("critical_operation");
 ### 1. Always Check Exit Codes
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("important_command");
 if (r.exit_code != 0) {
     print("Command failed!");
@@ -609,6 +704,8 @@ if (r.exit_code != 0) {
 ### 2. Trim Output When Needed
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 let r = exec("echo test");
 let clean = r.output.trim();  // Remove trailing newline
 print(clean);  // "test" (no newline)
@@ -617,6 +714,8 @@ print(clean);  // "test" (no newline)
 ### 3. Validate Before Executing
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 fn is_valid_command(cmd: string): bool {
     // Validate command is safe
     return true;  // Your validation logic
@@ -630,6 +729,8 @@ if (is_valid_command(user_cmd)) {
 ### 4. Use try/catch for Critical Operations
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 try {
     let r = exec("critical_command");
     if (r.exit_code != 0) {
@@ -644,6 +745,9 @@ try {
 ### 5. Prefer Hemlock APIs Over exec()
 
 ```hemlock
+import { open } from "@stdlib/fs";
+import { exec } from "@stdlib/process";
+
 // Bad - use exec for file operations
 let r = exec("cat file.txt");
 
@@ -656,6 +760,8 @@ f.close();
 ### 6. Capture stderr When Needed
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // Redirect stderr to stdout
 let r = exec("command 2>&1");
 // Now r.output contains both stdout and stderr
@@ -664,6 +770,8 @@ let r = exec("command 2>&1");
 ### 7. Use Shell Features Wisely
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 // Use pipes for efficiency
 let r = exec("cat large.txt | grep pattern | head -n 10");
 
@@ -679,6 +787,8 @@ let r = exec("test -f file.txt && cat file.txt");
 ### Example 1: System Information Gatherer
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 fn get_system_info() {
     print("=== System Information ===");
 
@@ -707,6 +817,8 @@ get_system_info();
 ### Example 2: Log Analyzer
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 fn analyze_log(logfile: string) {
     print("Analyzing log: " + logfile);
 
@@ -748,6 +860,8 @@ if (args.length < 2) {
 ### Example 3: Git Helper
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 fn git_status() {
     let r = exec("git status --short");
     if (r.exit_code != 0) {
@@ -793,6 +907,8 @@ if (args.length > 1) {
 ### Example 4: Backup Script
 
 ```hemlock
+import { exec } from "@stdlib/process";
+
 fn backup_directory(source: string, dest: string) {
     print("Backing up " + source + " to " + dest);
 

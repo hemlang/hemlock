@@ -1,0 +1,14 @@
+{
+  "id": "L5-H-01",
+  "level": "L5",
+  "difficulty": "hard",
+  "title": "Rust Ownership to Manual Memory",
+  "topic": "Rust to Hemlock",
+  "prompt": "Translate this Rust program to Hemlock. Rust's ownership/borrow system must be replaced with manual memory management (alloc/free/defer). Rust's Vec maps to Hemlock arrays, String to Hemlock strings.\n\n```rust\nuse std::collections::HashMap;\n\nstruct Student {\n    name: String,\n    grades: Vec<f64>,\n}\n\nimpl Student {\n    fn new(name: &str) -> Student {\n        Student {\n            name: name.to_string(),\n            grades: Vec::new(),\n        }\n    }\n    \n    fn add_grade(&mut self, grade: f64) {\n        self.grades.push(grade);\n    }\n    \n    fn average(&self) -> f64 {\n        if self.grades.is_empty() {\n            return 0.0;\n        }\n        let sum: f64 = self.grades.iter().sum();\n        sum / self.grades.len() as f64\n    }\n    \n    fn highest(&self) -> f64 {\n        self.grades.iter().cloned().fold(f64::MIN, f64::max)\n    }\n}\n\nfn class_report(students: &[Student]) {\n    let mut class_avg = 0.0;\n    for s in students {\n        let avg = s.average();\n        println!(\"{}: avg={:.1}, highest={:.1}\", s.name, avg, s.highest());\n        class_avg += avg;\n    }\n    class_avg /= students.len() as f64;\n    println!(\"Class average: {:.1}\", class_avg);\n}\n\nfn main() {\n    let mut students = vec![\n        Student::new(\"Alice\"),\n        Student::new(\"Bob\"),\n        Student::new(\"Charlie\"),\n    ];\n    \n    students[0].add_grade(92.0);\n    students[0].add_grade(88.0);\n    students[0].add_grade(95.0);\n    \n    students[1].add_grade(78.0);\n    students[1].add_grade(82.0);\n    students[1].add_grade(75.0);\n    \n    students[2].add_grade(90.0);\n    students[2].add_grade(94.0);\n    students[2].add_grade(91.0);\n    \n    class_report(&students);\n}\n```\n\nIn Hemlock: use define for Student, objects with method closures, arrays for grades. No ownership system - just use Hemlock's object model directly.",
+  "expected_output": "Alice: avg=91.6, highest=95\nBob: avg=78.3, highest=82\nCharlie: avg=91.6, highest=94\nClass average: 87.2\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "source_language": "rust",
+  "notes": "Tests Rust-to-Hemlock translation. Key: struct+impl -> define+object methods, Vec -> array, ownership -> nothing (Hemlock is manual but objects are GC-adjacent), f64 formatting.",
+  "tags": ["translation", "rust", "objects", "define", "arrays", "methods"]
+}

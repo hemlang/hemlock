@@ -2,10 +2,22 @@
  * Hemlock Runtime Library - FFI (Foreign Function Interface)
  *
  * Dynamic loading, function calls, struct marshaling, and callbacks.
+ *
+ * WASM: the dlopen/libffi machinery below is excluded when building for
+ * Emscripten (there is no dynamic loader to talk to); stubs live in
+ * wasm_shim.c. The ptr_read / ptr_write / ptr_offset family at the bottom
+ * of this file is NOT part of that machinery: it is plain pointer
+ * arithmetic on linear memory, which works exactly the same under WASM,
+ * so it is compiled unconditionally.
  */
 
 #include "builtins_internal.h"
+
+#ifndef __EMSCRIPTEN__
+
 #include <pthread.h>
+
+#ifndef HEMLOCK_NO_FFI
 
 // ========== CIF CACHE FOR FFI OPTIMIZATION ==========
 //
@@ -156,6 +168,49 @@ static const char* translate_library_path(const char *path) {
             return translated;
         }
     }
+#elif defined(_WIN32)
+    // Translate Linux library names to Windows equivalents so
+    // cross-platform bindings (e.g. `import "libraylib.so"`) work unmodified
+    if (strcmp(path, "libc.so.6") == 0 || strcmp(path, "libm.so.6") == 0) {
+        return "msvcrt.dll";
+    }
+    size_t len = strlen(path);
+    size_t base_len;
+    const char *so_pos = strstr(path, ".so.");
+    if (so_pos != NULL) {
+        base_len = (size_t)(so_pos - path);
+    } else if (len > 3 && strcmp(path + len - 3, ".so") == 0) {
+        base_len = len - 3;
+    } else {
+        return path;
+    }
+    static char translated[512];
+    if (base_len + 5 >= sizeof(translated)) {
+        return path;
+    }
+    // MSYS2-style name first (libfoo.so -> libfoo.dll) ...
+    memcpy(translated, path, base_len);
+    strcpy(translated + base_len, ".dll");
+    void *probe = dlopen(translated, RTLD_LAZY);
+    if (probe) {
+        dlclose(probe);
+        return translated;
+    }
+    // ... then official-release style without the lib prefix
+    // (libraylib.so -> raylib.dll)
+    const char *basename = strrchr(translated, '/');
+    const char *bs = strrchr(translated, '\\');
+    if (bs > basename) basename = bs;
+    basename = basename ? basename + 1 : translated;
+    if (strncmp(basename, "lib", 3) == 0) {
+        memmove((char *)basename, basename + 3, strlen(basename + 3) + 1);
+        probe = dlopen(translated, RTLD_LAZY);
+        if (probe) {
+            dlclose(probe);
+            return translated;
+        }
+    }
+    return path;  // nothing loadable found; let dlopen report the original
 #endif
     return path;  // No translation on Linux or if no pattern matched
 }
@@ -223,6 +278,13 @@ void* hml_ffi_sym(HmlValue lib, const char *name) {
     // This allows modules to export many extern functions without requiring
     // all symbols to exist in the library
     return sym;
+}
+
+// `import "lib"` statements share the ffi_open() implementation; the
+// distinction only matters in no-FFI builds, where imports warn instead
+// of throwing (see the stub section below)
+HmlValue hml_ffi_load_import(const char *path) {
+    return hml_ffi_load(path);
 }
 
 // ========== FFI TYPE CONVERSION ==========
@@ -1255,19 +1317,147 @@ HmlValue hml_builtin_callback_free(HmlClosureEnv *env, HmlValue ptr) {
     return hml_val_null();
 }
 
+#else /* HEMLOCK_NO_FFI */
+
+// Stub implementations when libffi is not available. The ptr_read_*/
+// ptr_write_*/ptr_deref_* accessors below don't need libffi and stay live.
+HmlValue hml_ffi_load(const char *path) {
+    (void)path;
+    hml_runtime_error("ffi_open() is not available in this build (no FFI support)");
+}
+
+// `import "lib"` statements warn instead of throwing, mirroring the
+// interpreter shim: modules with platform-gated FFI (e.g. @stdlib/termios)
+// must still load. Calling an extern fn later fails at symbol lookup.
+HmlValue hml_ffi_load_import(const char *path) {
+    fprintf(stderr, "Warning: FFI import '%s' ignored in this build (no FFI support)\n", path);
+    return hml_val_null();
+}
+
+void hml_ffi_close(HmlValue lib) {
+    (void)lib;
+    hml_runtime_error("ffi_close() is not available in this build (no FFI support)");
+}
+
+void* hml_ffi_sym(HmlValue lib, const char *name) {
+    (void)lib; (void)name;
+    hml_runtime_error("ffi_sym() is not available in this build (no FFI support)");
+}
+
+HmlValue hml_ffi_call(void *func_ptr, HmlValue *args, int num_args, HmlFFIType *types) {
+    (void)func_ptr; (void)args; (void)num_args; (void)types;
+    hml_runtime_error("ffi_call() is not available in this build (no FFI support)");
+}
+
+HmlValue hml_ffi_call_with_structs(void *func_ptr, HmlValue *args, int num_args,
+                                    HmlFFIType *types, const char **struct_names) {
+    (void)func_ptr; (void)args; (void)num_args; (void)types; (void)struct_names;
+    hml_runtime_error("ffi_call() is not available in this build (no FFI support)");
+}
+
+HmlFFIStructType* hml_ffi_lookup_struct(const char *name) {
+    (void)name;
+    return NULL;
+}
+
+HmlFFIStructType* hml_ffi_register_struct(const char *name, const char **field_names,
+                                           HmlFFIType *field_types, int num_fields) {
+    (void)name; (void)field_names; (void)field_types; (void)num_fields;
+    hml_runtime_error("ffi_register_struct() is not available in this build (no FFI support)");
+}
+
+void* hml_ffi_object_to_struct(HmlValue obj, HmlFFIStructType *struct_type) {
+    (void)obj; (void)struct_type;
+    hml_runtime_error("ffi_object_to_struct() is not available in this build (no FFI support)");
+}
+
+HmlValue hml_ffi_struct_to_object(void *struct_ptr, HmlFFIStructType *struct_type) {
+    (void)struct_ptr; (void)struct_type;
+    hml_runtime_error("ffi_struct_to_object() is not available in this build (no FFI support)");
+}
+
+void hml_ffi_struct_cleanup(void) { /* no-op */ }
+
+HmlFFICallback* hml_ffi_callback_create(HmlValue fn, HmlFFIType *param_types, int num_params, HmlFFIType return_type) {
+    (void)fn; (void)param_types; (void)num_params; (void)return_type;
+    hml_runtime_error("callback() is not available in this build (no FFI support)");
+}
+
+void* hml_ffi_callback_ptr(HmlFFICallback *cb) {
+    (void)cb;
+    return NULL;
+}
+
+void hml_ffi_callback_free(HmlFFICallback *cb) {
+    (void)cb;
+}
+
+int hml_ffi_callback_free_by_ptr(void *ptr) {
+    (void)ptr;
+    return 0;
+}
+
+HmlValue hml_builtin_callback(HmlClosureEnv *env, HmlValue fn, HmlValue param_types, HmlValue return_type) {
+    (void)env; (void)fn; (void)param_types; (void)return_type;
+    hml_runtime_error("callback() is not available in this build (no FFI support)");
+}
+
+HmlValue hml_builtin_callback_free(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env; (void)ptr;
+    hml_runtime_error("callback_free() is not available in this build (no FFI support)");
+}
+
+#endif /* HEMLOCK_NO_FFI */
+
+#endif // !__EMSCRIPTEN__
+
+// ========== RAW POINTER ACCESS (available on every target, WASM included) ==========
+//
+// These live next to the FFI code because that is where they are most often
+// used, but they need neither dlopen nor libffi: they are loads, stores and
+// address arithmetic over the process's (or WASM module's) linear memory.
+// Keeping them inside the !__EMSCRIPTEN__ guard used to make every one of
+// them a panicking stub in the browser, which takes out any program that
+// walks a buffer by hand.
+
+// Helper: extract raw pointer from ptr or buffer value, validating that an
+// access of `access_size` bytes at offset 0 stays within a (safe) buffer. Raw
+// ptr is intentionally unchecked (Hemlock's documented unsafe-pointer
+// contract); buffers are bounds-checked so the ptr_read_*/ptr_deref_* family
+// cannot read or write past the allocation (this matches the bounds-checked
+// hml_extract_ptr_checked() used by the sibling builtins in builtins_memory.c).
+static inline void *hml_ffi_extract_ptr(HmlValue val, size_t access_size, const char *op) {
+    if (val.type == HML_VAL_PTR) {
+        if (!val.as.as_ptr) hml_runtime_error("%s cannot access null pointer", op);
+        return val.as.as_ptr;
+    }
+    if (val.type == HML_VAL_BUFFER && val.as.as_buffer) {
+        HmlBuffer *b = val.as.as_buffer;
+        if (b->freed) hml_runtime_error("%s cannot access freed buffer", op);
+        if ((int64_t)access_size > (int64_t)b->length) {
+            hml_runtime_error("%s access of size %zu exceeds buffer length %d",
+                              op, access_size, b->length);
+        }
+        if (!b->data) hml_runtime_error("%s cannot access null buffer", op);
+        return b->data;
+    }
+    hml_runtime_error("%s argument must be a ptr or buffer", op);
+    return NULL;  // unreachable: hml_runtime_error does not return
+}
+
+static inline int hml_ffi_is_ptr_like(HmlValue val) {
+    return val.type == HML_VAL_PTR || val.type == HML_VAL_BUFFER;
+}
+
 // Builtin: ptr_deref_i32(ptr) -> i32
 HmlValue hml_builtin_ptr_deref_i32(HmlClosureEnv *env, HmlValue ptr) {
     (void)env;
 
-    if (ptr.type != HML_VAL_PTR) {
-        hml_runtime_error("ptr_deref_i32() argument must be a ptr");
+    if (!hml_ffi_is_ptr_like(ptr)) {
+        hml_runtime_error("ptr_deref_i32() argument must be a ptr or buffer");
     }
 
-    void *p = ptr.as.as_ptr;
-    if (!p) {
-        hml_runtime_error("ptr_deref_i32() cannot dereference null pointer");
-    }
-
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(int32_t), "ptr_deref_i32()");
     return hml_val_i32(*(int32_t*)p);
 }
 
@@ -1275,15 +1465,11 @@ HmlValue hml_builtin_ptr_deref_i32(HmlClosureEnv *env, HmlValue ptr) {
 HmlValue hml_builtin_ptr_write_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue value) {
     (void)env;
 
-    if (ptr.type != HML_VAL_PTR) {
-        hml_runtime_error("ptr_write_i32() first argument must be a ptr");
+    if (!hml_ffi_is_ptr_like(ptr)) {
+        hml_runtime_error("ptr_write_i32() first argument must be a ptr or buffer");
     }
 
-    void *p = ptr.as.as_ptr;
-    if (!p) {
-        hml_runtime_error("ptr_write_i32() cannot write to null pointer");
-    }
-
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(int32_t), "ptr_write_i32()");
     *(int32_t*)p = hml_to_i32(value);
     return hml_val_null();
 }
@@ -1308,19 +1494,112 @@ HmlValue hml_builtin_ptr_offset(HmlClosureEnv *env, HmlValue ptr, HmlValue offse
 HmlValue hml_builtin_ptr_read_i32(HmlClosureEnv *env, HmlValue ptr) {
     (void)env;
 
-    if (ptr.type != HML_VAL_PTR) {
-        hml_runtime_error("ptr_read_i32() argument must be a ptr");
+    if (!hml_ffi_is_ptr_like(ptr)) {
+        hml_runtime_error("ptr_read_i32() argument must be a ptr or buffer");
     }
 
-    void *p = ptr.as.as_ptr;
-    if (!p) {
-        hml_runtime_error("ptr_read_i32() cannot read from null pointer");
-    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(int32_t), "ptr_read_i32()");
+    return hml_val_i32(*(int32_t*)p);
+}
 
-    // Read through pointer-to-pointer (qsort passes ptr to element)
-    int32_t *actual_ptr = *(int32_t**)p;
-    if (!actual_ptr) {
-        hml_runtime_error("ptr_read_i32() dereferenced pointer is null");
+// ptr_read_i8(ptr) -> i8
+HmlValue hml_builtin_ptr_read_i8(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (!hml_ffi_is_ptr_like(ptr)) {
+        hml_runtime_error("ptr_read_i8() argument must be a ptr or buffer");
     }
-    return hml_val_i32(*actual_ptr);
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(int8_t), "ptr_read_i8()");
+    return hml_val_i8(*(int8_t*)p);
+}
+
+// ptr_read_i16(ptr) -> i16
+HmlValue hml_builtin_ptr_read_i16(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (!hml_ffi_is_ptr_like(ptr)) {
+        hml_runtime_error("ptr_read_i16() argument must be a ptr or buffer");
+    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(int16_t), "ptr_read_i16()");
+    return hml_val_i16(*(int16_t*)p);
+}
+
+// ptr_read_u8(ptr) -> u8
+HmlValue hml_builtin_ptr_read_u8(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (!hml_ffi_is_ptr_like(ptr)) {
+        hml_runtime_error("ptr_read_u8() argument must be a ptr or buffer");
+    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(uint8_t), "ptr_read_u8()");
+    return hml_val_u8(*(uint8_t*)p);
+}
+
+// ptr_read_u16(ptr) -> u16
+HmlValue hml_builtin_ptr_read_u16(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (!hml_ffi_is_ptr_like(ptr)) {
+        hml_runtime_error("ptr_read_u16() argument must be a ptr or buffer");
+    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(uint16_t), "ptr_read_u16()");
+    return hml_val_u16(*(uint16_t*)p);
+}
+
+// ptr_read_u32(ptr) -> u32
+HmlValue hml_builtin_ptr_read_u32(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (!hml_ffi_is_ptr_like(ptr)) {
+        hml_runtime_error("ptr_read_u32() argument must be a ptr or buffer");
+    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(uint32_t), "ptr_read_u32()");
+    return hml_val_u32(*(uint32_t*)p);
+}
+
+// ptr_read_ptr(ptr) -> ptr
+HmlValue hml_builtin_ptr_read_ptr(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (!hml_ffi_is_ptr_like(ptr)) {
+        hml_runtime_error("ptr_read_ptr() argument must be a ptr or buffer");
+    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(void*), "ptr_read_ptr()");
+    void *result = *(void**)p;
+    if (!result) return hml_val_null();
+    return hml_val_ptr(result);
+}
+
+// ptr_read_i64(ptr) -> i64
+HmlValue hml_builtin_ptr_read_i64(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (!hml_ffi_is_ptr_like(ptr)) {
+        hml_runtime_error("ptr_read_i64() argument must be a ptr or buffer");
+    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(int64_t), "ptr_read_i64()");
+    return hml_val_i64(*(int64_t*)p);
+}
+
+// ptr_read_u64(ptr) -> u64
+HmlValue hml_builtin_ptr_read_u64(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (!hml_ffi_is_ptr_like(ptr)) {
+        hml_runtime_error("ptr_read_u64() argument must be a ptr or buffer");
+    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(uint64_t), "ptr_read_u64()");
+    return hml_val_u64(*(uint64_t*)p);
+}
+
+// ptr_read_f32(ptr) -> f32
+HmlValue hml_builtin_ptr_read_f32(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (!hml_ffi_is_ptr_like(ptr)) {
+        hml_runtime_error("ptr_read_f32() argument must be a ptr or buffer");
+    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(float), "ptr_read_f32()");
+    return hml_val_f32(*(float*)p);
+}
+
+// ptr_read_f64(ptr) -> f64
+HmlValue hml_builtin_ptr_read_f64(HmlClosureEnv *env, HmlValue ptr) {
+    (void)env;
+    if (!hml_ffi_is_ptr_like(ptr)) {
+        hml_runtime_error("ptr_read_f64() argument must be a ptr or buffer");
+    }
+    void *p = hml_ffi_extract_ptr(ptr, sizeof(double), "ptr_read_f64()");
+    return hml_val_f64(*(double*)p);
 }

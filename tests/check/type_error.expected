@@ -1,0 +1,2 @@
+type_error.hml:2: error: cannot initialize 'x' of type 'i32' with 'string' [types]
+1 error, 0 warnings (1 file checked)

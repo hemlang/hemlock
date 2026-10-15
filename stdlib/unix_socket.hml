@@ -1,0 +1,216 @@
+// @stdlib/unix_socket - Unix domain socket module
+// Provides stream and datagram sockets over filesystem paths (AF_UNIX)
+
+import { remove_file, exists } from "@stdlib/fs";
+
+// ========== CONSTANTS ==========
+
+export let AF_UNIX = __AF_UNIX;
+export let SOCK_STREAM = __SOCK_STREAM;
+export let SOCK_DGRAM = __SOCK_DGRAM;
+
+// ========== UNIX STREAM SERVER (UnixListener) ==========
+
+// UnixListener(path: string) -> UnixListener object
+// Create a Unix domain stream socket server bound to the given path.
+// Removes any existing socket file at the path before binding.
+export fn UnixListener(path: string) {
+	// Remove stale socket file if it exists
+	if (exists(path)) {
+		remove_file(path);
+	}
+
+	let sock = __socket_create(__AF_UNIX, __SOCK_STREAM, 0);
+	sock.bind(path, 0);
+	sock.listen(128);
+
+	return {
+		_socket: sock,
+		path,
+		accept: fn() {
+			// accept() -> UnixStream
+			// Accept incoming connection and return a UnixStream
+			let client_sock = self._socket.accept();
+			return _UnixStream_from_socket(client_sock, self.path);
+		},
+		close: fn() {
+			// close() -> null
+			// Close the listener socket
+			self._socket.close();
+			return null;
+		},
+		remove: fn() {
+			// remove() -> null
+			// Remove the socket file from the filesystem
+			if (exists(self.path)) {
+				remove_file(self.path);
+			}
+			return null;
+		},
+	};
+}
+
+// ========== UNIX STREAM CLIENT (UnixStream) ==========
+
+// UnixStream(path: string) -> UnixStream object
+// Connect to a Unix domain stream socket at the given path.
+export fn UnixStream(path: string) {
+	let sock = __socket_create(__AF_UNIX, __SOCK_STREAM, 0);
+	sock.connect(path, 0);
+	return _UnixStream_from_socket(sock, path);
+}
+
+// Internal: Create UnixStream from existing socket (used by accept)
+fn _UnixStream_from_socket(sock, path) {
+	return {
+		_socket: sock,
+		path,
+		peer_addr: sock.address,
+		read: fn(size: i32) {
+			// read(size: i32) -> buffer
+			// Read up to size bytes from stream
+			return self._socket.recv(size);
+		},
+		read_all: fn() {
+			// read_all() -> buffer
+			// Read all available data
+			let chunks = [];
+			let total_size = 0;
+
+			loop {
+				let chunk = self._socket.recv(4096);
+				if (chunk.length == 0) {
+					break;
+				}
+				chunks.push(chunk);
+				total_size = total_size + chunk.length;
+
+				if (chunk.length < 4096) {
+					break;
+				}
+			}
+
+			if (chunks.length == 0) {
+				return buffer(0);
+			}
+
+			if (chunks.length == 1) {
+				return chunks[0];
+			}
+
+			let result = buffer(total_size);
+			let offset = 0;
+			for (chunk in chunks) {
+				let i = 0;
+				while (i < chunk.length) {
+					result[offset + i] = chunk[i];
+					i = i + 1;
+				}
+				offset = offset + chunk.length;
+			}
+			return result;
+		},
+		read_line: fn() {
+			// read_line() -> string
+			// Read until newline (\n) and return as string
+			let bytes: array = [];
+			loop {
+				let byte_buf = self._socket.recv(1);
+				if (byte_buf.length == 0) {
+					break;
+				}
+
+				let b = ptr_read_u8(byte_buf);
+				if (b == 10) {
+					break;
+				}
+
+				bytes.push(b);
+			}
+			return __string_from_bytes(bytes);
+		},
+		write: fn(data) {
+			// write(data: string | buffer) -> i32
+			// Write data to stream, returns bytes written
+			return self._socket.send(data);
+		},
+		write_line: fn(line: string) {
+			// write_line(line: string) -> i32
+			// Write string followed by newline
+			return self._socket.send(line + "\n");
+		},
+		set_timeout: fn(seconds) {
+			// set_timeout(seconds: f64) -> null
+			// Set read/write timeout
+			self._socket.set_timeout(seconds);
+			return null;
+		},
+		close: fn() {
+			// close() -> null
+			// Close the stream
+			self._socket.close();
+			return null;
+		},
+	};
+}
+
+// ========== UNIX DATAGRAM SOCKET (UnixDgramSocket) ==========
+
+// UnixDgramSocket(path: string) -> UnixDgramSocket object
+// Create a Unix domain datagram socket bound to the given path.
+// Removes any existing socket file at the path before binding.
+export fn UnixDgramSocket(path: string) {
+	// Remove stale socket file if it exists
+	if (exists(path)) {
+		remove_file(path);
+	}
+
+	let sock = __socket_create(__AF_UNIX, __SOCK_DGRAM, 0);
+	sock.bind(path, 0);
+
+	return {
+		_socket: sock,
+		path,
+		send_to: fn(dest_path: string, data) {
+			// send_to(dest_path: string, data: string | buffer) -> i32
+			// Send datagram to destination socket path, returns bytes sent
+			return self._socket.sendto(dest_path, 0, data);
+		},
+		recv_from: fn(size: i32) {
+			// recv_from(size: i32) -> { data: buffer, address: string }
+			// Receive datagram with source path
+			return self._socket.recvfrom(size);
+		},
+		set_timeout: fn(seconds) {
+			// set_timeout(seconds: f64) -> null
+			// Set receive timeout
+			self._socket.set_timeout(seconds);
+			return null;
+		},
+		close: fn() {
+			// close() -> null
+			// Close the socket
+			self._socket.close();
+			return null;
+		},
+		remove: fn() {
+			// remove() -> null
+			// Remove the socket file from the filesystem
+			if (exists(self.path)) {
+				remove_file(self.path);
+			}
+			return null;
+		},
+	};
+}
+
+// ========== HELPER FUNCTIONS ==========
+
+// remove_socket(path: string) -> null
+// Remove a socket file from the filesystem (convenience function)
+export fn remove_socket(path: string) {
+	if (exists(path)) {
+		remove_file(path);
+	}
+	return null;
+}

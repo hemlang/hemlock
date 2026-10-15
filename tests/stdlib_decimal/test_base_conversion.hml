@@ -1,0 +1,53 @@
+// Test @stdlib/decimal base conversion functions
+import { to_hex, to_oct, to_bin, number_to_string } from "@stdlib/decimal";
+
+print("Testing to_hex...");
+print(to_hex(0) == "0");
+print(to_hex(15) == "f");
+print(to_hex(16) == "10");
+print(to_hex(255) == "ff");
+print(to_hex(4096) == "1000");
+print(to_hex(-255) == "-ff");
+
+print("Testing to_oct...");
+print(to_oct(0) == "0");
+print(to_oct(7) == "7");
+print(to_oct(8) == "10");
+print(to_oct(64) == "100");
+print(to_oct(511) == "777");
+print(to_oct(-8) == "-10");
+
+print("Testing to_bin...");
+print(to_bin(0) == "0");
+print(to_bin(1) == "1");
+print(to_bin(2) == "10");
+print(to_bin(10) == "1010");
+print(to_bin(255) == "11111111");
+print(to_bin(-5) == "-101");
+
+print("Testing number_to_string...");
+print(number_to_string(255, 16) == "ff");
+print(number_to_string(10, 2) == "1010");
+print(number_to_string(35, 36) == "z");
+print(number_to_string(100) == "100");
+print(number_to_string(0, 16) == "0");
+print(number_to_string(100, 8) == "144");
+
+// Error handling
+let caught = false;
+try {
+    number_to_string(10, 1);
+} catch (e) {
+    caught = true;
+}
+print(caught == true);
+
+caught = false;
+try {
+    number_to_string(10, 37);
+} catch (e) {
+    caught = true;
+}
+print(caught == true);
+
+print("All base conversion tests passed!");

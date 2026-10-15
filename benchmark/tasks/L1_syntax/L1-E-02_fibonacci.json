@@ -1,0 +1,12 @@
+{
+  "id": "L1-E-02",
+  "level": "L1",
+  "difficulty": "easy",
+  "title": "Recursive Fibonacci",
+  "topic": "functions",
+  "prompt": "Write a Hemlock program with a recursive function `fib(n)` that returns the nth Fibonacci number (0-indexed, where fib(0)=0, fib(1)=1). Print fib(0) through fib(12), each on its own line.",
+  "expected_output": "0\n1\n1\n2\n3\n5\n8\n13\n21\n34\n55\n89\n144\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["functions", "recursion", "loops"]
+}

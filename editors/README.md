@@ -131,6 +131,8 @@ To improve editor support:
 Create test files in `editors/tests/` with edge cases:
 
 ```hemlock
+import { signal, SIGINT } from "@stdlib/signal";
+
 // Test file for syntax highlighting
 fn test_all_features() {
     // Keywords and types

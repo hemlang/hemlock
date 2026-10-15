@@ -6,6 +6,9 @@
 # This tests that the compiler produces identical output to the interpreter
 # for the entire interpreter test suite.
 
+# Portable timeout (Linux timeout / macOS gtimeout / perl fallback)
+source "$(dirname "${BASH_SOURCE[0]}")/lib/timeout.sh"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -227,6 +230,15 @@ for test_file in $TEST_FILES; do
         fi
         echo -e "${BLUE}[$category]${NC}"
         CURRENT_CATEGORY="$category"
+    fi
+
+    # Skip individual tests outside stdlib_http/ that still need libwebsockets
+    if [[ "$test_name" == "stress/http_client_leak.hml" ]]; then
+        if [ ! -f "$PROJECT_ROOT/stdlib/c/lws_wrapper.so" ]; then
+            echo -e "${YELLOW}⊘${NC} Skipping $test_name (libwebsockets not installed)"
+            ((SKIP_COUNT++))
+            continue
+        fi
     fi
 
     # Run interpreter and capture output

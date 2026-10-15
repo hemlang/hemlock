@@ -1,0 +1,26 @@
+// Imported `let` bindings must be live: when the exporting module mutates
+// the binding through its own functions, importers (including spawned
+// tasks that close over the importing scope) see the new value on next
+// read. The previous interpreter behavior snapshotted the value at import
+// time, which diverged from the compiler's module-global semantics.
+import {
+    SHARED_SECRET,
+    counter,
+    set_secret,
+    bump,
+    read_secret_async,
+    read_counter_async,
+} from "./live_binding_helper.hml";
+
+print("initial: secret='" + SHARED_SECRET + "' counter=" + counter);
+
+set_secret("alpaca");
+bump();
+bump();
+bump();
+
+print("after mutation: secret='" + SHARED_SECRET + "' counter=" + counter);
+
+let t1 = spawn(read_secret_async);
+let t2 = spawn(read_counter_async);
+print("spawned views: secret='" + await t1 + "' counter=" + await t2);

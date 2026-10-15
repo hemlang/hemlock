@@ -375,6 +375,8 @@ process_array(arr);  // Pass to C function
 
 **3. Function Pointer Callbacks** ✅ (Implemented!)
 ```hemlock
+import { callback, callback_free } from "@stdlib/ffi";
+
 // Pass Hemlock functions to C as callbacks
 fn my_compare(a: ptr, b: ptr): i32 {
     let va = ptr_deref_i32(a);
@@ -440,6 +442,8 @@ Hemlock supports passing functions to C code as callbacks using libffi closures.
 Use `callback()` to create a C-callable function pointer from a Hemlock function:
 
 ```hemlock
+import { callback } from "@stdlib/ffi";
+
 // callback(function, param_types, return_type) -> ptr
 let cb = callback(my_function, ["ptr", "ptr"], "i32");
 ```
@@ -460,6 +464,7 @@ let cb = callback(my_function, ["ptr", "ptr"], "i32");
 ### Example: qsort
 
 ```hemlock
+import { callback, callback_free } from "@stdlib/ffi";
 import "libc.so.6";
 extern fn qsort(base: ptr, nmemb: u64, size: u64, compar: ptr): void;
 
@@ -532,8 +537,25 @@ Hemlock provides comprehensive helper functions for working with raw pointers. T
 | `ptr_deref_ptr(ptr)` | Dereference pointer-to-pointer |
 | `ptr_write_ptr(ptr, value)` | Write pointer to pointer location |
 | `ptr_offset(ptr, index, size)` | Calculate offset: `ptr + index * size` |
-| `ptr_read_i32(ptr)` | Read i32 through pointer-to-pointer (for qsort callbacks) |
 | `ptr_null()` | Get a null pointer constant |
+
+#### Pointer Read Functions
+
+Read typed values directly from memory (complements `ptr_write_*`).
+
+| Function | Description |
+|----------|-------------|
+| `ptr_read_i8(ptr)` | Read i8 from pointer |
+| `ptr_read_i16(ptr)` | Read i16 from pointer |
+| `ptr_read_i32(ptr)` | Read i32 from pointer |
+| `ptr_read_i64(ptr)` | Read i64 from pointer |
+| `ptr_read_u8(ptr)` | Read u8 from pointer |
+| `ptr_read_u16(ptr)` | Read u16 from pointer |
+| `ptr_read_u32(ptr)` | Read u32 from pointer |
+| `ptr_read_u64(ptr)` | Read u64 from pointer |
+| `ptr_read_f32(ptr)` | Read f32 from pointer |
+| `ptr_read_f64(ptr)` | Read f64 from pointer |
+| `ptr_read_ptr(ptr)` | Read pointer from pointer (returns null if stored value is NULL) |
 
 #### Buffer Conversion Helpers
 
@@ -559,6 +581,8 @@ Hemlock provides comprehensive helper functions for working with raw pointers. T
 #### Example: Working with Different Types
 
 ```hemlock
+import { ffi_sizeof } from "@stdlib/ffi";
+
 let p = alloc(64);
 
 // Write and read integers
@@ -597,6 +621,8 @@ free(p);
 **Important:** Always free callbacks when done to prevent memory leaks:
 
 ```hemlock
+import { callback, callback_free } from "@stdlib/ffi";
+
 let cb = callback(my_fn, ["ptr"], "void");
 // ... use callback ...
 callback_free(cb);  // Free when done
@@ -609,6 +635,8 @@ Callbacks are also automatically freed when the program exits.
 Callbacks capture their closure environment, so they can access outer scope variables:
 
 ```hemlock
+import { callback } from "@stdlib/ffi";
+
 let multiplier = 10;
 
 fn scale(a: ptr, b: ptr): i32 {

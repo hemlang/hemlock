@@ -1,0 +1,23 @@
+// Test: bracket notation with boolean keys (auto-coerced to strings)
+
+let obj = {};
+
+// Set with bool keys
+obj[true] = "yes";
+obj[false] = "no";
+
+// Read back
+print(obj[true]);
+print(obj[false]);
+
+// Equivalent to string keys
+print(obj["true"]);
+print(obj["false"]);
+
+// has() and delete() with bool keys
+print(obj.has(true));
+print(obj.has(false));
+
+obj.delete(true);
+print(obj.has(true));
+print(obj.has(false));

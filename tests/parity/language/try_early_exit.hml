@@ -1,0 +1,104 @@
+// Regression: control flow exiting a try-body (return / break / continue)
+// must pop the runtime exception context, otherwise a later `throw` on the
+// same thread longjmps into a defunct stack frame.
+
+fn early_return_try_catch(v: i32): i32 {
+    try {
+        if (v > 0) {
+            return v;
+        }
+    } catch (e) {
+        return -1;
+    }
+    return 0;
+}
+
+fn early_return_nested(v: i32): i32 {
+    try {
+        try {
+            return v;
+        } catch (e2) {
+            return -2;
+        }
+    } catch (e1) {
+        return -1;
+    }
+}
+
+fn early_return_try_finally(v: i32): i32 {
+    try {
+        try {
+            return v;
+        } catch (e) {
+            return -1;
+        }
+    } finally {
+        print("finally");
+    }
+    return 0;
+}
+
+fn break_out_of_try() {
+    let i = 0;
+    while (i < 5) {
+        try {
+            if (i == 2) {
+                break;
+            }
+        } catch (e) {
+            print("never");
+        }
+        i++;
+    }
+    print("after break loop, i=" + i);
+}
+
+fn continue_out_of_try() {
+    let seen = 0;
+    for (let i = 0; i < 4; i++) {
+        try {
+            if (i % 2 == 0) {
+                continue;
+            }
+        } catch (e) {
+            print("never");
+        }
+        seen++;
+    }
+    print("after continue loop, seen=" + seen);
+}
+
+fn labeled_break() {
+    let hits = 0;
+    outer: for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+            try {
+                if (i == 1 && j == 1) {
+                    break outer;
+                }
+            } catch (e) {
+                print("never");
+            }
+            hits++;
+        }
+    }
+    print("labeled break hits=" + hits);
+}
+
+print("r1=" + early_return_try_catch(5));
+print("r2=" + early_return_nested(7));
+print("r3=" + early_return_try_finally(9));
+break_out_of_try();
+continue_out_of_try();
+labeled_break();
+
+// After all the early-exits above, the exception context stack must be
+// empty. A throw caught here proves longjmp lands in the right frame
+// instead of a dead one (the original bug aborted at this point).
+try {
+    throw "still works";
+} catch (e) {
+    print("caught: " + e);
+}
+
+print("done");

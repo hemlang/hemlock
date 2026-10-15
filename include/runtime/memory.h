@@ -70,6 +70,8 @@ void file_free(FileHandle *file);
 
 // Socket operations
 void socket_free(SocketHandle *sock);
+void socket_retain(SocketHandle *sock);
+void socket_release(SocketHandle *sock);
 
 // WebSocket operations
 void websocket_free(WebSocketHandle *ws);

@@ -1,6 +1,6 @@
 # Hemlock Test Suite
 
-This directory contains the test suite for the Hemlock interpreter.
+This directory contains the test suite for the Hemlock interpreter, compiler/parity checks, standard library modules, tooling, and documentation consistency.
 
 ## Running Tests
 
@@ -13,24 +13,31 @@ make test
 ```
 
 The test runner will:
-- Build the project
-- Run all tests organized by category
+- Build the project when invoked through `make test`
+- Run tests organized by category
 - Report results with colored output
 - Show a summary at the end
 
+Documentation-only changes can also be checked without building Hemlock:
+
+```bash
+python3 tests/check_docs.py
+```
+
+The documentation audit verifies relative Markdown links and confirms every `stdlib/*.hml` module has a matching `stdlib/docs/*.md` file.
+
 ## Test Organization
 
-Tests are organized into categories:
+Tests are organized by feature area and subsystem. Common top-level groups include:
 
-- **arithmetic/** - Basic arithmetic operations, precedence, negation, division by zero
-- **bools/** - Boolean literals and operators
-- **comparisons/** - Equality and relational operators (==, !=, <, >, <=, >=)
-- **control/** - Control flow (if, if-else, nested if, while)
-- **conversions/** - Type conversions between different numeric types
-- **pointers/** - Memory allocation, pointer arithmetic, memset, memcpy
-- **primitives/** - Primitive type tests (i8, i16, i32, u8, u16, u32, f32, f64)
-- **strings/** - String operations (concat, index, length, mutate, empty)
-- **variables/** - Variable declaration and reassignment
+- **Language semantics** - arithmetic, arrays, async, bitwise operators, control flow, conversions, enums, error handling, exceptions, functions, interpolation, loops, objects, optional chaining, pointers, primitives, and strings.
+- **Runtime and systems features** - buffers, circular references, defer, exec, FFI, file I/O, memory, networking, signals, and command-line args.
+- **Compiler and tooling** - compiler checks, interpreter/compiler parity tests, formatter tests, LSP tests, bundler tests, and AST serialization.
+- **Contract tests** - `tests/contracts/` pins documented language guarantees (type promotion, literal inference, error messages, evaluation semantics) on both backends. Run with `make test-contracts`; see `docs/contributing/contract-testing.md`.
+- **Standard library modules** - `tests/stdlib_<module>/` directories mirror `stdlib/<module>.hml` where practical.
+- **Regression and manual tests** - focused reproductions for bugs and opt-in tests that require special environment setup.
+
+Use `find tests -name '*.hml' | wc -l` or the test runner summary when you need current counts.
 
 ## Test Naming Conventions
 
@@ -42,22 +49,38 @@ Tests with certain keywords in their names are expected to fail (error tests):
 
 These tests verify that the interpreter correctly rejects invalid code.
 
+### Fixtures that should not compile
+
+The repo-wide compile sweep (`tests/run_repo_compile_check.sh`) requires every
+`.hml` file to compile. A fixture that is *supposed* to fail compilation says so
+itself, within the first 20 lines:
+
+```hemlock
+// @expect-compile-fail redeclaring in the same scope is a compile error
+```
+
+The sweep then asserts it fails, and reports an "Expected Mismatch" if it ever
+starts compiling. The marker lives next to the code that encodes the
+expectation, so adding a negative fixture needs no edit to the runner.
+
+Note this is about *compilation*, and is independent of the filename keywords
+above (which govern the interpreter runner).
+
 ## Writing New Tests
 
 To add a new test:
 
 1. Create a `.hml` file in the appropriate category directory
 2. For tests that should pass: use any descriptive name
-3. For tests that should fail: include `overflow`, `negative`, `invalid`, or `error` in the filename
+3. For tests that should fail at runtime: include `overflow`, `negative`, `invalid`, or `error` in the filename
+4. For tests that should fail to *compile*: add `// @expect-compile-fail <reason>` near the top
 4. Run `make test` (or `bash tests/run_tests.sh`) from the project root to verify your test
 
-## Current Test Results
+## Current Test Coverage
 
-All 37 tests are passing:
-- 33 regular tests pass
-- 4 error tests correctly fail as expected
+The repository now contains a broad Hemlock test corpus (language, runtime, compiler parity, stdlib, LSP, formatter, bundler, and regression tests). Avoid hard-coding exact totals in this file; use the test runners for current counts.
 
-### Test Coverage
+### Coverage Areas
 
 The test suite covers:
 - ✅ All arithmetic operators (+, -, *, /)

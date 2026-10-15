@@ -1,0 +1,6 @@
+// @expect-compile-fail
+let x = 5
+let y = ;
+fn foo( {
+}
+let z = 10;

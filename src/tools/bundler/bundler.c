@@ -7,6 +7,7 @@
 #define _XOPEN_SOURCE 500
 #include "bundler.h"
 #include "frontend.h"
+#include "hemlock_compat.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -23,12 +24,6 @@ typedef struct {
 // When bundling stdlib modules, we skip declarations that would shadow these.
 // This list must match the unprefixed aliases in builtins/registration.c
 static const char *BUILTIN_NAMES[] = {
-    // Math functions
-    "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
-    "sqrt", "pow", "exp", "log", "log10", "log2",
-    "floor", "ceil", "round", "trunc",
-    // Environment functions
-    "getenv", "setenv", "unsetenv", "get_pid",
     // FFI callback functions
     "callback", "callback_free",
     "ptr_read_i32", "ptr_deref_i32", "ptr_write_i32", "ptr_offset",
@@ -562,40 +557,9 @@ static char* resolve_import_path(BundleContext *ctx, const char *importer_path, 
     return resolve_module_path(ctx->bundle->resolver, importer_path, import_path);
 }
 
-// Parse a module file
+// Parse a module file - delegates to shared frontend utility
 static Stmt** parse_file(const char *path, int *stmt_count) {
-    FILE *file = fopen(path, "r");
-    if (!file) {
-        fprintf(stderr, "Error: Cannot open file '%s'\n", path);
-        *stmt_count = 0;
-        return NULL;
-    }
-
-    fseek(file, 0, SEEK_END);
-    long file_size = ftell(file);
-    fseek(file, 0, SEEK_SET);
-
-    char *source = malloc(file_size + 1);
-    size_t bytes_read = fread(source, 1, file_size, file);
-    source[bytes_read] = '\0';
-    fclose(file);
-
-    Lexer lexer;
-    lexer_init(&lexer, source);
-
-    Parser parser;
-    parser_init(&parser, &lexer);
-
-    Stmt **statements = parse_program(&parser, stmt_count);
-    free(source);
-
-    if (parser.had_error) {
-        fprintf(stderr, "Error: Failed to parse '%s'\n", path);
-        *stmt_count = 0;
-        return NULL;
-    }
-
-    return statements;
+    return parse_file_to_ast(path, stmt_count);
 }
 
 // Check if module is already in bundle
@@ -782,6 +746,105 @@ static int collect_exports(BundledModule *module) {
 // Forward declaration for tree shaking filter
 static int should_include_stmt(Bundle *bundle, Stmt *stmt);
 
+// ========== EMITTED NAME TRACKING ==========
+
+// Track names already emitted in the flattened output to detect collisions
+typedef struct {
+    char **names;
+    int count;
+    int capacity;
+} EmittedNames;
+
+static EmittedNames* emitted_names_new(void) {
+    EmittedNames *en = malloc(sizeof(EmittedNames));
+    if (!en) return NULL;
+    en->names = malloc(sizeof(char*) * 64);
+    if (!en->names) { free(en); return NULL; }
+    en->count = 0;
+    en->capacity = 64;
+    return en;
+}
+
+static void emitted_names_free(EmittedNames *en) {
+    if (!en) return;
+    for (int i = 0; i < en->count; i++) {
+        free(en->names[i]);
+    }
+    free(en->names);
+    free(en);
+}
+
+static int emitted_names_contains(EmittedNames *en, const char *name) {
+    if (!en || !name) return 0;
+    for (int i = 0; i < en->count; i++) {
+        if (strcmp(en->names[i], name) == 0) return 1;
+    }
+    return 0;
+}
+
+static void emitted_names_add(EmittedNames *en, const char *name) {
+    if (!en || !name) return;
+    if (en->count >= en->capacity) {
+        int new_cap = en->capacity * 2;
+        char **new_names = realloc(en->names, sizeof(char*) * new_cap);
+        if (!new_names) return;
+        en->names = new_names;
+        en->capacity = new_cap;
+    }
+    en->names[en->count++] = strdup(name);
+}
+
+// Check if any module in the bundle actually imports 'name' from the module at 'module_path'
+static int is_name_imported_from_module(Bundle *bundle, const char *name, const char *module_path) {
+    for (int m = 0; m < bundle->num_modules; m++) {
+        BundledModule *mod = bundle->modules[m];
+        for (int i = 0; i < mod->num_statements; i++) {
+            Stmt *stmt = mod->statements[i];
+            if (stmt->type != STMT_IMPORT) continue;
+
+            // Resolve which module this import refers to
+            const char *import_path = stmt->as.import_stmt.module_path;
+            if (strncmp(import_path, "./", 2) == 0) import_path += 2;
+
+            int matches = 0;
+            if (strncmp(import_path, "@stdlib/", 8) == 0) {
+                const char *module_name = import_path + 8;
+                char expected[256];
+                snprintf(expected, sizeof(expected), "/stdlib/%s.hml", module_name);
+                if (strstr(module_path, expected)) matches = 1;
+            } else {
+                size_t path_len = strlen(module_path);
+                size_t import_len = strlen(import_path);
+                char expected_suffix[256];
+                if (import_len >= 4 && strcmp(import_path + import_len - 4, ".hml") == 0) {
+                    snprintf(expected_suffix, sizeof(expected_suffix), "/%s", import_path);
+                } else {
+                    snprintf(expected_suffix, sizeof(expected_suffix), "/%s.hml", import_path);
+                }
+                size_t suffix_len = strlen(expected_suffix);
+                if (path_len >= suffix_len &&
+                    strcmp(module_path + path_len - suffix_len, expected_suffix) == 0) {
+                    matches = 1;
+                }
+            }
+
+            if (!matches) continue;
+
+            // Namespace import (import * as X) means all exports are needed
+            if (stmt->as.import_stmt.is_namespace) return 1;
+
+            // Check if 'name' is in the import list
+            for (int j = 0; j < stmt->as.import_stmt.num_imports; j++) {
+                if (stmt->as.import_stmt.import_names[j] &&
+                    strcmp(stmt->as.import_stmt.import_names[j], name) == 0) {
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 // Add statement to bundle's flattened output
 static void add_flattened_stmt(Bundle *bundle, Stmt *stmt) {
     if (bundle->num_statements >= bundle->stmt_capacity) {
@@ -796,7 +859,7 @@ static void add_flattened_stmt(Bundle *bundle, Stmt *stmt) {
 }
 
 // Flatten a single module into the bundle
-static int flatten_module(Bundle *bundle, BundledModule *module) {
+static int flatten_module(Bundle *bundle, BundledModule *module, EmittedNames *emitted) {
     // Check if already processed
     if (module->is_flattened) {
         return 0;
@@ -805,63 +868,32 @@ static int flatten_module(Bundle *bundle, BundledModule *module) {
     // Mark as flattened early to prevent infinite recursion
     module->is_flattened = 1;
 
-    // First, flatten all dependencies
+    // First, flatten all dependencies (imports AND re-exports)
     for (int i = 0; i < module->num_statements; i++) {
         Stmt *stmt = module->statements[i];
 
+        // Determine the dependency path from either import or re-export statements
+        const char *dep_path_raw = NULL;
         if (stmt->type == STMT_IMPORT) {
-            // Find the imported module by matching the import path
-            const char *import_path = stmt->as.import_stmt.module_path;
+            dep_path_raw = stmt->as.import_stmt.module_path;
+        } else if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_reexport) {
+            dep_path_raw = stmt->as.export_stmt.module_path;
+        }
 
-            // Skip leading "./" for relative paths
-            if (strncmp(import_path, "./", 2) == 0) {
-                import_path += 2;
-            }
-
-            for (int j = 0; j < bundle->num_modules; j++) {
-                BundledModule *dep = bundle->modules[j];
-
-                // Match by checking if the module's path ends with the import path
-                // For @stdlib/X, match /stdlib/X.hml
-                // For relative paths, match the basename
-                int matches = 0;
-
-                if (strncmp(import_path, "@stdlib/", 8) == 0) {
-                    // Check for stdlib module: look for /stdlib/module_name.hml
-                    const char *module_name = import_path + 8;  // Skip "@stdlib/"
-                    char expected[256];
-                    snprintf(expected, sizeof(expected), "/stdlib/%s.hml", module_name);
-                    if (strstr(dep->absolute_path, expected)) {
-                        matches = 1;
-                    }
-                } else {
-                    // For relative imports, check if absolute path ends with /import_path
-                    size_t path_len = strlen(dep->absolute_path);
-                    size_t import_len = strlen(import_path);
-
-                    // Build expected suffix: /module_name (with .hml only if not already present)
-                    char expected_suffix[256];
-                    if (import_len >= 4 && strcmp(import_path + import_len - 4, ".hml") == 0) {
-                        // Import already ends with .hml
-                        snprintf(expected_suffix, sizeof(expected_suffix), "/%s", import_path);
-                    } else {
-                        // Add .hml extension
-                        snprintf(expected_suffix, sizeof(expected_suffix), "/%s.hml", import_path);
-                    }
-                    size_t suffix_len = strlen(expected_suffix);
-
-                    if (path_len >= suffix_len) {
-                        const char *actual_suffix = dep->absolute_path + path_len - suffix_len;
-                        if (strcmp(actual_suffix, expected_suffix) == 0) {
-                            matches = 1;
-                        }
-                    }
+        if (dep_path_raw) {
+            // Use the module resolver to find the absolute path, then look up
+            // the module in the bundle by its resolved path.  This handles
+            // third-party packages (e.g. "Org/pkg.hml" -> hem_modules/.../index.hml),
+            // stdlib imports, and relative paths uniformly.
+            char *resolved = resolve_module_path(bundle->resolver,
+                                                  module->absolute_path,
+                                                  dep_path_raw);
+            if (resolved) {
+                BundledModule *dep = find_module_in_bundle(bundle, resolved);
+                if (dep) {
+                    flatten_module(bundle, dep, emitted);
                 }
-
-                if (matches) {
-                    flatten_module(bundle, dep);
-                    break;
-                }
+                free(resolved);
             }
         }
     }
@@ -872,14 +904,47 @@ static int flatten_module(Bundle *bundle, BundledModule *module) {
 
         // Handle import statements: generate alias assignments for aliased imports
         if (stmt->type == STMT_IMPORT) {
-            // For each aliased import, generate: let alias = original;
-            if (!stmt->as.import_stmt.is_namespace && stmt->as.import_stmt.import_aliases) {
+            if (stmt->as.import_stmt.is_namespace) {
+                // Namespace import: import * as ns from "mod"
+                // Build an object literal with all exports: let ns = { A: A, B: B, ... };
+                char *ns_name = stmt->as.import_stmt.namespace_name;
+                if (ns_name && !emitted_names_contains(emitted, ns_name)) {
+                    Symbol *ns_sym = bundle->dep_graph ? dep_graph_find(bundle->dep_graph, ns_name) : NULL;
+                    if (bundle->dep_graph && (!ns_sym || !ns_sym->is_reachable)) {
+                        continue;
+                    }
+                    char *resolved = resolve_module_path(bundle->resolver,
+                                                          module->absolute_path,
+                                                          stmt->as.import_stmt.module_path);
+                    BundledModule *target = resolved ? find_module_in_bundle(bundle, resolved) : NULL;
+                    free(resolved);
+
+                    if (target && target->num_exports > 0) {
+                        int n = target->num_exports;
+                        char **field_names = malloc(sizeof(char*) * n);
+                        Expr **field_values = malloc(sizeof(Expr*) * n);
+                        for (int j = 0; j < n; j++) {
+                            field_names[j] = strdup(target->export_names[j]);
+                            field_values[j] = expr_ident(target->export_names[j]);
+                        }
+                        Expr *obj = expr_object_literal(field_names, field_values, n);
+                        Stmt *let_stmt = stmt_let(ns_name, obj);
+                        add_flattened_stmt(bundle, let_stmt);
+                        emitted_names_add(emitted, ns_name);
+                    }
+                }
+            } else if (stmt->as.import_stmt.import_aliases) {
                 for (int j = 0; j < stmt->as.import_stmt.num_imports; j++) {
                     char *alias = stmt->as.import_stmt.import_aliases[j];
                     char *original = stmt->as.import_stmt.import_names[j];
 
                     // Only generate assignment if there's an alias different from the original
                     if (alias && strcmp(alias, original) != 0) {
+                        Symbol *alias_sym = bundle->dep_graph ? dep_graph_find(bundle->dep_graph, alias) : NULL;
+                        if (bundle->dep_graph && (!alias_sym || !alias_sym->is_reachable)) {
+                            continue;
+                        }
+
                         // Create: let alias = original;
                         Expr *var_ref = expr_ident(original);
                         Stmt *let_stmt = stmt_let(alias, var_ref);
@@ -894,14 +959,8 @@ static int flatten_module(Bundle *bundle, BundledModule *module) {
         if (stmt->type == STMT_EXPORT) {
             if (stmt->as.export_stmt.is_declaration) {
                 Stmt *decl = stmt->as.export_stmt.declaration;
-                const char *decl_name = NULL;
-
-                // Get the declaration name
-                if (decl->type == STMT_LET) {
-                    decl_name = decl->as.let.name;
-                } else if (decl->type == STMT_CONST) {
-                    decl_name = decl->as.const_stmt.name;
-                }
+                // Get the declaration name (covers let, const, define, enum, fn assignment)
+                const char *decl_name = stmt_defines_symbol(decl);
 
                 // For stdlib modules, skip declarations that shadow builtins
                 // This prevents "Variable already defined" errors when bundling
@@ -912,16 +971,71 @@ static int flatten_module(Bundle *bundle, BundledModule *module) {
                     continue;
                 }
 
+                // Check for name collision with an already-emitted definition.
+                // When flattening multiple modules into a single scope, different
+                // modules may export symbols with the same name (e.g. both
+                // @stdlib/compression and @stdlib/hash export 'crc32').  If this
+                // name was already emitted, only keep this duplicate if some
+                // module in the bundle actually imports it from *this* module.
+                if (decl_name && emitted_names_contains(emitted, decl_name)) {
+                    if (!is_name_imported_from_module(bundle, decl_name, module->absolute_path)) {
+                        // Not imported from this module - safe to skip
+                        continue;
+                    }
+                    // Name IS imported from this module AND already defined by
+                    // another module.  This is a true conflict that would need
+                    // namespacing.  For now, skip to avoid the runtime crash;
+                    // the first definition will be used.
+                    continue;
+                }
+
                 // Tree shaking: skip unreachable exports
                 if (!should_include_stmt(bundle, stmt)) {
                     continue;
                 }
 
+                // Track the emitted name
+                if (decl_name) {
+                    emitted_names_add(emitted, decl_name);
+                }
+
                 // Add the underlying declaration
                 add_flattened_stmt(bundle, decl);
+            } else if (stmt->as.export_stmt.is_reexport) {
+                // Re-export: export { X } from "./other.hml"
+                // The source module has already been flattened above, so the
+                // original definitions are in the flat scope.  We only need to
+                // emit alias bindings when the re-exported name differs from
+                // the original name (export { Foo as Bar } from "...").
+                for (int j = 0; j < stmt->as.export_stmt.num_exports; j++) {
+                    char *original = stmt->as.export_stmt.export_names[j];
+                    char *alias = stmt->as.export_stmt.export_aliases[j];
+
+                    if (alias && strcmp(alias, original) != 0) {
+                        // Need an alias: let Bar = Foo;
+                        if (!emitted_names_contains(emitted, alias)) {
+                            Expr *var_ref = expr_ident(original);
+                            Stmt *let_stmt = stmt_let(alias, var_ref);
+                            add_flattened_stmt(bundle, let_stmt);
+                            emitted_names_add(emitted, alias);
+                        }
+                    }
+                }
             }
-            // Skip export lists and re-exports
+            // Skip plain export lists (non-re-export) - symbols already in scope
             continue;
+        }
+
+        // Check for name collision on regular (non-export) definitions too
+        {
+            const char *defined_name = stmt_defines_symbol(stmt);
+            if (defined_name && emitted_names_contains(emitted, defined_name)) {
+                // Skip duplicate definition to avoid "already defined" errors
+                continue;
+            }
+            if (defined_name) {
+                emitted_names_add(emitted, defined_name);
+            }
         }
 
         // Tree shaking: skip unreachable statements
@@ -1028,9 +1142,17 @@ int bundle_flatten(Bundle *bundle) {
         return -1;
     }
 
-    // Flatten starting from entry (will recursively flatten dependencies first)
-    int result = flatten_module(bundle, entry);
+    // Create emitted name tracker to detect cross-module collisions
+    EmittedNames *emitted = emitted_names_new();
+    if (!emitted) {
+        fprintf(stderr, "Error: Failed to allocate emitted names tracker\n");
+        return -1;
+    }
 
+    // Flatten starting from entry (will recursively flatten dependencies first)
+    int result = flatten_module(bundle, entry, emitted);
+
+    emitted_names_free(emitted);
     return result;
 }
 
@@ -1190,6 +1312,9 @@ void bundle_print_summary(Bundle *bundle) {
 // Build dependency graph from all modules
 static int build_dependency_graph(Bundle *bundle, int verbose) {
     DependencyGraph *graph = dep_graph_new();
+    if (!graph) {
+        return -1;
+    }
     bundle->dep_graph = graph;
 
     // Counter for anonymous side-effect symbols
@@ -1243,10 +1368,9 @@ static int build_dependency_graph(Bundle *bundle, int verbose) {
                 collect_stmt_deps(stmt, sym);
                 dep_graph_add_symbol(graph, sym);
 
-                // Side effects in entry module are always entry points
-                if (mod->is_entry) {
-                    dep_graph_add_entry(graph, synth_name);
-                }
+                // Importing a module evaluates its top-level statements, so
+                // every loaded top-level side effect must be retained.
+                dep_graph_add_entry(graph, synth_name);
 
                 if (verbose) {
                     fprintf(stderr, "  Side effect: %s (%d deps)\n",
@@ -1256,22 +1380,74 @@ static int build_dependency_graph(Bundle *bundle, int verbose) {
         }
     }
 
-    // Phase 2: Collect entry points from entry module's imports
+    // Phase 2: Model import bindings. Aliased imports and namespace
+    // imports create local names that reachable code can depend on; those
+    // synthetic symbols point at the source module exports they actually need.
     for (int m = 0; m < bundle->num_modules; m++) {
         BundledModule *mod = bundle->modules[m];
-        if (!mod->is_entry) continue;
 
         for (int i = 0; i < mod->num_statements; i++) {
             Stmt *stmt = mod->statements[i];
-            if (stmt->type == STMT_IMPORT) {
-                // Add all imported names as entry points
-                if (!stmt->as.import_stmt.is_namespace) {
-                    for (int j = 0; j < stmt->as.import_stmt.num_imports; j++) {
-                        const char *name = stmt->as.import_stmt.import_names[j];
-                        dep_graph_add_entry(graph, name);
-                        if (verbose) {
-                            fprintf(stderr, "  Entry point (import): %s\n", name);
+            if (stmt->type != STMT_IMPORT) continue;
+
+            char *resolved = resolve_module_path(bundle->resolver,
+                                                  mod->absolute_path,
+                                                  stmt->as.import_stmt.module_path);
+            BundledModule *target = resolved ? find_module_in_bundle(bundle, resolved) : NULL;
+            free(resolved);
+
+            if (stmt->as.import_stmt.is_namespace) {
+                // import * from "mod" imports every export into scope.
+                if (!stmt->as.import_stmt.namespace_name) {
+                    if (target) {
+                        for (int j = 0; j < target->num_exports; j++) {
+                            dep_graph_add_entry(graph, target->export_names[j]);
+                            if (verbose && mod->is_entry) {
+                                fprintf(stderr, "  Entry point (star import): %s\n", target->export_names[j]);
+                            }
                         }
+                    }
+                    continue;
+                }
+
+                // import * as ns from "mod" creates one namespace binding.
+                Symbol *sym = symbol_new(stmt->as.import_stmt.namespace_name,
+                                         mod->absolute_path, stmt);
+                if (!sym) return -1;
+                if (target) {
+                    for (int j = 0; j < target->num_exports; j++) {
+                        symbol_add_dep(sym, target->export_names[j]);
+                    }
+                }
+                dep_graph_add_symbol(graph, sym);
+
+                if (mod->is_entry) {
+                    dep_graph_add_entry(graph, stmt->as.import_stmt.namespace_name);
+                    if (verbose) {
+                        fprintf(stderr, "  Entry point (namespace import): %s\n",
+                                stmt->as.import_stmt.namespace_name);
+                    }
+                }
+                continue;
+            }
+
+            for (int j = 0; j < stmt->as.import_stmt.num_imports; j++) {
+                const char *name = stmt->as.import_stmt.import_names[j];
+                const char *alias = stmt->as.import_stmt.import_aliases
+                    ? stmt->as.import_stmt.import_aliases[j]
+                    : NULL;
+
+                if (alias && strcmp(alias, name) != 0) {
+                    Symbol *sym = symbol_new(alias, mod->absolute_path, stmt);
+                    if (!sym) return -1;
+                    symbol_add_dep(sym, name);
+                    dep_graph_add_symbol(graph, sym);
+                }
+
+                if (mod->is_entry) {
+                    dep_graph_add_entry(graph, alias ? alias : name);
+                    if (verbose) {
+                        fprintf(stderr, "  Entry point (import): %s\n", alias ? alias : name);
                     }
                 }
             }

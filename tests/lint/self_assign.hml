@@ -1,0 +1,7 @@
+fn main_fn() {
+    let x = 5;
+    x = x;
+    let obj = { a: 1 };
+    obj.a = obj.a;
+}
+main_fn();

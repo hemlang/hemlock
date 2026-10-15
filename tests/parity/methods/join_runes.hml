@@ -1,0 +1,15 @@
+// Test join() on rune arrays
+let s = "hello";
+let chars = s.chars();
+print(chars.join(""));
+print(chars.join("-"));
+
+// Reverse a string via chars
+let rev = s.chars();
+rev.reverse();
+print(rev.join(""));
+
+// Unicode runes
+let emoji = "Hi!";
+let echars = emoji.chars();
+print(echars.join(" "));

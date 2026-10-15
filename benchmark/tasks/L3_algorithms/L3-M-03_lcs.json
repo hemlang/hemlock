@@ -1,0 +1,12 @@
+{
+  "id": "L3-M-03",
+  "level": "L3",
+  "difficulty": "medium",
+  "title": "Longest Common Subsequence",
+  "topic": "dynamic programming",
+  "prompt": "Write a Hemlock program that computes the longest common subsequence (LCS) of two strings using dynamic programming. Implement:\n\n1. `lcs_length(s1, s2)` - returns the length of the LCS using a 2D DP table (array of arrays)\n2. `lcs_string(s1, s2)` - returns the actual LCS string by backtracking through the DP table\n\nUse `divi()` for any integer division if needed. Build the DP table iteratively.\n\nTest:\n- lcs_string(\"AGGTAB\", \"GXTXAYB\"): print \"LCS: GTAB\" and \"length: 4\"\n- lcs_string(\"XMJYAUZ\", \"MZJAWXU\"): print \"LCS: MJAU\" and \"length: 4\"\n- lcs_string(\"ABC\", \"DEF\"): print \"LCS: \" and \"length: 0\"",
+  "expected_output": "LCS: GTAB\nlength: 4\nLCS: MJAU\nlength: 4\nLCS: \nlength: 0\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["algorithms", "dynamic-programming", "strings", "arrays"]
+}

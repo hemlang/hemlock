@@ -1,0 +1,35 @@
+// Stress test: object pool with factory pattern
+// Creates many short-lived objects with closures to exercise
+// the object pool and function pool allocation paths.
+
+fn Packet(id, payload) {
+    return {
+        id: id,
+        payload: payload,
+        size: 0,
+        get_id: fn() { return self.id; },
+        get_payload: fn() { return self.payload; },
+        set_size: fn(s) { self.size = s; },
+        describe: fn() {
+            return "Packet#" + self.id + ":" + self.payload;
+        }
+    };
+}
+
+// Create and consume many packets (should reuse pool slots)
+let total = 0;
+for (let i = 0; i < 1000; i++) {
+    let p = Packet(i, "data_" + i);
+    p.set_size(i * 10);
+    total = total + p.get_id();
+}
+// Sum of 0..999 = 499500
+print(total);
+
+// Verify objects created in loop are independent
+let a = Packet(1, "aaa");
+let b = Packet(2, "bbb");
+print(a.describe());
+print(b.describe());
+print(a.get_payload());
+print(b.get_payload());

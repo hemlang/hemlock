@@ -1,0 +1,62 @@
+// Test: UnixDgramSocket basic functionality
+// Tests Unix domain datagram sockets from @stdlib/unix_socket
+
+import { UnixDgramSocket, remove_socket } from "@stdlib/unix_socket";
+
+let server_path = "/tmp/hemlock_test_unix_dgram_server.sock";
+let client_path = "/tmp/hemlock_test_unix_dgram_client.sock";
+
+// Clean up any leftover socket files
+remove_socket(server_path);
+remove_socket(client_path);
+
+async fn test_server() {
+	let sock = UnixDgramSocket(server_path);
+	defer sock.close();
+	defer sock.remove();
+
+	print("Datagram server bound to " + server_path);
+
+	// Receive message
+	let packet = sock.recv_from(1024);
+	print("Server received " + typeof(packet.data.length) + " bytes");
+	print("Server received from: " + packet.address);
+
+	// Send reply
+	let sent = sock.send_to(packet.address, "Reply from server");
+	print("Server sent " + typeof(sent) + " bytes");
+
+	return null;
+}
+
+async fn test_client() {
+	// Give server time to start
+	__sleep(0.1);
+
+	let sock = UnixDgramSocket(client_path);
+	defer sock.close();
+	defer sock.remove();
+
+	print("Datagram client bound to " + client_path);
+
+	// Send message to server
+	let message = "Hello datagram!";
+	let sent = sock.send_to(server_path, message);
+	print("Client sent " + typeof(sent) + " bytes");
+
+	// Receive reply
+	let reply = sock.recv_from(1024);
+	print("Client received " + typeof(reply.data.length) + " bytes");
+
+	return null;
+}
+
+// Spawn server and client
+let server_task = spawn(test_server);
+let client_task = spawn(test_client);
+
+// Wait for completion
+join(server_task);
+join(client_task);
+
+print("Unix datagram socket test passed!");

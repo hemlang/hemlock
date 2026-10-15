@@ -665,7 +665,7 @@ export fn rsort(versions): array {
 }
 
 // Get the highest version that satisfies a range
-export fn max_satisfying(versions, range: string): string {
+export fn max_satisfying(versions, range: string) {
 	let result = null;
 	let i = 0;
 	while (i < versions.length) {
@@ -681,7 +681,7 @@ export fn max_satisfying(versions, range: string): string {
 }
 
 // Get the lowest version that satisfies a range
-export fn min_satisfying(versions, range: string): string {
+export fn min_satisfying(versions, range: string) {
 	let result = null;
 	let i = 0;
 	while (i < versions.length) {
@@ -698,7 +698,7 @@ export fn min_satisfying(versions, range: string): string {
 
 // Calculate the difference between two versions
 // Returns: "major", "minor", "patch", "prerelease", or null if equal
-export fn diff(a: string, b: string): string {
+export fn diff(a: string, b: string) {
 	let va = parse(a);
 	let vb = parse(b);
 

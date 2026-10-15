@@ -1,0 +1,35 @@
+// Regression: a closure that captures an imported symbol must compile and run
+// even when the closure is constructed inside a non-main function. The helper
+// that builds the closure can be inlined into its caller, in which case the
+// generated C has no local alias for the import — the capture must reference
+// the imported symbol's module-prefixed global directly.
+
+import { stringify } from "@stdlib/json";
+
+// Closure capturing an import, built inside a non-main function.
+fn build(): array {
+    return [ { run: fn(x) { return stringify(x); } } ];
+}
+
+// Same shape, but the import is captured through an intermediate helper call
+// so the captured closure is nested one level deeper.
+fn build_nested(): array {
+    let make = fn(): object { return { run: fn(x) { return stringify(x); } }; };
+    return [ make() ];
+}
+
+fn main(): null {
+    let t = build();
+    print(t[0].run({ a: 1 }));
+
+    let n = build_nested();
+    print(n[0].run({ b: 2 }));
+
+    // The same closure built directly inside main() (the case that always worked).
+    let direct = fn(x) { return stringify(x); };
+    print(direct({ c: 3 }));
+
+    return null;
+}
+
+main();

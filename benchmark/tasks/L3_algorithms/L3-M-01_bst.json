@@ -1,0 +1,12 @@
+{
+  "id": "L3-M-01",
+  "level": "L3",
+  "difficulty": "medium",
+  "title": "Binary Search Tree",
+  "topic": "trees",
+  "prompt": "Write a Hemlock program implementing a binary search tree using objects. Implement:\n\n1. `make_node(value)` - creates a node object {value, left: null, right: null}\n2. `insert(root, value)` - inserts a value, returns the (possibly new) root\n3. `search(root, value)` - returns true if value exists, false otherwise\n4. `inorder(root)` - returns a sorted array of all values via in-order traversal\n5. `tree_min(root)` and `tree_max(root)` - return min and max values\n\nTest:\n- Insert values in this order: 50, 30, 70, 20, 40, 60, 80\n- Print inorder traversal joined with spaces: \"20 30 40 50 60 70 80\"\n- Print search(root, 40): \"found 40: true\"\n- Print search(root, 45): \"found 45: false\"\n- Print min and max: \"min: 20\", \"max: 80\"",
+  "expected_output": "20 30 40 50 60 70 80\nfound 40: true\nfound 45: false\nmin: 20\nmax: 80\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["algorithms", "trees", "objects", "recursion"]
+}

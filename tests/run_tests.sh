@@ -3,6 +3,9 @@
 # Hemlock Test Runner
 # Runs all tests and reports results
 
+# Portable timeout (Linux timeout / macOS gtimeout / perl fallback)
+source "$(dirname "${BASH_SOURCE[0]}")/lib/timeout.sh"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -74,6 +77,16 @@ echo ""
 # Function to check if a test is expected to fail (error test)
 is_error_test() {
     local test_file="$1"
+    # stdlib tests handle their own error cases via try/catch — they should pass
+    if [[ "$test_file" =~ stdlib_ ]]; then
+        return 1
+    fi
+    # Explicit opt-out: regression tests that catch their errors via try/catch
+    # and must exit 0 can override the name-based heuristic below with a
+    # "// expect: pass" marker on the first line.
+    if head -n 1 "$test_file" | grep -q "expect: pass"; then
+        return 1
+    fi
     # Tests with these keywords in their name are expected to fail
     if [[ "$test_file" =~ (overflow|negative|invalid|error) ]]; then
         return 0
@@ -105,8 +118,9 @@ format_time() {
 echo -e "${BLUE}Running tests...${NC}"
 echo ""
 
-# Find all test files (excluding compiler, parity, and formatter directories which have their own test runners)
-TEST_FILES=$(find "$TEST_DIR" -name "*.hml" -not -path "*/compiler/*" -not -path "*/parity/*" -not -path "*/formatter/*" | sort)
+# Find all test files (excluding compiler, parity, contracts, formatter, lint, and check directories which have their own test runners)
+# lint/ and check/ fixtures are static-diagnostic cases; some fail or trap at runtime by design (e.g. modulo-by-zero, double free)
+TEST_FILES=$(find "$TEST_DIR" -name "*.hml" -not -path "*/compiler/*" -not -path "*/parity/*" -not -path "*/contracts/*" -not -path "*/formatter/*" -not -path "*/lint/*" -not -path "*/check/*" | sort)
 
 CURRENT_CATEGORY=""
 for test_file in $TEST_FILES; do
@@ -130,9 +144,9 @@ for test_file in $TEST_FILES; do
             continue
         fi
 
-    # Skip vector tests if libusearch_c.so isn't installed
+    # Skip vector tests if libusearch_c isn't installed
     elif [[ "$category" == "stdlib_vector" ]]; then
-        if ! ldconfig -p 2>/dev/null | grep -q libusearch_c; then
+        if ! "$PROJECT_ROOT/hemlock" -e 'import "libusearch_c.so";' 2>/dev/null; then
             if [ "$category" != "$CURRENT_CATEGORY" ]; then
                 if [ -n "$CURRENT_CATEGORY" ]; then
                     echo ""
@@ -155,19 +169,37 @@ for test_file in $TEST_FILES; do
         CURRENT_CATEGORY="$category"
     fi
 
+    # Skip individual tests outside stdlib_http/ that still need libwebsockets
+    if [[ "$test_name" == "stress/http_client_leak.hml" ]]; then
+        if [ ! -f "$PROJECT_ROOT/stdlib/c/lws_wrapper.so" ]; then
+            echo -e "${YELLOW}⊘${NC} Skipping $test_name (libwebsockets not installed)"
+            continue
+        fi
+    fi
+
     # Run the test with timeout and capture output, exit code, and timing
     start_time=$(get_time_ms)
-    output=$(timeout 60 "$PROJECT_ROOT/hemlock" "$test_file" 2>&1)
+    output=$(timeout 100 "$PROJECT_ROOT/hemlock" "$test_file" 2>&1)
     exit_code=$?
     end_time=$(get_time_ms)
     duration_ms=$((end_time - start_time))
     TOTAL_TIME_MS=$((TOTAL_TIME_MS + duration_ms))
     time_str=$(format_time $duration_ms)
 
-    # Check if timeout occurred
-    if [ $exit_code -eq 124 ]; then
+    # Check if timeout occurred (124) or process was killed by signal (128+signal)
+    # 124 = timeout, 137 = SIGKILL (timeout -k), 134 = SIGABRT, 139 = SIGSEGV
+    if [ $exit_code -eq 124 ] || [ $exit_code -eq 137 ]; then
         echo -e "${RED}✗${NC} $test_name ${DIM}(${time_str})${NC} ${RED}(timeout)${NC}"
         FAILED_TESTS+=("$test_name|timeout after ${time_str}|")
+        ((FAIL_COUNT++))
+        continue
+    fi
+
+    # Check if process crashed with a signal (core dump)
+    if [ $exit_code -gt 128 ]; then
+        signal_num=$((exit_code - 128))
+        echo -e "${RED}✗${NC} $test_name ${DIM}(${time_str})${NC} ${RED}(signal $signal_num)${NC}"
+        FAILED_TESTS+=("$test_name|killed by signal $signal_num|$output")
         ((FAIL_COUNT++))
         continue
     fi

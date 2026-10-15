@@ -1,5 +1,6 @@
 // Test: Socket protocol constants
 // IPPROTO_TCP and IPPROTO_UDP should be available
+import { IPPROTO_TCP, IPPROTO_UDP } from "@stdlib/net";
 
 print(IPPROTO_TCP);
 print(IPPROTO_UDP);

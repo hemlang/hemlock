@@ -1,0 +1,37 @@
+// Regression: a for-loop counter is unboxed to a native int32_t, but the
+// comparison bound must not be silently truncated to int32. Before the fix the
+// compiler emitted `int32_t _bound = hml_to_i32(bound)`, so a bound whose value
+// exceeded INT32_MAX wrapped to a negative number and the loop body never ran
+// (compiler printed 0 while the interpreter ran the loop). The counter is now
+// promoted to int64 in the comparison so both backends agree.
+
+// Dynamic i64 bound whose value exceeds INT32_MAX (2147483647).
+let bound: i64 = 3000000000;
+let count = 0;
+for (let i = 0; i < bound; i++) {
+    count = count + 1;
+    if (count >= 5) { break; }   // keep finite + deterministic
+}
+print(count);   // 5  (a truncated bound would yield 0)
+
+// Constant literal bound that exceeds INT32_MAX.
+let count2 = 0;
+for (let i = 0; i < 5000000000; i++) {
+    count2 = count2 + 1;
+    if (count2 >= 3) { break; }
+}
+print(count2);  // 3
+
+// Ordinary small i64 bound still counts to completion.
+let n: i64 = 1000;
+let sum = 0;
+for (let i = 0; i < n; i++) { sum = sum + 1; }
+print(sum);     // 1000
+
+// Counter-on-right comparison with a large bound.
+let count3 = 0;
+for (let i = 0; bound > i; i++) {
+    count3 = count3 + 1;
+    if (count3 >= 4) { break; }
+}
+print(count3);  // 4

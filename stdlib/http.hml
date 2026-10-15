@@ -16,6 +16,29 @@ fn http_request(method, url, body, headers) {
 	);
 }
 
+fn resolve_redirect_url(url, redirect_url) {
+	// If redirect URL is relative, make it absolute using the original URL.
+	if (redirect_url.starts_with("/")) {
+		let scheme_end = url.index_of("://");
+		if (scheme_end >= 0) {
+			let host_start = scheme_end + 3;
+			let host_end = url.index_of("/", host_start);
+			if (host_end < 0) {
+				host_end = url.length;
+			}
+			let base = url.substr(0, host_end);
+			return base + redirect_url;
+		}
+	}
+
+	return redirect_url;
+}
+
+fn is_redirect_response_status(status) {
+	// libwebsockets can report 618 for some redirect handoffs while still exposing Location.
+	return status >= 300 && status < 400 || status == 618;
+}
+
 fn http_request_with_redirects(method, url, body, headers, redirect_count) {
 	// Limit redirects to prevent infinite loops
 	if (redirect_count > 10) {
@@ -34,14 +57,28 @@ fn http_request_with_redirects(method, url, body, headers, redirect_count) {
 		}
 	}
 
+	let has_headers = headers != null && headers.length > 0;
+
 	if (method == "GET") {
-		resp_ptr = __lws_http_get(url);
+		if (has_headers) {
+			resp_ptr = __lws_http_get(url, headers);
+		} else {
+			resp_ptr = __lws_http_get(url);
+		}
 	} else if (method == "POST") {
-		resp_ptr = __lws_http_post(url, body, content_type);
+		if (has_headers) {
+			resp_ptr = __lws_http_post(url, body, content_type, headers);
+		} else {
+			resp_ptr = __lws_http_post(url, body, content_type);
+		}
 	} else if (method == "PUT" || method == "DELETE" || method == "PATCH" || method == "HEAD" ||
 		method == "OPTIONS") {
 		// Use generic request function for other HTTP methods
-		resp_ptr = __lws_http_request(method, url, body, content_type);
+		if (has_headers) {
+			resp_ptr = __lws_http_request(method, url, body, content_type, headers);
+		} else {
+			resp_ptr = __lws_http_request(method, url, body, content_type);
+		}
 	} else {
 		throw "HTTP method not supported: " + method;
 	}
@@ -59,22 +96,9 @@ fn http_request_with_redirects(method, url, body, headers, redirect_count) {
 	// Free C response structure
 	__lws_response_free(resp_ptr);
 
-	// Handle redirects (3xx status codes)
-	if (status >= 300 && status < 400 && redirect_url != null) {
-		// If redirect URL is relative, make it absolute
-		if (redirect_url.starts_with("/")) {
-			// Extract scheme and host from original URL
-			let scheme_end = url.index_of("://");
-			if (scheme_end >= 0) {
-				let host_start = scheme_end + 3;
-				let host_end = url.index_of("/", host_start);
-				if (host_end < 0) {
-					host_end = url.length;
-				}
-				let base = url.substr(0, host_end);
-				redirect_url = base + redirect_url;
-			}
-		}
+	// Handle redirects
+	if (is_redirect_response_status(status) && redirect_url != null) {
+		redirect_url = resolve_redirect_url(url, redirect_url);
 		// Follow redirect (use GET for 301/302/303)
 		return http_request_with_redirects(
 			"GET",
@@ -108,7 +132,11 @@ fn http_request_binary_with_redirects(method, url, headers, redirect_count) {
 	let resp_ptr = null;
 
 	if (method == "GET") {
-		resp_ptr = __lws_http_get(url);
+		if (headers != null && headers.length > 0) {
+			resp_ptr = __lws_http_get(url, headers);
+		} else {
+			resp_ptr = __lws_http_get(url);
+		}
 	} else {
 		throw "Binary download only supports GET method";
 	}
@@ -121,24 +149,12 @@ fn http_request_binary_with_redirects(method, url, headers, redirect_count) {
 	let status = __lws_response_status(resp_ptr);
 	let redirect_url = __lws_response_redirect(resp_ptr);
 
-	// Handle redirects (3xx status codes) BEFORE getting body
-	if (status >= 300 && status < 400 && redirect_url != null) {
+	// Handle redirects before getting body
+	if (is_redirect_response_status(status) && redirect_url != null) {
 		// Free response before following redirect
 		__lws_response_free(resp_ptr);
 
-		// If redirect URL is relative, make it absolute
-		if (redirect_url.starts_with("/")) {
-			let scheme_end = url.index_of("://");
-			if (scheme_end >= 0) {
-				let host_start = scheme_end + 3;
-				let host_end = url.index_of("/", host_start);
-				if (host_end < 0) {
-					host_end = url.length;
-				}
-				let base = url.substr(0, host_end);
-				redirect_url = base + redirect_url;
-			}
-		}
+		redirect_url = resolve_redirect_url(url, redirect_url);
 		// Follow redirect
 		return http_request_binary_with_redirects(
 			"GET",
@@ -212,12 +228,65 @@ export fn get_json(url) {
 	return response.body.deserialize();
 }
 
+// Buffered download — fetches the whole body into memory then writes
+// it to disk in one shot. Fine for small/medium files (HTML, JSON,
+// modest binaries). For large artifacts (>100MB), prefer
+// download_streaming below to keep memory bounded.
 export fn download(url, output_path) {
-	let response = get(url, null);
+	let response = get_binary(url, null);
 
-	// Would need file write support
-	// For now, just return success based on status
-	return response.status_code >= 200 && response.status_code < 300;
+	if (response.status_code < 200 || response.status_code >= 300) {
+		throw "download() failed with status " + response.status_code;
+	}
+
+	// __open + write_bytes for binary content. f.write only accepts
+	// string and would silently no-op (compiled) or throw (interpreter)
+	// on a buffer; the analogous compression.hml pipeline uses the same
+	// __open pattern.
+	let f = __open(output_path, "w");
+	f.write_bytes(response.body);
+	f.close();
+
+	return true;
+}
+
+// Streaming download — opens an HTTP stream, writes binary chunks to
+// disk as they arrive. Memory usage is bounded by chunk size, not
+// file size. The right API for multi-GB artifacts (model weights,
+// archives, etc.).
+//
+// Returns { status_code, bytes_written } on success. Throws on
+// non-2xx status. Writes to <output_path>.partial first and renames
+// on completion so a crashed download doesn't leave a half-file
+// masquerading as a complete one.
+export fn download_streaming(url, output_path) {
+	let s = stream("GET", url, "", null, 600000);
+	if (s.status_code < 200 || s.status_code >= 300) {
+		s.close();
+		throw "download_streaming() failed with status " + s.status_code;
+	}
+
+	let partial = output_path + ".partial";
+	let out = __open(partial, "w");
+	let bytes_written: i64 = 0;
+	try {
+		while (!s.done) {
+			let chunk = s.read_binary(60000);
+			if (chunk == null) { break; }
+			if (chunk.length == 0) { continue; }
+			out.write_bytes(chunk);
+			bytes_written = bytes_written + chunk.length;
+		}
+	} catch (e) {
+		out.close();
+		s.close();
+		throw "download_streaming() error mid-transfer: " + e;
+	}
+	out.close();
+	s.close();
+	__rename(partial, output_path);
+
+	return { status_code: s.status_code, bytes_written: bytes_written };
 }
 
 // ========== STATUS CODE HELPERS ==========
@@ -241,16 +310,28 @@ export fn is_server_error(status_code) {
 // ========== URL HELPERS ==========
 
 export fn url_encode(str) {
-	let result = str;
-	result = result.replace_all(" ", "%20");
-	result = result.replace_all("!", "%21");
-	result = result.replace_all("#", "%23");
-	result = result.replace_all("$", "%24");
-	result = result.replace_all("&", "%26");
-	result = result.replace_all("'", "%27");
-	result = result.replace_all("(", "%28");
-	result = result.replace_all(")", "%29");
-	result = result.replace_all("+", "%2B");
+	let hex_chars = "0123456789ABCDEF";
+	let bytes = str.bytes();
+	let result = "";
+
+	let i = 0;
+	while (i < bytes.length) {
+		let b = bytes[i];
+		let code: i32 = b;
+
+		// Unreserved characters per RFC 3986: A-Z, a-z, 0-9, -, _, ., ~
+		if (code >= 65 && code <= 90 || code >= 97 && code <= 122 ||
+			code >= 48 && code <= 57 ||
+			code == 45 || code == 95 || code == 46 || code == 126) {
+			let ch: rune = b;
+			result = result + ch;
+		} else {
+			let hi = b >> 4 & 15;
+			let lo = b & 15;
+			result = result + "%" + hex_chars.substr(hi, 1) + hex_chars.substr(lo, 1);
+		}
+		i = i + 1;
+	}
 	return result;
 }
 
@@ -281,13 +362,27 @@ fn http_request_timeout_with_redirects(method, url, body, headers, redirect_coun
 		}
 	}
 
+	let has_headers = headers != null && headers.length > 0;
+
 	if (method == "GET") {
-		resp_ptr = __lws_http_get_timeout(url, timeout_ms);
+		if (has_headers) {
+			resp_ptr = __lws_http_get_timeout(url, timeout_ms, headers);
+		} else {
+			resp_ptr = __lws_http_get_timeout(url, timeout_ms);
+		}
 	} else if (method == "POST") {
-		resp_ptr = __lws_http_post_timeout(url, body, content_type, timeout_ms);
+		if (has_headers) {
+			resp_ptr = __lws_http_post_timeout(url, body, content_type, timeout_ms, headers);
+		} else {
+			resp_ptr = __lws_http_post_timeout(url, body, content_type, timeout_ms);
+		}
 	} else if (method == "PUT" || method == "DELETE" || method == "PATCH" || method == "HEAD" ||
 		method == "OPTIONS") {
-		resp_ptr = __lws_http_request_timeout(method, url, body, content_type, timeout_ms);
+		if (has_headers) {
+			resp_ptr = __lws_http_request_timeout(method, url, body, content_type, timeout_ms, headers);
+		} else {
+			resp_ptr = __lws_http_request_timeout(method, url, body, content_type, timeout_ms);
+		}
 	} else {
 		throw "HTTP method not supported: " + method;
 	}
@@ -305,20 +400,9 @@ fn http_request_timeout_with_redirects(method, url, body, headers, redirect_coun
 	// Free C response structure
 	__lws_response_free(resp_ptr);
 
-	// Handle redirects (3xx status codes)
-	if (status >= 300 && status < 400 && redirect_url != null) {
-		if (redirect_url.starts_with("/")) {
-			let scheme_end = url.index_of("://");
-			if (scheme_end >= 0) {
-				let host_start = scheme_end + 3;
-				let host_end = url.index_of("/", host_start);
-				if (host_end < 0) {
-					host_end = url.length;
-				}
-				let base = url.substr(0, host_end);
-				redirect_url = base + redirect_url;
-			}
-		}
+	// Handle redirects
+	if (is_redirect_response_status(status) && redirect_url != null) {
+		redirect_url = resolve_redirect_url(url, redirect_url);
 		return http_request_timeout_with_redirects("GET", redirect_url, "", headers, redirect_count + 1, timeout_ms);
 	}
 
@@ -422,6 +506,19 @@ export fn stream(method, url, body, headers, timeout_ms) {
 			read_timeout_ms = read_timeout_ms ?? 30000;
 			if (self.done) { return null; }
 			let chunk = __lws_http_stream_read(self._ptr, read_timeout_ms);
+			if (chunk == null) {
+				self.done = true;
+			}
+			return chunk;
+		},
+		// Same as read() but returns a buffer (preserves null bytes in
+		// binary payloads). Use for downloading non-text content over a
+		// streamed connection — text read() goes through val_string
+		// which strlen-truncates.
+		read_binary: fn(read_timeout_ms) {
+			read_timeout_ms = read_timeout_ms ?? 30000;
+			if (self.done) { return null; }
+			let chunk = __lws_http_stream_read_binary(self._ptr, read_timeout_ms);
 			if (chunk == null) {
 				self.done = true;
 			}
@@ -628,7 +725,16 @@ export fn HttpServer(host: string, port: i32) {
 
 			// Read the request
 			let request_buf = stream.read(8192);
+			// A connection may send no data at all — e.g. a browser opening a
+			// speculative "preconnect" socket, or a health probe that closes
+			// immediately. Don't crash the server; just drop the connection.
+			if (request_buf == null) {
+				return;
+			}
 			let request_str = request_buf.to_string();
+			if (request_str.trim() == "") {
+				return;
+			}
 
 			// Parse request
 			let req = self._parse_request(request_str);
@@ -670,8 +776,10 @@ export fn HttpServer(host: string, port: i32) {
 			let first_line = lines[0];
 			let parts = first_line.split(" ");
 
-			let method = parts[0];
-			let path = parts[1];
+			// Guard against a malformed request line (fewer than "METHOD PATH"
+			// tokens) so we return a harmless 404 instead of crashing.
+			let method = parts.length > 0 ? parts[0] : "";
+			let path = parts.length > 1 ? parts[1] : "";
 			let version = "HTTP/1.1";
 			if (parts.length > 2) {
 				version = parts[2];

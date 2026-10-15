@@ -1,0 +1,5 @@
+fn work(): i32 { return 1; }
+fn main() {
+    let t = spawn(work);
+    let r = await t;
+}

@@ -1,0 +1,1 @@
+PASS: Caught negative codepoint: Value -1 out of range for rune [0, 0x10FFFF]

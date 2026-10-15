@@ -1,0 +1,24 @@
+// Test defer with builtin functions (especially free)
+// This tests that builtins like free() can be used as first-class
+// function values in defer statements.
+
+fn test_defer_free() {
+    let p = alloc(16);
+    defer free(p);
+    ptr_write_i32(p, 42);
+    let val = ptr_deref_i32(p);
+    print("value: " + val);
+    // free() runs here via defer
+}
+
+test_defer_free();
+print("after defer free");
+
+// Test defer with other builtins
+fn test_defer_print() {
+    defer print("deferred print");
+    print("before defer");
+}
+
+test_defer_print();
+print("done");

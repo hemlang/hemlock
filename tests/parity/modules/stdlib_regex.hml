@@ -1,0 +1,52 @@
+// Parity test for stdlib/regex module
+
+import * as regex from "@stdlib/regex";
+
+print("=== compile (default flags) ===");
+let re_default = regex.compile("[0-9]+");
+print("compiled: " + (re_default != null));
+re_default.free();
+
+print("=== compile (null flags) ===");
+let re_null = regex.compile("[0-9]+", null);
+print("compiled: " + (re_null != null));
+re_null.free();
+
+print("=== compile (explicit flags) ===");
+let re_icase = regex.compile("hello", regex.REG_ICASE);
+print("case match: " + re_icase.test("HELLO world"));
+re_icase.free();
+
+print("=== method: test ===");
+let re = regex.compile("[0-9]+");
+print("match digits: " + re.test("abc123def"));
+print("no digits: " + re.test("abcdef"));
+
+print("=== method: find ===");
+print("find in string: " + re.find("hello 42 world"));
+
+print("=== method: find_all ===");
+let matches = re.find_all("abc123def", null);
+print("matches length: " + matches.length);
+
+print("=== method: replace ===");
+print("first: " + re.replace("abc123def456", "X"));
+
+print("=== method: replace_all ===");
+print("all: " + re.replace_all("abc123def456", "X"));
+
+re.free();
+
+print("=== one-shot: replace ===");
+print("one-shot: " + regex.replace("[0-9]+", "abc123def456", "Y"));
+
+print("=== one-shot: replace_all ===");
+print("one-shot all: " + regex.replace_all("[0-9]+", "abc123def456", "Y"));
+
+print("=== one-shot: test ===");
+print("digits?: " + regex.test("^[0-9]+$", "12345"));
+
+print("=== replace_all with no match ===");
+print("no match: " + regex.replace_all("[0-9]+", "abcdef", "X"));
+
+print("=== Done ===");

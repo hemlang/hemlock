@@ -1,0 +1,36 @@
+// Multiple concurrent send() calls on an unbuffered channel.
+// Each staged sender must be woken when ITS value is consumed. A bare
+// "sender_waiting == 0" check plus pthread_cond_signal() can wake the
+// wrong sender (another sender re-stages before the first one re-checks,
+// and the next signal is consumed by the wrong waiter), leaving a sender
+// asleep forever even though its value was delivered.
+
+let ch = channel(0);
+
+async fn sender(c, base: i32, count: i32) {
+    let i = 0;
+    while (i < count) {
+        c.send(base + i);
+        i = i + 1;
+    }
+    return null;
+}
+
+let t1 = spawn(sender, ch, 100, 10);
+let t2 = spawn(sender, ch, 200, 10);
+let t3 = spawn(sender, ch, 300, 10);
+
+let sum = 0;
+let n = 0;
+while (n < 30) {
+    let v = ch.recv();
+    sum = sum + v;
+    n = n + 1;
+}
+
+join(t1);
+join(t2);
+join(t3);
+
+// 10*(100..109) + 10*(200..209) + 10*(300..309) = 1045+2045+3045
+print(sum);

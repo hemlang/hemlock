@@ -1,0 +1,32 @@
+// ++ and -- preserve the operand's type and wrap on overflow,
+// including full 64-bit precision (no i32 truncation).
+let u: u8 = 0;
+u--;
+print(u, typeof(u));
+let w: u8 = 255;
+w++;
+print(w, typeof(w));
+let h: u16 = 0;
+h--;
+print(h, typeof(h));
+let m: i32 = 2147483647;
+m++;
+print(m, typeof(m));
+let a: i64 = 5000000000;
+a++;
+print(a, typeof(a));
+let b: i64 = 2147483647;
+b++;
+print(b, typeof(b));
+let g: u64 = 18446744073709551615;
+g++;
+print(g, typeof(g));
+let f: f32 = 1.5;
+f++;
+print(f, typeof(f));
+let d = 2.5;
+d--;
+print(d, typeof(d));
+let p: i8 = 127;
+p++;
+print(p, typeof(p));

@@ -1,0 +1,80 @@
+// Test: New array and string methods
+// Tests findIndex, lastIndexOf, flat, trim_start, trim_end
+
+// === array.findIndex(predicate) ===
+let arr = [10, 20, 30, 40, 50];
+
+let idx = arr.findIndex(fn(x) { return x > 25; });
+print("findIndex > 25: " + idx);  // 2
+
+let idx2 = arr.findIndex(fn(x) { return x > 100; });
+print("findIndex > 100: " + idx2);  // -1
+
+let idx3 = arr.findIndex(fn(x) { return x == 10; });
+print("findIndex == 10: " + idx3);  // 0
+
+let empty = [];
+let idx4 = empty.findIndex(fn(x) { return true; });
+print("findIndex empty: " + idx4);  // -1
+
+// === array.lastIndexOf(value) ===
+let arr2 = [1, 2, 3, 2, 1];
+
+let li1 = arr2.lastIndexOf(2);
+print("lastIndexOf 2: " + li1);  // 3
+
+let li2 = arr2.lastIndexOf(1);
+print("lastIndexOf 1: " + li2);  // 4
+
+let li3 = arr2.lastIndexOf(99);
+print("lastIndexOf 99: " + li3);  // -1
+
+let li4 = empty.lastIndexOf(1);
+print("lastIndexOf empty: " + li4);  // -1
+
+// === array.flat() ===
+let nested = [[1, 2], [3, 4], [5]];
+let flat1 = nested.flat();
+print("flat nested: " + flat1.join(", "));  // 1, 2, 3, 4, 5
+
+let mixed = [1, [2, 3], 4, [5, 6]];
+let flat2 = mixed.flat();
+print("flat mixed: " + flat2.join(", "));  // 1, 2, 3, 4, 5, 6
+
+let already_flat = [1, 2, 3];
+let flat3 = already_flat.flat();
+print("flat already flat: " + flat3.join(", "));  // 1, 2, 3
+
+let deep = [[1, [2, 3]], [4]];
+let flat4 = deep.flat();
+// Only flattens one level: [1, [2, 3], 4]
+print("flat deep length: " + flat4.length);  // 3
+
+let flat_empty = empty.flat();
+print("flat empty: " + flat_empty.length);  // 0
+
+// === string.trim_start() ===
+let s1 = "  hello  ";
+print("trim_start: [" + s1.trim_start() + "]");  // [hello  ]
+
+let s2 = "\t\n  hi";
+print("trim_start tabs: [" + s2.trim_start() + "]");  // [hi]
+
+let s3 = "no_leading";
+print("trim_start none: [" + s3.trim_start() + "]");  // [no_leading]
+
+let s4 = "   ";
+print("trim_start all ws: [" + s4.trim_start() + "]");  // []
+
+// === string.trim_end() ===
+print("trim_end: [" + s1.trim_end() + "]");  // [  hello]
+
+let s5 = "hi\t\n  ";
+print("trim_end tabs: [" + s5.trim_end() + "]");  // [hi]
+
+let s6 = "no_trailing";
+print("trim_end none: [" + s6.trim_end() + "]");  // [no_trailing]
+
+print("trim_end all ws: [" + s4.trim_end() + "]");  // []
+
+print("All new method tests passed!");

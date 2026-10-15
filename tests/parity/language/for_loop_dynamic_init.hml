@@ -1,0 +1,21 @@
+// Regression: for-loop counter with non-literal init must evaluate the
+// initializer expression at runtime. Previously the compiler's native-counter
+// optimization assumed the init was always a number literal and read garbage
+// from the AST union when a prior same-named loop had left a stale "is loop
+// counter" mark in the unboxing table.
+
+fn descend(n) {
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+        sum = sum + 0;  // establishes `i` as unboxable loop counter
+    }
+    for (let i = n - 1; i >= 0; i--) {
+        sum = sum + i;  // init is `n - 1`, not a literal
+    }
+    return sum;
+}
+
+print(descend(5));   // 0+1+2+3+4 = 10
+print(descend(10));  // 0+..+9   = 45
+print(descend(1));   // 0
+print(descend(0));   // 0

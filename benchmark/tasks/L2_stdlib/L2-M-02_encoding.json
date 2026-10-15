@@ -1,0 +1,13 @@
+{
+  "id": "L2-M-02",
+  "level": "L2",
+  "difficulty": "medium",
+  "title": "Encoding Round-Trip",
+  "topic": "encoding and hash stdlib",
+  "prompt": "Write a Hemlock program using `@stdlib/encoding` and `@stdlib/hash`. \n\n1. Import base64_encode and base64_decode from @stdlib/encoding\n2. Import sha256 from @stdlib/hash\n3. Encode the string \"Hello, Hemlock!\" to base64 and print it\n4. Decode it back and print the decoded string\n5. Compute the SHA-256 hash of \"Hello, Hemlock!\" and print it\n6. Verify round-trip: print \"roundtrip: true\" if decode(encode(s)) == s, else \"roundtrip: false\"",
+  "expected_output": "SGVsbG8sIEhlbWxvY2sh\nHello, Hemlock!\n5341eefe18d7c0655da1f415443cd6d0334187005e8e96f6040f0799532703bf\nroundtrip: true\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "notes": "The base64 and SHA-256 values are computed from the actual string. Models must know or compute these correctly.",
+  "tags": ["stdlib", "encoding", "hash", "strings"]
+}

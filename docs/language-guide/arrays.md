@@ -242,11 +242,12 @@ let has2 = arr.contains(99); // false
 
 ### Extraction Operations
 
-**`slice(start, end)`** - Extract subarray (end exclusive):
+**`slice(start, end?)`** - Extract subarray (end exclusive, defaults to length):
 ```hemlock
 let arr = [1, 2, 3, 4, 5];
 let sub = arr.slice(1, 4);   // [2, 3, 4] (indices 1, 2, 3)
 let first = arr.slice(0, 2); // [1, 2]
+let tail = arr.slice(2);     // [3, 4, 5] (from index 2 to end)
 
 // Original unchanged
 print(arr);                  // [1, 2, 3, 4, 5]
@@ -287,6 +288,11 @@ let csv = numbers.join(",");   // "1,2,3"
 // Works with mixed types
 let mixed = [1, "hello", true, null];
 print(mixed.join(" | "));  // "1 | hello | true | null"
+
+// Works with rune arrays (from chars())
+let chars = "hello".chars();
+chars.reverse();
+print(chars.join(""));     // "olleh"
 ```
 
 **`concat(other)`** - Concatenate with another array:
@@ -340,8 +346,9 @@ let numbers = [5, 3, 8, 1, 9]
 | `insert(index, value)` | i32, any | void | Yes | Insert at index |
 | `remove(index)` | i32 | any | Yes | Remove and return at index |
 | `find(value)` | any | i32 | No | Find first occurrence (-1 if not found) |
+| `findIndex(predicate)` | fn | i32 | No | Find first index matching predicate (-1 if not found) |
 | `contains(value)` | any | bool | No | Check if contains value |
-| `slice(start, end)` | i32, i32 | array | No | Extract subarray (new array) |
+| `slice(start, end?)` | i32, i32? | array | No | Extract subarray (new array) |
 | `join(delimiter)` | string | string | No | Join into string |
 | `concat(other)` | array | array | No | Concatenate (new array) |
 | `reverse()` | - | void | Yes | Reverse in-place |
@@ -351,6 +358,15 @@ let numbers = [5, 3, 8, 1, 9]
 | `map(callback)` | fn | array | No | Transform each element |
 | `filter(predicate)` | fn | array | No | Select matching elements |
 | `reduce(callback, initial)` | fn, any | any | No | Reduce to single value |
+| `every(predicate)` | fn | bool | No | True if all elements match |
+| `some(predicate)` | fn | bool | No | True if any element matches |
+| `indexOf(value)` | any | i32 | No | First index of value (-1 if not found) |
+| `lastIndexOf(value)` | any | i32 | No | Last index of value (-1 if not found) |
+| `sort(comparator?)` | fn? | void | Yes | Sort in-place with optional comparator |
+| `fill(value, start?, end?)` | any, i32?, i32? | void | Yes | Fill elements with a value |
+| `reserve(n)` | i32 | void | Yes | Pre-allocate capacity |
+| `flat()` | - | array | No | Flatten nested arrays by one level |
+| `serialize()` | - | string | No | Serialize array to string representation |
 
 ## Implementation Details
 

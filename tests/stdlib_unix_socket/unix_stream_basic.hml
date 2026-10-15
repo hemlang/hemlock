@@ -1,0 +1,63 @@
+// Test: UnixListener and UnixStream basic functionality
+// Tests Unix domain stream sockets from @stdlib/unix_socket
+
+import { UnixListener, UnixStream, remove_socket } from "@stdlib/unix_socket";
+
+let sock_path = "/tmp/hemlock_test_unix_stream.sock";
+
+// Clean up any leftover socket file
+remove_socket(sock_path);
+
+async fn test_server() {
+	let listener = UnixListener(sock_path);
+	defer listener.close();
+	defer listener.remove();
+
+	print("Server listening on " + sock_path);
+
+	let stream = listener.accept();
+	defer stream.close();
+
+	print("Server accepted connection");
+
+	// Read data
+	let data = stream.read(1024);
+	print("Server received " + typeof(data.length) + " bytes");
+
+	// Echo back
+	let sent = stream.write(data);
+	print("Server sent " + typeof(sent) + " bytes");
+
+	return null;
+}
+
+async fn test_client() {
+	// Give server time to start
+	__sleep(0.1);
+
+	let stream = UnixStream(sock_path);
+	defer stream.close();
+
+	print("Client connected to " + sock_path);
+
+	// Send message
+	let message = "Hello from unix_socket!";
+	let sent = stream.write(message);
+	print("Client sent " + typeof(sent) + " bytes");
+
+	// Receive echo
+	let received = stream.read(1024);
+	print("Client received " + typeof(received.length) + " bytes");
+
+	return null;
+}
+
+// Spawn server and client
+let server_task = spawn(test_server);
+let client_task = spawn(test_client);
+
+// Wait for completion
+join(server_task);
+join(client_task);
+
+print("Unix stream socket test passed!");

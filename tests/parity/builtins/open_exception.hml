@@ -1,4 +1,6 @@
 // Test: open() throws catchable exception on missing file
+import { open } from "@stdlib/fs";
+
 let caught = false;
 let msg = "";
 try {

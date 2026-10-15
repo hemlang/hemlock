@@ -1,0 +1,12 @@
+// Test that TcpStream() throws a catchable exception on connection refused
+// (parity: interpreter throws, compiled runtime previously exit(1)'d here)
+import { TcpStream } from "@stdlib/net";
+
+try {
+    TcpStream("127.0.0.1", 1);
+    print("not thrown");
+} catch (e) {
+    print("threw");
+}
+
+print("done");

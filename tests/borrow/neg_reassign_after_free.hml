@@ -1,0 +1,8 @@
+// Reassigning after the old resource was freed drops nothing: the classic
+// free-then-reacquire pattern stays clean, even in strict mode.
+fn main() {
+    let p = alloc(64);
+    free(p);
+    p = alloc(128);
+    free(p);
+}

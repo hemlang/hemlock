@@ -19,8 +19,10 @@
 #include <stdarg.h>
 #include <unistd.h>
 #include <libgen.h>
+#include <math.h>
 #include <limits.h>
 #include <inttypes.h>
+#include <math.h>
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -60,13 +62,34 @@ typedef struct {
     DeferEntry *defer_stack;  // Saved ctx->defer_stack
     int in_function;          // Saved ctx->in_function
     int has_defers;           // Saved ctx->has_defers
+    int defer_unwind_active;  // Saved ctx->defer_unwind_active
     CompiledModule *module;   // Saved ctx->current_module (for closures)
     ClosureInfo *closure;     // Saved ctx->current_closure
     Scope *scope;             // Saved ctx->current_scope
-    char *tail_call_func_name;  // Saved tail call optimization state
+    const char *tail_call_func_name;  // Saved tail call optimization state
     char *tail_call_label;
     Expr *tail_call_func_expr;
+    int locals_body_start;    // Saved ctx->locals_body_start
+    int loop_body_depth;      // Saved ctx->loop_body_depth
+    int loop_depth;           // Saved ctx->loop_depth
+    int try_body_depth;       // Saved ctx->try_body_depth
+    // Saved ctx->func_params et al. Without restoring these, a
+    // function's parameter names leak into the enclosing / top-level
+    // scope's codegen_is_func_param() checks, which silently disables
+    // the while-loop unboxing optimisation for an unrelated top-level
+    // loop counter that happens to share a name: e.g. defining
+    // `fn f(n: i64)` makes a later top-level `while (n < 5) { n = n+1 }`
+    // read the never-updated boxed _main_n and spin forever.
+    char **func_params;       // Saved ctx->func_params
+    int num_func_params;      // Saved ctx->num_func_params
+    int *func_param_is_ref;   // Saved ctx->func_param_is_ref
+    const char *func_rest_param; // Saved ctx->func_rest_param
+    int function_has_try;     // Saved ctx->function_has_try
 } FuncGenState;
+
+// Recursively check whether a statement tree contains a try statement
+// (skips nested function bodies - they get their own scan).
+int codegen_body_has_try(Stmt *stmt);
 
 // Save function generation state before entering a function body
 void funcgen_save_state(CodegenContext *ctx, FuncGenState *state);
@@ -83,6 +106,31 @@ int codegen_is_func_param(CodegenContext *ctx, const char *name);
 // Apply default values for optional parameters
 void funcgen_apply_defaults(CodegenContext *ctx, Expr *func);
 
+// Convert typed parameters to their annotated primitive types (interpreter
+// parity, #654). Emitted after funcgen_apply_defaults, so a default is
+// converted too; the tail-call rebinding converts each new value itself.
+void funcgen_convert_param(CodegenContext *ctx, Expr *func, int i, const char *target);
+void funcgen_convert_params(CodegenContext *ctx, Expr *func);
+
+// Promote parameters to owned references: emit hml_retain_if_needed() for
+// every non-ref parameter (and the rest parameter). Must be emitted BEFORE
+// funcgen_apply_defaults so an applied default (an owned value assigned over
+// the incoming null) is not retained a second time. Owned params make
+// release-then-assign correct for parameter reassignment in the body and for
+// tail-call parameter rebinding; the matching releases are emitted by
+// codegen_emit_param_cleanup on every function exit path.
+void funcgen_retain_params(CodegenContext *ctx, Expr *func);
+
+// Emit hml_release_if_needed() for every non-ref parameter (and the rest
+// parameter) - the counterpart of funcgen_retain_params. Called on function
+// exit paths AFTER codegen_emit_local_cleanup. Not called on the tail-call
+// loop-back path, which rebinds parameters itself (release old + assign new).
+void codegen_emit_param_cleanup(CodegenContext *ctx);
+
+// Release the current closure's captured-variable C locals (owned refs).
+// No-op outside closure bodies. Called on every function exit path.
+void codegen_emit_capture_cleanup(CodegenContext *ctx);
+
 // Scan for closures and create shared environment if needed
 void funcgen_setup_shared_env(CodegenContext *ctx, Expr *func, ClosureInfo *closure);
 
@@ -91,8 +139,19 @@ void funcgen_generate_body(CodegenContext *ctx, Expr *func);
 
 // ========== INTERNAL HELPER FUNCTIONS ==========
 
+// Mark a local variable as not needing cleanup (e.g., unboxed to C primitive)
+void codegen_mark_local_no_cleanup(CodegenContext *ctx, const char *name);
+
+// Emit hml_release() calls for all body-local variables that need cleanup
+// skip_var: variable name to skip (e.g., the return value), or NULL
+void codegen_emit_local_cleanup(CodegenContext *ctx, const char *skip_var);
+
 // Remove a local variable from scope (used for catch params that go out of scope)
 void codegen_remove_local(CodegenContext *ctx, const char *name);
+
+// Register a raw C temp name (e.g. "_tmp7") as a cleanup-tracked local;
+// cleanup emits it verbatim instead of running it through the sanitizer.
+void codegen_add_local_raw(CodegenContext *ctx, const char *c_name);
 
 // Shadow variable tracking (locals that shadow main vars, like catch params)
 void codegen_add_shadow(CodegenContext *ctx, const char *name);
@@ -116,6 +175,8 @@ void codegen_pop_try_finally(CodegenContext *ctx);
 const char* codegen_get_finally_label(CodegenContext *ctx);
 const char* codegen_get_return_value_var(CodegenContext *ctx);
 const char* codegen_get_has_return_var(CodegenContext *ctx);
+int codegen_try_finally_pending_code(CodegenContext *ctx, int is_continue, const char *label);
+void codegen_try_finally_free_pending(TfPendingJump *pending, int num_pending);
 
 // Switch context tracking (for break -> goto)
 void codegen_push_switch(CodegenContext *ctx, const char *end_label);
@@ -140,6 +201,16 @@ int* codegen_get_main_func_param_is_ref(CodegenContext *ctx, const char *name);
 Expr* codegen_get_main_func_ast(CodegenContext *ctx, const char *name);
 int codegen_is_main_func_inlinable(CodegenContext *ctx, const char *name);
 int codegen_is_ref_param(CodegenContext *ctx, const char *name);
+
+// Extern (FFI) function tracking - names that have hml_fn_ wrappers generated
+void codegen_add_extern_fn(CodegenContext *ctx, const char *name);
+int codegen_is_extern_fn(CodegenContext *ctx, const char *name);
+
+// Format an f64 constant as a valid C expression (handles inf/nan/-0.0)
+void codegen_format_f64(char *buf, size_t size, double value);
+
+// Format an i64 constant as a valid C integer token (LL suffix, INT64_MIN macro)
+void codegen_format_i64(char *buf, size_t size, int64_t value);
 
 // Main file import tracking
 void codegen_add_main_import(CodegenContext *ctx, const char *local_name,
@@ -193,7 +264,10 @@ void codegen_closure_wrapper(CodegenContext *ctx, ClosureInfo *closure);
 // ========== FUNCTION GENERATION ==========
 
 // Generate a top-level function declaration
-void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, Annotation **annotations, int annotation_count);
+void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, Annotation **annotations, int annotation_count, int is_export);
+
+// Emit GCC loop pragmas (@unroll/@nounroll/@simd) immediately before a C loop header
+void codegen_emit_loop_pragmas(CodegenContext *ctx, Annotation **annotations, int annotation_count);
 
 // Check if a statement is a function definition
 int is_function_def(Stmt *stmt, char **name_out, Expr **func_out);
@@ -215,12 +289,26 @@ Stmt** parse_module_file(const char *path, int *stmt_count);
 // Generate code to match a pattern against a value, jumping to fail_label if no match
 // Creates local variables for any bindings in the pattern
 void codegen_pattern_match(CodegenContext *ctx, Pattern *pattern, const char *scrutinee, const char *fail_label);
+// A match arm's bindings clear unboxable marks of same-named outer variables;
+// take a mark before the arm and restore those marks once the arm ends.
+int codegen_match_unbox_mark(void);
+void codegen_match_unbox_restore(CodegenContext *ctx, int mark);
 
 // ========== TYPE MAPPING HELPERS ==========
 
 // Convert TypeKind to HML_VAL_* string (e.g., TYPE_I8 -> "HML_VAL_I8")
 // Returns NULL for types that don't have a direct HML_VAL mapping
 const char* type_kind_to_hml_val(TypeKind kind);
+
+// Map a TYPE_CUSTOM_OBJECT annotation's type name to an HML_VAL_* string for
+// the builtin identifier-lexed types (task/file/channel). Returns NULL for
+// user-defined types; callers check the type context for shadowing first.
+const char* builtin_type_name_to_hml_val(const char *type_name);
+
+// True if `type_name` names a user-defined type (enum, object, or alias).
+// Lets user definitions shadow the builtin identifier-lexed type names,
+// mirroring the interpreter's lookup order.
+int is_user_defined_type_name(TypeCheckContext *type_ctx, const char *type_name);
 
 // Convert TypeKind to HML_FFI_* string (e.g., TYPE_I8 -> "HML_FFI_I8")
 // Returns "HML_FFI_VOID" for unknown types
@@ -252,5 +340,13 @@ int checked_kind_is_integer(CheckedTypeKind kind);
 
 // Check if CheckedTypeKind is a floating point type
 int checked_kind_is_float(CheckedTypeKind kind);
+
+// ========== FFI HELPERS ==========
+
+// Sanitize a library path (e.g. "libsqlite3.so.0") into a C identifier suffix
+// (e.g. "libsqlite3_so_0"). Writes at most `out_size` bytes including the NUL.
+// Used by both the IMPORT_FFI codegen and the extern-fn wrapper codegen so they
+// agree on which `_ffi_lib_<name>` global to read/write.
+void codegen_ffi_sanitize_libname(const char *path, char *out, size_t out_size);
 
 #endif // HEMLOCK_CODEGEN_INTERNAL_H

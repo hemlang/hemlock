@@ -49,30 +49,60 @@ static void object_hash_rebuild(HmlObject *obj) {
     }
 }
 
-// Look up field index by name using hash table, returns -1 if not found
+// Look up field index by name, returns -1 if not found.
+//
+// THREAD SAFETY: this is a read-only operation and MUST NOT mutate
+// `obj`. It used to lazily build the hash table here ("if no hash
+// table, object_hash_rebuild(obj)"), which is a data race the moment
+// the same object is read from more than one thread: JSON-parsed and
+// some literal-constructed objects reach readers with hash_table ==
+// NULL (see builtins_serialization.c "Lazy initialization"), so N
+// concurrent obj[key] readers all enter the rebuild and race on
+// free(obj->hash_table)+malloc — manifesting as "free(): double free
+// / unaligned chunk" and SIGSEGV far from the cause. (Observed in a
+// Hemlock HTTP server doing spawn-per-request: a shared parsed config
+// object indexed concurrently by request-handler threads core-dumped
+// the process every ~73 min.)
+//
+// Fix: when no hash table is present, fall back to a lock-free linear
+// scan instead of building one. Pure concurrent reads of a shared
+// object are then safe with zero locking. The hash table is still
+// built eagerly by hml_object_set_field / hml_object_delete_field for
+// the mutation path's own lookup speed; objects that are only ever
+// read (the common shared-data case) just pay O(n) per lookup, which
+// is fine — they're typically small, and correctness beats a micro-
+// optimization that corrupts the heap.
 static int object_lookup_field(HmlObject *obj, const char *name) {
-    // Lazy hash table creation: if no hash table and we have fields, build it
-    if ((!obj->hash_table || obj->hash_capacity == 0) && obj->num_fields > 0) {
-        object_hash_rebuild(obj);
-    }
-
-    if (!obj->hash_table || obj->hash_capacity == 0) {
+    if (obj->num_fields <= 0) {
         return -1;  // Empty object
     }
 
-    uint32_t hash = djb2_hash(name);
-    int slot = hash % obj->hash_capacity;
-    int start_slot = slot;
+    // Fast path: hash table already built (by set/delete). Read-only.
+    if (obj->hash_table && obj->hash_capacity > 0) {
+        uint32_t hash = djb2_hash(name);
+        int slot = hash % obj->hash_capacity;
+        int start_slot = slot;
 
-    // Linear probing (using unified field storage)
-    while (obj->hash_table[slot] != -1) {
-        int idx = obj->hash_table[slot];
-        if (strcmp(obj->fields[idx].name, name) == 0) {
-            return idx;  // Found
+        // Linear probing (using unified field storage)
+        while (obj->hash_table[slot] != -1) {
+            int idx = obj->hash_table[slot];
+            if (strcmp(obj->fields[idx].name, name) == 0) {
+                return idx;  // Found
+            }
+            slot = (slot + 1) % obj->hash_capacity;
+            if (slot == start_slot) {
+                break;  // Full circle, not found
+            }
         }
-        slot = (slot + 1) % obj->hash_capacity;
-        if (slot == start_slot) {
-            break;  // Full circle, not found
+        return -1;  // Not found
+    }
+
+    // No hash table: linear scan. Does NOT mutate obj, so safe under
+    // concurrent reads. (Deliberately does not lazily build the hash
+    // here — see the thread-safety note above.)
+    for (int i = 0; i < obj->num_fields; i++) {
+        if (strcmp(obj->fields[i].name, name) == 0) {
+            return i;
         }
     }
     return -1;  // Not found
@@ -110,8 +140,22 @@ HmlValue hml_object_get_field_required(HmlValue obj, const char *field) {
         return result;
     }
 
-    hml_runtime_error("Object has no field '%s' (use ?. for optional access)", field);
+    hml_runtime_error_loc("Object has no field '%s' (use ?. for optional access)", field);
     return hml_val_null();  // Unreachable but needed for compiler
+}
+
+// Property access variant used by compiled `obj.prop` expressions: function
+// fields are returned as bound methods so that extracting a method
+// (let g = obj.method;) keeps 'self' referring to the source object, matching
+// the interpreter's property access semantics.
+HmlValue hml_object_get_field_bound(HmlValue obj, const char *field) {
+    HmlValue result = hml_object_get_field_required(obj, field);
+    if (result.type == HML_VAL_FUNCTION && result.as.as_function) {
+        HmlValue bound = hml_function_bind_self(result, obj);
+        hml_release(&result);
+        return bound;
+    }
+    return result;
 }
 
 void hml_object_set_field(HmlValue obj, const char *field, HmlValue val) {
@@ -130,14 +174,24 @@ void hml_object_set_field(HmlValue obj, const char *field, HmlValue val) {
         return;
     }
 
-    // Add new field - single realloc for unified storage (reduces fragmentation)
+    // Add new field - grow storage if needed
     if (o->num_fields >= o->capacity) {
         // SECURITY: Check for integer overflow before doubling capacity
         if (o->capacity > INT_MAX / 2) {
             hml_runtime_error("Object field capacity overflow");
         }
         int new_cap = (o->capacity == 0) ? 4 : o->capacity * 2;
-        HmlFieldEntry *new_fields = realloc(o->fields, new_cap * sizeof(HmlFieldEntry));
+        HmlFieldEntry *new_fields;
+        if (o->is_pooled && hml_obj_fields_in_pool_storage(o)) {
+            // First growth out of the pool's inline storage — can't realloc pool
+            // memory. Later growths are ordinary heap arrays and take realloc.
+            new_fields = malloc(new_cap * sizeof(HmlFieldEntry));
+            if (new_fields) {
+                memcpy(new_fields, o->fields, o->num_fields * sizeof(HmlFieldEntry));
+            }
+        } else {
+            new_fields = realloc(o->fields, new_cap * sizeof(HmlFieldEntry));
+        }
         if (!new_fields) {
             hml_runtime_error("Out of memory expanding object fields");
         }
@@ -150,10 +204,9 @@ void hml_object_set_field(HmlValue obj, const char *field, HmlValue val) {
     hml_retain(&o->fields[o->num_fields].value);
     o->num_fields++;
 
-    // Invalidate hash table - will be rebuilt on next lookup
-    free(o->hash_table);
-    o->hash_table = NULL;
-    o->hash_capacity = 0;
+    // Eagerly rebuild hash table to avoid thread-unsafe lazy initialization.
+    // Without this, concurrent readers race on the lazy init in object_lookup_field.
+    object_hash_rebuild(o);
 }
 
 int hml_object_has_field(HmlValue obj, const char *field) {
@@ -189,12 +242,51 @@ int hml_object_delete_field(HmlValue obj, const char *field) {
 
     o->num_fields--;
 
-    // Invalidate hash table - will be rebuilt on next lookup
-    free(o->hash_table);
-    o->hash_table = NULL;
-    o->hash_capacity = 0;
+    // Eagerly rebuild hash table to avoid thread-unsafe lazy initialization
+    object_hash_rebuild(o);
 
     return 1;  // Deleted
+}
+
+// Convert a value to a string key for object property access.
+// Returns true if the value can be coerced (integers, floats, bools, runes).
+int hml_value_coerce_to_key(HmlValue val, char *buf, size_t buf_size) {
+    // Check rune before integer since hml_is_integer() includes runes
+    if (val.type == HML_VAL_RUNE) {
+        int len = utf8_encode_rune(val.as.as_rune, buf);
+        buf[len] = '\0';
+        return 1;
+    }
+    if (val.type == HML_VAL_BOOL) {
+        snprintf(buf, buf_size, "%s", val.as.as_bool ? "true" : "false");
+        return 1;
+    }
+    if (hml_is_integer(val)) {
+        snprintf(buf, buf_size, "%" PRId64, hml_to_i64(val));
+        return 1;
+    }
+    if (hml_is_float_type(val)) {
+        snprintf(buf, buf_size, "%.17g", hml_to_f64(val));
+        return 1;
+    }
+    return 0;
+}
+
+// Convert non-string key to string and get field from object
+HmlValue hml_object_get_field_coerce(HmlValue obj, HmlValue key) {
+    char key_buf[64];
+    if (hml_value_coerce_to_key(key, key_buf, sizeof(key_buf))) {
+        return hml_object_get_field(obj, key_buf);
+    }
+    return hml_val_null();
+}
+
+// Convert non-string key to string and set field on object
+void hml_object_set_field_coerce(HmlValue obj, HmlValue key, HmlValue val) {
+    char key_buf[64];
+    if (hml_value_coerce_to_key(key, key_buf, sizeof(key_buf))) {
+        hml_object_set_field(obj, key_buf, val);
+    }
 }
 
 // Get number of fields in object
@@ -241,9 +333,17 @@ HmlValue hml_object_keys(HmlValue obj) {
     // Create a new array to hold the keys
     HmlValue arr = hml_val_array();
 
-    // Add each field name to the array (using unified storage)
+    // Add each field name to the array. hml_array_push() RETAINS the
+    // value it's given, so the fresh rc=1 string from hml_val_string()
+    // must be released here — otherwise its creation reference is
+    // orphaned (array holds rc=1, temp's rc=1 never balanced) and every
+    // key string leaks even after the array itself is freed. `obj.keys()`
+    // is extremely hot (every `for k in m.keys()`), so this leaked
+    // multiple MB/min in a dashboard render loop.
     for (int i = 0; i < o->num_fields; i++) {
-        hml_array_push(arr, hml_val_string(o->fields[i].name));
+        HmlValue key = hml_val_string(o->fields[i].name);
+        hml_array_push(arr, key);
+        hml_release(&key);
     }
 
     return arr;

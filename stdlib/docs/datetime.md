@@ -113,13 +113,53 @@ print(datetime.to_string());  // "2025-03-15 14:30:45"
 
 #### `from_utc(year: i32, month: i32, day: i32, hour?: i32, minute?: i32, second?: i32): object`
 
-Create a DateTime object from UTC date/time components.
+Create a DateTime object from UTC date/time components. The timestamp does not depend on the process time zone. Out-of-range components throw.
 
 ```hemlock
 import { from_utc } from "@stdlib/datetime";
 
 let utc_dt = from_utc(2025, 1, 1, 0, 0, 0);
 print(utc_dt.to_string());
+```
+
+---
+
+### Utility Functions
+
+#### `days_in_year(year: i32): i32`
+
+Returns the number of days in a given year (365 or 366 for leap years).
+
+```hemlock
+import { days_in_year } from "@stdlib/datetime";
+
+print(days_in_year(2024));  // 366 (leap year)
+print(days_in_year(2025));  // 365
+```
+
+#### `is_valid_date(year: i32, month: i32, day: i32): bool`
+
+Validates whether the given date components form a valid date.
+
+```hemlock
+import { is_valid_date } from "@stdlib/datetime";
+
+print(is_valid_date(2025, 2, 28));  // true
+print(is_valid_date(2025, 2, 29));  // false (not a leap year)
+print(is_valid_date(2024, 2, 29));  // true (leap year)
+print(is_valid_date(2025, 13, 1));  // false (invalid month)
+```
+
+#### `is_valid_time(hour: i32, minute: i32, second: i32): bool`
+
+Validates whether the given time components form a valid time.
+
+```hemlock
+import { is_valid_time } from "@stdlib/datetime";
+
+print(is_valid_time(14, 30, 0));   // true
+print(is_valid_time(24, 0, 0));    // false (hour must be 0-23)
+print(is_valid_time(12, 60, 0));   // false (minute must be 0-59)
 ```
 
 ---
@@ -220,9 +260,12 @@ print(dt.month_name());  // "March"
 Parse an ISO 8601 date string into a DateTime object.
 
 Supported formats:
-- `YYYY-MM-DD` - Date only
-- `YYYY-MM-DDTHH:MM:SS` - Date and time
+- `YYYY-MM-DD` - Date only (local time)
+- `YYYY-MM-DDTHH:MM:SS` - Date and time (local time)
 - `YYYY-MM-DDTHH:MM:SSZ` - Date and time (UTC)
+- `YYYY-MM-DDTHH:MM:SS+HH:MM` / `-HH:MM` - Date and time with a UTC offset
+
+Out-of-range components (e.g. `2024-13-45`) throw instead of rolling over.
 
 ```hemlock
 import { parse_iso } from "@stdlib/datetime";

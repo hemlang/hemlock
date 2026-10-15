@@ -5,7 +5,10 @@
 #include "runtime/memory.h"
 #include "frontend/ast.h"
 #include "hemlock_limits.h"
+#include "chan_core.h"
 #include <stdint.h>
+#include <inttypes.h>
+#include <stdbool.h>
 
 // Forward declaration for profiler
 typedef struct ProfilerState ProfilerState;
@@ -39,8 +42,8 @@ typedef struct {
 // ========== CALL STACK (for error reporting) ==========
 
 typedef struct {
-    char *function_name;
-    char *source_file;  // Source file name (optional, can be NULL)
+    const char *function_name;
+    const char *source_file;  // Source file name (optional, can be NULL)
     int line;           // Line number of the call site
     int column;         // Column number of the call site (0 if unknown)
 } CallFrame;
@@ -163,7 +166,7 @@ void visited_set_add(VisitedSet *set, void *ptr);
 
 // ========== ENVIRONMENT (environment.c) ==========
 
-// DJB2 hash function for variable names
+// DJB2 hash function for variable names (delegates to shared inline)
 uint32_t hash_string(const char *str);
 
 Environment* env_new(Environment *parent);
@@ -179,6 +182,17 @@ void env_define_param(Environment *env, const char *name, uint32_t hash, Value v
 void env_set(Environment *env, const char *name, Value value, ExecutionContext *ctx);
 Value env_get(Environment *env, const char *name, ExecutionContext *ctx);
 
+// ========== ALLOCATION POOLS (values.c) ==========
+
+// Function pool - O(1) allocation for closures in hot loops
+Function* fn_pool_alloc(void);
+
+// Grow an object's field array to at least new_capacity entries.
+// Handles pooled objects (whose fields may point to static pool storage
+// that cannot be realloc'd) by allocating a new heap array and copying.
+// Returns the new fields pointer, or NULL on allocation failure.
+FieldEntry* object_grow_fields(Object *obj, int new_capacity);
+
 // ========== VALUES (values.c) ==========
 
 // String operations
@@ -188,14 +202,28 @@ int object_lookup_field_with_hash(Object *obj, const char *name, uint32_t hash);
 int object_validate_ic(Object *obj, int cached_idx, const char *name);  // Validate IC cache entry
 int object_hash_insert(Object *obj, const char *name, int field_index);  // Insert field into hash table
 
-// Value cleanup and reference counting
-void value_free(Value val);
+// Set to 1 (monotonic, never reset) the first time any async task is
+// spawned. The per-AST-node property inline cache is shared across all
+// spawned task threads and is unsynchronized; once concurrency is
+// possible the cache fast-path must be bypassed. Accessed via
+// __atomic_* (SEQ_CST). Defined in builtins/concurrency.c.
+extern int g_interp_has_spawned;
 
 // Fast path macro: check if type needs refcounting before calling
-// Types that need refcounting: STRING, BUFFER, ARRAY, OBJECT, FUNCTION, TASK, CHANNEL, REF
+// Types that need refcounting: STRING, BUFFER, ARRAY, OBJECT, FUNCTION, TASK,
+// SOCKET, WEBSOCKET, CHANNEL, REF
+// MUST stay in sync with value_needs_refcount() in values.c (which gates the
+// switch in value_retain()/value_release()).
+// VAL_SOCKET was historically missing here, so macro-based VALUE_RETAIN/RELEASE were
+// no-ops for sockets while object_free_internal/array_free_internal released them via
+// the value_release() function directly — a net over-release that freed sockets stored
+// in objects/arrays prematurely (flaky use-after-free, e.g. poll() result/input arrays).
+// VAL_WEBSOCKET had the identical desync (macro no-op, function release) with the
+// same over-release consequence for websockets stored in objects/arrays/environments.
 #define VALUE_NEEDS_REFCOUNT(type) \
     ((type) == VAL_STRING || (type) == VAL_BUFFER || (type) == VAL_ARRAY || \
      (type) == VAL_OBJECT || (type) == VAL_FUNCTION || (type) == VAL_TASK || \
+     (type) == VAL_SOCKET || (type) == VAL_WEBSOCKET || \
      (type) == VAL_CHANNEL || (type) == VAL_REF)
 
 // Fast path macros - skip function call for primitives
@@ -204,6 +232,7 @@ void value_free(Value val);
 
 // Printing
 void print_value(Value val);
+void fprint_value(FILE *out, Value val);
 char* value_to_string(Value val);  // Caller must free result
 
 // ========== TYPES (types.c) ==========
@@ -216,6 +245,11 @@ int32_t value_to_int(Value val);
 int64_t value_to_int64(Value val);
 double value_to_float(Value val);
 int value_is_truthy(Value val);
+
+// Convert a value to a string key for object property access.
+// Returns true if the value can be coerced to a string key (integers, floats, bools, runes).
+// buf must be at least 64 bytes.
+bool value_coerce_to_key(Value val, char *buf, size_t buf_size);
 
 // Get the type name of a value (for error messages)
 const char* value_type_name(ValueType type);

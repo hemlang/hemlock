@@ -32,8 +32,8 @@ export let REG_BADRPT = 13;  // Invalid use of repetition operator
 // ========== REGEX OBJECT ==========
 
 // Create a new compiled regex object
-// flags: compilation flags (pass null for default REG_EXTENDED)
-export fn compile(pattern: string, flags): object {
+// flags: optional compilation flags (defaults to REG_EXTENDED)
+export fn compile(pattern: string, flags?: null): object {
 	// Default to extended regex
 	if (flags == null) {
 		flags = REG_EXTENDED;
@@ -78,7 +78,7 @@ export fn compile(pattern: string, flags): object {
 			}
 			return __regex_test(self._preg, text, null);
 		},
-		find_all: fn(text: string, max_matches): array {
+		find_all: fn(text: string, max_matches?: null): array {
 
 			// Find all matches and return array of match objects
 			// Each match object has: { start: i32, end: i32, text: string }
@@ -120,8 +120,8 @@ export fn compile(pattern: string, flags): object {
 // ========== CONVENIENCE FUNCTIONS ==========
 
 // Test if string matches pattern (one-shot, no compilation needed for reuse)
-// flags: compilation flags (pass null for default REG_EXTENDED)
-export fn test(pattern: string, text: string, flags): bool {
+// flags: optional compilation flags (defaults to REG_EXTENDED)
+export fn test(pattern: string, text: string, flags?: null): bool {
 	let regex = compile(pattern, flags);
 	let result = regex.test(text);
 	regex.free();
@@ -129,20 +129,20 @@ export fn test(pattern: string, text: string, flags): bool {
 }
 
 // Match string against pattern (one-shot)
-// flags: compilation flags (pass null for default REG_EXTENDED)
-export fn matches(pattern: string, text: string, flags): bool {
+// flags: optional compilation flags (defaults to REG_EXTENDED)
+export fn matches(pattern: string, text: string, flags?: null): bool {
 	return test(pattern, text, flags);
 }
 
 // Find if pattern exists in string (one-shot)
-// flags: compilation flags (pass null for default REG_EXTENDED)
-export fn find(pattern: string, text: string, flags): bool {
+// flags: optional compilation flags (defaults to REG_EXTENDED)
+export fn find(pattern: string, text: string, flags?: null): bool {
 	return test(pattern, text, flags);
 }
 
 // Replace first match in text (one-shot)
-// flags: compilation flags (pass null for default REG_EXTENDED)
-export fn replace(pattern: string, text: string, replacement: string, flags): string {
+// flags: optional compilation flags (defaults to REG_EXTENDED)
+export fn replace(pattern: string, text: string, replacement: string, flags?: null): string {
 	let regex = compile(pattern, flags);
 	let result = regex.replace(text, replacement);
 	regex.free();
@@ -150,8 +150,8 @@ export fn replace(pattern: string, text: string, replacement: string, flags): st
 }
 
 // Replace all matches in text (one-shot)
-// flags: compilation flags (pass null for default REG_EXTENDED)
-export fn replace_all(pattern: string, text: string, replacement: string, flags): string {
+// flags: optional compilation flags (defaults to REG_EXTENDED)
+export fn replace_all(pattern: string, text: string, replacement: string, flags?: null): string {
 	let regex = compile(pattern, flags);
 	let result = regex.replace_all(text, replacement);
 	regex.free();

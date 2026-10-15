@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ main, master ]
 
+env:
+  USEARCH_VERSION: "v2.24.0"
+
 jobs:
   # Main test job - interpreter tests
   test:
@@ -20,21 +23,27 @@ jobs:
 
     - name: Build and install USearch
       run: |
-        git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
         cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
           -DUSEARCH_BUILD_LIB_C=ON \
           -DUSEARCH_BUILD_TEST_C=OFF \
           -DUSEARCH_BUILD_TEST_CPP=OFF \
           -DUSEARCH_BUILD_BENCH_CPP=OFF
         cmake --build /tmp/usearch/build --config Release
-        sudo cmake --install /tmp/usearch/build
+        sudo cp $(find /tmp/usearch/build -name 'libusearch_c.so' | head -1) /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
         sudo ldconfig
+        ls -la /usr/local/lib/libusearch*
 
     - name: Build
       run: make clean && make && make stdlib
 
     - name: Run tests
       run: make test
+
+    - name: Run WASM persistent context tests
+      run: make test-wasm-context
 
   # Compiler tests
   compiler:
@@ -45,13 +54,92 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+
+    - name: Build and install USearch
+      run: |
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+          -DUSEARCH_BUILD_LIB_C=ON \
+          -DUSEARCH_BUILD_TEST_C=OFF \
+          -DUSEARCH_BUILD_TEST_CPP=OFF \
+          -DUSEARCH_BUILD_BENCH_CPP=OFF
+        cmake --build /tmp/usearch/build --config Release
+        sudo cp $(find /tmp/usearch/build -name 'libusearch_c.so' | head -1) /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
+        sudo ldconfig
+        ls -la /usr/local/lib/libusearch*
 
     - name: Build compiler
       run: make compiler
 
     - name: Run compiler tests
       run: make test-compiler
+
+  # Borrow / ownership checker - static memory-safety analysis diagnostics
+  borrow-checker:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+
+    - name: Build and install USearch
+      run: |
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+          -DUSEARCH_BUILD_LIB_C=ON \
+          -DUSEARCH_BUILD_TEST_C=OFF \
+          -DUSEARCH_BUILD_TEST_CPP=OFF \
+          -DUSEARCH_BUILD_BENCH_CPP=OFF
+        cmake --build /tmp/usearch/build --config Release
+        sudo cp $(find /tmp/usearch/build -name 'libusearch_c.so' | head -1) /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
+        sudo ldconfig
+        ls -la /usr/local/lib/libusearch*
+
+    - name: Build compiler
+      run: make compiler
+
+    - name: Run borrow checker tests
+      run: make test-borrow
+
+  # Compiler memory regression tests - detect leaks in compiled binaries
+  memory:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+
+    - name: Build and install USearch
+      run: |
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+          -DUSEARCH_BUILD_LIB_C=ON \
+          -DUSEARCH_BUILD_TEST_C=OFF \
+          -DUSEARCH_BUILD_TEST_CPP=OFF \
+          -DUSEARCH_BUILD_BENCH_CPP=OFF
+        cmake --build /tmp/usearch/build --config Release
+        sudo cp $(find /tmp/usearch/build -name 'libusearch_c.so' | head -1) /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
+        sudo ldconfig
+        ls -la /usr/local/lib/libusearch*
+
+    - name: Build compiler
+      run: make compiler
+
+    - name: Run memory regression tests
+      run: make test-memory
 
   # Parity tests - verify compiled code matches interpreter
   parity:
@@ -63,13 +151,28 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+
+    - name: Build and install USearch
+      run: |
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+          -DUSEARCH_BUILD_LIB_C=ON \
+          -DUSEARCH_BUILD_TEST_C=OFF \
+          -DUSEARCH_BUILD_TEST_CPP=OFF \
+          -DUSEARCH_BUILD_BENCH_CPP=OFF
+        cmake --build /tmp/usearch/build --config Release
+        sudo cp $(find /tmp/usearch/build -name 'libusearch_c.so' | head -1) /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
+        sudo ldconfig
+        ls -la /usr/local/lib/libusearch*
 
     - name: Build interpreter and compiler
       run: |
         make clean && make
         make compiler
-        make stdlib || true
+        make stdlib
 
     - name: Run parity tests
       run: make parity
@@ -84,12 +187,27 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+
+    - name: Build and install USearch
+      run: |
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+          -DUSEARCH_BUILD_LIB_C=ON \
+          -DUSEARCH_BUILD_TEST_C=OFF \
+          -DUSEARCH_BUILD_TEST_CPP=OFF \
+          -DUSEARCH_BUILD_BENCH_CPP=OFF
+        cmake --build /tmp/usearch/build --config Release
+        sudo cp $(find /tmp/usearch/build -name 'libusearch_c.so' | head -1) /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
+        sudo ldconfig
+        ls -la /usr/local/lib/libusearch*
 
     - name: Build compiler and runtime
       run: |
         make compiler
-        make stdlib || true
+        make stdlib
 
     - name: Check interpreter tests compile
       run: make compile-check
@@ -104,7 +222,22 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+
+    - name: Build and install USearch
+      run: |
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+          -DUSEARCH_BUILD_LIB_C=ON \
+          -DUSEARCH_BUILD_TEST_C=OFF \
+          -DUSEARCH_BUILD_TEST_CPP=OFF \
+          -DUSEARCH_BUILD_BENCH_CPP=OFF
+        cmake --build /tmp/usearch/build --config Release
+        sudo cp $(find /tmp/usearch/build -name 'libusearch_c.so' | head -1) /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
+        sudo ldconfig
+        ls -la /usr/local/lib/libusearch*
 
     - name: Build compiler
       run: make compiler
@@ -121,10 +254,25 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+
+    - name: Build and install USearch
+      run: |
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+          -DUSEARCH_BUILD_LIB_C=ON \
+          -DUSEARCH_BUILD_TEST_C=OFF \
+          -DUSEARCH_BUILD_TEST_CPP=OFF \
+          -DUSEARCH_BUILD_BENCH_CPP=OFF
+        cmake --build /tmp/usearch/build --config Release
+        sudo cp $(find /tmp/usearch/build -name 'libusearch_c.so' | head -1) /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
+        sudo ldconfig
+        ls -la /usr/local/lib/libusearch*
 
     - name: Build interpreter
-      run: make clean && make && make stdlib || true
+      run: make clean && make && make stdlib
 
     - name: Run bundler tests
       run: make test-bundler
@@ -146,6 +294,32 @@ jobs:
     - name: Run formatter tests
       run: make test-formatter
 
+  # Documentation audit: link checks + stdlib API index freshness (no build)
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check docs and stdlib API index
+      run: make docs-check
+
+  # Static checker (`hemlock check`) tests
+  check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libffi-dev zlib1g-dev libssl-dev
+
+    - name: Build interpreter
+      run: make clean && make
+
+    - name: Run static checker tests
+      run: make test-check
+
   # Memory checks with AddressSanitizer
   asan:
     runs-on: ubuntu-latest
@@ -159,15 +333,18 @@ jobs:
 
     - name: Build and install USearch
       run: |
-        git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
         cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
           -DUSEARCH_BUILD_LIB_C=ON \
           -DUSEARCH_BUILD_TEST_C=OFF \
           -DUSEARCH_BUILD_TEST_CPP=OFF \
           -DUSEARCH_BUILD_BENCH_CPP=OFF
         cmake --build /tmp/usearch/build --config Release
-        sudo cmake --install /tmp/usearch/build
+        sudo cp $(find /tmp/usearch/build -name 'libusearch_c.so' | head -1) /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
         sudo ldconfig
+        ls -la /usr/local/lib/libusearch*
 
     - name: Build with ASAN
       run: |
@@ -177,7 +354,7 @@ jobs:
         make
 
     - name: Build stdlib
-      run: make stdlib || true
+      run: make stdlib
 
     - name: Run tests with ASAN
       run: make test
@@ -194,10 +371,25 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev valgrind
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev valgrind cmake
+
+    - name: Build and install USearch
+      run: |
+        git clone --depth 1 --branch ${{ env.USEARCH_VERSION }} --recurse-submodules --shallow-submodules https://github.com/unum-cloud/usearch.git /tmp/usearch
+        cmake -B /tmp/usearch/build -S /tmp/usearch \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+          -DUSEARCH_BUILD_LIB_C=ON \
+          -DUSEARCH_BUILD_TEST_C=OFF \
+          -DUSEARCH_BUILD_TEST_CPP=OFF \
+          -DUSEARCH_BUILD_BENCH_CPP=OFF
+        cmake --build /tmp/usearch/build --config Release
+        sudo cp $(find /tmp/usearch/build -name 'libusearch_c.so' | head -1) /usr/local/lib/
+        sudo cp /tmp/usearch/c/usearch.h /usr/local/include/
+        sudo ldconfig
+        ls -la /usr/local/lib/libusearch*
 
     - name: Build
-      run: make clean && make && make stdlib || true
+      run: make clean && make && make stdlib
 
     - name: Run valgrind
       run: make valgrind
@@ -210,6 +402,24 @@ jobs:
         name: valgrind-logs
         path: valgrind-*.log
         if-no-files-found: ignore
+
+  # WASM test validation (native) - verify WASM test files work with native compiler
+  wasm-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
+
+    - name: Build compiler
+      run: make compiler
+
+    - name: Run WASM tests via native compiler
+      run: make wasm-test-native
 
   # Clang static analysis
   clang-analysis:

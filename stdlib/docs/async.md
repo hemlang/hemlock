@@ -12,14 +12,77 @@ The async module provides:
 ## Usage
 
 ```hemlock
-import { ThreadPool, parallel_map } from "@stdlib/async";
+import { ThreadPool, parallel_map, get_default_stack_size, set_default_stack_size } from "@stdlib/async";
 ```
+
+---
+
+## Thread Configuration
+
+### get_default_stack_size
+
+Get the current default stack size for spawned threads.
+
+**Signature:**
+```hemlock
+get_default_stack_size(): i64
+```
+
+**Returns:** Default stack size in bytes (default: 16 MB / 16777216 bytes)
+
+**Example:**
+```hemlock
+import { get_default_stack_size } from "@stdlib/async";
+
+let size = get_default_stack_size();
+print(size);  // 16777216
+```
+
+---
+
+### set_default_stack_size
+
+Set the default stack size for all subsequent `spawn()` calls. Does not affect already-spawned threads.
+
+**Signature:**
+```hemlock
+set_default_stack_size(size: i64): null
+```
+
+**Parameters:**
+- `size` - Stack size in bytes
+
+**Example:**
+```hemlock
+import { set_default_stack_size, get_default_stack_size } from "@stdlib/async";
+
+// Increase stack for deeply recursive tasks
+set_default_stack_size(32 * 1024 * 1024);  // 32 MB
+print(get_default_stack_size());  // 33554432
+
+// All subsequent spawn() calls use 32 MB stacks
+let task = spawn(recursive_fn, 10000);
+let result = join(task);
+
+// Restore default
+set_default_stack_size(16 * 1024 * 1024);
+```
+
+**Note:** These functions wrap the internal `__get_default_stack_size()` / `__set_default_stack_size()` builtins.
 
 ---
 
 ## ThreadPool
 
-A fixed-size thread pool for executing tasks in parallel. Uses a work queue with worker threads for efficient task distribution.
+A fixed-size thread pool for executing tasks in parallel.
+
+**Queueing model:** `submit*()` pushes a job onto a bounded work channel
+(1000 entries); when the queue is full, `submit*()` blocks until a worker
+frees a slot (back-pressure). Each worker is one spawned task that blocks on
+`recv()`, so idle workers cost no CPU. Every job carries its own one-slot
+result channel, and the returned Future receives from it exactly once and
+memoizes the outcome: `get()` may be called any number of times and always
+returns the same value (or rethrows the same error).
 
 ### Creating a Thread Pool
 
@@ -130,7 +193,11 @@ let result = future.get();  // 30
 
 #### shutdown()
 
-Gracefully shutdown the thread pool. Waits for all workers to finish current tasks.
+Gracefully shut down the thread pool. Closes the work queue so no new jobs are
+accepted, lets the workers drain every job that was already queued, then joins
+all worker threads. When it returns, every accepted job has run and their
+Futures still resolve. Calling it twice is a no-op; `submit*()` after shutdown
+panics.
 
 **Signature:**
 ```hemlock
@@ -333,4 +400,5 @@ pool.shutdown();
 ## See Also
 
 - [async_fs](async_fs.md) - Async file system operations using ThreadPool
-- [Async Concurrency Guide](../docs/advanced/async-concurrency.md) - Language-level async/await
+- [Concurrency API](../../docs/reference/concurrency-api.md) - `spawn()`, `spawn_with()`, `join()`, `detach()`
+- [Async Concurrency Guide](../../docs/advanced/async-concurrency.md) - Language-level async/await

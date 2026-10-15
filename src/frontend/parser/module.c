@@ -42,6 +42,8 @@ ModuleCache* module_cache_new(const char *initial_dir) {
         exit(1);
     }
     module_cache_map_init(&cache->cache_map);
+    cache->entry_virtual_path = NULL;
+    cache->entry_source = NULL;
 
     if (!cache->resolver->stdlib_path) {
         fprintf(stderr, "warning: could not locate stdlib directory. @stdlib imports will not work.\n");
@@ -80,48 +82,21 @@ void module_cache_free(ModuleCache *cache) {
     free(cache->modules);
     module_cache_map_free(&cache->cache_map);
     module_resolution_free(cache->resolver);
+    free(cache->entry_virtual_path);
 
     free(cache);
 }
 
 // ========== MODULE LOADING ==========
 
-Module* get_cached_module(ModuleCache *cache, const char *absolute_path) {
-    return (Module *)module_cache_map_get(&cache->cache_map, absolute_path);
+static Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ctx) {
+    (void)ctx;
+    return parse_file_to_ast(path, stmt_count);
 }
 
-// Parse a module file and return statements
-Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ctx) {
-    (void)ctx;  // Suppress unused parameter warning
-    // Read file
-    FILE *file = fopen(path, "r");
-    if (!file) {
-        fprintf(stderr, "error: cannot open module file '%s'\n", path);
-        *stmt_count = 0;
-        return NULL;
-    }
-
-    // Read entire file into memory
-    fseek(file, 0, SEEK_END);
-    long file_size = ftell(file);
-    fseek(file, 0, SEEK_SET);
-
-    char *source = malloc(file_size + 1);
-    if (!source) {
-        fprintf(stderr, "error: failed to allocate memory for module file '%s'\n", path);
-        fclose(file);
-        return NULL;
-    }
-    if (fread(source, 1, file_size, file) != (size_t)file_size) {
-        fprintf(stderr, "error: failed to read module file '%s'\n", path);
-        free(source);
-        fclose(file);
-        return NULL;
-    }
-    source[file_size] = '\0';
-    fclose(file);
-
-    // Parse
+// Parse the entry-module source override (`hemlock -e` code). Mirrors
+// parse_file_to_ast, but from an in-memory string.
+static Stmt** parse_entry_source(const char *source, int *stmt_count) {
     Lexer lexer;
     lexer_init(&lexer, source);
 
@@ -130,15 +105,17 @@ Stmt** parse_module_file(const char *path, int *stmt_count, ExecutionContext *ct
 
     Stmt **statements = parse_program(&parser, stmt_count);
 
-    free(source);
-
     if (parser.had_error) {
-        fprintf(stderr, "error: failed to parse module '%s'\n", path);
+        fprintf(stderr, "error: failed to parse command-line code\n");
         *stmt_count = 0;
         return NULL;
     }
 
     return statements;
+}
+
+Module* get_cached_module(ModuleCache *cache, const char *absolute_path) {
+    return (Module *)module_cache_map_get(&cache->cache_map, absolute_path);
 }
 
 // Recursively load a module and its dependencies
@@ -208,8 +185,13 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
         return NULL;
     }
 
-    // Parse the module file
-    module->statements = parse_module_file(absolute_path, &module->num_statements, ctx);
+    // Parse the module file (or the in-memory entry source for `hemlock -e`)
+    if (cache->entry_source && cache->entry_virtual_path &&
+        strcmp(absolute_path, cache->entry_virtual_path) == 0) {
+        module->statements = parse_entry_source(cache->entry_source, &module->num_statements);
+    } else {
+        module->statements = parse_module_file(absolute_path, &module->num_statements, ctx);
+    }
     if (!module->statements) {
         module->state = MODULE_UNLOADED;
         return NULL;
@@ -324,9 +306,15 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
                     }
 
                     // Bind namespace to environment
-                    env_define(module_env, ns_name, val_object(ns), 1, ctx);  // immutable
+                    Value ns_val = val_object(ns);
+                    env_define(module_env, ns_name, ns_val, 1, ctx);  // immutable
+                    value_release(ns_val);  // Release temp reference (env_define retained it)
                 } else {
                     // Star import: import * from "module" - import all exports directly
+                    // NOTE: matches the compiler's current star-import semantics, which
+                    // snapshots values at import time. Named imports use live bindings
+                    // (see env_define_import). Aligning star imports to live bindings
+                    // would require a corresponding compiler change.
                     for (int j = 0; j < imported->num_exports; j++) {
                         char *export_name = imported->export_names[j];
                         Value val = env_get(imported->exports_env, export_name, ctx);
@@ -335,15 +323,17 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
                     }
                 }
             } else {
-                // Named imports
+                // Named imports - install live aliases (see env_define_import).
+                // Reassignments to a `let` in the exporting module are reflected
+                // here on next read, matching the compiler's module-global
+                // semantics and standard ES module live-binding behavior.
                 for (int j = 0; j < stmt->as.import_stmt.num_imports; j++) {
                     char *import_name = stmt->as.import_stmt.import_names[j];
                     char *alias = stmt->as.import_stmt.import_aliases[j];
                     char *bind_name = alias ? alias : import_name;
 
-                    Value val = env_get(imported->exports_env, import_name, ctx);
-                    env_define(module_env, bind_name, val, 1, ctx);  // immutable
-                    value_release(val);  // Release temp reference from env_get (env_define already retained)
+                    env_define_import(module_env, bind_name,
+                                      imported->exports_env, import_name, ctx);
                 }
             }
         } else if (stmt->type == STMT_EXPORT) {
@@ -467,6 +457,43 @@ int execute_file_with_modules(const char *file_path, Environment *global_env, in
     module_cache_free(cache);
 
     // Suppress unused parameter warnings
+    (void)argc;
+    (void)argv;
+
+    return 0;
+}
+
+int execute_source_with_modules(const char *source, Environment *global_env, int argc, char **argv, ExecutionContext *ctx) {
+    char cwd[PATH_MAX];
+    if (!getcwd(cwd, sizeof(cwd))) {
+        fprintf(stderr, "Error: Could not get current directory\n");
+        return 1;
+    }
+
+    ModuleCache *cache = module_cache_new(cwd);
+
+    // A virtual path inside the working directory: relative imports in the
+    // command-line code resolve against cwd, and the name cannot collide
+    // with a real file. It carries the .hml extension so resolution keeps it
+    // verbatim (resolve_module_path appends .hml otherwise, and its realpath
+    // fallback passes nonexistent absolute paths through unchanged), so this
+    // flows through load_module like any other entry file.
+    char virtual_path[PATH_MAX + 32];
+    snprintf(virtual_path, sizeof(virtual_path), "%s/<command-line>.hml", cwd);
+    cache->entry_virtual_path = strdup(virtual_path);
+    cache->entry_source = source;
+
+    Module *main_module = load_module(cache, virtual_path, ctx);
+    if (!main_module) {
+        fprintf(stderr, "Error: Failed to load command-line code\n");
+        module_cache_free(cache);
+        return 1;
+    }
+
+    execute_module(main_module, cache, global_env, ctx);
+
+    module_cache_free(cache);
+
     (void)argc;
     (void)argv;
 

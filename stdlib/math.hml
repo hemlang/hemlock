@@ -27,6 +27,11 @@ export let log = __log;  // Natural logarithm (ln)
 export let log10 = __log10;  // Base-10 logarithm
 export let log2 = __log2;  // Base-2 logarithm
 
+// ========== DIVISION FUNCTIONS ==========
+
+export let div = __div;    // Float division (same as / operator)
+export let divi = __divi;  // Integer division (truncates toward zero)
+
 // ========== ROUNDING FUNCTIONS ==========
 
 export let floor = __floor;
@@ -34,12 +39,95 @@ export let ceil = __ceil;
 export let round = __round;
 export let trunc = __trunc;
 
+// Integer-returning rounding variants
+export let floori = __floori;
+export let ceili = __ceili;
+export let roundi = __roundi;
+export let trunci = __trunci;
+
 // ========== UTILITY FUNCTIONS ==========
 
 export let abs = __abs;
 export let min = __min;
 export let max = __max;
 export let clamp = __clamp;
+
+// ========== SIGN & SPECIAL FUNCTIONS ==========
+
+// Return -1, 0, or 1 based on sign of value
+export fn sign(x): i32 {
+	if (x > 0) { return 1; }
+	if (x < 0) { return -1; }
+	return 0;
+}
+
+// Cube root
+export fn cbrt(x): f64 {
+	if (x == 0) { return 0.0; }
+	if (x < 0) { return -__pow(-x, 1.0 / 3.0); }
+	return __pow(x, 1.0 / 3.0);
+}
+
+// Hypotenuse: sqrt(x² + y²) without overflow (scaled by the larger side)
+export fn hypot(x, y): f64 {
+	let ax: f64 = __abs(x);
+	let ay: f64 = __abs(y);
+	let big = ax;
+	let small = ay;
+	if (ay > ax) {
+		big = ay;
+		small = ax;
+	}
+	if (big == 0.0 || big - big != 0.0) {
+		// zero, or inf/nan: nothing to scale
+		return big + small;
+	}
+	let r = small / big;
+	return big * __sqrt(1.0 + r * r);
+}
+
+// Greatest common divisor
+export fn gcd(a, b): i64 {
+	let x: i64 = __abs(a);
+	let y: i64 = __abs(b);
+	while (y != 0) {
+		let t = y;
+		y = x % y;
+		x = t;
+	}
+	return x;
+}
+
+// Least common multiple
+export fn lcm(a, b): i64 {
+	if (a == 0 || b == 0) { return 0; }
+	let x: i64 = __abs(a);
+	let y: i64 = __abs(b);
+	return __divi(x, gcd(x, y)) * y;
+}
+
+// ========== HYPERBOLIC FUNCTIONS ==========
+
+export fn sinh(x): f64 {
+	return (__exp(x) - __exp(-x)) / 2.0;
+}
+
+export fn cosh(x): f64 {
+	return (__exp(x) + __exp(-x)) / 2.0;
+}
+
+export fn tanh(x): f64 {
+	// exp(2x) overflows to inf for large x (inf/inf = nan); tanh is
+	// exactly ±1.0 in f64 well before that.
+	if (x > 20.0) {
+		return 1.0;
+	}
+	if (x < -20.0) {
+		return -1.0;
+	}
+	let ex = __exp(2.0 * x);
+	return (ex - 1.0) / (ex + 1.0);
+}
 
 // ========== RANDOM FUNCTIONS ==========
 

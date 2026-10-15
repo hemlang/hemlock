@@ -1,0 +1,1 @@
+cond_possible_leak.hml:6: warning: 'p' (memory) acquired here is not freed on some paths before it goes out of scope (possible leak)

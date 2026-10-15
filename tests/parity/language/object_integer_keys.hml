@@ -1,0 +1,101 @@
+// Test: Non-string keys on objects are auto-coerced to strings
+
+// === Integer keys ===
+let obj = {};
+obj[0] = "zero";
+obj[1] = "one";
+obj[42] = "forty-two";
+print(obj[0]);
+print(obj[1]);
+print(obj[42]);
+
+// Integer key lookup returns null for missing keys
+print(obj[99]);
+
+// String and integer keys are equivalent (coerced to same string)
+obj["10"] = "ten-string";
+print(obj[10]);
+print(obj["10"]);
+
+obj[20] = "twenty-int";
+print(obj["20"]);
+print(obj[20]);
+
+// has() with integer keys
+print(obj.has(0));
+print(obj.has(42));
+print(obj.has(999));
+print(obj.has("0"));
+
+// delete() with integer key
+obj[5] = "five";
+print(obj.has(5));
+obj.delete(5);
+print(obj.has(5));
+
+// Overwrite with integer key
+obj[0] = "updated-zero";
+print(obj[0]);
+
+// Negative integer keys
+obj[-1] = "neg-one";
+print(obj[-1]);
+print(obj["-1"]);
+
+// Large integer keys (i64)
+let big = 5000000000;
+obj[big] = "big-value";
+print(obj[big]);
+print(obj["5000000000"]);
+
+// Use as a map with numeric keys
+let chosen = {};
+for (let i = 0; i < 5; i++) {
+    chosen[i] = true;
+}
+print(chosen[0]);
+print(chosen[4]);
+print(chosen[5]);
+
+// keys() still returns string keys
+let m = {};
+m[1] = "a";
+m[2] = "b";
+let keys = m.keys();
+print(keys[0]);
+print(keys[1]);
+
+// === Boolean keys ===
+let b = {};
+b[true] = "yes";
+b[false] = "no";
+print(b[true]);
+print(b[false]);
+print(b["true"]);
+print(b["false"]);
+print(b.has(true));
+print(b.has(false));
+b.delete(true);
+print(b.has(true));
+
+// === Rune keys ===
+let r = {};
+r['A'] = "alpha";
+r['Z'] = "zeta";
+print(r['A']);
+print(r['Z']);
+print(r["A"]);
+print(r["Z"]);
+print(r.has('A'));
+r.delete('A');
+print(r.has('A'));
+
+// === Float keys ===
+let f = {};
+f[3.14] = "pi";
+f[2.0] = "two";
+print(f[3.14]);
+print(f[2.0]);
+print(f.has(3.14));
+f.delete(3.14);
+print(f.has(3.14));

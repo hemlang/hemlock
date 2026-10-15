@@ -1,0 +1,191 @@
+// Test @stdlib/jinja - Jinja-style template rendering
+
+import { render, escape } from "@stdlib/jinja";
+
+// ============================================================================
+// Basic Variable Substitution
+// ============================================================================
+
+assert(render("Hello, {{ name }}!", { name: "World" }) == "Hello, World!", "basic variable");
+assert(render("{{ a }} + {{ b }}", { a: 1, b: 2 }) == "1 + 2", "multiple variables");
+assert(render("no vars here", {}) == "no vars here", "no variables");
+
+print("PASS: basic variables");
+
+// ============================================================================
+// Object Property Access
+// ============================================================================
+
+let ctx = { user: { name: "Alice", age: 30 } };
+assert(render("{{ user.name }}", ctx) == "Alice", "object property");
+assert(render("{{ user.age }}", ctx) == "30", "nested number");
+
+print("PASS: object properties");
+
+// ============================================================================
+// Array Access
+// ============================================================================
+
+let arr_ctx = { items: ["a", "b", "c"] };
+assert(render("{{ items[0] }}", arr_ctx) == "a", "array index 0");
+assert(render("{{ items[2] }}", arr_ctx) == "c", "array index 2");
+
+print("PASS: array access");
+
+// ============================================================================
+// Filters
+// ============================================================================
+
+assert(render("{{ name|upper }}", { name: "hello" }) == "HELLO", "upper filter");
+assert(render("{{ name|lower }}", { name: "HELLO" }) == "hello", "lower filter");
+assert(render("{{ name|length }}", { name: "hello" }) == "5", "length filter");
+
+print("PASS: filters");
+
+// ============================================================================
+// Conditionals
+// ============================================================================
+
+let if_tmpl = "{% if show %}visible{% endif %}";
+assert(render(if_tmpl, { show: true }) == "visible", "if true");
+assert(render(if_tmpl, { show: false }) == "", "if false");
+
+let if_else_tmpl = "{% if x %}yes{% else %}no{% endif %}";
+assert(render(if_else_tmpl, { x: true }) == "yes", "if/else true");
+assert(render(if_else_tmpl, { x: false }) == "no", "if/else false");
+
+let elif_tmpl = "{% if val == 1 %}one{% elif val == 2 %}two{% else %}other{% endif %}";
+assert(render(elif_tmpl, { val: 1 }) == "one", "elif first");
+assert(render(elif_tmpl, { val: 2 }) == "two", "elif second");
+assert(render(elif_tmpl, { val: 3 }) == "other", "elif else");
+
+print("PASS: conditionals");
+
+// ============================================================================
+// For Loops
+// ============================================================================
+
+let for_tmpl = "{% for item in items %}{{ item }} {% endfor %}";
+assert(render(for_tmpl, { items: ["a", "b", "c"] }) == "a b c ", "basic for loop");
+
+// Empty loop
+assert(render(for_tmpl, { items: [] }) == "", "empty for loop");
+
+// Loop with numbers
+let num_tmpl = "{% for n in nums %}{{ n }},{% endfor %}";
+assert(render(num_tmpl, { nums: [1, 2, 3] }) == "1,2,3,", "numeric for loop");
+
+print("PASS: for loops");
+
+// ============================================================================
+// Loop Variables
+// ============================================================================
+
+let idx_tmpl = "{% for x in items %}{{ loop.index }}{% endfor %}";
+assert(render(idx_tmpl, { items: ["a", "b", "c"] }) == "123", "loop.index");
+
+let idx0_tmpl = "{% for x in items %}{{ loop.index0 }}{% endfor %}";
+assert(render(idx0_tmpl, { items: ["a", "b", "c"] }) == "012", "loop.index0");
+
+let first_tmpl = "{% for x in items %}{% if loop.first %}F{% endif %}{{ x }}{% endfor %}";
+assert(render(first_tmpl, { items: ["a", "b"] }) == "Fab", "loop.first");
+
+let last_tmpl = "{% for x in items %}{{ x }}{% if loop.last %}!{% endif %}{% endfor %}";
+assert(render(last_tmpl, { items: ["a", "b"] }) == "ab!", "loop.last");
+
+print("PASS: loop variables");
+
+// ============================================================================
+// Set Variable
+// ============================================================================
+
+let set_tmpl = "{% set greeting = \"Hi\" %}{{ greeting }}";
+assert(render(set_tmpl, {}) == "Hi", "set variable");
+
+print("PASS: set variable");
+
+// ============================================================================
+// Comments
+// ============================================================================
+
+assert(render("before{# comment #}after", {}) == "beforeafter", "comment removed");
+assert(render("{# full line comment #}", {}) == "", "full comment");
+
+print("PASS: comments");
+
+// ============================================================================
+// HTML Escape Function
+// ============================================================================
+
+assert(escape("<b>bold</b>") == "&lt;b&gt;bold&lt;/b&gt;", "escape HTML tags");
+assert(escape("a & b") == "a &amp; b", "escape ampersand");
+assert(escape("\"quoted\"") == "&quot;quoted&quot;", "escape quotes");
+assert(escape("safe text") == "safe text", "no escape needed");
+
+print("PASS: HTML escape");
+
+// ============================================================================
+// Whitespace Control
+// ============================================================================
+
+let ws_tmpl = "a {%- if true %} b {%- endif %} c";
+let ws_result = render(ws_tmpl, {});
+assert(ws_result.contains("b"), "whitespace control has content");
+
+print("PASS: whitespace control");
+
+// ============================================================================
+// Type Tests
+// ============================================================================
+
+let type_tmpl = "{% if val is string %}str{% else %}other{% endif %}";
+assert(render(type_tmpl, { val: "hello" }) == "str", "is string true");
+assert(render(type_tmpl, { val: 42 }) == "other", "is string false");
+
+print("PASS: type tests");
+
+// ============================================================================
+// Expression Evaluation
+// ============================================================================
+
+assert(render("{{ a + b }}", { a: 3, b: 4 }) == "7", "addition expression");
+assert(render("{{ a + b }}", { a: "hello", b: " world" }) == "hello world", "string concat expression");
+
+print("PASS: expressions");
+
+// ============================================================================
+// Complex Template
+// ============================================================================
+
+let complex = `<ul>
+{% for user in users %}<li>{{ user.name }} ({{ user.role }})</li>
+{% endfor %}</ul>`;
+
+let result = render(complex, {
+	users: [
+		{ name: "Alice", role: "admin" },
+		{ name: "Bob", role: "user" }
+	]
+});
+
+assert(result.contains("Alice"), "complex: has Alice");
+assert(result.contains("admin"), "complex: has admin");
+assert(result.contains("Bob"), "complex: has Bob");
+assert(result.contains("<li>"), "complex: has li tags");
+
+print("PASS: complex template");
+
+// ============================================================================
+// Error Handling
+// ============================================================================
+
+try {
+	render(42, {});
+	assert(false, "should throw on non-string template");
+} catch (e) {
+	assert(e.contains("string"), "non-string template error");
+}
+
+print("PASS: error handling");
+
+print("All jinja tests passed!");

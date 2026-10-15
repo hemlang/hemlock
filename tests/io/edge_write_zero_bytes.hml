@@ -1,5 +1,6 @@
 // Test writing zero bytes
 // Expected: PASS
+import { open } from "@stdlib/fs";
 
 let f = open("/tmp/test_write_zero.txt", "w");
 let written = f.write("");

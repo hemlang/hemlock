@@ -1,0 +1,36 @@
+// CONTRACT: Array method mutation behavior (docs/language-guide/arrays.md)
+// slice/map/filter/concat return NEW arrays and leave the receiver intact;
+// push/pop/sort/reverse/fill mutate in place.
+
+let a = [3, 1, 2];
+
+// Non-mutating methods
+let s = a.slice(0, 2);
+print(s.join(","));
+print(a.join(","));            // unchanged
+
+let m = a.map(fn(x) { return x * 10; });
+print(m.join(","));
+print(a.join(","));            // unchanged
+
+let f = a.filter(fn(x) { return x > 1; });
+print(f.join(","));
+print(a.join(","));            // unchanged
+
+let c = a.concat([9]);
+print(c.join(","));
+print(a.join(","));            // unchanged
+
+// Mutating methods
+a.sort();
+print(a.join(","));
+a.reverse();
+print(a.join(","));
+print(a.pop());
+print(a.join(","));
+a.push(7);
+print(a.join(","));
+
+// reduce contract: initial value, left-to-right
+let sum = [1, 2, 3, 4].reduce(fn(acc, x) { return acc + x; }, 100);
+print(sum);

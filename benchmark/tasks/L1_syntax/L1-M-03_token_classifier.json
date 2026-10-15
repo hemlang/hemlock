@@ -1,0 +1,13 @@
+{
+  "id": "L1-M-03",
+  "level": "L1",
+  "difficulty": "medium",
+  "title": "Token Classifier",
+  "topic": "pattern matching",
+  "prompt": "Write a Hemlock program that classifies tokens using pattern matching. Write a function `classify(token)` that takes an object with a `type` field and uses a `match` expression to return a classification string:\n- type \"number\" with value > 0 => \"positive number\"\n- type \"number\" with value == 0 => \"zero\"\n- type \"number\" with value < 0 => \"negative number\"\n- type \"string\" with value.length > 0 => \"non-empty string\"\n- type \"string\" => \"empty string\"\n- type \"bool\" => \"boolean\"\n- anything else => \"unknown\"\n\nTest with these tokens and print each classification on its own line:\n{type: \"number\", value: 42}, {type: \"number\", value: 0}, {type: \"number\", value: -7}, {type: \"string\", value: \"hello\"}, {type: \"string\", value: \"\"}, {type: \"bool\", value: true}, {type: \"other\", value: null}",
+  "expected_output": "positive number\nzero\nnegative number\nnon-empty string\nempty string\nboolean\nunknown\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "notes": "Tests pattern matching with guards on object properties. The order of match arms matters - guards must be checked before fallthrough.",
+  "tags": ["pattern-matching", "guards", "objects"]
+}

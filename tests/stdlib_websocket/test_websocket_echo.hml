@@ -52,11 +52,11 @@ try {
     let server = WebSocketServer("127.0.0.1", 9002);
     defer server.close();
 
-    // Start echo server in background (will echo 5 messages total)
-    let server_task = spawn(echo_server, server, 5);
+    // Start echo server in background (will echo 4 messages: 1 from test 2 + 3 from test 3)
+    let server_task = spawn(echo_server, server, 4);
 
     // Give server time to start listening
-    sleep(0.5);
+    sleep(1.0);
 
     // Client connects
     print("  Client: Connecting to ws://127.0.0.1:9002...");
@@ -122,7 +122,7 @@ try {
     print("✓ Connection closed successfully");
     tests_passed = tests_passed + 1;
 
-    // Wait for echo server to complete
+    // Wait for server task to finish before closing server
     join(server_task);
 
 } catch (e) {

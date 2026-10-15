@@ -1,0 +1,24 @@
+// Regression test: mutating a 1-char string variable must not corrupt other
+// occurrences of the same literal (the compiled runtime shares 1-char ASCII
+// literals through a static pool; index assignment copy-on-writes it).
+
+let s = "x";
+s[0] = 'y';
+print(s);
+print("x");
+
+// In-place mutation of an ordinary heap string is visible through aliases
+// in both backends.
+let a = "hello";
+let b = a;
+a[0] = 'H';
+print(a);
+print(b);
+
+// Growing rune width through a variable slot (1-byte ASCII to 2-byte UTF-8)
+let u = "u";
+u[0] = 'é';
+print(u);
+print(u.length);
+print(u.byte_length);
+print("u");

@@ -1,0 +1,15 @@
+// L1-M-01: Counter Factory
+fn make_counter(start) {
+    let count = start;
+    return {
+        increment: fn() { count++; return count; },
+        decrement: fn() { count--; return count; },
+        value: fn() { return count; }
+    };
+}
+
+let c = make_counter(10);
+print(c.increment());
+print(c.increment());
+print(c.increment());
+print(c.decrement());

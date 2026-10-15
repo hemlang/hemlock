@@ -1,0 +1,28 @@
+// Test string byte_ptr() method
+// Returns a raw pointer to string bytes (no allocation)
+
+let s = "Hello";
+let p = s.byte_ptr();
+
+// Should return a ptr type
+print(typeof(p));
+
+// Read bytes through the pointer
+print(ptr_deref_u8(p));                    // 'H' = 72
+print(ptr_deref_u8(ptr_offset(p, 1, 1))); // 'e' = 101
+print(ptr_deref_u8(ptr_offset(p, 4, 1))); // 'o' = 111
+
+// Use with memcpy - copy string bytes to a buffer
+let buf = alloc(5);
+memcpy(buf, s.byte_ptr(), 5);
+print(ptr_deref_u8(buf));                    // 72
+print(ptr_deref_u8(ptr_offset(buf, 1, 1))); // 101
+free(buf);
+
+// Works with byte_length for correct size
+let emoji = "A!";
+let ep = emoji.byte_ptr();
+print(ptr_deref_u8(ep));                    // 'A' = 65
+print(ptr_deref_u8(ptr_offset(ep, 1, 1))); // '!' = 33
+
+print("done");

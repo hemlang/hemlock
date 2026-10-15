@@ -1,0 +1,44 @@
+// Stress test: exhaust both object and function pools
+// Pool sizes are 512 each. This test holds >512 objects and
+// >512 closures alive simultaneously, forcing fallback to malloc.
+// Then releases them, verifying pool returns work correctly,
+// and creates more to verify pool reuse after exhaustion.
+
+// Phase 1: exhaust the object pool (hold 600 objects alive)
+let objects = [];
+for (let i = 0; i < 600; i++) {
+    objects.push({ id: i, val: i * 2 });
+}
+print(objects[0].id);     // 0
+print(objects[511].id);   // 511 (last pooled)
+print(objects[512].id);   // 512 (first malloc'd)
+print(objects[599].id);   // 599
+
+// Phase 2: exhaust the function pool (hold 600 closures alive)
+// Use make_fn to create a new scope per iteration so each closure
+// captures its own copy of the value.
+fn make_fn(val) {
+    return fn(x) { return x + val; };
+}
+let closures = [];
+for (let i = 0; i < 600; i++) {
+    closures.push(make_fn(i));
+}
+print(closures[0](10));    // 10
+print(closures[511](10));  // 521
+print(closures[599](10));  // 609
+
+// Phase 3: release all and create new ones (pool reuse)
+objects = [];
+closures = [];
+
+// These should now come from returned pool slots
+let ok = true;
+for (let i = 0; i < 100; i++) {
+    let obj = { id: i, greet: fn() { return "hi_" + self.id; } };
+    if (obj.greet() != "hi_" + i) {
+        ok = false;
+    }
+}
+print(ok);     // true
+print("done");

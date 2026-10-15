@@ -1,0 +1,14 @@
+Hello from HemlockScript WASM!
+x = 42
+pi = 3.14159
+name = Hemlock
+fib(10) = 55
+add5(10) = 15
+match result = medium
+2 + 3 = 5
+10 * 4 = 40
+2 ^ 8 = 256
+obj.name = test
+loop sum = 10
+typeof 42 = i32
+Done!

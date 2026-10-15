@@ -3,11 +3,29 @@
 
 #include "runtime/types.h"
 
+// Live-binding alias for imported module bindings.
+// `import { X } from "mod"` installs an EnvImport so reads of X dispatch
+// to the exporting module's env on every access, instead of capturing
+// a stale snapshot at import time.
+typedef struct EnvImport {
+    char *alias_name;             // name in the importing scope
+    char *source_name;             // name in the exporting module's exports env
+    struct Environment *source_env;  // exporter's exports env (retained)
+    struct EnvImport *next;
+} EnvImport;
+
+// Forward declaration: frontend AST type annotation node
+struct Type;
+
 // Environment (symbol table for variables)
 typedef struct Environment {
     char **names;
     Value *values;
     int *is_const;  // 1 if const, 0 if mutable (let)
+    // Declared type annotations for bindings (parallel to values).
+    // Lazily allocated: NULL until the first annotated binding is recorded.
+    // Entries point into the (longer-lived) AST and are not owned.
+    struct Type **declared_types;
     int count;
     int capacity;
     int ref_count;  // Reference count for memory management
@@ -19,6 +37,8 @@ typedef struct Environment {
     unsigned int borrowed_flags;  // Bit flags for first 32 names
     // Thread-safety: mutex for concurrent access from tasks
     void *mutex;  // pthread_mutex_t* (opaque pointer for header compatibility)
+    // Live aliases for imported module bindings (NULL when no imports)
+    EnvImport *imports;
 } Environment;
 
 // Public interface
@@ -28,12 +48,21 @@ void env_retain(Environment *env);
 void env_release(Environment *env);
 void env_break_cycles(Environment *env);  // Break circular references before final release
 void env_define(Environment *env, const char *name, Value value, int is_const, ExecutionContext *ctx);
+void env_define_import(Environment *env, const char *alias_name,
+                       Environment *source_env, const char *source_name,
+                       ExecutionContext *ctx);
 void env_set(Environment *env, const char *name, Value value, ExecutionContext *ctx);
 Value env_get(Environment *env, const char *name, ExecutionContext *ctx);
 
 // Fast resolved variable access (using pre-computed depth/slot indices)
 Value env_get_resolved(Environment *env, int depth, int slot);
 int env_set_resolved(Environment *env, int depth, int slot, Value value, ExecutionContext *ctx);
+
+// Declared-type tracking: annotated `let` bindings remember their annotation
+// so reassignment enforces it (same conversion as the declaration).
+void env_set_declared_type_last(Environment *env, struct Type *type);
+struct Type *env_get_declared_type(Environment *env, const char *name);
+struct Type *env_get_declared_type_resolved(Environment *env, int depth, int slot);
 
 // Execution context management (opaque pointer pattern)
 ExecutionContext* exec_context_new(void);

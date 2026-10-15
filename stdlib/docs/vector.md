@@ -821,20 +821,37 @@ try {
 
 ## System Requirements
 
-- USearch C shared library (`libusearch_c.so`)
-- Install from source:
-  ```bash
-  git clone https://github.com/unum-cloud/usearch
-  cd usearch
-  cmake -B build -DUSEARCH_BUILD_LIB_C=ON
-  cmake --build build
-  sudo cmake --install build
-  sudo ldconfig
-  ```
-- Or via package manager if available:
-  ```bash
-  sudo apt install libusearch-dev  # Debian/Ubuntu (if packaged)
-  ```
+- USearch C shared library (`libusearch_c.so` on Linux, `libusearch_c.dylib` on macOS)
+
+### Install from source (Linux)
+
+`cmake --install` does not install the shared library for usearch v2.x — copy it manually:
+
+```bash
+git clone --depth 1 --branch v2.24.0 --recurse-submodules https://github.com/unum-cloud/usearch.git
+cmake -B usearch/build -S usearch -DUSEARCH_BUILD_LIB_C=ON
+cmake --build usearch/build
+sudo cp $(find usearch/build -name 'libusearch_c.so' | head -1) /usr/local/lib/
+sudo cp usearch/c/usearch.h /usr/local/include/
+sudo ldconfig
+```
+
+### Install from source (macOS)
+
+```bash
+git clone --depth 1 --branch v2.24.0 --recurse-submodules https://github.com/unum-cloud/usearch.git
+cmake -B usearch/build -S usearch -DUSEARCH_BUILD_LIB_C=ON
+cmake --build usearch/build
+sudo mkdir -p /usr/local/lib /usr/local/include
+sudo cp $(find usearch/build -name 'libusearch_c.dylib' | head -1) /usr/local/lib/
+sudo cp usearch/c/usearch.h /usr/local/include/
+```
+
+### Via package manager (if available)
+
+```bash
+sudo apt install libusearch-dev  # Debian/Ubuntu (if packaged)
+```
 
 ---
 

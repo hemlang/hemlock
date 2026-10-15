@@ -105,8 +105,10 @@ struct Expr {
     union {
         struct {           // ← Number can be int or float
             int64_t int_value;  // Changed to int64_t to support 64-bit literals
+            uint64_t uint_value; // For unsigned 64-bit literals (hex/bin/oct > INT64_MAX)
             double float_value;
             int is_float;  // flag: which one to use
+            int is_u64;    // flag: unsigned 64-bit literal
         } number;
         int boolean;
         char *string;
@@ -173,6 +175,7 @@ struct Expr {
             Type *rest_param_type;  // Type of rest parameter, NULL if none
             Type *return_type;
             Stmt *body;
+            uint32_t *param_hashes; // Pre-computed param name hashes (lazy, NULL until first use)
         } function;
         struct {
             Expr **elements;
@@ -429,15 +432,21 @@ struct Stmt {
             Expr *condition;
             Stmt *then_branch;
             Stmt *else_branch;  // can be NULL
+            Annotation **annotations;   // branch hints (@likely / @unlikely)
+            int annotation_count;
         } if_stmt;
         struct {
             char *label;        // optional loop label (NULL if unlabeled)
             Expr *condition;
             Stmt *body;
+            Annotation **annotations;   // loop hints (@unroll / @simd / ...)
+            int annotation_count;
         } while_stmt;
         struct {
             char *label;        // optional loop label (NULL if unlabeled)
             Stmt *body;         // no condition - always infinite
+            Annotation **annotations;   // loop hints (@unroll / @simd / ...)
+            int annotation_count;
         } loop_stmt;
         struct {
             char *label;        // optional loop label (NULL if unlabeled)
@@ -445,6 +454,8 @@ struct Stmt {
             Expr *condition;    // i < 10
             Expr *increment;    // i = i + 1
             Stmt *body;
+            Annotation **annotations;   // loop hints (@unroll / @simd / ...)
+            int annotation_count;
         } for_loop;
         struct {
             char *label;        // optional loop label (NULL if unlabeled)
@@ -452,6 +463,8 @@ struct Stmt {
             char *value_var;    // variable name
             Expr *iterable;     // array or object to iterate
             Stmt *body;
+            Annotation **annotations;   // loop hints (@unroll / @simd / ...)
+            int annotation_count;
         } for_in;
         struct {
             char *label;        // optional target label (NULL for innermost loop)
@@ -551,6 +564,7 @@ struct Stmt {
 // Expression constructors
 Expr* expr_number(int value);
 Expr* expr_number_int(int64_t value);  // Changed to int64_t to support 64-bit literals
+Expr* expr_number_u64(uint64_t value); // For unsigned 64-bit literals (> INT64_MAX)
 Expr* expr_number_float(double value);
 Expr* expr_bool(int value);
 Expr* expr_string(const char *str);

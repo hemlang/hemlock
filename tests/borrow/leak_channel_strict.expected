@@ -1,0 +1,1 @@
+leak_channel_strict.hml:2: warning: 'ch' (channel) acquired here is never freed before it goes out of scope (possible leak)

@@ -1,0 +1,45 @@
+// Regression: `for (x in <iterable>)` leaked the whole iterable
+// (array/object/string + all contents) on every execution. The
+// for-in emitted its own hml_retain on top of the already-owned
+// temp codegen_expr returns, with only one matching release at
+// loop end -> net +1 leak per for-in run. 2.4.7 fixed only the
+// EXPR_CALL subcase (obj.keys()); idents / literals / index /
+// member still leaked. 2.4.9 drops the redundant retain for all
+// iterable kinds. This was the actual multi-GB Witchgrid control-
+// plane bleed (a `for tk in ts` per request).
+//
+// Bounded + finite so LeakSanitizer reports at exit; run via
+// `run_stress.sh lsan`. Must leak nothing per-iteration. Covers
+// ident, array-literal, object-keys, and the spawn-into-array-
+// then-await shape that surfaced it in production.
+
+async fn work(id: i64): i64 {
+	let s = 0;
+	let k = 0;
+	while (k < 30) { s = s + k; k = k + 1; }
+	return s;
+}
+
+let round = 0;
+let sink = 0;
+while (round < 1500) {
+	// ident iterable
+	let v = [round, round + 1, round + 2];
+	for (x in v) { sink = sink + x; }
+
+	// object-keys iterable (EXPR_CALL path)
+	let m = { a: 1, b: 2, c: 3 };
+	for (k in m.keys()) { sink = sink + m[k]; }
+
+	// array-literal iterable
+	for (z in [1, 2, 3, 4]) { sink = sink + z; }
+
+	// spawn into array, iterate-and-await (the CP shape)
+	let ts = [];
+	let t = 0;
+	while (t < 4) { ts.push(spawn(work, i64(t))); t = t + 1; }
+	for (tk in ts) { let r = await tk; sink = sink + r; }
+
+	round = round + 1;
+}
+print("forin_leak: ok sink=" + sink);

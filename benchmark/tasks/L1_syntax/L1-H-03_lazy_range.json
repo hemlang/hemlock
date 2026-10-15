@@ -1,0 +1,12 @@
+{
+  "id": "L1-H-03",
+  "level": "L1",
+  "difficulty": "hard",
+  "title": "Lazy Range Iterator",
+  "topic": "closures and higher-order functions",
+  "prompt": "Write a Hemlock program that implements a lazy range iterator using closures. Implement:\n\n1. `range(start, end)` - returns an iterator object with a `next()` method that returns the next value or null when exhausted\n2. `map_iter(iter, f)` - returns a new iterator that applies f to each element\n3. `filter_iter(iter, pred)` - returns a new iterator that skips elements where pred returns false\n4. `collect(iter)` - consumes the iterator into an array\n5. `to_string_arr(arr)` - joins array elements with \", \" and wraps in brackets\n\nThen demonstrate:\n- Create range(1, 11), map with fn(x) => x * x, filter where result > 10, collect and print\n  Expected: [16, 25, 36, 49, 64, 81, 100]\n- Create range(1, 8), filter even numbers, map with fn(x) => x * 3, collect and print\n  Expected: [6, 12, 18]",
+  "expected_output": "[16, 25, 36, 49, 64, 81, 100]\n[6, 12, 18]\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["closures", "higher-order-functions", "iterators", "composition"]
+}

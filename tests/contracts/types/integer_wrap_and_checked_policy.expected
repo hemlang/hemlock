@@ -1,0 +1,24 @@
+-128
+-32768
+0
+0
+0
+0
+i32 add: overflow error
+i32 sub: overflow error
+i32 mul: overflow error
+i32 neg: overflow error
+i64 add: overflow error
+i64 sub: overflow error
+i64 mul: overflow error
+i64 neg: overflow error
+0
+0
+-128
+i8
+-200
+i16
+-2147483648
+0
+2147483647
+i32 +=: overflow error

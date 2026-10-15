@@ -1,3 +1,4 @@
+// @expect-compile-fail self-referential array is rejected
 // Test: Array containing itself
 // Should not cause stack overflow when freed
 

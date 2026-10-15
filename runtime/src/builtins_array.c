@@ -59,7 +59,7 @@ HmlValue hml_array_get(HmlValue arr, HmlValue index) {
     HmlArray *a = arr.as.as_array;
 
     if (idx < 0 || idx >= a->length) {
-        hml_runtime_error("Array index %d out of bounds (length %d)", idx, a->length);
+        hml_runtime_error_loc("Array index %d out of bounds (length %d)", idx, a->length);
     }
 
     HmlValue result = a->elements[idx];
@@ -76,7 +76,7 @@ void hml_array_set(HmlValue arr, HmlValue index, HmlValue val) {
     int idx = hml_to_i32(index);
     HmlArray *a = arr.as.as_array;
 
-    // Check element type for typed arrays
+    // Check element type for typed arrays (catchable, like push()).
     if (a->element_type != HML_VAL_NULL && val.type != a->element_type) {
         hml_runtime_error("Type mismatch in typed array - expected element of specific type");
     }
@@ -323,15 +323,19 @@ HmlValue hml_array_join(HmlValue arr, HmlValue delimiter) {
     }
 
     // Calculate total length
-    int total_len = 0;
+    int64_t total_len64 = 0;
     for (int i = 0; i < a->length; i++) {
         HmlValue str = hml_to_string(a->elements[i]);
-        total_len += str.as.as_string->length;
+        total_len64 += str.as.as_string->length;
         if (i < a->length - 1) {
-            total_len += delim_len;
+            total_len64 += delim_len;
         }
         hml_release(&str);
     }
+    if (total_len64 > INT_MAX - 1) {
+        hml_runtime_error("join() result string too large");
+    }
+    int total_len = (int)total_len64;
 
     char *result = malloc(total_len + 1);
     if (!result) {
@@ -363,13 +367,25 @@ HmlValue hml_array_concat(HmlValue arr1, HmlValue arr2) {
 
     HmlArray *a1 = arr1.as.as_array;
     HmlArray *a2 = arr2.as.as_array;
+
+    // Check for integer overflow in length sum
+    if (a1->length > INT_MAX - a2->length) {
+        hml_runtime_error("Array concat overflow: combined length exceeds maximum");
+    }
     int new_len = a1->length + a2->length;
 
     HmlArray *result = malloc(sizeof(HmlArray));
+    if (!result) {
+        hml_runtime_error("Out of memory in array concat");
+    }
     result->ref_count = 1;
     result->length = new_len;
     result->capacity = (new_len > 0) ? new_len : 1;
     result->elements = malloc(result->capacity * sizeof(HmlValue));
+    if (!result->elements) {
+        free(result);
+        hml_runtime_error("Out of memory in array concat");
+    }
     result->element_type = HML_VAL_NULL;
     atomic_store(&result->freed, 0);  // Not freed
 
@@ -443,6 +459,30 @@ void hml_array_clear(HmlValue arr) {
     a->length = 0;
 }
 
+void hml_array_reserve(HmlValue arr, HmlValue capacity) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        hml_runtime_error("reserve() requires array");
+    }
+
+    int requested = hml_to_i32(capacity);
+    if (requested < 0) {
+        hml_runtime_error("reserve() capacity must be non-negative");
+    }
+
+    HmlArray *a = arr.as.as_array;
+    if (requested > a->capacity) {
+        if ((size_t)requested > SIZE_MAX / sizeof(HmlValue)) {
+            hml_runtime_error("reserve() capacity too large");
+        }
+        HmlValue *new_elements = realloc(a->elements, (size_t)requested * sizeof(HmlValue));
+        if (!new_elements) {
+            hml_runtime_error("Out of memory in reserve()");
+        }
+        a->elements = new_elements;
+        a->capacity = requested;
+    }
+}
+
 // ========== TYPED ARRAY SUPPORT ==========
 
 void hml_array_set_element_type(HmlValue arr, HmlValueType element_type) {
@@ -458,10 +498,22 @@ static int hml_type_matches(HmlValue val, HmlValueType expected) {
     return val.type == expected;
 }
 
+// Helper: Check if an HmlValueType is numeric
+static int hml_is_numeric_type(HmlValueType type) {
+    switch (type) {
+        case HML_VAL_I8: case HML_VAL_I16: case HML_VAL_I32: case HML_VAL_I64:
+        case HML_VAL_U8: case HML_VAL_U16: case HML_VAL_U32: case HML_VAL_U64:
+        case HML_VAL_F32: case HML_VAL_F64:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 // Validate and set element type constraint on array
 HmlValue hml_validate_typed_array(HmlValue arr, HmlValueType element_type) {
     if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
-        hml_runtime_error("Expected array");
+        hml_runtime_error("Expected array, got non-array");
     }
 
     HmlArray *a = arr.as.as_array;
@@ -471,15 +523,40 @@ HmlValue hml_validate_typed_array(HmlValue arr, HmlValueType element_type) {
         return arr;
     }
 
-    // Validate all existing elements match the type constraint
+    // Validate all existing elements match the type constraint,
+    // coercing numeric elements to the target numeric type instead of rejecting them.
     for (int i = 0; i < a->length; i++) {
         if (!hml_type_matches(a->elements[i], element_type)) {
-            hml_runtime_error("Type mismatch in typed array - expected element of specific type");
+            // If both source and target are numeric, coerce the element
+            if (hml_is_numeric(a->elements[i]) && hml_is_numeric_type(element_type)) {
+                HmlValue converted = hml_convert_to_type(a->elements[i], element_type);
+                hml_release(&a->elements[i]);
+                a->elements[i] = converted;
+                hml_retain(&a->elements[i]);
+            } else {
+                hml_runtime_error("Type mismatch in typed array - expected element of specific type");
+            }
         }
     }
 
     // Set the element type constraint
     a->element_type = element_type;
+    return arr;
+}
+
+// Validate each element of an array against a registered object/enum type.
+// Mirrors interpreter behavior for `let arr: array<CustomType> = [...]`,
+// in particular auto-filling optional fields with their default (or null).
+HmlValue hml_validate_typed_array_object(HmlValue arr, const char *type_name) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        hml_runtime_error("Expected array, got non-array");
+    }
+    if (!type_name) return arr;
+
+    HmlArray *a = arr.as.as_array;
+    for (int i = 0; i < a->length; i++) {
+        a->elements[i] = hml_validate_object_type(a->elements[i], type_name);
+    }
     return arr;
 }
 
@@ -526,7 +603,10 @@ HmlValue hml_array_filter(HmlValue arr, HmlValue predicate) {
     return result;
 }
 
-HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial) {
+// has_initial distinguishes an explicit initial value from an absent one:
+// `reduce(f, null)` passes null as a REAL initial accumulator (interpreter
+// parity) - inferring absence from initial's null-ness conflated the two.
+HmlValue hml_array_reduce_n(HmlValue arr, HmlValue reducer, HmlValue initial, int has_initial) {
     if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
         hml_runtime_error("reduce() requires array");
     }
@@ -535,8 +615,8 @@ HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial) {
 
     // Handle empty array
     if (a->length == 0) {
-        if (initial.type == HML_VAL_NULL) {
-            hml_runtime_error("reduce() of empty array with no initial value");
+        if (!has_initial) {
+            hml_runtime_error("reduce() on empty array with no initial value");
         }
         hml_retain(&initial);
         return initial;
@@ -545,7 +625,7 @@ HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial) {
     // Determine starting accumulator and index
     HmlValue acc;
     int start_idx;
-    if (initial.type == HML_VAL_NULL) {
+    if (!has_initial) {
         // No initial value - use first element
         acc = a->elements[0];
         hml_retain(&acc);
@@ -565,6 +645,10 @@ HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial) {
     }
 
     return acc;
+}
+
+HmlValue hml_array_reduce(HmlValue arr, HmlValue reducer, HmlValue initial) {
+    return hml_array_reduce_n(arr, reducer, initial, initial.type != HML_VAL_NULL);
 }
 
 HmlValue hml_array_every(HmlValue arr, HmlValue predicate) {
@@ -631,14 +715,86 @@ HmlValue hml_array_index_of(HmlValue arr, HmlValue value) {
     return hml_val_i32(-1);
 }
 
-// Quicksort comparator context
+HmlValue hml_array_last_index_of(HmlValue arr, HmlValue value) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        hml_runtime_error("lastIndexOf() requires array");
+    }
+
+    HmlArray *a = arr.as.as_array;
+    for (int i = a->length - 1; i >= 0; i--) {
+        if (hml_values_equal(a->elements[i], value)) {
+            return hml_val_i32(i);
+        }
+    }
+    return hml_val_i32(-1);
+}
+
+HmlValue hml_array_find_index(HmlValue arr, HmlValue predicate) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        hml_runtime_error("findIndex() requires array");
+    }
+
+    HmlArray *a = arr.as.as_array;
+    for (int i = 0; i < a->length; i++) {
+        HmlValue args[1] = { a->elements[i] };
+        HmlValue result = hml_call_function(predicate, args, 1);
+        if (hml_to_bool(result)) {
+            hml_release(&result);
+            return hml_val_i32(i);
+        }
+        hml_release(&result);
+    }
+    return hml_val_i32(-1);
+}
+
+HmlValue hml_array_flat(HmlValue arr) {
+    if (arr.type != HML_VAL_ARRAY || !arr.as.as_array) {
+        hml_runtime_error("flat() requires array");
+    }
+
+    HmlArray *a = arr.as.as_array;
+    HmlValue result = hml_val_array();
+
+    for (int i = 0; i < a->length; i++) {
+        if (a->elements[i].type == HML_VAL_ARRAY && a->elements[i].as.as_array) {
+            HmlArray *inner = a->elements[i].as.as_array;
+            for (int j = 0; j < inner->length; j++) {
+                hml_array_push(result, inner->elements[j]);
+            }
+        } else {
+            hml_array_push(result, a->elements[i]);
+        }
+    }
+
+    return result;
+}
+
+// Merge sort comparator context
 typedef struct {
     HmlValue comparator;
     int has_comparator;
+    HmlArray *array;       // array being sorted, for the mid-sort resize check
+    int expected_length;
 } SortContext;
 
 // Default comparison function for sorting
+// Sign of a numeric sort key: integers compare exactly (u64 included),
+// anything involving a float compares as double.
+static int numeric_compare(HmlValue a, HmlValue b) {
+    if (hml_is_float_type(a) || hml_is_float_type(b)) {
+        double x = hml_val_to_double(a), y = hml_val_to_double(b);
+        return (x < y) ? -1 : (x > y) ? 1 : 0;
+    }
+    __int128 x = (a.type == HML_VAL_U64) ? (__int128)a.as.as_u64 : (__int128)hml_val_to_int64(a);
+    __int128 y = (b.type == HML_VAL_U64) ? (__int128)b.as.as_u64 : (__int128)hml_val_to_int64(b);
+    return (x < y) ? -1 : (x > y) ? 1 : 0;
+}
+
 static int default_compare(HmlValue a, HmlValue b) {
+    // Numbers of different types order by value ([3, 1.5, 2] -> [1.5, 2, 3])
+    if (a.type != b.type && hml_is_numeric(a) && hml_is_numeric(b)) {
+        return numeric_compare(a, b);
+    }
     // Compare by type first
     if (a.type != b.type) {
         return (int)a.type - (int)b.type;
@@ -663,7 +819,11 @@ static int default_compare(HmlValue a, HmlValue b) {
     }
 }
 
-// Compare two values using either default or custom comparator
+// Compare two values using either default or custom comparator.
+//
+// A comparator that resizes the array mid-sort would invalidate the element
+// pointer the merge is walking, so that is rejected with a clear error rather
+// than left as a use-after-free.
 static int compare_values(HmlValue a, HmlValue b, SortContext *ctx) {
     if (!ctx->has_comparator) {
         return default_compare(a, b);
@@ -672,38 +832,80 @@ static int compare_values(HmlValue a, HmlValue b, SortContext *ctx) {
     // Call user-provided comparator
     HmlValue args[2] = { a, b };
     HmlValue result = hml_call_function(ctx->comparator, args, 2);
-    int cmp = hml_to_i32(result);
+    // Only the sign matters. `/` always yields a float, so comparators like
+    // `(a - b) / 10` are common; truncating them to int would treat small
+    // differences as equal (and large i64 results could flip sign).
+    if (!hml_is_numeric(result)) {
+        hml_release(&result);
+        hml_runtime_error("sort() comparator must return a number");
+    }
+    int cmp = numeric_compare(result, hml_val_i32(0));
     hml_release(&result);
+
+    if (ctx->array->length != ctx->expected_length) {
+        hml_runtime_error("sort() comparator resized the array being sorted");
+    }
     return cmp;
 }
 
-// Quicksort partition
-static int partition(HmlValue *arr, int low, int high, SortContext *ctx) {
-    HmlValue pivot = arr[high];
-    int i = low - 1;
+// Merge the adjacent sorted runs arr[lo..mid) and arr[mid..hi).
+//
+// The merged output is built in scratch[lo..hi) and only copied back over the
+// array once the merge has completed. A comparator that throws longjmps out of
+// this function, so leaving `arr` untouched until the very end is what keeps
+// the array a valid permutation of its elements (no duplicated slots, so no
+// reference-count corruption) when a sort is abandoned mid-flight.
+static void merge_runs(HmlValue *arr, HmlValue *scratch, int lo, int mid, int hi,
+                       SortContext *ctx) {
+    // Fast path: the two runs are already in order, so nothing has to move.
+    // This is what keeps an already-sorted array at O(n) comparisons overall.
+    if (compare_values(arr[mid - 1], arr[mid], ctx) <= 0) {
+        return;
+    }
 
-    for (int j = low; j < high; j++) {
-        if (compare_values(arr[j], pivot, ctx) <= 0) {
-            i++;
-            HmlValue tmp = arr[i];
-            arr[i] = arr[j];
-            arr[j] = tmp;
+    int i = lo, j = mid, k = lo;
+    while (i < mid && j < hi) {
+        // `<= 0` takes from the left run on ties, which makes the sort stable.
+        if (compare_values(arr[i], arr[j], ctx) <= 0) {
+            scratch[k++] = arr[i++];
+        } else {
+            scratch[k++] = arr[j++];
+        }
+    }
+    while (i < mid) scratch[k++] = arr[i++];
+    while (j < hi)  scratch[k++] = arr[j++];
+
+    memcpy(arr + lo, scratch + lo, (size_t)(hi - lo) * sizeof(HmlValue));
+}
+
+// Bottom-up merge sort: stable, O(n log n) comparisons on every input, and
+// iterative so no input can blow the C stack. Replaces a Lomuto quicksort that
+// degraded to O(n^2) time and O(n) recursion depth on sorted input.
+//
+// Note: a comparator that throws longjmps straight past this frame, so the
+// scratch buffer is leaked on that path. hml_throw() does not unwind or run
+// defers, so there is no cleanup hook to hang the free() on; the same is true
+// of the result array in map()/filter(). The array itself stays intact, which
+// is the property that matters for reference counting.
+static void merge_sort(HmlValue *arr, int n, SortContext *ctx) {
+    if ((size_t)n > SIZE_MAX / sizeof(HmlValue)) {
+        hml_runtime_error("sort() array too large");
+    }
+    HmlValue *scratch = malloc((size_t)n * sizeof(HmlValue));
+    if (!scratch) {
+        hml_runtime_error("sort() failed to allocate scratch space for %d elements", n);
+    }
+
+    // `width` is 64-bit so the doubling cannot overflow for large `n`.
+    for (long long width = 1; width < n; width *= 2) {
+        for (long long lo = 0; lo + width < n; lo += 2 * width) {
+            long long end = lo + 2 * width;
+            merge_runs(arr, scratch, (int)lo, (int)(lo + width),
+                       end < n ? (int)end : n, ctx);
         }
     }
 
-    HmlValue tmp = arr[i + 1];
-    arr[i + 1] = arr[high];
-    arr[high] = tmp;
-    return i + 1;
-}
-
-// Quicksort implementation
-static void quicksort(HmlValue *arr, int low, int high, SortContext *ctx) {
-    if (low < high) {
-        int pi = partition(arr, low, high, ctx);
-        quicksort(arr, low, pi - 1, ctx);
-        quicksort(arr, pi + 1, high, ctx);
-    }
+    free(scratch);
 }
 
 void hml_array_sort(HmlValue arr, HmlValue comparator) {
@@ -719,8 +921,10 @@ void hml_array_sort(HmlValue arr, HmlValue comparator) {
     SortContext ctx;
     ctx.comparator = comparator;
     ctx.has_comparator = (comparator.type == HML_VAL_FUNCTION);
+    ctx.array = a;
+    ctx.expected_length = a->length;
 
-    quicksort(a->elements, 0, a->length - 1, &ctx);
+    merge_sort(a->elements, a->length, &ctx);
 }
 
 void hml_array_fill(HmlValue arr, HmlValue value, HmlValue start, HmlValue end) {

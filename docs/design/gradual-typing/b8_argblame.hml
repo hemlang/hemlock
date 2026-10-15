@@ -1,0 +1,7 @@
+fn f(x: i32): i32 { return x; }
+try {
+    f("hello");
+} catch (e) {
+    print("caught: " + e);
+}
+// @expect-compile-fail the static checker rejects the string argument; the witness is the interpreter's catchable boundary error

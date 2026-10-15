@@ -1,4 +1,6 @@
 // Test: Binary read/write
+import { open } from "@stdlib/fs";
+
 let buf = buffer(10);
 let i = 0;
 while (i < 10) {

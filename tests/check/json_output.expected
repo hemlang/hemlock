@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "files": 1,
+  "errors": 1,
+  "warnings": 0,
+  "diagnostics": [
+    {"file": "json_output.hml", "line": 2, "column": 0, "end_column": 1, "severity": "error", "pass": "types", "message": "cannot initialize 'x' of type 'i32' with 'string'"}
+  ]
+}

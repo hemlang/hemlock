@@ -1,0 +1,21 @@
+// Test: memset with null argument is caught (prevents segfault)
+// Passing null to memset must throw a catchable error, not crash
+
+let caught = false;
+
+// Test 1: memset with null throws catchable error
+try {
+    memset(null, 0, 10);
+    print("ERROR: should have thrown");
+} catch (e) {
+    caught = true;
+}
+print("memset null caught: " + caught);
+
+// Test 2: normal memset still works
+let p2 = alloc(16);
+memset(p2, 0, 16);
+print("memset normal: ok");
+free(p2);
+
+print("done");

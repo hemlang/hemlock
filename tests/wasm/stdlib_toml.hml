@@ -1,0 +1,16 @@
+// WASM test: @stdlib/toml module
+import { parse } from "@stdlib/toml";
+
+// Parse simple TOML
+let config = parse("[server]\nhost = \"localhost\"\nport = 8080\n\n[database]\nname = \"mydb\"");
+print(config.server.host);
+print(config.server.port);
+print(config.database.name);
+
+// Parse with string values
+let data = parse("title = \"Hello\"\nenabled = true\ncount = 42");
+print(data.title);
+print(data.enabled);
+print(data.count);
+
+print("toml done");

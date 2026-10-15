@@ -71,6 +71,7 @@ static Environment* env_pool_alloc(void) {
         env->hash_table = env_pool.hash_table_storage[idx];
         env->capacity = ENV_DEFAULT_CAPACITY;
         env->hash_capacity = ENV_DEFAULT_CAPACITY * 2;
+        env->declared_types = NULL;
         return env;
     }
 
@@ -102,6 +103,15 @@ static void env_pool_free(Environment *env) {
         free(env->hash_table);
         env->hash_table = env_pool.hash_table_storage[idx];
     }
+    // Declared-type arrays are always heap-allocated (lazily); release them.
+    free(env->declared_types);
+    env->declared_types = NULL;
+    // Reset capacities to match the pool storage the pointers now reference.
+    // Leaving a grown capacity here would make the next user of this slot
+    // write past the fixed-size pool arrays, corrupting neighboring
+    // environments' storage.
+    env->capacity = ENV_DEFAULT_CAPACITY;
+    env->hash_capacity = ENV_DEFAULT_CAPACITY * 2;
     // O(1) return to free list (thread-safe)
     pthread_mutex_lock(&env_pool.mutex);
     env_pool.free_list[env_pool.free_count++] = idx;
@@ -110,14 +120,10 @@ static void env_pool_free(Environment *env) {
 
 // ========== ENVIRONMENT ==========
 
-// DJB2 hash function - fast and good distribution for variable names
+// DJB2 hash - delegates to shared inline in hash.h
+#include "shared/hash.h"
 uint32_t hash_string(const char *str) {
-    uint32_t hash = HML_DJB2_HASH_SEED;
-    int c;
-    while ((c = *str++)) {
-        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
-    }
-    return hash;
+    return hml_hash_string(str);
 }
 
 Environment* env_new(Environment *parent) {
@@ -129,6 +135,8 @@ Environment* env_new(Environment *parent) {
         env->count = 0;
         env->ref_count = 1;
         env->borrowed_flags = 0;  // Clear borrowed flags
+        env->imports = NULL;
+        env->declared_types = NULL;
         // Clear hash table using memset (faster than loop)
         memset(env->hash_table, 0xFF, sizeof(int) * env->hash_capacity);
         // mutex is already set to pooled mutex in env_pool_alloc
@@ -148,6 +156,7 @@ Environment* env_new(Environment *parent) {
     env->capacity = 16;
     env->count = 0;
     env->ref_count = 1;  // Initialize reference count to 1
+    env->declared_types = NULL;
     env->names = malloc(sizeof(char*) * env->capacity);
     if (!env->names) {
         free(env);
@@ -196,11 +205,30 @@ Environment* env_new(Environment *parent) {
     }
     pthread_mutex_init((pthread_mutex_t*)env->mutex, NULL);
     env->parent = parent;
+    env->imports = NULL;
     // Retain parent environment if it exists
     if (parent) {
         env_retain(parent);
     }
     return env;
+}
+
+// Free all import aliases attached to the environment. Releases the source
+// envs each import retained. Called from env_free before the env itself is
+// torn down or returned to the pool.
+static void env_free_imports(Environment *env) {
+    EnvImport *imp = env->imports;
+    while (imp) {
+        EnvImport *next = imp->next;
+        if (imp->source_env) {
+            env_release(imp->source_env);
+        }
+        free(imp->alias_name);
+        free(imp->source_name);
+        free(imp);
+        imp = next;
+    }
+    env->imports = NULL;
 }
 
 // ========== CYCLE BREAKING ==========
@@ -218,7 +246,7 @@ static void value_break_cycles_internal(Value val, VisitedSet *visited) {
                 Function *fn = val.as.as_function;
                 if (fn->closure_env) {
                     env_release(fn->closure_env);
-                    fn->closure_env = NULL;  // Prevent double-release in value_free
+                    fn->closure_env = NULL;  // Prevent double-release when the function is released
                 }
             }
             break;
@@ -299,6 +327,9 @@ void env_clear(Environment *env) {
     // Reset count but keep capacity and allocated arrays
     env->count = 0;
     env->borrowed_flags = 0;  // Clear borrowed flags
+    if (env->imports) {
+        env_free_imports(env);
+    }
     // Clear hash table (reset all slots to -1)
     for (int i = 0; i < env->hash_capacity; i++) {
         env->hash_table[i] = -1;
@@ -313,6 +344,11 @@ void env_free(Environment *env) {
             free(env->names[i]);
         }
         VALUE_RELEASE(env->values[i]);  // Decrement reference count
+    }
+
+    // Tear down live-import aliases (releases the source envs)
+    if (env->imports) {
+        env_free_imports(env);
     }
 
     // Release parent environment (may trigger cascade of frees)
@@ -330,6 +366,7 @@ void env_free(Environment *env) {
         free(env->names);
         free(env->values);
         free(env->is_const);
+        free(env->declared_types);
         free(env->hash_table);
         free(env);
     }
@@ -444,6 +481,19 @@ static void env_grow(Environment *env) {
     }
     env->is_const = new_is_const;
 
+    // Declared-type array (lazily allocated, never pooled storage)
+    if (env->declared_types) {
+        struct Type **new_declared = realloc(env->declared_types,
+                                             sizeof(struct Type*) * env->capacity);
+        if (!new_declared) {
+            fprintf(stderr, "Runtime error: Memory allocation failed during environment growth\n");
+            exit(1);
+        }
+        memset(new_declared + old_capacity, 0,
+               sizeof(struct Type*) * (env->capacity - old_capacity));
+        env->declared_types = new_declared;
+    }
+
     // Grow hash table (keep it at 2x capacity for good load factor)
     int old_hash_capacity = env->hash_capacity;
     env->hash_capacity = env->capacity * 2;
@@ -462,6 +512,18 @@ static void env_grow(Environment *env) {
 
     // Rehash all existing entries
     env_rehash(env);
+}
+
+// Search an env's import alias list for `name`. Returns the matching
+// EnvImport or NULL. Caller must already hold env->mutex.
+static EnvImport* env_find_import(Environment *env, const char *name) {
+    for (EnvImport *imp = env->imports; imp; imp = imp->next) {
+        if (imp->alias_name == name ||
+            (imp->alias_name[0] == name[0] && strcmp(imp->alias_name, name) == 0)) {
+            return imp;
+        }
+    }
+    return NULL;
 }
 
 // O(1) hash table lookup - returns index or -1 if not found
@@ -515,7 +577,7 @@ void env_define(Environment *env, const char *name, Value value, int is_const, E
 
     // Check if variable already exists in current scope using hash table
     int existing = env_lookup(env, name, hash);
-    if (existing >= 0) {
+    if (existing >= 0 || env_find_import(env, name) != NULL) {
         if (mutex) pthread_mutex_unlock(mutex);
         // Throw exception instead of exiting
         char error_msg[256];
@@ -576,7 +638,7 @@ void env_define_borrowed(Environment *env, const char *name, Value value, int is
     }
 
     int index = env->count;
-    env->names[index] = (char*)name;  // Borrow without strdup
+    memcpy(&env->names[index], &name, sizeof(char *));  // Borrow without strdup
     // Mark as borrowed if index < 32
     if (index < 32) {
         env->borrowed_flags |= (1U << index);
@@ -607,7 +669,7 @@ void env_define_param(Environment *env, const char *name, uint32_t hash, Value v
     }
 
     int index = env->count;
-    env->names[index] = (char*)name;  // Borrow without strdup
+    memcpy(&env->names[index], &name, sizeof(char *));  // Borrow without strdup
     if (index < 32) {
         env->borrowed_flags |= (1U << index);
     }
@@ -618,6 +680,58 @@ void env_define_param(Environment *env, const char *name, uint32_t hash, Value v
 
     // Insert with pre-computed hash
     env_hash_insert_with_hash(env, hash, index);
+
+    if (mutex) pthread_mutex_unlock(mutex);
+}
+
+// Install a live-binding alias from the importing scope to a name in another
+// module's exports environment. Subsequent `env_get(env, alias_name, ...)`
+// calls dispatch to `env_get(source_env, source_name, ...)`, so the importer
+// always sees the exporter's current value (matching the compiler's
+// module-global semantics and standard ES module live bindings).
+void env_define_import(Environment *env, const char *alias_name,
+                       Environment *source_env, const char *source_name,
+                       ExecutionContext *ctx) {
+    if (!env || !source_env) return;
+
+    uint32_t hash = hash_string(alias_name);
+
+    pthread_mutex_t *mutex = (pthread_mutex_t*)env->mutex;
+    if (mutex) pthread_mutex_lock(mutex);
+
+    if (env_lookup(env, alias_name, hash) >= 0 ||
+        env_find_import(env, alias_name) != NULL) {
+        if (mutex) pthread_mutex_unlock(mutex);
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg),
+                 "Variable '%s' already defined in this scope", alias_name);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return;
+    }
+
+    EnvImport *imp = malloc(sizeof(EnvImport));
+    if (!imp) {
+        if (mutex) pthread_mutex_unlock(mutex);
+        ctx->exception_state.exception_value = val_string("Memory allocation failed in env_define_import");
+        ctx->exception_state.is_throwing = 1;
+        return;
+    }
+    imp->alias_name = strdup(alias_name);
+    imp->source_name = strdup(source_name);
+    if (!imp->alias_name || !imp->source_name) {
+        free(imp->alias_name);
+        free(imp->source_name);
+        free(imp);
+        if (mutex) pthread_mutex_unlock(mutex);
+        ctx->exception_state.exception_value = val_string("Memory allocation failed in env_define_import");
+        ctx->exception_state.is_throwing = 1;
+        return;
+    }
+    imp->source_env = source_env;
+    env_retain(source_env);
+    imp->next = env->imports;
+    env->imports = imp;
 
     if (mutex) pthread_mutex_unlock(mutex);
 }
@@ -663,6 +777,18 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
         return;
     }
 
+    // Imported bindings are read-only at the import site (mutations belong
+    // to the exporting module). Reject assignment so we don't shadow the
+    // alias with a new local variable.
+    if (env_find_import(env, name) != NULL) {
+        if (mutex) pthread_mutex_unlock(mutex);
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "Cannot assign to imported binding '%s'", name);
+        ctx->exception_state.exception_value = val_string(error_msg);
+        ctx->exception_state.is_throwing = 1;
+        return;
+    }
+
     // Unlock current env before checking parents (to prevent deadlock)
     if (mutex) pthread_mutex_unlock(mutex);
 
@@ -690,6 +816,15 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
             // Update parent scope variable
             search_env->values[pidx] = value;
             if (parent_mutex) pthread_mutex_unlock(parent_mutex);
+            return;
+        }
+
+        if (env_find_import(search_env, name) != NULL) {
+            if (parent_mutex) pthread_mutex_unlock(parent_mutex);
+            char error_msg[256];
+            snprintf(error_msg, sizeof(error_msg), "Cannot assign to imported binding '%s'", name);
+            ctx->exception_state.exception_value = val_string(error_msg);
+            ctx->exception_state.is_throwing = 1;
             return;
         }
 
@@ -752,6 +887,26 @@ Value env_get(Environment *env, const char *name, ExecutionContext *ctx) {
             Value val = search_env->values[idx];
             VALUE_RETAIN(val);  // Retain for the caller (caller now owns a reference)
             if (mutex) pthread_mutex_unlock(mutex);
+            return val;
+        }
+
+        // Check live-binding aliases installed at this scope. Imports are
+        // resolved to the exporter's exports env, so subsequent mutations in
+        // the exporter are visible here (live bindings, not snapshots).
+        EnvImport *imp = env_find_import(search_env, name);
+        if (imp) {
+            Environment *src = imp->source_env;
+            // Copy source_name; releasing the mutex before recursing is required
+            // to avoid deadlock if the source env shares a mutex chain.
+            char *src_name = strdup(imp->source_name);
+            if (mutex) pthread_mutex_unlock(mutex);
+            if (!src_name) {
+                ctx->exception_state.exception_value = val_string("Memory allocation failed in env_get import");
+                ctx->exception_state.is_throwing = 1;
+                return val_null();
+            }
+            Value val = env_get(src, src_name, ctx);
+            free(src_name);
             return val;
         }
 
@@ -857,4 +1012,67 @@ int env_set_resolved(Environment *env, int depth, int slot, Value value, Executi
 
     if (mutex) pthread_mutex_unlock(mutex);
     return 1;
+}
+
+// ========== DECLARED-TYPE TRACKING ==========
+// Annotated `let` bindings remember their annotation so reassignment can
+// enforce it with the same conversion the declaration used. The Type nodes
+// belong to the AST (which outlives execution) and are not owned here.
+
+void env_set_declared_type_last(Environment *env, struct Type *type) {
+    if (!env || !type || env->count == 0) return;
+
+    pthread_mutex_t *mutex = (pthread_mutex_t*)env->mutex;
+    if (mutex) pthread_mutex_lock(mutex);
+
+    if (!env->declared_types) {
+        env->declared_types = calloc(env->capacity, sizeof(struct Type*));
+        if (!env->declared_types) {
+            if (mutex) pthread_mutex_unlock(mutex);
+            return;  // Out of memory: fall back to unenforced (pre-existing behavior)
+        }
+    }
+    env->declared_types[env->count - 1] = type;
+
+    if (mutex) pthread_mutex_unlock(mutex);
+}
+
+struct Type *env_get_declared_type(Environment *env, const char *name) {
+    uint32_t hash = hash_string(name);
+
+    for (Environment *e = env; e != NULL; e = e->parent) {
+        pthread_mutex_t *mutex = (pthread_mutex_t*)e->mutex;
+        if (mutex) pthread_mutex_lock(mutex);
+
+        int idx = env_lookup(e, name, hash);
+        if (idx >= 0) {
+            // The name resolves here: an inner untyped binding shadows any
+            // outer annotated one, so stop at the first match either way.
+            struct Type *t = e->declared_types ? e->declared_types[idx] : NULL;
+            if (mutex) pthread_mutex_unlock(mutex);
+            return t;
+        }
+
+        if (mutex) pthread_mutex_unlock(mutex);
+    }
+    return NULL;
+}
+
+struct Type *env_get_declared_type_resolved(Environment *env, int depth, int slot) {
+    Environment *target = env;
+    for (int i = 0; i < depth; i++) {
+        target = target->parent;
+        if (!target) return NULL;
+    }
+
+    pthread_mutex_t *mutex = (pthread_mutex_t*)target->mutex;
+    if (mutex) pthread_mutex_lock(mutex);
+
+    struct Type *t = NULL;
+    if (target->declared_types && slot >= 0 && slot < target->count) {
+        t = target->declared_types[slot];
+    }
+
+    if (mutex) pthread_mutex_unlock(mutex);
+    return t;
 }

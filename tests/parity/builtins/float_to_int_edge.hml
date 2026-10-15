@@ -1,0 +1,77 @@
+// Test float-to-int conversion edge cases: NaN, Infinity, out-of-range
+
+let nan = 0.0 / 0.0;
+let inf = 1.0 / 0.0;
+let neg_inf = -1.0 / 0.0;
+
+// NaN to i32
+try {
+    let x = i32(nan);
+    print("FAIL: NaN to i32 should throw");
+} catch (e) {
+    print("NaN to i32: caught");
+}
+
+// Infinity to i32
+try {
+    let x = i32(inf);
+    print("FAIL: Inf to i32 should throw");
+} catch (e) {
+    print("Inf to i32: caught");
+}
+
+// -Infinity to i32
+try {
+    let x = i32(neg_inf);
+    print("FAIL: -Inf to i32 should throw");
+} catch (e) {
+    print("-Inf to i32: caught");
+}
+
+// NaN to i64
+try {
+    let x = i64(nan);
+    print("FAIL: NaN to i64 should throw");
+} catch (e) {
+    print("NaN to i64: caught");
+}
+
+// Infinity to i64
+try {
+    let x = i64(inf);
+    print("FAIL: Inf to i64 should throw");
+} catch (e) {
+    print("Inf to i64: caught");
+}
+
+// NaN to u8
+try {
+    let x = u8(nan);
+    print("FAIL: NaN to u8 should throw");
+} catch (e) {
+    print("NaN to u8: caught");
+}
+
+// Infinity to u32
+try {
+    let x = u32(inf);
+    print("FAIL: Inf to u32 should throw");
+} catch (e) {
+    print("Inf to u32: caught");
+}
+
+// NaN to i8
+try {
+    let x = i8(nan);
+    print("FAIL: NaN to i8 should throw");
+} catch (e) {
+    print("NaN to i8: caught");
+}
+
+// Normal float-to-int still works
+print("i32(3.14) = " + i32(3.14));
+print("i32(-2.7) = " + i32(-2.7));
+print("i64(1e15) = " + i64(1e15));
+print("u8(200.9) = " + u8(200.9));
+
+print("done");

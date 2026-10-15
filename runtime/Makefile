@@ -3,9 +3,45 @@
 CC = gcc
 LDFLAGS = -lm -lpthread -lffi
 
+# Windows (MinGW-w64) detection — mirrors the top-level Makefile
+ifneq (,$(findstring mingw,$(CC))$(findstring MINGW,$(shell uname))$(findstring MSYS,$(shell uname)))
+    HEMLOCK_WINDOWS = 1
+endif
+
+# Building ON Windows vs cross-compiling for it -- see the top-level Makefile
+ifeq ($(HEMLOCK_WINDOWS),1)
+ifneq (,$(findstring MINGW,$(shell uname))$(findstring MSYS,$(shell uname)))
+    HEMLOCK_WINDOWS_NATIVE = 1
+endif
+endif
+
 # Platform-specific settings
-ifeq ($(shell uname),Darwin)
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -fPIC -Iinclude -I../src/shared -D_DARWIN_C_SOURCE
+ifeq ($(HEMLOCK_WINDOWS),1)
+    # FFI enabled when the toolchain can link libffi (mirrors the top-level
+    # Makefile probe); without OpenSSL (HEMLOCK_NO_OPENSSL) the hash
+    # builtins use Windows CNG (bcrypt.dll) and only ECDSA is stubbed.
+    # --print-file-name echoes the bare name back when the lib is missing
+    MINGW_FFI_PATH := $(shell $(CC) --print-file-name=libffi.a 2>/dev/null)
+    ifneq ($(MINGW_FFI_PATH),libffi.a)
+        HAS_MINGW_FFI = 1
+    else
+        HAS_MINGW_FFI = 0
+    endif
+    ifeq ($(HAS_MINGW_FFI),1)
+        WIN_FFI_CFLAGS =
+        WIN_FFI_LIB = -lffi
+    else
+        WIN_FFI_CFLAGS = -DHEMLOCK_NO_FFI
+        WIN_FFI_LIB =
+    endif
+    # No -fPIC (PE is always position independent); winpthreads supplies
+    # pthreads; ws2_32 supplies sockets; bcrypt supplies CNG hashing.
+    # -I../include for hemlock_platform.h; ../src/shared/regex_win32
+    # supplies <regex.h> (bundled musl/TRE engine — MinGW has none).
+    CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -g -MMD -MP -Iinclude -I../src/shared -I../src/shared/regex_win32 -I../include -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1 $(WIN_FFI_CFLAGS) -DHEMLOCK_NO_OPENSSL
+    LDFLAGS = -lm -lpthread $(WIN_FFI_LIB) -lws2_32 -lbcrypt
+else ifeq ($(shell uname),Darwin)
+    CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -g -MMD -MP -fPIC -Iinclude -I../src/shared -I../include -D_DARWIN_C_SOURCE
     # Detect libffi (Homebrew on macOS puts it in non-standard locations)
     BREW_LIBFFI := $(shell brew --prefix libffi 2>/dev/null)
     ifneq ($(BREW_LIBFFI),)
@@ -19,7 +55,7 @@ ifeq ($(shell uname),Darwin)
         LDFLAGS += -L$(BREW_OPENSSL)/lib
     endif
 else
-    CFLAGS = -Wall -Wextra -std=c11 -O3 -g -fPIC -Iinclude -I../src/shared -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
+    CFLAGS = -Wall -Wextra -std=c11 -fwrapv -O3 -g -MMD -MP -fPIC -Iinclude -I../src/shared -I../include -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
     LIBFFI_CFLAGS := $(shell pkg-config --cflags libffi 2>/dev/null)
     LIBFFI_LIBS := $(shell pkg-config --libs libffi 2>/dev/null)
     ifneq ($(LIBFFI_CFLAGS),)
@@ -30,49 +66,113 @@ endif
 
 # OpenSSL is required for crypto builtins (SHA256, SHA512, MD5, ECDSA)
 # On macOS, -L path is set above; on Linux, system paths suffice
+# (not on Windows, where hashes use CNG/bcrypt and ECDSA is stubbed)
+ifneq ($(HEMLOCK_WINDOWS),1)
 LDFLAGS += -lssl -lcrypto
+endif
 
-# Check if zlib is available (both header AND library must exist)
+# Check if zlib is available (both header AND library must exist).
+# On Windows the compile-and-link probe is unusable: MinGW gcc is a native
+# Windows program, so `-o /dev/null` names a nonexistent directory and the
+# probe fails even when zlib is installed (which silently compiled the
+# compression builtins as "zlib not installed" stubs). Ask the toolchain
+# where libz.a is instead — it echoes the bare name back when missing.
+ifeq ($(HEMLOCK_WINDOWS),1)
+MINGW_ZLIB_PATH := $(shell $(CC) --print-file-name=libz.a 2>/dev/null)
+ifneq ($(MINGW_ZLIB_PATH),libz.a)
+ZLIB_CHECK := yes
+endif
+else
 ZLIB_CHECK := $(shell echo 'int main(){return 0;}' | $(CC) -x c - -lz -o /dev/null 2>/dev/null && echo yes)
+endif
 ifeq ($(ZLIB_CHECK),yes)
     CFLAGS += -DHML_HAVE_ZLIB
     LDFLAGS += -lz
 endif
 
-# Check if libwebsockets is available
+# Check if libwebsockets is available. A native MSYS2 build can ask its own
+# pkg-config; a cross build's host pkg-config would answer about the Linux
+# copy, so it gets no probe (mirrors the top-level Makefile).
+ifeq ($(HEMLOCK_WINDOWS),1)
+ifeq ($(HEMLOCK_WINDOWS_NATIVE),1)
 LWS_CHECK := $(shell pkg-config --exists libwebsockets 2>/dev/null && echo yes)
+else
+LWS_CHECK :=
+endif
+else
+LWS_CHECK := $(shell pkg-config --exists libwebsockets 2>/dev/null && echo yes)
+endif
 ifeq ($(LWS_CHECK),yes)
     CFLAGS += -DHML_HAVE_LIBWEBSOCKETS $(shell pkg-config --cflags libwebsockets)
     LDFLAGS += $(shell pkg-config --libs libwebsockets)
 else
-    # Fallback: check if header exists directly
-    LWS_HEADER_CHECK := $(shell test -f /usr/include/libwebsockets.h && echo yes)
+    # Fallback: check the usual prefixes when pkg-config is missing
+    # (common on macOS without `brew install pkg-config`). Without
+    # this, the runtime compiled HTTP streaming as stubs and the link
+    # step then failed with "Undefined symbols: _hml_lws_http_*"
+    # because the builtin wrappers reference real impls that weren't
+    # compiled in.
+    LWS_HEADER_CHECK := $(shell test -f /usr/include/libwebsockets.h \
+                              -o -f /opt/homebrew/include/libwebsockets.h \
+                              -o -f /usr/local/include/libwebsockets.h \
+                              && echo yes)
     ifeq ($(LWS_HEADER_CHECK),yes)
         CFLAGS += -DHML_HAVE_LIBWEBSOCKETS
+        # If the header lives under a brew prefix, add its include + lib
+        # paths so the linker can actually find -lwebsockets.
+        LWS_BREW_PFX := $(shell test -f /opt/homebrew/include/libwebsockets.h && echo /opt/homebrew)
+        ifneq ($(LWS_BREW_PFX),)
+            CFLAGS += -I$(LWS_BREW_PFX)/include
+            LDFLAGS += -L$(LWS_BREW_PFX)/lib
+        else
+            LWS_LOCAL_PFX := $(shell test -f /usr/local/include/libwebsockets.h && echo /usr/local)
+            ifneq ($(LWS_LOCAL_PFX),)
+                CFLAGS += -I$(LWS_LOCAL_PFX)/include
+                LDFLAGS += -L$(LWS_LOCAL_PFX)/lib
+            endif
+        endif
         LDFLAGS += -lwebsockets
     endif
 endif
 
 SRC_DIR = src
 BUILD_DIR = build
+# Cross-compiling for Windows from a POSIX host: keep PE objects separate
+# (mirrors the top-level Makefile)
+ifeq ($(HEMLOCK_WINDOWS),1)
+ifeq (,$(findstring MINGW,$(shell uname))$(findstring MSYS,$(shell uname)))
+    BUILD_DIR = build-mingw
+endif
+endif
 INCLUDE_DIR = include
 SHARED_DIR = ../src/shared
 
 # Source files
 SRCS = $(wildcard $(SRC_DIR)/*.c)
-SHARED_SRCS = $(wildcard $(SHARED_DIR)/*.c)
+SHARED_SRCS = $(filter-out $(SHARED_DIR)/file_io.c, $(wildcard $(SHARED_DIR)/*.c))
 OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
 SHARED_OBJS = $(patsubst $(SHARED_DIR)/%.c,$(BUILD_DIR)/shared_%.o,$(SHARED_SRCS))
 
 # Library targets
 STATIC_LIB = libhemlock_runtime.a
-ifeq ($(shell uname),Darwin)
+ifeq ($(HEMLOCK_WINDOWS),1)
+    SHARED_LIB = libhemlock_runtime.dll
+else ifeq ($(shell uname),Darwin)
     SHARED_LIB = libhemlock_runtime.dylib
 else
     SHARED_LIB = libhemlock_runtime.so
 endif
 
-.PHONY: all clean static shared
+# WASM build configuration (Emscripten)
+WASM_CC = emcc
+WASM_AR = emar
+WASM_CFLAGS = -Wall -Wextra -std=gnu11 -O2 -fPIC -Iinclude -I../src/shared -I../include -D__EMSCRIPTEN__ -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -D_GNU_SOURCE
+WASM_SRCS = $(SRCS)
+WASM_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/wasm_%.o,$(WASM_SRCS))
+WASM_SHARED_OBJS = $(patsubst $(SHARED_DIR)/%.c,$(BUILD_DIR)/wasm_shared_%.o,$(SHARED_SRCS))
+WASM_STATIC_LIB = libhemlock_runtime_wasm.a
+
+.PHONY: all clean static shared wasm wasm-threaded
 
 all: $(BUILD_DIR) static shared
 
@@ -107,6 +207,42 @@ install: static shared
 	cp $(BUILD_DIR)/$(SHARED_LIB) ../
 	@echo "Installed libraries to parent directory"
 
+# WASM static library via Emscripten
+wasm: $(BUILD_DIR) $(BUILD_DIR)/$(WASM_STATIC_LIB)
+
+$(BUILD_DIR)/wasm_%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+	$(WASM_CC) $(WASM_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/wasm_shared_%.o: $(SHARED_DIR)/%.c | $(BUILD_DIR)
+	$(WASM_CC) $(WASM_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/$(WASM_STATIC_LIB): $(WASM_OBJS) $(WASM_SHARED_OBJS)
+	$(WASM_AR) rcs $@ $^
+	@echo "Built WASM runtime library: $@"
+
+# WASM threaded build configuration (Emscripten with pthreads)
+# Enables spawn/join/channels via Web Workers with SharedArrayBuffer
+WASM_THREAD_CFLAGS = $(WASM_CFLAGS) -pthread
+WASM_THREAD_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/wasm_thread_%.o,$(WASM_SRCS))
+WASM_THREAD_SHARED_OBJS = $(patsubst $(SHARED_DIR)/%.c,$(BUILD_DIR)/wasm_thread_shared_%.o,$(SHARED_SRCS))
+WASM_THREAD_LIB = libhemlock_runtime_wasm_threaded.a
+
+wasm-threaded: $(BUILD_DIR) $(BUILD_DIR)/$(WASM_THREAD_LIB)
+
+$(BUILD_DIR)/wasm_thread_%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+	$(WASM_CC) $(WASM_THREAD_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/wasm_thread_shared_%.o: $(SHARED_DIR)/%.c | $(BUILD_DIR)
+	$(WASM_CC) $(WASM_THREAD_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/$(WASM_THREAD_LIB): $(WASM_THREAD_OBJS) $(WASM_THREAD_SHARED_OBJS)
+	$(WASM_AR) rcs $@ $^
+	@echo "Built WASM threaded runtime library: $@"
+
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR) build build-mingw
 	rm -f ../$(STATIC_LIB) ../$(SHARED_LIB)
+
+# Auto header deps (-MMD -MP). Leading `-` makes a missing .d non-fatal
+# on first build. See top-level Makefile for context.
+-include $(shell find $(BUILD_DIR) -name '*.d' 2>/dev/null)

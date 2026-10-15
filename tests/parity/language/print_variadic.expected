@@ -1,0 +1,6 @@
+1 2.5 x true null
+a 'B' [1, 2]
+<object> after-object
+no newline
+err 42 [3, 4] <object>
+done

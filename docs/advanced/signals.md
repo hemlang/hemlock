@@ -39,8 +39,10 @@ Register a signal handler function.
 
 **Example:**
 ```hemlock
+import { signal, SIGINT } from "@stdlib/signal";
+
 fn my_handler(sig) {
-    print("Caught signal: " + typeof(sig));
+    print("Caught signal: " + sig);
 }
 
 let old_handler = signal(SIGINT, my_handler);
@@ -48,6 +50,8 @@ let old_handler = signal(SIGINT, my_handler);
 
 **Resetting to default:**
 ```hemlock
+import { signal, SIGINT } from "@stdlib/signal";
+
 signal(SIGINT, null);  // Reset SIGINT to default behavior
 ```
 
@@ -62,6 +66,8 @@ Send a signal to the current process.
 
 **Example:**
 ```hemlock
+import { raise, SIGUSR1 } from "@stdlib/signal";
+
 raise(SIGUSR1);  // Trigger SIGUSR1 handler
 ```
 
@@ -81,6 +87,8 @@ Hemlock provides standard POSIX signal constants as i32 values.
 
 **Examples:**
 ```hemlock
+import { signal, SIGINT, SIGTERM, SIGHUP } from "@stdlib/signal";
+
 signal(SIGINT, handle_interrupt);   // Ctrl+C
 signal(SIGTERM, handle_terminate);  // kill command
 signal(SIGHUP, handle_hangup);      // Terminal closes
@@ -95,6 +103,8 @@ signal(SIGHUP, handle_hangup);      // Terminal closes
 
 **Examples:**
 ```hemlock
+import { signal, SIGUSR1, SIGUSR2 } from "@stdlib/signal";
+
 // Use for custom communication
 signal(SIGUSR1, reload_config);
 signal(SIGUSR2, rotate_logs);
@@ -112,6 +122,8 @@ signal(SIGUSR2, rotate_logs);
 
 **Examples:**
 ```hemlock
+import { signal, SIGALRM, SIGCHLD } from "@stdlib/signal";
+
 signal(SIGALRM, handle_timeout);
 signal(SIGCHLD, handle_child_exit);
 ```
@@ -126,6 +138,8 @@ signal(SIGCHLD, handle_child_exit);
 
 **Examples:**
 ```hemlock
+import { signal, SIGPIPE } from "@stdlib/signal";
+
 signal(SIGPIPE, handle_broken_pipe);
 ```
 
@@ -134,6 +148,8 @@ signal(SIGPIPE, handle_broken_pipe);
 ### Catching Ctrl+C
 
 ```hemlock
+import { signal, SIGINT } from "@stdlib/signal";
+
 let interrupted = false;
 
 fn handle_interrupt(sig) {
@@ -158,8 +174,10 @@ print("Exiting due to interrupt");
 Signal handlers receive one argument: the signal number (i32)
 
 ```hemlock
+import { signal, SIGINT, SIGTERM } from "@stdlib/signal";
+
 fn my_handler(signum) {
-    print("Received signal: " + typeof(signum));
+    print("Received signal: " + signum);
     // signum contains the signal number (e.g., 2 for SIGINT)
 
     if (signum == SIGINT) {
@@ -176,6 +194,8 @@ signal(SIGTERM, my_handler);  // Same handler for multiple signals
 Different handlers for different signals:
 
 ```hemlock
+import { signal, SIGINT, SIGTERM, SIGUSR1 } from "@stdlib/signal";
+
 fn handle_int(sig) {
     print("SIGINT received");
 }
@@ -198,6 +218,8 @@ signal(SIGUSR1, handle_usr1);
 Pass `null` as the handler to reset to default behavior:
 
 ```hemlock
+import { signal, SIGINT } from "@stdlib/signal";
+
 // Register custom handler
 signal(SIGINT, my_handler);
 
@@ -210,6 +232,8 @@ signal(SIGINT, null);
 Send signals to your own process:
 
 ```hemlock
+import { signal, raise, SIGUSR1 } from "@stdlib/signal";
+
 let count = 0;
 
 fn increment(sig) {
@@ -232,6 +256,8 @@ print(count);  // 2
 Common pattern for cleanup on termination:
 
 ```hemlock
+import { signal, SIGINT, SIGTERM } from "@stdlib/signal";
+
 let should_exit = false;
 
 fn handle_shutdown(sig) {
@@ -256,22 +282,26 @@ print("Cleanup complete");
 Track number of signals received:
 
 ```hemlock
+import { signal, SIGUSR1 } from "@stdlib/signal";
+
 let signal_count = 0;
 
 fn count_signals(sig) {
     signal_count = signal_count + 1;
-    print("Received " + typeof(signal_count) + " signals");
+    print("Received " + signal_count + " signals");
 }
 
 signal(SIGUSR1, count_signals);
 
 // Later...
-print("Total signals: " + typeof(signal_count));
+print("Total signals: " + signal_count);
 ```
 
 ### Configuration Reload on Signal
 
 ```hemlock
+import { signal, SIGHUP } from "@stdlib/signal";
+
 let config = load_config();
 
 fn reload_config(sig) {
@@ -289,6 +319,8 @@ signal(SIGHUP, reload_config);  // Reload on SIGHUP
 ### Timeout Using SIGALRM
 
 ```hemlock
+import { signal, SIGALRM } from "@stdlib/signal";
+
 let timed_out = false;
 
 fn handle_alarm(sig) {
@@ -309,16 +341,18 @@ while (!timed_out) {
 ### Signal-Based State Machine
 
 ```hemlock
+import { signal, SIGUSR1, SIGUSR2 } from "@stdlib/signal";
+
 let state = 0;
 
 fn next_state(sig) {
     state = (state + 1) % 3;
-    print("State: " + typeof(state));
+    print("State: " + state);
 }
 
 fn prev_state(sig) {
     state = (state - 1 + 3) % 3;
-    print("State: " + typeof(state));
+    print("State: " + state);
 }
 
 signal(SIGUSR1, next_state);  // Advance state
@@ -394,6 +428,8 @@ Signal handling is **inherently unsafe** in Hemlock's philosophy.
 Handlers can be called at any time, interrupting normal execution:
 
 ```hemlock
+import { signal, SIGUSR1 } from "@stdlib/signal";
+
 let counter = 0;
 
 fn increment(sig) {
@@ -422,6 +458,8 @@ Hemlock does **not** guarantee async-signal-safety:
 Simple boolean assignments are generally safe:
 
 ```hemlock
+import { signal, SIGINT } from "@stdlib/signal";
+
 let should_exit = false;
 
 fn handler(sig) {
@@ -449,6 +487,8 @@ fn handler(sig) {
 **3. Defer Complex Operations**
 
 ```hemlock
+import { signal, SIGHUP } from "@stdlib/signal";
+
 let pending_reload = false;
 
 fn signal_reload(sig) {
@@ -488,6 +528,8 @@ fn careful_handler(sig) {
 ### 1. Graceful Server Shutdown
 
 ```hemlock
+import { signal, SIGINT, SIGTERM } from "@stdlib/signal";
+
 let running = true;
 
 fn shutdown(sig) {
@@ -510,6 +552,8 @@ print("Server stopped");
 ### 2. Configuration Reload (Without Restart)
 
 ```hemlock
+import { signal, SIGHUP } from "@stdlib/signal";
+
 let config = load_config("app.conf");
 let reload_needed = false;
 
@@ -533,6 +577,10 @@ while (true) {
 ### 3. Log Rotation
 
 ```hemlock
+import { signal, SIGUSR1 } from "@stdlib/signal";
+import { open } from "@stdlib/fs";
+import { exec } from "@stdlib/process";
+
 let log_file = open("app.log", "a");
 let rotate_needed = false;
 
@@ -559,10 +607,12 @@ while (true) {
 ### 4. Status Reporting
 
 ```hemlock
+import { signal, SIGUSR1 } from "@stdlib/signal";
+
 let requests_handled = 0;
 
 fn report_status(sig) {
-    print("Status: " + typeof(requests_handled) + " requests handled");
+    print("Status: " + requests_handled + " requests handled");
 }
 
 signal(SIGUSR1, report_status);
@@ -578,6 +628,8 @@ while (true) {
 ### 5. Debug Mode Toggle
 
 ```hemlock
+import { signal, SIGUSR2 } from "@stdlib/signal";
+
 let debug_mode = false;
 
 fn toggle_debug(sig) {
@@ -599,6 +651,8 @@ signal(SIGUSR2, toggle_debug);
 ### Example 1: Interrupt Handler with Cleanup
 
 ```hemlock
+import { signal, raise, SIGINT, SIGUSR1 } from "@stdlib/signal";
+
 let running = true;
 let signal_count = 0;
 
@@ -622,7 +676,7 @@ signal(SIGUSR1, handle_signal);
 // Simulate some work
 let i = 0;
 while (running && i < 100) {
-    print("Working... " + typeof(i));
+    print("Working... " + i);
 
     // Trigger SIGUSR1 every 10 iterations
     if (i == 10 || i == 20) {
@@ -632,12 +686,14 @@ while (running && i < 100) {
     i = i + 1;
 }
 
-print("Total signals received: " + typeof(signal_count));
+print("Total signals received: " + signal_count);
 ```
 
 ### Example 2: Multi-Signal State Machine
 
 ```hemlock
+import { signal, SIGUSR1, SIGUSR2, SIGHUP } from "@stdlib/signal";
+
 let state = "idle";
 let request_count = 0;
 
@@ -653,7 +709,7 @@ fn stop_processing(sig) {
 
 fn report_stats(sig) {
     print("State: " + state);
-    print("Requests: " + typeof(request_count));
+    print("Requests: " + request_count);
 }
 
 signal(SIGUSR1, start_processing);
@@ -673,19 +729,21 @@ while (true) {
 ### Example 3: Worker Pool Controller
 
 ```hemlock
+import { signal, SIGUSR1, SIGUSR2, SIGINT, SIGTERM } from "@stdlib/signal";
+
 let worker_count = 4;
 let should_exit = false;
 
 fn increase_workers(sig) {
     worker_count = worker_count + 1;
-    print("Workers: " + typeof(worker_count));
+    print("Workers: " + worker_count);
 }
 
 fn decrease_workers(sig) {
     if (worker_count > 1) {
         worker_count = worker_count - 1;
     }
-    print("Workers: " + typeof(worker_count));
+    print("Workers: " + worker_count);
 }
 
 fn shutdown(sig) {
@@ -708,6 +766,8 @@ while (!should_exit) {
 ### Example 4: Timeout Pattern
 
 ```hemlock
+import { signal, SIGALRM } from "@stdlib/signal";
+
 let operation_complete = false;
 let timed_out = false;
 
@@ -746,8 +806,10 @@ if (!operation_complete) {
 ### Add Diagnostic Prints
 
 ```hemlock
+import { signal, SIGINT } from "@stdlib/signal";
+
 fn debug_handler(sig) {
-    print("Handler called for signal: " + typeof(sig));
+    print("Handler called for signal: " + sig);
     print("Stack: (not yet available)");
 
     // Your handler logic...
@@ -763,7 +825,7 @@ let handler_calls = 0;
 
 fn counting_handler(sig) {
     handler_calls = handler_calls + 1;
-    print("Handler call #" + typeof(handler_calls));
+    print("Handler call #" + handler_calls);
 
     // Your handler logic...
 }
@@ -772,8 +834,10 @@ fn counting_handler(sig) {
 ### Test with raise()
 
 ```hemlock
+import { signal, raise, SIGUSR1 } from "@stdlib/signal";
+
 fn test_handler(sig) {
-    print("Test signal received: " + typeof(sig));
+    print("Test signal received: " + sig);
 }
 
 signal(SIGUSR1, test_handler);

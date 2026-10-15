@@ -1,0 +1,41 @@
+// Regression test: assigning to a heap-typed parameter must not release the
+// caller's reference (compiled binaries used to crash with use-after-free),
+// and tail-call parameter rebinding must stay balanced.
+
+fn exclaim(s: string): string {
+    s = s + "!";
+    return s;
+}
+
+let original = "a caller-owned heap string";
+let changed = exclaim(original);
+print(changed);
+print(original);
+
+fn nullify(a) {
+    a = null;
+    return a;
+}
+let arr = [1, 2, 3];
+nullify(arr);
+print(arr[0]);
+print(arr.length);
+
+// Tail-recursive rebinding with a fresh value each iteration
+fn extend(s: string, n: i32): string {
+    if (n == 0) {
+        return s;
+    }
+    return extend(s + "x", n - 1);
+}
+let seed = "tail call seed string";
+let grown = extend(seed, 5);
+print(grown.length);
+print(seed);
+
+// Defaults are owned by the callee and released on exit
+fn greet(name: string, msg?: "Hello"): string {
+    return msg + " " + name;
+}
+print(greet("World"));
+print(greet("World", "Howdy"));

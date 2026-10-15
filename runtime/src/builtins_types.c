@@ -72,15 +72,12 @@ HmlValue hml_validate_object_type(HmlValue obj, const char *type_name) {
     }
 
     if (obj.type != HML_VAL_OBJECT) {
-        fprintf(stderr, "Error: Expected object for type '%s', got %s\n",
-                type_name, hml_typeof(obj));
-        exit(1);
+        hml_runtime_error("Expected object for type '%s', got non-object", type_name);
     }
 
     HmlTypeDef *type = hml_lookup_type(type_name);
     if (!type) {
-        fprintf(stderr, "Error: Unknown type '%s'\n", type_name);
-        exit(1);
+        hml_runtime_error("Unknown type '%s'", type_name);
     }
 
     HmlObject *o = obj.as.as_object;
@@ -119,9 +116,12 @@ HmlValue hml_validate_object_type(HmlValue obj, const char *type_name) {
                     }
 
                     if (!type_ok) {
-                        fprintf(stderr, "Error: Field '%s' has wrong type for '%s'\n",
-                                field->name, type_name);
-                        exit(1);
+                        // Coerce to the field's annotated type. This matches the
+                        // interpreter, which applies type-annotation coercion to
+                        // fields and throws a catchable conversion error (e.g.
+                        // "Cannot convert string to i32 via type annotation...")
+                        // rather than a generic "wrong type" message.
+                        o->fields[j].value = hml_convert_to_type(val, field->type_kind);
                     }
                 }
                 break;
@@ -133,9 +133,8 @@ HmlValue hml_validate_object_type(HmlValue obj, const char *type_name) {
                 // Add default value
                 hml_object_set_field(obj, field->name, field->default_value);
             } else {
-                fprintf(stderr, "Error: Object missing required field '%s' for type '%s'\n",
-                        field->name, type_name);
-                exit(1);
+                hml_runtime_error("Object missing required field '%s' for type '%s'",
+                                  field->name, type_name);
             }
         }
     }
@@ -199,9 +198,7 @@ const int32_t* hml_lookup_enum(const char *name, int *num_variants) {
 HmlValue hml_validate_enum_value(HmlValue val, const char *enum_name) {
     // Enum values must be i32
     if (val.type != HML_VAL_I32) {
-        fprintf(stderr, "Runtime error: Expected enum value (i32) for type '%s', got %s\n",
-                enum_name, hml_typeof(val));
-        exit(1);
+        hml_runtime_error("Expected enum value (i32) for type '%s'", enum_name);
     }
 
     int num_variants = 0;
@@ -220,9 +217,7 @@ HmlValue hml_validate_enum_value(HmlValue val, const char *enum_name) {
         }
     }
 
-    fprintf(stderr, "Runtime error: Value %d is not a valid variant of enum '%s'\n",
-            value, enum_name);
-    exit(1);
+    hml_runtime_error("Value %d is not a valid variant of enum '%s'", value, enum_name);
 }
 
 // FFI (Foreign Function Interface) operations moved to builtins_ffi.c

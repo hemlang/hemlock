@@ -56,13 +56,73 @@ static void codegen_emit_function_attributes(CodegenContext *ctx, Annotation **a
         }
     }
 
-    // Handle @section(name) - place function in custom ELF section
+    // Handle @section(name) - place function in a custom linker section.
+    //
+    // ELF (Linux) and COFF (Windows) accept the raw section name. Mach-O
+    // (macOS) instead requires a "segment,section" pair whose section name is
+    // limited to 16 chars of [A-Za-z0-9_]; functions live in the __TEXT
+    // segment. Emit a preprocessor-guarded attribute so each toolchain gets a
+    // form it accepts (the #if resolves at preprocessing time, leaving one
+    // attribute on the function). Section placement never changes behavior, so
+    // both backends still produce identical output.
     Annotation *sec = annotation_get(annotations, annotation_count, "section");
     if (sec) {
         const char *section_name = annotation_get_string_arg(sec, NULL, NULL);
         if (section_name) {
-            codegen_write(ctx, "__attribute__((section(\"%s\"))) ", section_name);
+            // Sanitize into a Mach-O-legal section name (16 chars max).
+            char macho[17];
+            size_t j = 0;
+            for (const char *p = section_name; *p && j < sizeof(macho) - 1; p++) {
+                char c = *p;
+                int ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                         (c >= '0' && c <= '9') || c == '_';
+                macho[j++] = ok ? c : '_';
+            }
+            macho[j] = '\0';
+            codegen_write(ctx, "\n#if defined(__APPLE__)\n");
+            codegen_write(ctx, "__attribute__((section(\"__TEXT,%s\")))\n", macho);
+            codegen_write(ctx, "#else\n");
+            codegen_write(ctx, "__attribute__((section(\"%s\")))\n", section_name);
+            codegen_write(ctx, "#endif\n");
         }
+    }
+}
+
+// Helper: Emit GCC loop pragmas based on Hemlock loop annotations.
+// Must be called immediately before the C loop header so the pragma binds to
+// it. Translates @unroll(n)/@nounroll/@simd into the matching #pragma GCC.
+// The interpreter ignores these annotations, so behavior (and thus parity) is
+// unchanged; only the optimizer's view of the generated loop differs.
+void codegen_emit_loop_pragmas(CodegenContext *ctx, Annotation **annotations, int annotation_count) {
+    if (!annotations || annotation_count == 0) {
+        return;
+    }
+
+    Annotation *unroll = annotation_get(annotations, annotation_count, "unroll");
+    if (unroll) {
+        // @unroll(n) - unroll factor. Clamp to a sane positive range; a factor
+        // of 0 or below is meaningless and is treated as "no explicit factor".
+        int factor = (int)annotation_get_number_arg(unroll, NULL, 0);
+        if (factor > 0 && factor <= HML_MAX_UNROLL_FACTOR) {
+            codegen_writeln(ctx, "#pragma GCC unroll %d", factor);
+        }
+    }
+
+    // @nounroll - disable unrolling (unroll factor of 1).
+    if (annotation_has(annotations, annotation_count, "nounroll")) {
+        codegen_writeln(ctx, "#pragma GCC unroll 1");
+    }
+
+    // @simd - assert the loop has no vector dependencies so the C compiler may
+    // vectorize. GCC and Clang spell this hint differently; emit the right
+    // pragma for whichever compiles the generated C (the #if/#elif resolve at
+    // preprocessing time, leaving exactly one pragma adjacent to the loop).
+    if (annotation_has(annotations, annotation_count, "simd")) {
+        codegen_writeln(ctx, "#if defined(__clang__)");
+        codegen_writeln(ctx, "#pragma clang loop vectorize(enable)");
+        codegen_writeln(ctx, "#elif defined(__GNUC__)");
+        codegen_writeln(ctx, "#pragma GCC ivdep");
+        codegen_writeln(ctx, "#endif");
     }
 }
 
@@ -90,7 +150,14 @@ int is_function_def(Stmt *stmt, char **name_out, Expr **func_out) {
 }
 
 // Generate a top-level function declaration
-void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, Annotation **annotations, int annotation_count) {
+// is_export: whether this function has an `export` keyword (used for WASM EMSCRIPTEN_KEEPALIVE)
+void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, Annotation **annotations, int annotation_count, int is_export) {
+    // For WASM target, mark exported functions with EMSCRIPTEN_KEEPALIVE
+    // so they're accessible from JavaScript via Module.cwrap/ccall
+    if (ctx->target_wasm && is_export) {
+        codegen_write(ctx, "EMSCRIPTEN_KEEPALIVE\n");
+    }
+
     // Emit GCC/Clang attributes based on annotations (@inline, @hot, etc.)
     codegen_emit_function_attributes(ctx, annotations, annotation_count);
 
@@ -119,29 +186,42 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
     // Save state and initialize for function body
     FuncGenState saved_state;
     funcgen_save_state(ctx, &saved_state);
+    ctx->function_has_try = codegen_body_has_try(func->as.function.body);
 
     // Note: Type inference scope management is disabled.
     // Type checking is done in a separate pass before codegen.
     (void)name;  // Suppress unused warning when optimization disabled
 
-    // Add parameters as locals and apply defaults
+    // Add parameters as locals, take ownership of them, and apply defaults
     funcgen_add_params(ctx, func);
+    funcgen_retain_params(ctx, func);
     funcgen_apply_defaults(ctx, func);
+    funcgen_convert_params(ctx, func);
+
+    // Body-locals start after params (for cleanup at function exit)
+    ctx->locals_body_start = ctx->num_locals;
 
     // Track call depth for stack overflow detection (can be disabled for performance)
     if (ctx->stack_check) {
         codegen_writeln(ctx, "HML_CALL_ENTER();");
     }
 
+    // Set up the defer frame + unwind context if the body contains defers
+    codegen_emit_defer_prologue(ctx, func->as.function.body);
+
     // OPTIMIZATION: Tail call elimination
     // Check if function is tail recursive and set up for tail call optimization
     // Tail call optimization converts: return func(args) -> reassign params; goto start
     // This is only safe when there are no defers and no rest params
-    if (ctx->optimize && !func->as.function.rest_param &&
+    if (ctx->optimize && !func->as.function.rest_param && !ctx->has_defers &&
         is_tail_recursive_function(func->as.function.body, name)) {
-        ctx->tail_call_func_name = (char*)name;  // Borrowed reference
+        ctx->tail_call_func_name = name;  // Borrowed reference
         ctx->tail_call_label = codegen_label(ctx);
         ctx->tail_call_func_expr = func;
+        // Emit local iteration counter for tail-call depth checking
+        if (ctx->stack_check) {
+            codegen_writeln(ctx, "int _tail_depth = 0;");
+        }
         codegen_writeln(ctx, "%s:;  // tail call target", ctx->tail_call_label);
     }
 
@@ -153,9 +233,11 @@ void codegen_function_decl(CodegenContext *ctx, Expr *func, const char *name, An
 
     // Execute defers before implicit return
     codegen_defer_execute_all(ctx);
-    if (ctx->has_defers) {
-        codegen_writeln(ctx, "hml_defer_execute_all();");
-    }
+    codegen_emit_defer_exit(ctx);
+
+    // Release body-local variables and shared env before returning
+    codegen_emit_local_cleanup(ctx, NULL);
+    codegen_emit_param_cleanup(ctx);
 
     // Decrement call depth and return
     if (ctx->stack_check) {
@@ -199,6 +281,7 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
     // Save state and initialize for closure body
     FuncGenState saved_state;
     funcgen_save_state(ctx, &saved_state);
+    ctx->function_has_try = codegen_body_has_try(func->as.function.body);
     ctx->current_module = closure->source_module;
     ctx->current_closure = closure;
 
@@ -208,8 +291,9 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
         ctx->num_locals = 0;
     }
 
-    // Add parameters as locals
+    // Add parameters as locals and take ownership of them
     funcgen_add_params(ctx, func);
+    funcgen_retain_params(ctx, func);
 
     // Extract captured variables from environment
     for (int i = 0; i < closure->num_captured; i++) {
@@ -270,14 +354,25 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
             }
         }
         codegen_add_local(ctx, var_name);
+        // Mark as no-cleanup — captures are released by the explicit loop
+        // in codegen_closure_impl (lines below), not by codegen_emit_local_cleanup
+        codegen_mark_local_no_cleanup(ctx, var_name);
         free(safe_var);
     }
 
-    // Apply defaults and track call depth
+    // Apply defaults, convert typed parameters, and track call depth
     funcgen_apply_defaults(ctx, func);
+    funcgen_convert_params(ctx, func);
+
+    // Body-locals start after params + captures (for cleanup at function exit)
+    ctx->locals_body_start = ctx->num_locals;
+
     if (ctx->stack_check) {
         codegen_writeln(ctx, "HML_CALL_ENTER();");
     }
+
+    // Set up the defer frame + unwind context if the body contains defers
+    codegen_emit_defer_prologue(ctx, func->as.function.body);
 
     // Set up shared environment for nested closures
     funcgen_setup_shared_env(ctx, func, closure);
@@ -287,14 +382,12 @@ void codegen_closure_impl(CodegenContext *ctx, ClosureInfo *closure) {
 
     // Execute defers before implicit return
     codegen_defer_execute_all(ctx);
-    if (ctx->has_defers) {
-        codegen_writeln(ctx, "hml_defer_execute_all();");
-    }
+    codegen_emit_defer_exit(ctx);
 
-    // Release captured variables before return
-    for (int i = 0; i < closure->num_captured; i++) {
-        codegen_writeln(ctx, "hml_release(&%s);", closure->captured_vars[i]);
-    }
+    // Release body-local variables, owned params, and captures before returning
+    codegen_emit_local_cleanup(ctx, NULL);
+    codegen_emit_param_cleanup(ctx);
+    codegen_emit_capture_cleanup(ctx);
 
     // Decrement call depth and return
     if (ctx->stack_check) {
@@ -355,21 +448,26 @@ void codegen_closure_wrapper(CodegenContext *ctx, ClosureInfo *closure) {
     codegen_write(ctx, "}\n\n");
 }
 
-// Helper to generate init function for a module
+// Helper to generate init function for a module.
+// The suffix `_hml_init` is intentionally in the compiler's internal namespace:
+// the user namespace is `_mod<N>_<exported_name>`, so naming the module init
+// `_mod<N>_init` collides with any module that exports a function named `init`.
+// Users who export an identifier literally named `_hml_init` will still collide,
+// but that's a reserved convention and unusual.
 void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
     codegen_write(ctx, "// Module init: %s\n", module->absolute_path);
-    codegen_write(ctx, "static int %sinit_done = 0;\n", module->module_prefix);
-    codegen_write(ctx, "static void %sinit(void) {\n", module->module_prefix);
+    codegen_write(ctx, "static int %s_hml_init_done = 0;\n", module->module_prefix);
+    codegen_write(ctx, "static void %s_hml_init(void) {\n", module->module_prefix);
     codegen_indent_inc(ctx);
-    codegen_writeln(ctx, "if (%sinit_done) return;", module->module_prefix);
-    codegen_writeln(ctx, "%sinit_done = 1;", module->module_prefix);
+    codegen_writeln(ctx, "if (%s_hml_init_done) return;", module->module_prefix);
+    codegen_writeln(ctx, "%s_hml_init_done = 1;", module->module_prefix);
     codegen_blank_line(ctx);
 
     // Save current module context
     CompiledModule *saved_module = ctx->current_module;
     ctx->current_module = module;
 
-    // First call init functions of imported modules
+    // First call init functions of imported modules and re-export source modules
     for (int i = 0; i < module->num_statements; i++) {
         Stmt *stmt = module->statements[i];
         if (stmt->type == STMT_IMPORT) {
@@ -378,7 +476,17 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
             if (resolved) {
                 CompiledModule *imported = module_get_cached(ctx->module_cache, resolved);
                 if (imported) {
-                    codegen_writeln(ctx, "%sinit();", imported->module_prefix);
+                    codegen_writeln(ctx, "%s_hml_init();", imported->module_prefix);
+                }
+                free(resolved);
+            }
+        } else if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_reexport) {
+            char *reexport_path = stmt->as.export_stmt.module_path;
+            char *resolved = resolve_module_path(ctx->module_cache->resolver, module->absolute_path, reexport_path);
+            if (resolved) {
+                CompiledModule *reexported = module_get_cached(ctx->module_cache, resolved);
+                if (reexported) {
+                    codegen_writeln(ctx, "%s_hml_init();", reexported->module_prefix);
                 }
                 free(resolved);
             }
@@ -389,6 +497,15 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
     // Generate code for each statement in the module
     for (int i = 0; i < module->num_statements; i++) {
         Stmt *stmt = module->statements[i];
+
+        // Top-level let/const are emitted inline here (not via codegen_stmt),
+        // so record their source line for runtime error messages. Other
+        // statement kinds fall through to codegen_stmt, which does this itself.
+        if (stmt->line > 0 && (stmt->type == STMT_LET || stmt->type == STMT_CONST) &&
+            !(stmt->type == STMT_LET && stmt->as.let.value &&
+              stmt->as.let.value->type == EXPR_FUNCTION)) {
+            codegen_writeln(ctx, "hml_error_line = %d;", stmt->line);
+        }
 
         // Skip imports (already handled above)
         if (stmt->type == STMT_IMPORT) {
@@ -449,15 +566,51 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
                 if (stmt->as.let.type_annotation->kind == TYPE_ARRAY) {
                     // Typed array: let arr: array<type> = [...]
                     Type *elem_type = stmt->as.let.type_annotation->element_type;
-                    const char *arr_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
-                    if (!arr_type) arr_type = "HML_VAL_NULL";
-                    codegen_writeln(ctx, "%s = hml_validate_typed_array(%s, %s);",
-                                  mangled, value, arr_type);
+                    if (elem_type && elem_type->kind == TYPE_CUSTOM_OBJECT && elem_type->type_name) {
+                        const char *elem_builtin =
+                            is_user_defined_type_name(ctx->type_ctx, elem_type->type_name)
+                            ? NULL : builtin_type_name_to_hml_val(elem_type->type_name);
+                        if (elem_builtin) {
+                            codegen_writeln(ctx, "%s = hml_validate_typed_array(%s, %s);",
+                                          mangled, value, elem_builtin);
+                        } else {
+                            // Validate each element against the registered object type so
+                            // optional fields get auto-filled (parity with interpreter).
+                            codegen_writeln(ctx, "%s = hml_validate_typed_array_object(%s, \"%s\");",
+                                          mangled, value, elem_type->type_name);
+                        }
+                    } else {
+                        const char *arr_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
+                        if (!arr_type) arr_type = "HML_VAL_NULL";
+                        codegen_writeln(ctx, "%s = hml_validate_typed_array(%s, %s);",
+                                      mangled, value, arr_type);
+                    }
                 } else if (stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
                            stmt->as.let.type_annotation->type_name) {
-                    // Custom object type for duck typing
-                    codegen_writeln(ctx, "%s = hml_validate_object_type(%s, \"%s\");",
-                                  mangled, value, stmt->as.let.type_annotation->type_name);
+                    const char *custom_name = stmt->as.let.type_annotation->type_name;
+                    // Builtin identifier-lexed types (task/file/channel) validate
+                    // as value types; user-defined types shadow them.
+                    const char *builtin_val =
+                        is_user_defined_type_name(ctx->type_ctx, custom_name)
+                        ? NULL : builtin_type_name_to_hml_val(custom_name);
+                    if (builtin_val) {
+                        if (stmt->as.let.type_annotation->nullable) {
+                            // Nullable annotation: skip conversion if value is null
+                            codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", value);
+                            codegen_writeln(ctx, "    %s = %s;", mangled, value);
+                            codegen_writeln(ctx, "} else {");
+                            codegen_writeln(ctx, "    %s = hml_convert_to_type(%s, %s);",
+                                          mangled, value, builtin_val);
+                            codegen_writeln(ctx, "}");
+                        } else {
+                            codegen_writeln(ctx, "%s = hml_convert_to_type(%s, %s);",
+                                          mangled, value, builtin_val);
+                        }
+                    } else {
+                        // Custom object type for duck typing
+                        codegen_writeln(ctx, "%s = hml_validate_object_type(%s, \"%s\");",
+                                      mangled, value, custom_name);
+                    }
                 } else {
                     // Primitive type annotation: let x: rune = 27;
                     // Convert value to the annotated type
@@ -483,14 +636,48 @@ void codegen_module_init(CodegenContext *ctx, CompiledModule *module) {
             if (stmt->as.const_stmt.type_annotation) {
                 if (stmt->as.const_stmt.type_annotation->kind == TYPE_ARRAY) {
                     Type *elem_type = stmt->as.const_stmt.type_annotation->element_type;
-                    const char *arr_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
-                    if (!arr_type) arr_type = "HML_VAL_NULL";
-                    codegen_writeln(ctx, "%s = hml_validate_typed_array(%s, %s);",
-                                  mangled, value, arr_type);
+                    if (elem_type && elem_type->kind == TYPE_CUSTOM_OBJECT && elem_type->type_name) {
+                        const char *elem_builtin =
+                            is_user_defined_type_name(ctx->type_ctx, elem_type->type_name)
+                            ? NULL : builtin_type_name_to_hml_val(elem_type->type_name);
+                        if (elem_builtin) {
+                            codegen_writeln(ctx, "%s = hml_validate_typed_array(%s, %s);",
+                                          mangled, value, elem_builtin);
+                        } else {
+                            codegen_writeln(ctx, "%s = hml_validate_typed_array_object(%s, \"%s\");",
+                                          mangled, value, elem_type->type_name);
+                        }
+                    } else {
+                        const char *arr_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
+                        if (!arr_type) arr_type = "HML_VAL_NULL";
+                        codegen_writeln(ctx, "%s = hml_validate_typed_array(%s, %s);",
+                                      mangled, value, arr_type);
+                    }
                 } else if (stmt->as.const_stmt.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
                            stmt->as.const_stmt.type_annotation->type_name) {
-                    codegen_writeln(ctx, "%s = hml_validate_object_type(%s, \"%s\");",
-                                  mangled, value, stmt->as.const_stmt.type_annotation->type_name);
+                    const char *custom_name = stmt->as.const_stmt.type_annotation->type_name;
+                    // Builtin identifier-lexed types (task/file/channel) validate
+                    // as value types; user-defined types shadow them.
+                    const char *builtin_val =
+                        is_user_defined_type_name(ctx->type_ctx, custom_name)
+                        ? NULL : builtin_type_name_to_hml_val(custom_name);
+                    if (builtin_val) {
+                        if (stmt->as.const_stmt.type_annotation->nullable) {
+                            // Nullable annotation: skip conversion if value is null
+                            codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", value);
+                            codegen_writeln(ctx, "    %s = %s;", mangled, value);
+                            codegen_writeln(ctx, "} else {");
+                            codegen_writeln(ctx, "    %s = hml_convert_to_type(%s, %s);",
+                                          mangled, value, builtin_val);
+                            codegen_writeln(ctx, "}");
+                        } else {
+                            codegen_writeln(ctx, "%s = hml_convert_to_type(%s, %s);",
+                                          mangled, value, builtin_val);
+                        }
+                    } else {
+                        codegen_writeln(ctx, "%s = hml_validate_object_type(%s, \"%s\");",
+                                      mangled, value, custom_name);
+                    }
                 } else {
                     const char *hml_type = type_kind_to_hml_val(stmt->as.const_stmt.type_annotation->kind);
                     if (hml_type) {
@@ -597,15 +784,23 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, MemBuffer
             // Save state and initialize for function body
             FuncGenState saved_state;
             funcgen_save_state(ctx, &saved_state);
+            ctx->function_has_try = codegen_body_has_try(func->as.function.body);
 
-            // Add parameters, apply defaults, set up shared env, and generate body
+            // Add parameters (taking ownership), apply defaults, set up
+            // shared env, and generate body
             funcgen_add_params(ctx, func);
+            funcgen_retain_params(ctx, func);
             funcgen_apply_defaults(ctx, func);
+            ctx->locals_body_start = ctx->num_locals;
+            codegen_emit_defer_prologue(ctx, func->as.function.body);
             funcgen_setup_shared_env(ctx, func, NULL);
             funcgen_generate_body(ctx, func);
 
-            // Execute defers and return
+            // Execute defers, release locals and owned params, and return
             codegen_defer_execute_all(ctx);
+            codegen_emit_defer_exit(ctx);
+            codegen_emit_local_cleanup(ctx, NULL);
+            codegen_emit_param_cleanup(ctx);
             codegen_writeln(ctx, "return hml_val_null();");
 
             // Restore state
@@ -620,71 +815,179 @@ void codegen_module_funcs(CodegenContext *ctx, CompiledModule *module, MemBuffer
     ctx->current_module = saved_module;
 }
 
-// Helper to collect all extern fn statements recursively (including from block scopes)
+// Helper to collect all extern fn statements recursively (including from block scopes).
+// Each extern_fn is also stamped with the most-recent `import "lib.so"` library path
+// in the same lexical module — this lets the wrapper bind against a per-library
+// `_ffi_lib_<sanitized>` handle instead of one shared global (which used to clobber
+// across libraries: load libsqlite3 then libcrypto, then sqlite3_open lookup goes
+// to libcrypto, fails).
 typedef struct ExternFnList {
     Stmt **stmts;
+    char **lib_paths;       // Parallel to stmts. NULL if no preceding import_ffi.
     int count;
     int capacity;
 } ExternFnList;
 
-static void collect_extern_fn_from_stmt(Stmt *stmt, ExternFnList *list);
+// All `import "lib"` paths in the program, including ones nested inside
+// if/else platform gates (e.g. @stdlib/termios picks its libc per
+// platform). Statement codegen emits `_ffi_lib_<sanitized> = hml_ffi_load`
+// at every import site, so every imported library needs its global —
+// even when no extern fn ends up associated with it.
+typedef struct FfiImportList {
+    char **paths;
+    int count;
+    int capacity;
+} FfiImportList;
 
-static void collect_extern_fn_from_stmts(Stmt **stmts, int count, ExternFnList *list) {
-    for (int i = 0; i < count; i++) {
-        collect_extern_fn_from_stmt(stmts[i], list);
+static void ffi_import_list_add(FfiImportList *list, const char *path) {
+    for (int i = 0; i < list->count; i++) {
+        if (strcmp(list->paths[i], path) == 0) {
+            return;
+        }
+    }
+    if (list->count >= list->capacity) {
+        int new_cap = list->capacity == 0 ? 8 : list->capacity * 2;
+        char **grown = realloc(list->paths, new_cap * sizeof(char *));
+        if (!grown) {
+            fprintf(stderr, "error: Failed to expand FFI import list\n");
+            exit(1);
+        }
+        list->paths = grown;
+        list->capacity = new_cap;
+    }
+    list->paths[list->count++] = strdup(path);
+}
+
+static void collect_ffi_imports_from_stmt(Stmt *stmt, FfiImportList *list) {
+    if (!stmt) return;
+
+    if (stmt->type == STMT_IMPORT_FFI) {
+        ffi_import_list_add(list, stmt->as.import_ffi.library_path);
+        return;
+    }
+
+    if (stmt->type == STMT_BLOCK) {
+        for (int i = 0; i < stmt->as.block.count; i++) {
+            collect_ffi_imports_from_stmt(stmt->as.block.statements[i], list);
+        }
+    } else if (stmt->type == STMT_IF) {
+        collect_ffi_imports_from_stmt(stmt->as.if_stmt.then_branch, list);
+        collect_ffi_imports_from_stmt(stmt->as.if_stmt.else_branch, list);
+    } else if (stmt->type == STMT_WHILE) {
+        collect_ffi_imports_from_stmt(stmt->as.while_stmt.body, list);
+    } else if (stmt->type == STMT_FOR) {
+        collect_ffi_imports_from_stmt(stmt->as.for_loop.body, list);
+    } else if (stmt->type == STMT_FOR_IN) {
+        collect_ffi_imports_from_stmt(stmt->as.for_in.body, list);
+    } else if (stmt->type == STMT_TRY) {
+        collect_ffi_imports_from_stmt(stmt->as.try_stmt.try_block, list);
+        collect_ffi_imports_from_stmt(stmt->as.try_stmt.catch_block, list);
+        collect_ffi_imports_from_stmt(stmt->as.try_stmt.finally_block, list);
+    } else if (stmt->type == STMT_SWITCH) {
+        for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+            collect_ffi_imports_from_stmt(stmt->as.switch_stmt.case_bodies[i], list);
+        }
+    } else if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_declaration) {
+        collect_ffi_imports_from_stmt(stmt->as.export_stmt.declaration, list);
     }
 }
 
-static void collect_extern_fn_from_stmt(Stmt *stmt, ExternFnList *list) {
+static void collect_extern_fn_from_stmt(Stmt *stmt, const char **current_lib, ExternFnList *list);
+
+static void collect_extern_fn_from_stmts(Stmt **stmts, int count, ExternFnList *list) {
+    // Per-module scope: each module file resets its own current_lib so an
+    // `import "x.so"` in module A doesn't influence extern_fn bindings in module B.
+    const char *current_lib = NULL;
+    for (int i = 0; i < count; i++) {
+        collect_extern_fn_from_stmt(stmts[i], &current_lib, list);
+    }
+}
+
+static void collect_extern_fn_from_stmt(Stmt *stmt, const char **current_lib, ExternFnList *list) {
     if (!stmt) return;
 
+    if (stmt->type == STMT_IMPORT_FFI) {
+        *current_lib = stmt->as.import_ffi.library_path;
+        return;
+    }
+
     if (stmt->type == STMT_EXTERN_FN) {
-        // Check if already in list (avoid duplicates)
+        // Check if already in list (avoid duplicates). Keep the first lib_path seen
+        // — same name re-declared in another module shouldn't change which lib it binds.
         for (int i = 0; i < list->count; i++) {
             if (strcmp(list->stmts[i]->as.extern_fn.function_name,
                       stmt->as.extern_fn.function_name) == 0) {
-                return;  // Already collected
+                return;
             }
         }
         // Add to list
         if (list->count >= list->capacity) {
             int new_cap = list->capacity == 0 ? 16 : list->capacity * 2;
             Stmt **new_stmts = realloc(list->stmts, new_cap * sizeof(Stmt*));
-            if (!new_stmts) {
+            char **new_libs = realloc(list->lib_paths, new_cap * sizeof(char*));
+            if (!new_stmts || !new_libs) {
                 fprintf(stderr, "error: Failed to expand extern fn list\n");
                 exit(1);
             }
             list->stmts = new_stmts;
+            list->lib_paths = new_libs;
             list->capacity = new_cap;
         }
-        list->stmts[list->count++] = stmt;
+        list->stmts[list->count] = stmt;
+        list->lib_paths[list->count] = (*current_lib) ? strdup(*current_lib) : NULL;
+        list->count++;
         return;
     }
 
     // Recursively check block statements
     if (stmt->type == STMT_BLOCK) {
-        collect_extern_fn_from_stmts(stmt->as.block.statements, stmt->as.block.count, list);
+        for (int i = 0; i < stmt->as.block.count; i++) {
+            collect_extern_fn_from_stmt(stmt->as.block.statements[i], current_lib, list);
+        }
     } else if (stmt->type == STMT_IF) {
-        collect_extern_fn_from_stmt(stmt->as.if_stmt.then_branch, list);
-        collect_extern_fn_from_stmt(stmt->as.if_stmt.else_branch, list);
+        collect_extern_fn_from_stmt(stmt->as.if_stmt.then_branch, current_lib, list);
+        collect_extern_fn_from_stmt(stmt->as.if_stmt.else_branch, current_lib, list);
     } else if (stmt->type == STMT_WHILE) {
-        collect_extern_fn_from_stmt(stmt->as.while_stmt.body, list);
+        collect_extern_fn_from_stmt(stmt->as.while_stmt.body, current_lib, list);
     } else if (stmt->type == STMT_FOR) {
-        collect_extern_fn_from_stmt(stmt->as.for_loop.body, list);
+        collect_extern_fn_from_stmt(stmt->as.for_loop.body, current_lib, list);
     } else if (stmt->type == STMT_FOR_IN) {
-        collect_extern_fn_from_stmt(stmt->as.for_in.body, list);
+        collect_extern_fn_from_stmt(stmt->as.for_in.body, current_lib, list);
     } else if (stmt->type == STMT_TRY) {
-        collect_extern_fn_from_stmt(stmt->as.try_stmt.try_block, list);
-        collect_extern_fn_from_stmt(stmt->as.try_stmt.catch_block, list);
-        collect_extern_fn_from_stmt(stmt->as.try_stmt.finally_block, list);
+        collect_extern_fn_from_stmt(stmt->as.try_stmt.try_block, current_lib, list);
+        collect_extern_fn_from_stmt(stmt->as.try_stmt.catch_block, current_lib, list);
+        collect_extern_fn_from_stmt(stmt->as.try_stmt.finally_block, current_lib, list);
     } else if (stmt->type == STMT_SWITCH) {
         for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
-            collect_extern_fn_from_stmt(stmt->as.switch_stmt.case_bodies[i], list);
+            collect_extern_fn_from_stmt(stmt->as.switch_stmt.case_bodies[i], current_lib, list);
         }
     } else if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_declaration) {
         // Handle export extern fn
-        collect_extern_fn_from_stmt(stmt->as.export_stmt.declaration, list);
+        collect_extern_fn_from_stmt(stmt->as.export_stmt.declaration, current_lib, list);
     }
+}
+
+// Sanitize a library path into a C identifier suffix.
+// "libsqlite3.so.0" -> "libsqlite3_so_0" ; "lib/foo-bar.so" -> "lib_foo_bar_so".
+// Shared with codegen_stmt.c so the IMPORT_FFI emission and the wrapper agree.
+void codegen_ffi_sanitize_libname(const char *path, char *out, size_t out_size) {
+    if (out_size == 0) return;
+    size_t j = 0;
+    for (size_t i = 0; path[i] && j + 1 < out_size; i++) {
+        char c = path[i];
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '_') {
+            out[j++] = c;
+        } else {
+            // Collapse runs of non-identifier chars into a single underscore
+            if (j > 0 && out[j-1] != '_') {
+                out[j++] = '_';
+            }
+        }
+    }
+    // Trim trailing underscore for cleaner output (purely cosmetic)
+    while (j > 0 && out[j-1] == '_') j--;
+    out[j] = '\0';
 }
 
 // Helper to collect struct definitions used in FFI
@@ -861,7 +1164,24 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                                 int is_function = exp ? exp->is_function : 0;
                                 int num_params = exp ? exp->num_params : 0;
                                 int is_extern = module_is_extern_fn(mod, import_name);
-                                codegen_add_main_import(ctx, local_name, import_name, mod->module_prefix, is_function, num_params, is_extern);
+                                // For re-exported symbols, the mangled name belongs to
+                                // a different module; extract the real prefix from it.
+                                const char *use_prefix = mod->module_prefix;
+                                char re_prefix[CODEGEN_MANGLED_NAME_SIZE];
+                                if (exp && strncmp(exp->mangled_name, mod->module_prefix,
+                                            strlen(mod->module_prefix)) != 0) {
+                                    size_t name_len = strlen(exp->name);
+                                    size_t mangled_len = strlen(exp->mangled_name);
+                                    if (mangled_len > name_len) {
+                                        size_t prefix_len = mangled_len - name_len;
+                                        if (prefix_len < sizeof(re_prefix)) {
+                                            memcpy(re_prefix, exp->mangled_name, prefix_len);
+                                            re_prefix[prefix_len] = '\0';
+                                            use_prefix = re_prefix;
+                                        }
+                                    }
+                                }
+                                codegen_add_main_import(ctx, local_name, import_name, use_prefix, is_function, num_params, is_extern);
                             }
                         }
                     }
@@ -872,7 +1192,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     }
 
     // Pre-pass: Collect extern functions for FFI (need this before main() generation for struct registration)
-    ExternFnList all_extern_fns = {NULL, 0, 0};
+    ExternFnList all_extern_fns = {NULL, NULL, 0, 0};
     collect_extern_fn_from_stmts(stmts, stmt_count, &all_extern_fns);
     if (ctx->module_cache) {
         CompiledModule *mod = ctx->module_cache->modules;
@@ -885,6 +1205,12 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     // Pre-pass: Collect struct types used in extern functions for FFI struct support
     FFIStructList ffi_structs = {NULL, 0, 0};
     collect_ffi_structs(stmts, stmt_count, &all_extern_fns, &ffi_structs);
+
+    // Register extern fn names so call sites can distinguish them from
+    // undefined functions (extern calls go through generated hml_fn_ wrappers)
+    for (int i = 0; i < all_extern_fns.count; i++) {
+        codegen_add_extern_fn(ctx, all_extern_fns.stmts[i]->as.extern_fn.function_name);
+    }
 
     // Generate module functions first (to collect closures)
     if (ctx->module_cache) {
@@ -912,7 +1238,8 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                 annotations = stmts[i]->as.export_stmt.declaration->as.let.annotations;
                 annotation_count = stmts[i]->as.export_stmt.declaration->as.let.annotation_count;
             }
-            codegen_function_decl(ctx, func, name, annotations, annotation_count);
+            int is_export = (stmts[i]->type == STMT_EXPORT);
+            codegen_function_decl(ctx, func, name, annotations, annotation_count, is_export);
         }
     }
 
@@ -921,6 +1248,18 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     codegen_write(ctx, "int main(int argc, char **argv) {\n");
     codegen_indent_inc(ctx);
     codegen_writeln(ctx, "hml_runtime_init(argc, argv);");
+
+    // Register source context so runtime errors can print "[file:line] msg"
+    // plus the offending source line + caret, matching the interpreter.
+    if (ctx->source_code && ctx->source_file) {
+        char *esc_file = codegen_escape_string(ctx->source_file);
+        char *esc_src = codegen_escape_string(ctx->source_code);
+        if (esc_file && esc_src) {
+            codegen_writeln(ctx, "hml_set_source(\"%s\", \"%s\");", esc_file, esc_src);
+        }
+        free(esc_file);
+        free(esc_src);
+    }
 
     // Initialize sandbox if enabled
     if (ctx->sandbox_flags != 0) {
@@ -947,7 +1286,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                 if (resolved) {
                     CompiledModule *mod = module_get_cached(ctx->module_cache, resolved);
                     if (mod) {
-                        codegen_writeln(ctx, "%sinit();", mod->module_prefix);
+                        codegen_writeln(ctx, "%s_hml_init();", mod->module_prefix);
                     }
                     free(resolved);
                 }
@@ -1035,6 +1374,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             // Top-level const: assign to static global instead of declaring local
             // Use _main_ prefix to avoid C name conflicts
             if (stmt->as.const_stmt.value) {
+                if (stmt->line > 0) codegen_writeln(ctx, "hml_error_line = %d;", stmt->line);
                 char *value = codegen_expr(ctx, stmt->as.const_stmt.value);
                 codegen_writeln(ctx, "_main_%s = %s;", stmt->as.const_stmt.name, value);
                 free(value);
@@ -1044,7 +1384,15 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         } else if (stmt->type == STMT_LET) {
             // Top-level let (non-function): assign to static global instead of declaring local
             // Use _main_ prefix to avoid C name conflicts
+            // Record primitive annotations so reassignments enforce them
+            {
+                const char *annot_hml_type = codegen_annot_primitive_name(stmt->as.let.type_annotation);
+                if (annot_hml_type) {
+                    codegen_set_main_annot(ctx, stmt->as.let.name, annot_hml_type);
+                }
+            }
             if (stmt->as.let.value) {
+                if (stmt->line > 0) codegen_writeln(ctx, "hml_error_line = %d;", stmt->line);
                 char *value = codegen_expr(ctx, stmt->as.let.value);
                 // Check if there's a custom object type annotation (for duck typing)
                 // But first check if it's a type alias - if so, use the resolved type
@@ -1084,6 +1432,9 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                         case CHECKED_FUNCTION: hml_type = "HML_VAL_FUNCTION"; break;
                         case CHECKED_ARRAY: hml_type = "HML_VAL_ARRAY"; break;
                         case CHECKED_OBJECT: hml_type = "HML_VAL_OBJECT"; break;
+                        case CHECKED_TASK: hml_type = "HML_VAL_TASK"; break;
+                        case CHECKED_FILE: hml_type = "HML_VAL_FILE"; break;
+                        case CHECKED_CHANNEL: hml_type = "HML_VAL_CHANNEL"; break;
                         case CHECKED_CUSTOM:
                             // Custom type alias - validate as object type
                             if (resolved_type->type_name) {
@@ -1106,19 +1457,38 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                 } else if (stmt->as.let.type_annotation &&
                     stmt->as.let.type_annotation->kind == TYPE_CUSTOM_OBJECT &&
                     stmt->as.let.type_annotation->type_name) {
+                    const char *custom_name = stmt->as.let.type_annotation->type_name;
+                    // Builtin identifier-lexed types (task/file/channel) validate
+                    // as value types; user-defined types shadow them.
+                    const char *builtin_val =
+                        is_user_defined_type_name(ctx->type_ctx, custom_name)
+                        ? NULL : builtin_type_name_to_hml_val(custom_name);
                     // Check if this is an enum type (use enum validation) or object type
                     int is_enum = 0;
-                    if (ctx->type_ctx) {
+                    if (!builtin_val && ctx->type_ctx) {
                         EnumDef *enum_def = type_check_lookup_enum(ctx->type_ctx,
-                            stmt->as.let.type_annotation->type_name);
+                            custom_name);
                         is_enum = (enum_def != NULL);
                     }
-                    if (is_enum) {
+                    if (builtin_val) {
+                        if (stmt->as.let.type_annotation->nullable) {
+                            // Nullable annotation: skip conversion if value is null
+                            codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", value);
+                            codegen_writeln(ctx, "    _main_%s = %s;", stmt->as.let.name, value);
+                            codegen_writeln(ctx, "} else {");
+                            codegen_writeln(ctx, "    _main_%s = hml_convert_to_type(%s, %s);",
+                                          stmt->as.let.name, value, builtin_val);
+                            codegen_writeln(ctx, "}");
+                        } else {
+                            codegen_writeln(ctx, "_main_%s = hml_convert_to_type(%s, %s);",
+                                          stmt->as.let.name, value, builtin_val);
+                        }
+                    } else if (is_enum) {
                         codegen_writeln(ctx, "_main_%s = hml_validate_enum_value(%s, \"%s\");",
-                                      stmt->as.let.name, value, stmt->as.let.type_annotation->type_name);
+                                      stmt->as.let.name, value, custom_name);
                     } else {
                         codegen_writeln(ctx, "_main_%s = hml_validate_object_type(%s, \"%s\");",
-                                      stmt->as.let.name, value, stmt->as.let.type_annotation->type_name);
+                                      stmt->as.let.name, value, custom_name);
                     }
                 } else if (stmt->as.let.type_annotation &&
                            stmt->as.let.type_annotation->kind == TYPE_COMPOUND) {
@@ -1137,16 +1507,39 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
                     if (stmt->as.let.type_annotation->kind == TYPE_ARRAY) {
                         // Typed array: let arr: array<type> = [...]
                         Type *elem_type = stmt->as.let.type_annotation->element_type;
-                        const char *arr_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
-                        if (!arr_type) arr_type = "HML_VAL_NULL";
-                        codegen_writeln(ctx, "_main_%s = hml_validate_typed_array(%s, %s);",
-                                      stmt->as.let.name, value, arr_type);
+                        if (elem_type && elem_type->kind == TYPE_CUSTOM_OBJECT && elem_type->type_name) {
+                            const char *elem_builtin =
+                                is_user_defined_type_name(ctx->type_ctx, elem_type->type_name)
+                                ? NULL : builtin_type_name_to_hml_val(elem_type->type_name);
+                            if (elem_builtin) {
+                                codegen_writeln(ctx, "_main_%s = hml_validate_typed_array(%s, %s);",
+                                              stmt->as.let.name, value, elem_builtin);
+                            } else {
+                                codegen_writeln(ctx, "_main_%s = hml_validate_typed_array_object(%s, \"%s\");",
+                                              stmt->as.let.name, value, elem_type->type_name);
+                            }
+                        } else {
+                            const char *arr_type = elem_type ? type_kind_to_hml_val(elem_type->kind) : NULL;
+                            if (!arr_type) arr_type = "HML_VAL_NULL";
+                            codegen_writeln(ctx, "_main_%s = hml_validate_typed_array(%s, %s);",
+                                          stmt->as.let.name, value, arr_type);
+                        }
                     } else {
                         // Primitive type annotation: let x: i64 = 0;
                         const char *hml_type = type_kind_to_hml_val(stmt->as.let.type_annotation->kind);
                         if (hml_type) {
-                            codegen_writeln(ctx, "_main_%s = hml_convert_to_type(%s, %s);",
-                                          stmt->as.let.name, value, hml_type);
+                            if (stmt->as.let.type_annotation->nullable) {
+                                // Nullable annotation: skip conversion if value is null
+                                codegen_writeln(ctx, "if (%s.type == HML_VAL_NULL) {", value);
+                                codegen_writeln(ctx, "    _main_%s = %s;", stmt->as.let.name, value);
+                                codegen_writeln(ctx, "} else {");
+                                codegen_writeln(ctx, "    _main_%s = hml_convert_to_type(%s, %s);",
+                                              stmt->as.let.name, value, hml_type);
+                                codegen_writeln(ctx, "}");
+                            } else {
+                                codegen_writeln(ctx, "_main_%s = hml_convert_to_type(%s, %s);",
+                                              stmt->as.let.name, value, hml_type);
+                            }
                         } else {
                             codegen_writeln(ctx, "_main_%s = %s;", stmt->as.let.name, value);
                         }
@@ -1174,6 +1567,23 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         }
     }
 
+    // Clean up static global variables before runtime cleanup.
+    // Build an array of pointers to all statics, then break circular
+    // references (self-referential closures) before releasing them.
+    codegen_blank_line(ctx);
+    codegen_writeln(ctx, "// Release top-level static variables");
+    codegen_writeln(ctx, "{");
+    codegen_indent_inc(ctx);
+    codegen_writeln(ctx, "HmlValue *_statics[] = {");
+    for (int i = 0; i < ctx->num_main_vars; i++) {
+        codegen_writeln(ctx, "    &_main_%s,", ctx->main_vars[i]);
+    }
+    codegen_writeln(ctx, "};");
+    codegen_writeln(ctx, "hml_break_cycles(_statics, %d);", ctx->num_main_vars);
+    codegen_writeln(ctx, "hml_release_statics(_statics, %d);", ctx->num_main_vars);
+    codegen_indent_dec(ctx);
+    codegen_writeln(ctx, "}");
+
     codegen_blank_line(ctx);
     codegen_writeln(ctx, "hml_runtime_cleanup();");
     codegen_writeln(ctx, "return 0;");
@@ -1187,16 +1597,36 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     codegen_write(ctx, "/*\n");
     codegen_write(ctx, " * Generated by Hemlock Compiler\n");
     codegen_write(ctx, " */\n\n");
-    codegen_write(ctx, "#include \"hemlock_runtime.h\"\n");
-    codegen_write(ctx, "#include <setjmp.h>\n");
-    codegen_write(ctx, "#include <signal.h>\n");
-    codegen_write(ctx, "#include <sys/socket.h>\n");
-    codegen_write(ctx, "#include <netinet/in.h>\n");
-    codegen_write(ctx, "#include <arpa/inet.h>\n");
-    codegen_write(ctx, "#include <poll.h>\n\n");
 
-    // Signal constants
-    codegen_write(ctx, "// Signal constants\n");
+    if (ctx->target_wasm) {
+        codegen_write(ctx, "#define __HEMLOCK_WASM__ 1\n");
+        codegen_write(ctx, "#include \"hemlock_runtime.h\"\n");
+        codegen_write(ctx, "#include <setjmp.h>\n");
+        codegen_write(ctx, "#include <string.h>\n");
+        codegen_write(ctx, "#include <math.h>\n");
+        codegen_write(ctx, "#include <emscripten.h>\n\n");
+        // Signal constants still needed for enum values, but signals are stubbed
+        codegen_write(ctx, "// Signal constants (stubbed in WASM)\n");
+    } else {
+        codegen_write(ctx, "#include \"hemlock_runtime.h\"\n");
+        codegen_write(ctx, "#include <setjmp.h>\n");
+        codegen_write(ctx, "#include <string.h>\n");
+        codegen_write(ctx, "#include <math.h>\n");
+        codegen_write(ctx, "#include <signal.h>\n");
+        // Windows (MinGW): winsock/mmap/poll come from hemlock_platform.h
+        codegen_write(ctx, "#ifdef _WIN32\n");
+        codegen_write(ctx, "#include \"hemlock_platform.h\"\n");
+        codegen_write(ctx, "#else\n");
+        codegen_write(ctx, "#include <sys/socket.h>\n");
+        codegen_write(ctx, "#include <sys/un.h>\n");
+        codegen_write(ctx, "#include <netinet/in.h>\n");
+        codegen_write(ctx, "#include <arpa/inet.h>\n");
+        codegen_write(ctx, "#include <poll.h>\n");
+        codegen_write(ctx, "#include <sys/mman.h>\n");
+        codegen_write(ctx, "#endif\n\n");
+        codegen_write(ctx, "// Signal constants\n");
+    }
+
     codegen_write(ctx, "#define SIGINT_VAL 2\n");
     codegen_write(ctx, "#define SIGTERM_VAL 15\n");
     codegen_write(ctx, "#define SIGHUP_VAL 1\n");
@@ -1212,33 +1642,65 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     codegen_write(ctx, "#define SIGTSTP_VAL 20\n\n");
 
     // FFI: Global library handle and function pointer declarations
-    // (all_extern_fns and ffi_structs already collected in pre-pass)
-    int has_ffi = 0;
+    // (all_extern_fns and ffi_structs already collected in pre-pass).
+    // Imports are collected recursively — platform-gated imports inside
+    // if/else (e.g. @stdlib/termios) still need their handle globals.
+    FfiImportList all_ffi_imports = {NULL, 0, 0};
     for (int i = 0; i < stmt_count; i++) {
-        if (stmts[i]->type == STMT_IMPORT_FFI) {
-            has_ffi = 1;
-            break;
-        }
+        collect_ffi_imports_from_stmt(stmts[i], &all_ffi_imports);
     }
-    // Also check modules for FFI imports
-    if (!has_ffi && ctx->module_cache) {
+    if (ctx->module_cache) {
         CompiledModule *mod = ctx->module_cache->modules;
-        while (mod && !has_ffi) {
+        while (mod) {
             for (int i = 0; i < mod->num_statements; i++) {
-                if (mod->statements[i]->type == STMT_IMPORT_FFI) {
-                    has_ffi = 1;
-                    break;
-                }
+                collect_ffi_imports_from_stmt(mod->statements[i], &all_ffi_imports);
             }
             mod = mod->next;
         }
     }
-    if (!has_ffi && all_extern_fns.count > 0) {
-        has_ffi = 1;
-    }
+    int has_ffi = all_ffi_imports.count > 0 || all_extern_fns.count > 0;
     if (has_ffi) {
-        codegen_write(ctx, "// FFI globals\n");
-        codegen_write(ctx, "static HmlValue _ffi_lib = {0};\n");
+        if (ctx->target_wasm) {
+            // FFI is not available in WASM - emit warning comment
+            codegen_write(ctx, "// WARNING: FFI is not available in WASM target.\n");
+            codegen_write(ctx, "// extern fn declarations will panic at runtime.\n\n");
+        }
+        codegen_write(ctx, "// FFI globals (one handle per imported library — never share)\n");
+
+        // Emit one `_ffi_lib_<sanitized>` per unique library path (deduped),
+        // covering every import site plus the extern-fn associations.
+        // Also keep a fallback `_ffi_lib_default` for any extern_fn that
+        // somehow has no preceding import_ffi (preserves prior behavior of
+        // failing-at-call rather than failing-at-codegen).
+        char sanitized[256];
+        char **emitted = NULL;
+        int num_emitted = 0;
+        int has_default = 0;
+        int total_libs = all_ffi_imports.count + all_extern_fns.count;
+        for (int i = 0; i < total_libs; i++) {
+            const char *lib = i < all_ffi_imports.count
+                ? all_ffi_imports.paths[i]
+                : all_extern_fns.lib_paths[i - all_ffi_imports.count];
+            if (!lib) {
+                if (!has_default) {
+                    codegen_write(ctx, "static HmlValue _ffi_lib_default = {0};\n");
+                    has_default = 1;
+                }
+                continue;
+            }
+            codegen_ffi_sanitize_libname(lib, sanitized, sizeof(sanitized));
+            int dup = 0;
+            for (int k = 0; k < num_emitted; k++) {
+                if (strcmp(emitted[k], sanitized) == 0) { dup = 1; break; }
+            }
+            if (dup) continue;
+            emitted = realloc(emitted, (num_emitted + 1) * sizeof(char*));
+            emitted[num_emitted++] = strdup(sanitized);
+            codegen_write(ctx, "static HmlValue _ffi_lib_%s = {0};\n", sanitized);
+        }
+        for (int k = 0; k < num_emitted; k++) free(emitted[k]);
+        free(emitted);
+
         for (int i = 0; i < all_extern_fns.count; i++) {
             codegen_write(ctx, "static void *_ffi_ptr_%s = NULL;\n",
                         all_extern_fns.stmts[i]->as.extern_fn.function_name);
@@ -1460,6 +1922,12 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         while (mod) {
             // Generate global variable for each export
             for (int i = 0; i < mod->num_exports; i++) {
+                // Skip re-exports (mangled name belongs to another module,
+                // already declared when that module was processed)
+                if (strncmp(mod->exports[i].mangled_name, mod->module_prefix,
+                            strlen(mod->module_prefix)) != 0) {
+                    continue;
+                }
                 codegen_write(ctx, "static HmlValue %s = {0};\n", mod->exports[i].mangled_name);
             }
             // Also generate global variables for non-exported (private) variables
@@ -1502,7 +1970,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         codegen_write(ctx, "// Module init function declarations\n");
         mod = ctx->module_cache->modules;
         while (mod) {
-            codegen_write(ctx, "static void %sinit(void);\n", mod->module_prefix);
+            codegen_write(ctx, "static void %s_hml_init(void);\n", mod->module_prefix);
             mod = mod->next;
         }
         codegen_write(ctx, "\n");
@@ -1514,6 +1982,10 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         char *name;
         Expr *func;
         if (is_function_def(stmts[i], &name, &func)) {
+            // For WASM, mark exported functions with EMSCRIPTEN_KEEPALIVE
+            if (ctx->target_wasm && stmts[i]->type == STMT_EXPORT) {
+                codegen_write(ctx, "EMSCRIPTEN_KEEPALIVE ");
+            }
             // All functions use closure env as first param for uniform calling convention
             codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_closure_env", name);
             for (int j = 0; j < func->as.function.num_params; j++) {
@@ -1562,7 +2034,19 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         Type *return_type = stmt->as.extern_fn.return_type;
         int uses_structs = extern_fn_uses_structs(stmt);
 
-        codegen_write(ctx, "// FFI wrapper for %s\n", fn_name);
+        // Pick the per-library handle this fn was declared against. Falls
+        // back to `_ffi_lib_default` for the (degenerate) extern_fn-with-no-import
+        // case so we keep the legacy "fail at first call" diagnostic.
+        const char *fn_lib = all_extern_fns.lib_paths[i];
+        char fn_lib_sanitized[256];
+        if (fn_lib) {
+            codegen_ffi_sanitize_libname(fn_lib, fn_lib_sanitized, sizeof(fn_lib_sanitized));
+        } else {
+            snprintf(fn_lib_sanitized, sizeof(fn_lib_sanitized), "default");
+        }
+
+        codegen_write(ctx, "// FFI wrapper for %s (lib: %s)\n", fn_name,
+                      fn_lib ? fn_lib : "<none>");
         codegen_write(ctx, "HmlValue hml_fn_%s(HmlClosureEnv *_env", fn_name);
         for (int j = 0; j < num_params; j++) {
             codegen_write(ctx, ", HmlValue _arg%d", j);
@@ -1570,7 +2054,8 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         codegen_write(ctx, ") {\n");
         codegen_write(ctx, "    (void)_env;\n");
         codegen_write(ctx, "    if (!_ffi_ptr_%s) {\n", fn_name);
-        codegen_write(ctx, "        _ffi_ptr_%s = hml_ffi_sym(_ffi_lib, \"%s\");\n", fn_name, fn_name);
+        codegen_write(ctx, "        _ffi_ptr_%s = hml_ffi_sym(_ffi_lib_%s, \"%s\");\n",
+                      fn_name, fn_lib_sanitized, fn_name);
         codegen_write(ctx, "        if (!_ffi_ptr_%s) {\n", fn_name);
         codegen_write(ctx, "            hml_runtime_error(\"FFI function '%%s' not found in library\", \"%s\");\n", fn_name);
         codegen_write(ctx, "        }\n");
@@ -1628,7 +2113,11 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         }
         codegen_write(ctx, "}\n\n");
     }
-    // Free the extern fn list and struct list
+    // Free the FFI import list, extern fn list, and struct list
+    for (int i = 0; i < all_ffi_imports.count; i++) {
+        free(all_ffi_imports.paths[i]);
+    }
+    free(all_ffi_imports.paths);
     free(all_extern_fns.stmts);
     for (int i = 0; i < ffi_structs.count; i++) {
         free(ffi_structs.structs[i].name);

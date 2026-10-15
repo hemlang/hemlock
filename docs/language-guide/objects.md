@@ -39,6 +39,28 @@ let person = {
 - Keys are identifiers (no quotes needed)
 - Values can be any type
 
+### String-Literal Keys
+
+When a key contains characters that aren't valid in a bare identifier (hyphens, spaces, leading digits), wrap it in a string literal:
+
+```hemlock
+let m = {
+    "chat-mahou": 1,
+    "user-id": 42,
+    "2fa-enabled": true
+};
+
+print(m["chat-mahou"]);   // 1
+print(m["user-id"]);      // 42
+```
+
+Use the same string literal with bracket notation to read the value back. A bare identifier (`m.chat`) cannot reach a hyphenated key — the parser would read it as `m.chat - mahou`.
+
+**Rules:**
+- A colon is required — shorthand (`{ "foo" }`) is not permitted for string keys.
+- The literal is the literal key; no escape processing beyond the usual string-literal rules.
+- Mixing bare-identifier and string-literal keys in the same object is fine: `{ name: "Alice", "first-seen": now() }`.
+
 ### Empty Objects
 
 ```hemlock
@@ -207,18 +229,117 @@ person.phone = "555-1234";
 print(person.email);  // "alice@example.com"
 ```
 
-### Field Deletion
+### Bracket Notation
 
-**Note:** Field deletion is not currently supported. Set to `null` instead:
+Access fields dynamically using bracket notation with a string key:
+
+```hemlock
+let person = { name: "Alice", age: 30 };
+
+// Read with bracket notation
+let field = "name";
+print(person[field]);         // "Alice"
+print(person["age"]);         // 30
+
+// Write with bracket notation
+person["city"] = "NYC";
+print(person.city);           // "NYC"
+```
+
+### Safe Indexing (`obj?[key]`)
+
+The safe-index operator returns `null` instead of throwing when the receiver itself is `null`, parallel to the `obj?.field` safe-navigation form:
+
+```hemlock
+let user = lookup("alice");        // may return null
+let role = user?["role"];          // null if user is null
+let perm = user?[role]?["read"];   // chains across nullable receivers
+```
+
+When the receiver is non-null, `obj?[key]` behaves like `obj[key]`: it returns the value at `key`, or `null` if the key is absent.
+
+**Lexer note:** The `?[` token is only recognised when `[` immediately follows `?` with no whitespace, so existing ternaries like `cond ? [1] : [2]` are unaffected.
+
+The longer `obj?.[key]` form is also accepted and means the same thing.
+
+### Key Coercion
+
+Non-string keys are automatically coerced to strings when used with bracket notation. This lets you use objects as maps with numeric, boolean, or rune keys:
+
+```hemlock
+let map = {};
+
+// Integer keys (coerced to string: 42 → "42")
+map[0] = "zero";
+map[42] = "forty-two";
+print(map[0]);                // "zero"
+print(map["0"]);              // "zero" (equivalent)
+
+// Boolean keys (coerced: true → "true")
+map[true] = "yes";
+print(map[true]);             // "yes"
+print(map["true"]);           // "yes"
+
+// Rune keys (coerced: 'A' → "A")
+map['A'] = "alpha";
+print(map['A']);               // "alpha"
+print(map["A"]);               // "alpha"
+
+// Float keys (coerced with full precision: 3.14 → "3.1400000000000001")
+map[3.14] = "pi";
+print(map[3.14]);              // "pi"
+```
+
+**Supported coercion types:**
+- **Integers** (i8–i64, u8–u64): decimal string representation
+- **Floats** (f32, f64): `%.17g` format (full precision)
+- **Booleans**: `"true"` or `"false"`
+- **Runes**: UTF-8 encoded character
+
+**Note:** Float keys use full IEEE 754 precision, so `3.14` becomes `"3.1400000000000001"`. If you need exact float string keys, convert explicitly with `"" + n`.
+
+### Built-in Object Methods
+
+#### `obj.keys()`
+
+Returns an array of all field names as strings:
+
+```hemlock
+let obj = { x: 10, y: 20, name: "test" };
+let k = obj.keys();
+print(k);  // [x, y, name]
+```
+
+#### `obj.has(key)`
+
+Check if an object has a specific field. Accepts string, integer, float, bool, or rune keys (non-string keys are coerced):
+
+```hemlock
+let obj = { x: 10, name: "test" };
+print(obj.has("x"));       // true
+print(obj.has("z"));       // false
+
+let map = {};
+map[42] = "value";
+print(map.has(42));        // true
+print(map.has("42"));      // true
+```
+
+#### `obj.delete(key)`
+
+Remove a field from an object. Returns `true` if the field was found and deleted, `false` otherwise. Accepts coerced keys like `has()`:
 
 ```hemlock
 let obj = { x: 10, y: 20 };
+obj.delete("x");
+print(obj.has("x"));      // false
+print(obj.has("y"));      // true
 
-// Cannot delete fields (not supported)
-// obj.x = undefined;  // No 'undefined' in Hemlock
-
-// Workaround: Set to null
-obj.x = null;
+// With integer keys
+let map = {};
+map[5] = "five";
+map.delete(5);
+print(map.has(5));         // false
 ```
 
 ## Methods and `self`
@@ -241,6 +362,30 @@ let counter = {
     }
 };
 ```
+
+### Method Shorthand
+
+Object literals also accept method syntax, which is sugar for a field
+holding a function. Entries remain comma-separated like any other field:
+
+```hemlock
+let counter = {
+    count: 0,
+    fn increment() {
+        self.count = self.count + 1;
+    },
+    fn get(): i32 => self.count,        // expression-bodied methods work too
+    async fn refresh() { /* ... */ },   // so do async methods
+};
+
+counter.increment();
+print(counter.get());  // 1
+```
+
+The two spellings are equivalent: `fn name(...) { ... }` inside an object
+literal means exactly `name: fn(...) { ... }`. Note that `self` is bound
+implicitly at call time — it is a keyword and cannot be declared as a
+parameter.
 
 ### The `self` Keyword
 
@@ -413,14 +558,14 @@ print(typeof(p));      // "object" (original is still anonymous)
 
 ## Method Signatures in Define
 
-Define blocks can specify method signatures, creating interface-like contracts:
+Define blocks can specify method signatures, creating interface-like contracts. Method signatures are separated by commas, just like fields (a `;` after a signature is a parse error):
 
 ### Required Methods
 
 ```hemlock
 define Comparable {
     value: i32,
-    fn compare(other: Self): i32;  // Required method signature
+    fn compare(other: Self): i32,  // Required method signature
 }
 
 // Objects must provide the required method
@@ -434,8 +579,8 @@ let a: Comparable = {
 
 ```hemlock
 define Serializable {
-    fn serialize(): string;       // Required
-    fn pretty?(): string;         // Optional method (may be absent)
+    fn serialize(): string,       // Required
+    fn pretty?(): string,         // Optional method (may be absent)
 }
 ```
 
@@ -445,12 +590,12 @@ define Serializable {
 
 ```hemlock
 define Cloneable {
-    fn clone(): Self;  // Returns same type as the object
+    fn clone(): Self,  // Returns same type as the object
 }
 
 define Comparable {
-    fn compare(other: Self): i32;  // Takes same type as parameter
-    fn equals(other: Self): bool;
+    fn compare(other: Self): i32,  // Takes same type as parameter
+    fn equals(other: Self): bool,
 }
 
 let item: Cloneable = {
@@ -467,15 +612,15 @@ let item: Cloneable = {
 define Entity {
     id: i32,
     name: string,
-    fn validate(): bool;
-    fn serialize(): string;
+    fn validate(): bool,
+    fn serialize(): string,
 }
 
 let user: Entity = {
     id: 1,
     name: "Alice",
     validate: fn() { return self.id > 0 && self.name != ""; },
-    serialize: fn() { return '{"id":' + self.id + ',"name":"' + self.name + '"}'; }
+    serialize: fn() { return `{"id":${self.id},"name":"${self.name}"}`; }
 };
 ```
 
@@ -581,10 +726,19 @@ JSON serialization supports:
 - **Objects**: Nested objects
 - **Arrays**: Nested arrays
 
+Floats are written with the shortest representation that reads back to
+the same value, so `serialize()`/`deserialize()` round-trips numbers exactly.
+
 **Not supported:**
 - Functions (silently omitted)
 - Pointers (error)
 - Buffers (error)
+- NaN and Infinity (error - JSON has no representation for them)
+
+`deserialize()` accepts strict JSON only: malformed numbers (`01`, `1.`,
+`.5`, `+1`), trailing commas and trailing text after the value are errors.
+Integers that fit i32 become `i32`, larger ones `i64`, and integers beyond
+the i64 range become `f64`.
 
 ### Error Handling
 
@@ -855,6 +1009,8 @@ let p: Point = obj;
 ### Example: Vector Math
 
 ```hemlock
+import { sqrt } from "@stdlib/math";
+
 fn createVector(x, y) {
     return {
         x: x,
@@ -872,7 +1028,7 @@ fn createVector(x, y) {
         },
 
         toString: fn() {
-            return "(" + typeof(self.x) + ", " + typeof(self.y) + ")";
+            return "(" + self.x + ", " + self.y + ")";
         }
     };
 }
@@ -963,9 +1119,8 @@ Current limitations:
 
 - **No deep copy** - Must manually copy nested objects (spread is shallow)
 - **No pass-by-value** - Objects always passed by reference
-- **No computed properties** - No `{[key]: value}` syntax
+- **No computed properties** - No `{[key]: value}` syntax in literals (use bracket assignment instead)
 - **`self` is read-only** - Cannot reassign `self` in methods
-- **No property deletion** - Cannot remove fields once added
 
 **Note:** Objects are refcounted and automatically freed when scope exits. See [Memory Management](memory.md#internal-reference-counting) for details.
 

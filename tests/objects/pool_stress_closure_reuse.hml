@@ -1,0 +1,30 @@
+// Stress test: closure pool reuse with AST-borrowed params
+// Creates closures in a tight loop to verify function pool recycling
+// and that borrowed param arrays from the AST remain valid.
+
+fn make_adder(n) {
+    return fn(x) { return x + n; };
+}
+
+fn make_multiplier(n) {
+    return fn(x) { return x * n; };
+}
+
+// Create and discard many closures (pool should recycle slots)
+let sum = 0;
+for (let i = 0; i < 1000; i++) {
+    let add_i = make_adder(i);
+    let mul_i = make_multiplier(i);
+    sum = sum + add_i(1) + mul_i(2);
+}
+// sum = Σ(1+i + 2*i) for i=0..999 = Σ(1 + 3i) = 1000 + 3*(999*1000/2) = 1000 + 1498500 = 1499500
+print(sum);
+
+// Closures that escape the loop should still work
+let adders = [];
+for (let i = 0; i < 10; i++) {
+    adders.push(make_adder(i * 100));
+}
+for (let i = 0; i < 10; i++) {
+    print(adders[i](5));
+}

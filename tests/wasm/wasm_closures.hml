@@ -1,0 +1,45 @@
+// Test: closures and higher-order functions (important for JS interop patterns)
+
+// Closure capturing
+fn make_counter(start: i32) {
+    let count = start;
+    return {
+        next: fn() { count = count + 1; return count; },
+        get: fn() { return count; },
+        reset: fn() { count = start; return null; }
+    };
+}
+
+let c = make_counter(0);
+print(c.next());
+print(c.next());
+print(c.next());
+print(c.get());
+c.reset();
+print(c.get());
+
+// Higher-order functions with arrays
+let nums = [1, 2, 3, 4, 5];
+let doubled = nums.map(fn(x) { return x * 2; });
+print(doubled.join(","));
+
+let evens = nums.filter(fn(x) { return x % 2 == 0; });
+print(evens.join(","));
+
+let sum = nums.reduce(fn(acc, x) { return acc + x; }, 0);
+print(sum);
+
+// Closure as callback pattern (common in JS interop)
+fn with_transform(arr, transform) {
+    let result = [];
+    for (item in arr) {
+        result.push(transform(item));
+    }
+    return result;
+}
+
+let words = ["hello", "world"];
+let upper = with_transform(words, fn(s) { return s.to_upper(); });
+print(upper.join(" "));
+
+print("closures done");

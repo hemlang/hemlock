@@ -149,11 +149,9 @@ export fn format(template, args): string {
 			formatted = format_int(num, 10, false, plus_sign, space_sign);
 		} else if (spec == 'f') {
 			// Float
-			let num = 0;
+			let num: f64 = 0;
 			if (arg != null) {
-				let num_str: string = "" + arg;
-				// Simple conversion - multiply string by 1.0
-				num = arg * 1;
+				num = f64(arg);
 			}
 			if (precision < 0) {
 				precision = 6;
@@ -161,9 +159,9 @@ export fn format(template, args): string {
 			formatted = format_float(num, precision);
 		} else if (spec == 'e' || spec == 'E') {
 			// Scientific notation
-			let num = 0;
+			let num: f64 = 0;
 			if (arg != null) {
-				num = arg * 1;
+				num = f64(arg);
 			}
 			if (precision < 0) {
 				precision = 6;
@@ -225,6 +223,10 @@ export fn format(template, args): string {
 			}
 			if (left_align) {
 				formatted = formatted + padding;
+			} else if (pad_char == "0" && formatted.length > 0 &&
+					   (formatted.starts_with("-") || formatted.starts_with("+") || formatted.starts_with(" "))) {
+				// Zero padding goes after the sign: %05d of -42 is "-0042"
+				formatted = formatted.substr(0, 1) + padding + formatted.substr(1);
 			} else {
 				formatted = padding + formatted;
 			}
@@ -324,7 +326,7 @@ fn format_int(num, base, upper, plus, space): string {
 	while (num > 0) {
 		let digit = num % base;
 		result = digits.substr(digit, 1) + result;
-		num = divi(num, base);
+		num = __divi(num, base);
 	}
 
 	if (negative) {
@@ -338,7 +340,7 @@ fn format_int(num, base, upper, plus, space): string {
 	return result;
 }
 
-// Format float with given precision
+// Format float with given precision (round half up, like printf)
 fn format_float(num, precision): string {
 	let negative = num < 0;
 	if (negative) {
@@ -349,6 +351,35 @@ fn format_float(num, precision): string {
 	let int_part: i64 = num;
 	let frac_part = num - int_part;
 
+	// Generate the fractional digits
+	let frac_digits = [];
+	let i = 0;
+	while (i < precision) {
+		frac_part = frac_part * 10;
+		let digit: i64 = frac_part;
+		frac_part = frac_part - digit;
+		frac_digits.push(digit);
+		i = i + 1;
+	}
+
+	// Round on the remainder, carrying into earlier digits (1.999 -> 2.00)
+	if (frac_part >= 0.5) {
+		let j = frac_digits.length - 1;
+		let carry = true;
+		while (carry && j >= 0) {
+			if (frac_digits[j] == 9) {
+				frac_digits[j] = 0;
+				j = j - 1;
+			} else {
+				frac_digits[j] = frac_digits[j] + 1;
+				carry = false;
+			}
+		}
+		if (carry) {
+			int_part = int_part + 1;
+		}
+	}
+
 	// Build integer part string
 	let int_str = "";
 	if (int_part == 0) {
@@ -358,26 +389,19 @@ fn format_float(num, precision): string {
 			let digit = int_part % 10;
 			let d_char: rune = 48 + digit;
 			int_str = d_char + int_str;
-			int_part = divi(int_part, 10);
+			int_part = __divi(int_part, 10);
 		}
 	}
 
-	// Build fractional part string
+	// Build fractional part string (no decimal point for precision 0)
 	let frac_str = "";
 	if (precision > 0) {
 		frac_str = ".";
-		let i = 0;
-		while (i < precision) {
-			frac_part = frac_part * 10;
-			let digit: i64 = frac_part;
-			frac_part = frac_part - digit;
-			let d_char: rune = 48 + digit;
+		for (d in frac_digits) {
+			let d_char: rune = 48 + d;
 			frac_str = frac_str + d_char;
-			i = i + 1;
 		}
-	} else if (precision == 0) {
 	}
-	// No decimal point
 
 	let result = int_str + frac_str;
 	if (negative) {
@@ -426,8 +450,13 @@ fn format_scientific(num, precision, upper): string {
 		}
 	}
 
-	// Format mantissa
+	// Format mantissa; rounding can carry it to 10 (9.9996 -> "10.000")
 	let mantissa_str = format_float(mantissa, precision);
+	if (mantissa_str.starts_with("10")) {
+		mantissa = mantissa / 10;
+		exp = exp + 1;
+		mantissa_str = format_float(mantissa, precision);
+	}
 
 	// Format exponent
 	let exp_sign = "+";
@@ -492,144 +521,24 @@ fn quote_string(s): string {
 }
 
 // ============================================================================
-// String Padding
+// String Padding & Truncation (re-exported from @stdlib/strings)
 // ============================================================================
 
-// Pad string on the left to reach target width
-// Parameters:
-// s: string - String to pad
-// width: i32 - Target width
-// char: string - Padding character (default: " ")
-// Returns: string - Padded string
-export fn pad_left(s, width, char?: " "): string {
-	if (typeof(s) != "string") {
-		throw "pad_left() requires string argument";
-	}
+import {
+	pad_left as _pad_left,
+	pad_right as _pad_right,
+	center as _center,
+	truncate as _truncate,
+} from "@stdlib/strings";
 
-	let str: string = s;
-	if (str.length >= width) {
-		return str;
-	}
-
-	let padding = "";
-	let pad_char = char;
-	if (pad_char.length == 0) {
-		pad_char = " ";
-	}
-	let first_char = pad_char.substr(0, 1);
-
-	let i = str.length;
-	while (i < width) {
-		padding = padding + first_char;
-		i = i + 1;
-	}
-
-	return padding + str;
-}
-
-// Pad string on the right to reach target width
-// Parameters:
-// s: string - String to pad
-// width: i32 - Target width
-// char: string - Padding character (default: " ")
-// Returns: string - Padded string
-export fn pad_right(s, width, char?: " "): string {
-	if (typeof(s) != "string") {
-		throw "pad_right() requires string argument";
-	}
-
-	let str: string = s;
-	if (str.length >= width) {
-		return str;
-	}
-
-	let padding = "";
-	let pad_char = char;
-	if (pad_char.length == 0) {
-		pad_char = " ";
-	}
-	let first_char = pad_char.substr(0, 1);
-
-	let i = str.length;
-	while (i < width) {
-		padding = padding + first_char;
-		i = i + 1;
-	}
-
-	return str + padding;
-}
-
-// Center string within target width
-// Parameters:
-// s: string - String to center
-// width: i32 - Target width
-// char: string - Padding character (default: " ")
-// Returns: string - Centered string
-export fn center(s, width, char?: " "): string {
-	if (typeof(s) != "string") {
-		throw "center() requires string argument";
-	}
-
-	let str: string = s;
-	if (str.length >= width) {
-		return str;
-	}
-
-	let pad_char = char;
-	if (pad_char.length == 0) {
-		pad_char = " ";
-	}
-	let first_char = pad_char.substr(0, 1);
-
-	let total_pad = width - str.length;
-	let left_pad = divi(total_pad, 2);
-	let right_pad = total_pad - left_pad;
-
-	let left = "";
-	let i = 0;
-	while (i < left_pad) {
-		left = left + first_char;
-		i = i + 1;
-	}
-
-	let right = "";
-	i = 0;
-	while (i < right_pad) {
-		right = right + first_char;
-		i = i + 1;
-	}
-
-	return left + str + right;
-}
+export let pad_left = _pad_left;
+export let pad_right = _pad_right;
+export let center = _center;
+export let truncate = _truncate;
 
 // ============================================================================
 // Text Manipulation
 // ============================================================================
-
-// Truncate string to maximum length with optional suffix
-// Parameters:
-// s: string - String to truncate
-// max_len: i32 - Maximum length
-// suffix: string - Suffix to add if truncated (default: "...")
-// Returns: string - Truncated string
-export fn truncate(s, max_len, suffix?: "..."): string {
-	if (typeof(s) != "string") {
-		throw "truncate() requires string argument";
-	}
-
-	let str: string = s;
-	if (str.length <= max_len) {
-		return str;
-	}
-
-	let suf: string = suffix;
-	let cut_len = max_len - suf.length;
-	if (cut_len < 0) {
-		cut_len = 0;
-	}
-
-	return str.slice(0, cut_len) + suf;
-}
 
 // Wrap text to specified width
 // Parameters:
@@ -758,21 +667,21 @@ export fn duration(seconds): string {
 	}
 
 	let total_secs: i64 = seconds;
-	let mins = divi(total_secs, 60);
+	let mins = __divi(total_secs, 60);
 	let secs = total_secs % 60;
 
 	if (mins < 60) {
 		return mins + "m " + secs + "s";
 	}
 
-	let hours = divi(mins, 60);
+	let hours = __divi(mins, 60);
 	mins = mins % 60;
 
 	if (hours < 24) {
 		return hours + "h " + mins + "m";
 	}
 
-	let days = divi(hours, 24);
+	let days = __divi(hours, 24);
 	hours = hours % 24;
 
 	return days + "d " + hours + "h";

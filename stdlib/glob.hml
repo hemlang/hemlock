@@ -105,9 +105,9 @@ fn match_pattern(pattern, text, pi, ti): bool {
 					pattern.char_at(pi + 1) != ']') {
 					pi = pi + 1;
 					let end_char = pattern.char_at(pi);
-					let prev_code: i32 = prev_char;
-					let end_code: i32 = end_char;
-					let t_code: i32 = t_char;
+					let prev_code = i32(prev_char);
+					let end_code = i32(end_char);
+					let t_code = i32(t_char);
 
 					if (t_code >= prev_code && t_code <= end_code) {
 						matched = true;

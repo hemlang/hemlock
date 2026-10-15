@@ -1,3 +1,4 @@
+// @expect-compile-fail reassigning a const from an inner scope is a compile error
 // Test that reassigning const in nested scope causes error
 const x = 10;
 

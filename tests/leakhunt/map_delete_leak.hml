@@ -1,0 +1,11 @@
+// Single construct: set a key then remove it. The remove must
+// release the stored value; if it only unlinks, every set/delete
+// pair leaks the value object. Map is empty at exit (nothing live).
+let m = {};
+let round = 0;
+while (round < 2000) {
+	m["t"] = { a: ["z-" + round], b: "tag-" + round };
+	m.delete("t");
+	round = round + 1;
+}
+print("map_delete_leak: ok keys=" + m.keys().length);

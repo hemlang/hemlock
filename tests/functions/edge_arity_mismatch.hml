@@ -1,3 +1,4 @@
+// @expect-compile-fail wrong argument count is a compile error
 // Test function called with wrong number of arguments
 // Expected: Testing current behavior
 

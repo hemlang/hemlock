@@ -1,0 +1,6 @@
+// @expect-compile-fail
+let p = alloc(64);
+free(p);
+free(p);
+let bad: i32 = "oops";
+let dead = 5 % 0;

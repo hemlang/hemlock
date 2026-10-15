@@ -1,0 +1,17 @@
+{
+  "id": "L6-H-01",
+  "level": "L6",
+  "difficulty": "hard",
+  "title": "Fix Concurrency Bugs",
+  "topic": "concurrency bugs",
+  "prompt": "The following Hemlock program attempts to implement a work queue with workers but has multiple concurrency bugs. Fix all bugs so it produces the expected output.\n\n```hemlock\n// Work queue: 2 workers process items from a shared channel\n\nasync fn worker(id, jobs, results) {\n    while (true) {\n        let job = jobs.recv();\n        if (job == null) {\n            break;\n        }\n        // Process: square the number\n        let result = job * job;\n        results.send({ worker: id, input: job, output: result });\n    }\n}\n\nlet jobs = channel(5);\nlet results = channel(5);\n\n// Spawn workers\nlet w1 = spawn(worker, 1, jobs, results);\nlet w2 = spawn(worker, 2, jobs, results);\n\n// Send jobs\nfor (let i = 1; i <= 6; i++) {\n    jobs.send(i);\n}\njobs.close();\n\n// Collect results\nlet total = 0;\nfor (let i = 0; i < 6; i++) {\n    let r = results.recv();\n    total += r.output;\n}\n\nprint(\"total: \" + total);\n\njoin(w1);\njoin(w2);\nresults.close();\nprint(\"done\");\n```\n\nThe sum of squares 1-6 is 1+4+9+16+25+36 = 91.",
+  "expected_output": "total: 91\ndone\n",
+  "timeout_ms": 15000,
+  "validator": "exact_match",
+  "buggy_code": "async fn worker(id, jobs, results) {\n    while (true) {\n        let job = jobs.recv();\n        if (job == null) {\n            break;\n        }\n        let result = job * job;\n        results.send({ worker: id, input: job, output: result });\n    }\n}\n\nlet jobs = channel(5);\nlet results = channel(5);\n\nlet w1 = spawn(worker, 1, jobs, results);\nlet w2 = spawn(worker, 2, jobs, results);\n\nfor (let i = 1; i <= 6; i++) {\n    jobs.send(i);\n}\njobs.close();\n\nlet total = 0;\nfor (let i = 0; i < 6; i++) {\n    let r = results.recv();\n    total += r.output;\n}\n\nprint(\"total: \" + total);\n\njoin(w1);\njoin(w2);\nresults.close();\nprint(\"done\");\n",
+  "bug_descriptions": [
+    "Results channel capacity too small: 5 slots but 6 results - workers can deadlock when results channel is full and they can't send, while main thread is also blocked trying to recv. Increase results channel capacity to at least 6.",
+    "Potential ordering issue: join workers before closing results, which is correct but collecting before join means results must not block."
+  ],
+  "tags": ["debugging", "concurrency", "channels", "deadlock", "async"]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "L4-M-02",
+  "level": "L4",
+  "difficulty": "medium",
+  "title": "Parallel Map",
+  "topic": "async concurrency",
+  "prompt": "Write a Hemlock program that implements parallel map using async/await.\n\n1. Write an async function `slow_square(n)` that returns n * n (simulates work)\n2. Write `parallel_map(arr, f)` that:\n   - Spawns a task for each element: spawn(f, element)\n   - Collects all tasks into an array\n   - Joins each task and collects results in order\n   - Returns the results array\n3. Apply parallel_map to [1, 2, 3, 4, 5, 6, 7, 8] with slow_square\n4. Print each result on its own line\n5. Print \"sum: \" followed by the sum of all results",
+  "expected_output": "1\n4\n9\n16\n25\n36\n49\n64\nsum: 204\n",
+  "timeout_ms": 10000,
+  "validator": "exact_match",
+  "notes": "Tests spawn/join pattern. Results must be in order despite parallel execution.",
+  "tags": ["async", "spawn", "join", "concurrency", "arrays"]
+}

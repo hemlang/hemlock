@@ -1,0 +1,15 @@
+// Single construct: a nested object/array literal built + dropped
+// each iteration. Exercises the literal-construction codegen
+// (hml_val_object/array + field/push + per-element release). A
+// missing release of any nested temp leaks per iteration. Nothing
+// live at exit.
+let round = 0;
+let sink = 0;
+while (round < 2000) {
+	let v = { id: round,
+	          tags: ["a", "b", { deep: ["x-" + round, "y"] }],
+	          meta: { k: [1, 2, 3], label: "m-" + round } };
+	sink = sink + v.id + v.meta.k.length;
+	round = round + 1;
+}
+print("nested_literal_leak: ok sink=" + sink);

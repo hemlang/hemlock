@@ -1,0 +1,12 @@
+{
+  "id": "L4-E-02",
+  "level": "L4",
+  "difficulty": "easy",
+  "title": "Defer Resource Cleanup",
+  "topic": "defer",
+  "prompt": "Write a Hemlock program that demonstrates defer ordering and resource cleanup.\n\n1. Write a function `process()` that:\n   - Prints \"acquiring resource A\"\n   - Defers printing \"releasing resource A\"\n   - Prints \"acquiring resource B\"\n   - Defers printing \"releasing resource B\"\n   - Prints \"acquiring resource C\"\n   - Defers printing \"releasing resource C\"\n   - Prints \"doing work\"\n   - Returns \"done\"\n\n2. Call process() and print the return value\n3. Then demonstrate defer with early return: write `early_return(flag)` that:\n   - Defers printing \"cleanup\"\n   - If flag is true, prints \"early exit\" and returns\n   - Prints \"normal path\"\n\n4. Call early_return(true) then early_return(false)\n\nDefer executes in LIFO order (last deferred runs first).",
+  "expected_output": "acquiring resource A\nacquiring resource B\nacquiring resource C\ndoing work\nreleasing resource C\nreleasing resource B\nreleasing resource A\ndone\nearly exit\ncleanup\nnormal path\ncleanup\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["defer", "functions", "control-flow"]
+}

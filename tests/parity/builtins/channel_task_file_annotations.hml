@@ -1,0 +1,34 @@
+// Regression test: task, file, and channel are valid type annotations.
+// The interpreter used to reject them at call time with "Unknown type",
+// while the compiler accepted them (parity violation).
+import { open } from "@stdlib/fs";
+
+fn take_channel(c: channel): i32 {
+    c.send(7);
+    return c.recv();
+}
+
+fn take_task(t: task): i32 {
+    return join(t);
+}
+
+fn take_file(f: file): string {
+    return "file ok";
+}
+
+async fn forty_two(): i32 { return 42; }
+
+let ch = channel(1);
+print(take_channel(ch));
+
+let t = spawn(forty_two);
+print(take_task(t));
+
+let f = open("/tmp/parity_type_annotations.txt", "w");
+print(take_file(f));
+f.close();
+
+let ach: channel = channel(1);
+ach.send(1);
+print(ach.recv());
+print("done");

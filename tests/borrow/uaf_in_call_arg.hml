@@ -1,0 +1,5 @@
+fn main() {
+    let p = alloc(64);
+    free(p);
+    print(ptr_read_i32(p));
+}

@@ -1,5 +1,6 @@
 // Test: Non-blocking socket operations
 // Tests set_nonblocking() and recv/send behavior in non-blocking mode
+import { AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, socket_create } from "@stdlib/net";
 
 // Create a socket and test non-blocking mode
 let sock = socket_create(AF_INET, SOCK_STREAM, 0);

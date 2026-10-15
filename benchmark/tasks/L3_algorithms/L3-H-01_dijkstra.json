@@ -1,0 +1,12 @@
+{
+  "id": "L3-H-01",
+  "level": "L3",
+  "difficulty": "hard",
+  "title": "Dijkstra's Algorithm",
+  "topic": "graphs",
+  "prompt": "Write a Hemlock program implementing Dijkstra's shortest path algorithm. Use @stdlib/collections HashMap for distance tracking.\n\nRepresent a weighted graph as an object mapping node names to arrays of {to, weight} objects:\nlet graph = {\n  A: [{to: \"B\", weight: 4}, {to: \"C\", weight: 2}],\n  B: [{to: \"D\", weight: 3}, {to: \"C\", weight: 1}],\n  C: [{to: \"B\", weight: 1}, {to: \"D\", weight: 5}, {to: \"E\", weight: 7}],\n  D: [{to: \"E\", weight: 2}],\n  E: []\n};\n\nWrite `dijkstra(graph, start)` that returns an object mapping each node to its shortest distance from start. Since there's no built-in priority queue, use a simple array-based approach: scan all unvisited nodes to find the one with minimum distance.\n\nTest from node \"A\":\n- Print distances in alphabetical order: \"A: 0\", \"B: 3\", \"C: 2\", \"D: 6\", \"E: 8\"",
+  "expected_output": "A: 0\nB: 3\nC: 2\nD: 6\nE: 8\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["algorithms", "graphs", "dijkstra", "stdlib", "collections"]
+}

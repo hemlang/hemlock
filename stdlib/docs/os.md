@@ -167,7 +167,7 @@ Check if running on a Unix-like system (Linux or macOS).
 **Returns:** `bool` - `true` if on Linux or macOS, `false` otherwise
 
 ```hemlock
-import { is_unix } from "@stdlib/os";
+import { is_unix, homedir } from "@stdlib/os";
 
 if (is_unix()) {
     // Use Unix-style paths and commands

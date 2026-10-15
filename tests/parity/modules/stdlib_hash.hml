@@ -1,5 +1,20 @@
 // Hash functions test
-import { sha256, sha512, md5 } from "@stdlib/hash";
+import { crc32, adler32, sha1, sha256, sha512, md5 } from "@stdlib/hash";
+
+// CRC32
+print(crc32(""));
+print(crc32("hello"));
+print(crc32("The quick brown fox"));
+
+// Adler32
+print(adler32(""));
+print(adler32("hello"));
+print(adler32("The quick brown fox"));
+
+// SHA1
+print(sha1("hello"));
+print(sha1(""));
+print(sha1("The quick brown fox"));
 
 // SHA256
 print(sha256("hello"));

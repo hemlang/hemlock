@@ -285,7 +285,7 @@ Value builtin_divi(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "divi(): division by zero");
         return val_null();
     }
-    return val_i64((int64_t)floor(a / b));
+    return val_i64((int64_t)trunc(a / b));
 }
 
 Value builtin_abs(Value *args, int num_args, ExecutionContext *ctx) {

@@ -1,0 +1,22 @@
+// Test: Variable reassignment doesn't leak the new value
+
+fn process(data) {
+    let val = "";
+    if (typeof(data) == "string") {
+        val = data + " processed";
+    } else {
+        val = "number: " + data;
+    }
+    return val;
+}
+
+fn run() {
+    let i = 0;
+    while (i < 50000) {
+        process("hello");
+        process(42);
+        i = i + 1;
+    }
+}
+run();
+print("ok");

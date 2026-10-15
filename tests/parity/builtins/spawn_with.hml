@@ -1,0 +1,50 @@
+// Test spawn_with() - spawn with configuration options
+
+// Simple async function for testing
+async fn compute(n) {
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+        sum = sum + i;
+    }
+    return sum;
+}
+
+// Test 1: spawn_with basic usage with stack_size option
+let task1 = spawn_with({ stack_size: 8 * 1024 * 1024 }, compute, 5);
+let result1 = join(task1);
+print(result1);  // 0+1+2+3+4 = 10
+
+// Test 2: spawn_with with name option
+let task2 = spawn_with({ name: "worker-1" }, compute, 10);
+let result2 = join(task2);
+print(result2);  // 0+1+...+9 = 45
+
+// Test 3: spawn_with with both options
+let task3 = spawn_with({ stack_size: 16 * 1024 * 1024, name: "compute-3" }, compute, 3);
+let result3 = join(task3);
+print(result3);  // 0+1+2 = 3
+
+// Test 4: spawn_with with empty options (uses defaults)
+let task4 = spawn_with({}, compute, 7);
+let result4 = join(task4);
+print(result4);  // 0+1+2+3+4+5+6 = 21
+
+// Test 5: spawn_with with multiple arguments
+async fn add(a, b) {
+    return a + b;
+}
+
+let task5 = spawn_with({ name: "adder" }, add, 100, 200);
+let result5 = join(task5);
+print(result5);  // 300
+
+// Test 6: spawn_with with no extra arguments
+async fn get_value() {
+    return 42;
+}
+
+let task6 = spawn_with({ stack_size: 4 * 1024 * 1024 }, get_value);
+let result6 = join(task6);
+print(result6);  // 42
+
+print("done");

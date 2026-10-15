@@ -1,4 +1,5 @@
 // Test exec functionality
+import { exec } from "@stdlib/process";
 
 // Test 1: Simple command output
 let r1 = exec("echo 'test123'");

@@ -1,0 +1,3 @@
+// Module fixture for import_side_effect.hml - executed for its side effects.
+print("fixture loaded");
+export fn unused(): i32 { return 1; }

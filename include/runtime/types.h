@@ -56,12 +56,16 @@ typedef struct {
 } String;
 
 // Buffer struct (safe pointer wrapper)
-typedef struct {
+typedef struct Buffer {
     void *data;
     int length;
     int capacity;
     int ref_count;       // Reference count for memory management
     _Atomic int freed;   // Atomic flag: 1 if freed via free(), 0 otherwise
+    struct Buffer *parent; // Non-NULL for zero-copy slice views (keeps parent alive)
+    _Atomic int view_count; // Roots only: number of live slice views into this
+                            // buffer. free() refuses while > 0, so a view can
+                            // never dangle into a freed root allocation.
 } Buffer;
 
 // Array struct (dynamic array)
@@ -92,6 +96,7 @@ typedef struct {
     int closed;          // Whether socket is closed
     int listening;       // Whether listening (server socket)
     int nonblocking;     // Whether socket is in non-blocking mode
+    int ref_count;       // Reference count for memory management
 } SocketHandle;
 
 // WebSocket handle struct (wraps libwebsockets connection/server)
@@ -119,6 +124,7 @@ typedef struct {
     // Hash table for O(1) field lookup (linear probing)
     int *hash_table;     // Array of field indices, -1 = empty slot
     int hash_capacity;   // Size of hash table (usually 2x num_fields)
+    int is_pooled;       // If true, struct + fields came from object pool (don't free them)
 } Object;
 
 // Function struct (user-defined function)
@@ -137,6 +143,8 @@ typedef struct {
     Environment *closure_env;  // CAPTURED ENVIRONMENT
     int ref_count;             // Reference count for memory management
     int is_bound;              // If true, this is a bound method (don't free param arrays)
+    int borrows_ast_params;    // If true, param arrays point to AST (don't free them)
+    int is_pooled;             // If true, struct came from function pool (don't free struct)
 } Function;
 
 // Task states
@@ -147,41 +155,15 @@ typedef enum {
     TASK_COMPLETED,  // Finished execution
 } TaskState;
 
-// Task struct (async task handle)
-typedef struct Task {
-    int id;                     // Unique task ID
-    TaskState state;            // Current state
-    Function *function;         // Async function to execute
-    Value *args;                // Arguments to pass
-    int num_args;               // Number of arguments
-    Value *result;              // Return value when completed (NULL if not completed)
-    int joined;                 // Flag: task has been joined
-    Environment *env;           // Task's environment
-    ExecutionContext *ctx;      // Task's execution context
-    struct Task *waiting_on;    // Task we're blocked on (for join)
-    void *thread;               // pthread_t (opaque pointer)
-    int detached;               // Flag: task is detached (fire-and-forget)
-    void *task_mutex;           // pthread_mutex_t for thread-safe state access
-    int ref_count;              // Reference count for memory management (atomic)
-} Task;
+typedef struct Task Task;
 
 // Channel struct (communication channel)
+// All queueing/blocking logic lives in the shared core (src/shared/chan_core.c);
+// this wrapper only adds the interpreter's reference count.
+typedef struct HmlChan HmlChan;
 typedef struct {
-    Value *buffer;              // Ring buffer for messages
-    int capacity;               // Buffer capacity (0 for unbuffered)
-    int head;                   // Read position
-    int tail;                   // Write position
-    int count;                  // Number of messages in buffer
-    int closed;                 // Flag: channel is closed
-    void *mutex;                // pthread_mutex_t (opaque pointer)
-    void *not_empty;            // pthread_cond_t (opaque pointer)
-    void *not_full;             // pthread_cond_t (opaque pointer)
-    int ref_count;              // Reference count for memory management
-    // Unbuffered channel support (rendezvous)
-    Value *unbuffered_value;    // Pointer to value being transferred in rendezvous
-    int sender_waiting;         // Flag: sender is blocked waiting for receiver
-    int receiver_waiting;       // Flag: receiver is blocked waiting for sender
-    void *rendezvous;           // pthread_cond_t for rendezvous completion
+    HmlChan *chan;              // Shared channel core (opaque)
+    int ref_count;              // Reference count for memory management (atomic)
 } Channel;
 
 // Reference types for pass-by-reference
@@ -243,6 +225,25 @@ struct Value {
         Channel *as_channel;
         Reference *as_ref;      // Reference for pass-by-reference
     } as;
+};
+
+// Task struct (async task handle)
+struct Task {
+    int id;                     // Unique task ID
+    TaskState state;            // Current state
+    Function *function;         // Async function to execute
+    Value *args;                // Arguments to pass
+    int num_args;               // Number of arguments
+    Value result;               // Return value (valid once state == TASK_COMPLETED)
+    int joined;                 // Flag: task has been joined
+    Environment *env;           // Task's environment
+    ExecutionContext *ctx;      // Task's execution context
+    struct Task *waiting_on;    // Task we're blocked on (for join)
+    void *thread;               // pthread_t (opaque pointer)
+    int detached;               // Flag: task is detached (fire-and-forget)
+    void *task_mutex;           // pthread_mutex_t for thread-safe state access
+    int ref_count;              // Reference count for memory management (atomic)
+    char *name;                 // Optional debug name (from spawn_with)
 };
 
 // Field entry struct - unified storage for name and value (reduces fragmentation)

@@ -1,0 +1,12 @@
+{
+  "id": "L1-E-03",
+  "level": "L1",
+  "difficulty": "easy",
+  "title": "Array Sum and Mean",
+  "topic": "arrays",
+  "prompt": "Write a Hemlock program that creates an array `[10, 20, 30, 40, 50]`, computes the sum using a for-in loop, computes the mean (sum divided by length), finds the minimum and maximum values, and prints each result on its own line in this order: sum, mean, min, max.",
+  "expected_output": "150\n30\n10\n50\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["arrays", "for-in", "arithmetic"]
+}

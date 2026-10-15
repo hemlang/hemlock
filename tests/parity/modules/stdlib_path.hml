@@ -37,6 +37,11 @@ print("normalize a/b/../c: " + normalize("a/b/../c"));
 print("normalize a/./b: " + normalize("a/./b"));
 print("normalize /a//b/c: " + normalize("/a//b/c"));
 print("normalize ../a: " + normalize("../a"));
+// Repeated '..' segments: result.last() must be safe across iterations
+print("normalize ../..: " + normalize("../.."));
+print("normalize ../../a: " + normalize("../../a"));
+print("normalize ../a/../..: " + normalize("../a/../.."));
+print("normalize /../..: " + normalize("/../.."));
 
 print("=== Is_absolute tests ===");
 print("is_absolute /home: " + is_absolute("/home"));

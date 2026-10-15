@@ -1,0 +1,158 @@
+// Test iter.hml sequence generation and array transformation functions
+
+import { range, frange, repeat, zip3, unzip, drop, take_last, drop_last } from "@stdlib/iter";
+
+// === range (additional coverage) ===
+// Single argument
+let r1 = range(5);
+assert(r1.length == 5, "range(5) length");
+assert(r1[0] == 0, "range(5)[0]");
+assert(r1[4] == 4, "range(5)[4]");
+
+// Negative step
+let r2 = range(5, 0, -1);
+assert(r2.length == 5, "range(5,0,-1) length");
+assert(r2[0] == 5, "range(5,0,-1)[0]");
+assert(r2[4] == 1, "range(5,0,-1)[4]");
+
+// Step > 1
+let r3 = range(0, 10, 3);
+assert(r3.length == 4, "range(0,10,3) length");
+assert(r3[0] == 0, "range step 3 [0]");
+assert(r3[1] == 3, "range step 3 [1]");
+assert(r3[2] == 6, "range step 3 [2]");
+assert(r3[3] == 9, "range step 3 [3]");
+
+// Empty range
+let r4 = range(0);
+assert(r4.length == 0, "range(0) empty");
+
+let r5 = range(5, 5);
+assert(r5.length == 0, "range(5,5) empty");
+
+// Step of 0 should throw
+let caught = false;
+try {
+    range(0, 5, 0);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "range step=0 throws");
+
+// === frange ===
+let fr1 = frange(0.0, 1.0, 0.25);
+assert(fr1.length == 4, "frange length");
+assert(fr1[0] == 0.0, "frange [0]");
+assert(fr1[1] == 0.25, "frange [1]");
+assert(fr1[3] == 0.75, "frange [3]");
+
+// frange negative step
+let fr2 = frange(1.0, 0.0, -0.5);
+assert(fr2.length == 2, "frange neg step length");
+assert(fr2[0] == 1.0, "frange neg [0]");
+assert(fr2[1] == 0.5, "frange neg [1]");
+
+// frange step=0 should throw
+caught = false;
+try {
+    frange(0.0, 1.0, 0);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "frange step=0 throws");
+
+// === repeat ===
+let rep1 = repeat("x", 3);
+assert(rep1.length == 3, "repeat length");
+assert(rep1[0] == "x", "repeat [0]");
+assert(rep1[1] == "x", "repeat [1]");
+assert(rep1[2] == "x", "repeat [2]");
+
+let rep2 = repeat(0, 0);
+assert(rep2.length == 0, "repeat 0 empty");
+
+let rep3 = repeat(42, 1);
+assert(rep3.length == 1, "repeat 1 length");
+assert(rep3[0] == 42, "repeat 1 [0]");
+
+// repeat negative should throw
+caught = false;
+try {
+    repeat("x", -1);
+} catch (e) {
+    caught = true;
+}
+assert(caught, "repeat negative throws");
+
+// === zip3 ===
+let z3 = zip3([1, 2, 3], ["a", "b", "c"], [true, false, true]);
+assert(z3.length == 3, "zip3 length");
+assert(z3[0][0] == 1, "zip3 [0][0]");
+assert(z3[0][1] == "a", "zip3 [0][1]");
+assert(z3[0][2] == true, "zip3 [0][2]");
+assert(z3[2][0] == 3, "zip3 [2][0]");
+assert(z3[2][1] == "c", "zip3 [2][1]");
+
+// zip3 with different lengths (uses minimum)
+let z3b = zip3([1, 2], ["a", "b", "c"], [true]);
+assert(z3b.length == 1, "zip3 min length");
+
+// === unzip ===
+let pairs = [[1, "a"], [2, "b"], [3, "c"]];
+let unzipped = unzip(pairs);
+assert(unzipped.length == 2, "unzip result length");
+assert(unzipped[0].length == 3, "unzip first array length");
+assert(unzipped[1].length == 3, "unzip second array length");
+assert(unzipped[0][0] == 1, "unzip [0][0]");
+assert(unzipped[0][2] == 3, "unzip [0][2]");
+assert(unzipped[1][0] == "a", "unzip [1][0]");
+assert(unzipped[1][2] == "c", "unzip [1][2]");
+
+// unzip empty
+let empty_unzip = unzip([]);
+assert(empty_unzip[0].length == 0, "unzip empty first");
+assert(empty_unzip[1].length == 0, "unzip empty second");
+
+// === drop ===
+let d1 = drop([1, 2, 3, 4, 5], 2);
+assert(d1.length == 3, "drop 2 length");
+assert(d1[0] == 3, "drop [0]");
+assert(d1[2] == 5, "drop [2]");
+
+// drop 0
+let d2 = drop([1, 2, 3], 0);
+assert(d2.length == 3, "drop 0 length");
+
+// drop more than length
+let d3 = drop([1, 2], 5);
+assert(d3.length == 0, "drop > length empty");
+
+// === take_last ===
+let tl1 = take_last([1, 2, 3, 4, 5], 3);
+assert(tl1.length == 3, "take_last 3 length");
+assert(tl1[0] == 3, "take_last [0]");
+assert(tl1[2] == 5, "take_last [2]");
+
+// take_last 0
+let tl2 = take_last([1, 2, 3], 0);
+assert(tl2.length == 0, "take_last 0 empty");
+
+// take_last > length
+let tl3 = take_last([1, 2], 5);
+assert(tl3.length == 2, "take_last > length");
+
+// === drop_last ===
+let dl1 = drop_last([1, 2, 3, 4, 5], 2);
+assert(dl1.length == 3, "drop_last 2 length");
+assert(dl1[0] == 1, "drop_last [0]");
+assert(dl1[2] == 3, "drop_last [2]");
+
+// drop_last 0
+let dl2 = drop_last([1, 2, 3], 0);
+assert(dl2.length == 3, "drop_last 0 length");
+
+// drop_last > length
+let dl3 = drop_last([1, 2], 5);
+assert(dl3.length == 0, "drop_last > length empty");
+
+print("All sequence and transformation tests passed!");

@@ -6,11 +6,171 @@
  */
 
 #include "../include/hemlock_runtime.h"
+#include "chan_core.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdatomic.h>
 #include <pthread.h>
+
+// ========== OBJECT POOL ==========
+// Pre-allocate Object structs + field storage to avoid malloc/free churn
+// in hot loops. Uses a free list for O(1) alloc/free.
+
+// Must match HML_OBJECT_POOL_SIZE and HML_OBJECT_POOL_FIELDS_CAPACITY
+// in include/hemlock_limits.h
+#ifndef HML_OBJECT_POOL_SIZE
+#define HML_OBJECT_POOL_SIZE 512
+#endif
+#ifndef HML_OBJECT_POOL_FIELDS_CAPACITY
+#define HML_OBJECT_POOL_FIELDS_CAPACITY 8
+#endif
+#define OBJ_POOL_SIZE HML_OBJECT_POOL_SIZE
+#define OBJ_POOL_FIELDS_CAP HML_OBJECT_POOL_FIELDS_CAPACITY
+
+typedef struct {
+    HmlObject objects[OBJ_POOL_SIZE];
+    HmlFieldEntry fields_storage[OBJ_POOL_SIZE][OBJ_POOL_FIELDS_CAP];
+    int free_list[OBJ_POOL_SIZE];
+    int free_count;
+    pthread_mutex_t mutex;
+} HmlObjectPool;
+
+static HmlObjectPool obj_pool = {0};
+static pthread_once_t obj_pool_once = PTHREAD_ONCE_INIT;
+
+static void obj_pool_init_internal(void) {
+    pthread_mutex_init(&obj_pool.mutex, NULL);
+    for (int i = 0; i < OBJ_POOL_SIZE; i++) {
+        obj_pool.free_list[i] = OBJ_POOL_SIZE - 1 - i;
+    }
+    obj_pool.free_count = OBJ_POOL_SIZE;
+}
+
+static void obj_pool_init(void) {
+    pthread_once(&obj_pool_once, obj_pool_init_internal);
+}
+
+static HmlObject* obj_pool_alloc(void) {
+    obj_pool_init();
+    pthread_mutex_lock(&obj_pool.mutex);
+    if (obj_pool.free_count > 0) {
+        int idx = obj_pool.free_list[--obj_pool.free_count];
+        pthread_mutex_unlock(&obj_pool.mutex);
+
+        HmlObject *obj = &obj_pool.objects[idx];
+        obj->type_name = NULL;
+        obj->fields = obj_pool.fields_storage[idx];
+        obj->num_fields = 0;
+        obj->capacity = OBJ_POOL_FIELDS_CAP;
+        obj->ref_count = 1;
+        atomic_store(&obj->freed, 0);
+        obj->is_pooled = 1;
+        obj->hash_table = NULL;
+        obj->hash_capacity = 0;
+        return obj;
+    }
+    pthread_mutex_unlock(&obj_pool.mutex);
+    return NULL;
+}
+
+static int obj_is_pooled(HmlObject *obj) {
+    return obj >= &obj_pool.objects[0] && obj < &obj_pool.objects[OBJ_POOL_SIZE];
+}
+
+// True while a pooled object's fields still live in the pool's inline
+// storage (i.e. they have never been grown onto the heap).
+int hml_obj_fields_in_pool_storage(HmlObject *obj) {
+    if (!obj_is_pooled(obj)) return 0;
+    int idx = (int)(obj - &obj_pool.objects[0]);
+    return obj->fields == obj_pool.fields_storage[idx];
+}
+
+static void obj_pool_free(HmlObject *obj) {
+    if (!obj_is_pooled(obj)) return;
+    int idx = (int)(obj - &obj_pool.objects[0]);
+
+    // If fields were grown beyond pooled storage, free the grown array
+    if (obj->fields != obj_pool.fields_storage[idx]) {
+        free(obj->fields);
+    }
+    free(obj->hash_table);
+    obj->fields = obj_pool.fields_storage[idx];
+    obj->hash_table = NULL;
+    obj->is_pooled = 0;
+
+    pthread_mutex_lock(&obj_pool.mutex);
+    obj_pool.free_list[obj_pool.free_count++] = idx;
+    pthread_mutex_unlock(&obj_pool.mutex);
+}
+
+// ========== FUNCTION POOL ==========
+// Pre-allocate Function structs for closures created in hot loops.
+
+// Must match HML_FUNCTION_POOL_SIZE in include/hemlock_limits.h
+#ifndef HML_FUNCTION_POOL_SIZE
+#define HML_FUNCTION_POOL_SIZE 512
+#endif
+#define FN_POOL_SIZE HML_FUNCTION_POOL_SIZE
+
+typedef struct {
+    HmlFunction functions[FN_POOL_SIZE];
+    int free_list[FN_POOL_SIZE];
+    int free_count;
+    pthread_mutex_t mutex;
+} HmlFunctionPool;
+
+static HmlFunctionPool fn_pool = {0};
+static pthread_once_t fn_pool_once = PTHREAD_ONCE_INIT;
+
+static void fn_pool_init_internal(void) {
+    pthread_mutex_init(&fn_pool.mutex, NULL);
+    for (int i = 0; i < FN_POOL_SIZE; i++) {
+        fn_pool.free_list[i] = FN_POOL_SIZE - 1 - i;
+    }
+    fn_pool.free_count = FN_POOL_SIZE;
+}
+
+static void fn_pool_init(void) {
+    pthread_once(&fn_pool_once, fn_pool_init_internal);
+}
+
+static HmlFunction* fn_pool_alloc(void) {
+    fn_pool_init();
+    pthread_mutex_lock(&fn_pool.mutex);
+    if (fn_pool.free_count > 0) {
+        int idx = fn_pool.free_list[--fn_pool.free_count];
+        pthread_mutex_unlock(&fn_pool.mutex);
+        return &fn_pool.functions[idx];
+    }
+    pthread_mutex_unlock(&fn_pool.mutex);
+    return NULL;
+}
+
+static int fn_is_pooled(HmlFunction *fn) {
+    return fn >= &fn_pool.functions[0] && fn < &fn_pool.functions[FN_POOL_SIZE];
+}
+
+static void fn_pool_return(HmlFunction *fn) {
+    if (!fn_is_pooled(fn)) return;
+    int idx = (int)(fn - &fn_pool.functions[0]);
+
+    pthread_mutex_lock(&fn_pool.mutex);
+    fn_pool.free_list[fn_pool.free_count++] = idx;
+    pthread_mutex_unlock(&fn_pool.mutex);
+}
+
+// Helper: allocate a function struct (pool first, fallback to malloc)
+static HmlFunction* fn_alloc(void) {
+    HmlFunction *f = fn_pool_alloc();
+    if (f) return f;
+    f = malloc(sizeof(HmlFunction));
+    if (!f) {
+        fprintf(stderr, "Fatal: out of memory allocating function\n");
+        abort();
+    }
+    return f;
+}
 
 // ========== VALUE CONSTRUCTORS ==========
 
@@ -91,32 +251,40 @@ HmlValue hml_val_bool(int val) {
     return v;
 }
 
-// Pre-allocated single-character ASCII strings (immortal, never freed)
-// Uses SSO - data stored inline in each HmlString struct
-static HmlString *ascii_strings[128] = {0};
-
-static void init_ascii_strings(void) {
-    static int initialized = 0;
-    if (initialized) return;
-    for (int i = 0; i < 128; i++) {
-        ascii_strings[i] = malloc(sizeof(HmlString));
-        if (!ascii_strings[i]) {
-            // Fatal error during initialization - cannot continue
-            fprintf(stderr, "Fatal: Failed to allocate ASCII string pool\n");
-            exit(1);
-        }
-        // Use SSO for ASCII cache - store data inline
-        ascii_strings[i]->inline_data[0] = (char)i;
-        ascii_strings[i]->inline_data[1] = '\0';
-        ascii_strings[i]->data = ascii_strings[i]->inline_data;
-        ascii_strings[i]->length = 1;
-        ascii_strings[i]->char_length = 1;
-        ascii_strings[i]->capacity = HML_SSO_THRESHOLD + 1;
-        ascii_strings[i]->is_sso = 1;
-        ascii_strings[i]->ref_count = 1000000;  // Immortal - never freed
-    }
-    initialized = 1;
+// Pre-allocated single-character ASCII strings (immortal, never freed).
+// Uses SSO - data stored inline in each HmlString struct.
+//
+// Statically initialized rather than built on first use. The previous lazy
+// init guarded a 128-entry fill with a plain `static int initialized`, which
+// is a data race: two threads could both observe 0 and both fill the table
+// (double-allocating every entry), and because `initialized = 1` was written
+// *after* the fill with no release barrier, a third thread could see the flag
+// set and read a not-yet-published entry — a garbage HmlString*, not merely a
+// sanitizer complaint. ThreadSanitizer flagged it at this function under the
+// concurrent_object_read stress test.
+//
+// Static storage removes the failure mode instead of synchronizing it: no
+// runtime init at all, so no race, no 128 startup mallocs, and no per-call
+// branch on what is a hot path (every single-char string goes through here).
+// Each entry's `data` points at its own `inline_data`; that is an address
+// constant, which is valid in a static initializer.
+#define HML_ASCII_ENT(c) {                        \
+    .data        = hml_ascii_pool[(c)].inline_data, \
+    .length      = 1,                             \
+    .char_length = 1,                             \
+    .capacity    = HML_SSO_THRESHOLD + 1,         \
+    .ref_count   = HML_REFCOUNT_IMMORTAL,         \
+    .is_sso      = 1,                             \
+    .inline_data = { (char)(c), '\0' }            \
 }
+#define HML_ASCII_4(n)  HML_ASCII_ENT(n), HML_ASCII_ENT((n)+1), \
+                        HML_ASCII_ENT((n)+2), HML_ASCII_ENT((n)+3)
+#define HML_ASCII_16(n) HML_ASCII_4(n), HML_ASCII_4((n)+4), \
+                        HML_ASCII_4((n)+8), HML_ASCII_4((n)+12)
+#define HML_ASCII_64(n) HML_ASCII_16(n), HML_ASCII_16((n)+16), \
+                        HML_ASCII_16((n)+32), HML_ASCII_16((n)+48)
+
+static HmlString hml_ascii_pool[128] = { HML_ASCII_64(0), HML_ASCII_64(64) };
 
 HmlValue hml_val_string(const char *str) {
     HmlValue v;
@@ -124,10 +292,9 @@ HmlValue hml_val_string(const char *str) {
 
     int len = (str != NULL) ? strlen(str) : 0;
 
-    // Fast path: single ASCII character - return pre-allocated string
+    // Fast path: single ASCII character - return the pre-allocated string.
     if (len == 1 && (unsigned char)str[0] < 128) {
-        init_ascii_strings();
-        v.as.as_string = ascii_strings[(unsigned char)str[0]];
+        v.as.as_string = &hml_ascii_pool[(unsigned char)str[0]];
         return v;
     }
 
@@ -220,11 +387,16 @@ HmlValue hml_val_ptr(void *ptr) {
 }
 
 HmlValue hml_val_buffer(int size) {
-    HmlBuffer *b = malloc(sizeof(HmlBuffer));
+    if (size < 0) {
+        hml_runtime_error("buffer() size must be positive");
+    }
+    HmlBuffer *b = calloc(1, sizeof(HmlBuffer));
     if (!b) {
         return hml_val_null();
     }
-    b->data = calloc(size, 1);  // Zero-initialized
+    // size == 0 (internal callers: empty reads, deep copies of freed
+    // buffers) still gets a valid 1-byte allocation so data is never NULL.
+    b->data = calloc(size > 0 ? size : 1, 1);  // Zero-initialized
     if (!b->data) {
         free(b);
         return hml_val_null();
@@ -233,6 +405,7 @@ HmlValue hml_val_buffer(int size) {
     b->capacity = size;
     b->ref_count = 1;
     atomic_store(&b->freed, 0);  // Not freed
+    b->parent = NULL;            // Not a view
 
     HmlValue v;
     v.type = HML_VAL_BUFFER;
@@ -260,15 +433,21 @@ HmlValue hml_val_object(void) {
     HmlValue v;
     v.type = HML_VAL_OBJECT;
 
-    HmlObject *o = malloc(sizeof(HmlObject));
-    o->type_name = NULL;
-    o->fields = NULL;            // Unified field storage (reduces fragmentation)
-    o->num_fields = 0;
-    o->capacity = 0;
-    o->ref_count = 1;
-    atomic_store(&o->freed, 0);  // Not freed
-    o->hash_table = NULL;        // Lazy initialization
-    o->hash_capacity = 0;
+    // Try pool first for O(1) allocation with pre-allocated field storage
+    HmlObject *o = obj_pool_alloc();
+    if (!o) {
+        // Pool exhausted — fallback to malloc
+        o = malloc(sizeof(HmlObject));
+        o->type_name = NULL;
+        o->fields = NULL;
+        o->num_fields = 0;
+        o->capacity = 0;
+        o->ref_count = 1;
+        atomic_store(&o->freed, 0);
+        o->is_pooled = 0;
+        o->hash_table = NULL;
+        o->hash_capacity = 0;
+    }
 
     v.as.as_object = o;
     return v;
@@ -289,14 +468,17 @@ HmlValue hml_val_function_named(void *fn_ptr, int num_params, int num_required, 
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
-    HmlFunction *f = malloc(sizeof(HmlFunction));
+    HmlFunction *f = fn_alloc();
     f->fn_ptr = fn_ptr;
     f->closure_env = NULL;
     f->name = name ? strdup(name) : NULL;
+    f->param_names = NULL;
     f->num_params = num_params;
     f->num_required = num_required;
     f->is_async = is_async;
     f->has_rest_param = 0;
+    f->has_bound_self = 0;
+    f->bound_self = hml_val_null();
     f->ref_count = 1;
 
     v.as.as_function = f;
@@ -311,7 +493,7 @@ HmlValue hml_val_function_rest_named(void *fn_ptr, int num_params, int num_requi
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
-    HmlFunction *f = malloc(sizeof(HmlFunction));
+    HmlFunction *f = fn_alloc();
     f->fn_ptr = fn_ptr;
     f->closure_env = NULL;
     f->name = name ? strdup(name) : NULL;
@@ -320,6 +502,8 @@ HmlValue hml_val_function_rest_named(void *fn_ptr, int num_params, int num_requi
     f->num_required = num_required;
     f->is_async = is_async;
     f->has_rest_param = has_rest_param;
+    f->has_bound_self = 0;
+    f->bound_self = hml_val_null();
     f->ref_count = 1;
 
     v.as.as_function = f;
@@ -330,7 +514,7 @@ HmlValue hml_val_function_with_params(void *fn_ptr, int num_params, int num_requ
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
-    HmlFunction *f = malloc(sizeof(HmlFunction));
+    HmlFunction *f = fn_alloc();
     f->fn_ptr = fn_ptr;
     f->closure_env = NULL;
     f->name = name ? strdup(name) : NULL;
@@ -349,6 +533,8 @@ HmlValue hml_val_function_with_params(void *fn_ptr, int num_params, int num_requ
     f->num_required = num_required;
     f->is_async = is_async;
     f->has_rest_param = has_rest_param;
+    f->has_bound_self = 0;
+    f->bound_self = hml_val_null();
     f->ref_count = 1;
 
     v.as.as_function = f;
@@ -363,7 +549,7 @@ HmlValue hml_val_function_with_env_named(void *fn_ptr, void *env, int num_params
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
-    HmlFunction *f = malloc(sizeof(HmlFunction));
+    HmlFunction *f = fn_alloc();
     f->fn_ptr = fn_ptr;
     f->closure_env = env;
     f->name = name ? strdup(name) : NULL;
@@ -372,6 +558,8 @@ HmlValue hml_val_function_with_env_named(void *fn_ptr, void *env, int num_params
     f->num_required = num_required;
     f->is_async = is_async;
     f->has_rest_param = 0;
+    f->has_bound_self = 0;
+    f->bound_self = hml_val_null();
     f->ref_count = 1;
 
     v.as.as_function = f;
@@ -386,7 +574,7 @@ HmlValue hml_val_function_with_env_rest_named(void *fn_ptr, void *env, int num_p
     HmlValue v;
     v.type = HML_VAL_FUNCTION;
 
-    HmlFunction *f = malloc(sizeof(HmlFunction));
+    HmlFunction *f = fn_alloc();
     f->fn_ptr = fn_ptr;
     f->closure_env = env;
     f->name = name ? strdup(name) : NULL;
@@ -395,6 +583,48 @@ HmlValue hml_val_function_with_env_rest_named(void *fn_ptr, void *env, int num_p
     f->num_required = num_required;
     f->is_async = is_async;
     f->has_rest_param = has_rest_param;
+    f->has_bound_self = 0;
+    f->bound_self = hml_val_null();
+    f->ref_count = 1;
+
+    v.as.as_function = f;
+    return v;
+}
+
+// Create a copy of a function value with 'self' bound to the given object.
+// Used for method extraction (let g = obj.method;) so the extracted callable
+// keeps referring to the object it was taken from, matching the interpreter.
+HmlValue hml_function_bind_self(HmlValue fn, HmlValue self_obj) {
+    if (fn.type != HML_VAL_FUNCTION || fn.as.as_function == NULL) {
+        return fn;
+    }
+    HmlFunction *orig = fn.as.as_function;
+
+    HmlValue v;
+    v.type = HML_VAL_FUNCTION;
+
+    HmlFunction *f = fn_alloc();
+    f->fn_ptr = orig->fn_ptr;
+    f->closure_env = orig->closure_env;
+    if (f->closure_env) {
+        hml_closure_env_retain((HmlClosureEnv *)f->closure_env);
+    }
+    f->name = orig->name ? strdup(orig->name) : NULL;
+    if (orig->param_names && orig->num_params > 0) {
+        f->param_names = malloc(sizeof(char*) * orig->num_params);
+        for (int i = 0; i < orig->num_params; i++) {
+            f->param_names[i] = orig->param_names[i] ? strdup(orig->param_names[i]) : NULL;
+        }
+    } else {
+        f->param_names = NULL;
+    }
+    f->num_params = orig->num_params;
+    f->num_required = orig->num_required;
+    f->is_async = orig->is_async;
+    f->has_rest_param = orig->has_rest_param;
+    f->has_bound_self = 1;
+    f->bound_self = self_obj;
+    hml_retain(&f->bound_self);
     f->ref_count = 1;
 
     v.as.as_function = f;
@@ -449,25 +679,31 @@ void hml_retain(HmlValue *val) {
 
     switch (val->type) {
         case HML_VAL_STRING:
-            if (val->as.as_string) val->as.as_string->ref_count++;
+            if (val->as.as_string &&
+                atomic_load(&val->as.as_string->ref_count) < HML_REFCOUNT_IMMORTAL_MIN) {
+                atomic_fetch_add(&val->as.as_string->ref_count, 1);
+            }
             break;
         case HML_VAL_BUFFER:
-            if (val->as.as_buffer) val->as.as_buffer->ref_count++;
+            if (val->as.as_buffer) atomic_fetch_add(&val->as.as_buffer->ref_count, 1);
             break;
         case HML_VAL_ARRAY:
-            if (val->as.as_array) val->as.as_array->ref_count++;
+            if (val->as.as_array) atomic_fetch_add(&val->as.as_array->ref_count, 1);
             break;
         case HML_VAL_OBJECT:
-            if (val->as.as_object) val->as.as_object->ref_count++;
+            if (val->as.as_object) atomic_fetch_add(&val->as.as_object->ref_count, 1);
             break;
         case HML_VAL_FUNCTION:
-            if (val->as.as_function) val->as.as_function->ref_count++;
+            if (val->as.as_function) atomic_fetch_add(&val->as.as_function->ref_count, 1);
             break;
         case HML_VAL_CHANNEL:
-            if (val->as.as_channel) val->as.as_channel->ref_count++;
+            if (val->as.as_channel) atomic_fetch_add(&val->as.as_channel->ref_count, 1);
             break;
         case HML_VAL_TASK:
-            if (val->as.as_task) val->as.as_task->ref_count++;
+            if (val->as.as_task) atomic_fetch_add(&val->as.as_task->ref_count, 1);
+            break;
+        case HML_VAL_SOCKET:
+            if (val->as.as_socket) atomic_fetch_add(&val->as.as_socket->ref_count, 1);
             break;
         default:
             break;  // Primitive types don't need reference counting
@@ -486,13 +722,28 @@ static void string_free(HmlString *str) {
 
 static void buffer_free(HmlBuffer *buf) {
     if (buf) {
-        free(buf->data);
+        if (buf->parent) {
+            // Zero-copy view: the root becomes freeable again once its last
+            // view is gone, then release the parent instead of freeing data
+            atomic_fetch_sub(&buf->parent->view_count, 1);
+            if (atomic_fetch_sub(&buf->parent->ref_count, 1) <= 1) {
+                buffer_free(buf->parent);
+            }
+        } else {
+            free(buf->data);
+        }
         free(buf);
     }
 }
 
 static void array_free(HmlArray *arr) {
     if (arr) {
+        if (atomic_load(&arr->freed)) {
+            // Array was manually freed via hml_free(): the elements were
+            // already released there. Only free the struct wrapper.
+            free(arr);
+            return;
+        }
         // Release all elements
         for (int i = 0; i < arr->length; i++) {
             hml_release(&arr->elements[i]);
@@ -504,15 +755,34 @@ static void array_free(HmlArray *arr) {
 
 static void object_free(HmlObject *obj) {
     if (obj) {
-        // Free field entries (unified storage)
+        if (atomic_load(&obj->freed)) {
+            // Object was manually freed via hml_free(): its internal data
+            // (fields, names, type_name, hash_table) was already freed there.
+            // Only free the struct wrapper itself (or return it to the pool).
+            if (obj->is_pooled) {
+                obj_pool_free(obj);
+            } else {
+                free(obj);
+            }
+            return;
+        }
+        // Release field values and free field names
         for (int i = 0; i < obj->num_fields; i++) {
             free(obj->fields[i].name);
             hml_release(&obj->fields[i].value);
         }
-        free(obj->fields);       // Single allocation for all fields
         free(obj->type_name);
-        free(obj->hash_table);   // Free hash table
-        free(obj);
+        obj->type_name = NULL;
+        obj->num_fields = 0;
+
+        // Return to pool if pooled, otherwise free everything
+        if (obj->is_pooled) {
+            obj_pool_free(obj);
+        } else {
+            free(obj->fields);
+            free(obj->hash_table);
+            free(obj);
+        }
     }
 }
 
@@ -520,20 +790,44 @@ static void function_free(HmlFunction *fn) {
     if (fn) {
         // Free the function name if set
         free(fn->name);
+        fn->name = NULL;
         // Free parameter names if present
         if (fn->param_names) {
             for (int i = 0; i < fn->num_params; i++) {
                 free(fn->param_names[i]);
             }
             free(fn->param_names);
+            fn->param_names = NULL;
         }
-        // Note: closure_env is not freed here - it may be shared
-        free(fn);
+        // Release closure environment (reference counted - handles sharing)
+        if (fn->closure_env) {
+            hml_closure_env_release(fn->closure_env);
+            fn->closure_env = NULL;
+        }
+        // Release bound 'self' object (extracted methods)
+        if (fn->has_bound_self) {
+            fn->has_bound_self = 0;
+            hml_release(&fn->bound_self);
+            fn->bound_self = hml_val_null();
+        }
+        // Return to pool if pooled, otherwise free
+        if (fn_is_pooled(fn)) {
+            fn_pool_return(fn);
+        } else {
+            free(fn);
+        }
     }
 }
 
 static void task_free(HmlTask *task) {
     if (task) {
+        // If a task handle is dropped without an explicit join()/detach(),
+        // the pthread remains joinable and leaks thread resources even after
+        // task completion. Detach here as a final safety net before teardown.
+        if (!task->joined && !task->detached) {
+            pthread_detach(task->sync->thread);
+        }
+
         // Release the stored function
         hml_release(&task->function);
         // Release the result
@@ -545,36 +839,19 @@ static void task_free(HmlTask *task) {
             }
             free(task->args);
         }
-        // Free the consolidated sync structure (contains mutex, cond, thread)
+        // Free the consolidated sync structure (contains mutex, thread)
         if (task->sync) {
             pthread_mutex_destroy(&task->sync->mutex);
-            pthread_cond_destroy(&task->sync->cond);
             free(task->sync);
         }
+        free(task->name);
         free(task);
     }
 }
 
 static void channel_free(HmlChannel *ch) {
     if (ch) {
-        // Release any buffered values
-        if (ch->buffer) {
-            for (int i = 0; i < ch->count; i++) {
-                int idx = (ch->head + i) % ch->capacity;
-                hml_release(&ch->buffer[idx]);
-            }
-            free(ch->buffer);
-        }
-        // Release unbuffered value if present
-        hml_release(&ch->unbuffered_value);
-        // Free the consolidated sync structure
-        if (ch->sync) {
-            pthread_mutex_destroy(&ch->sync->mutex);
-            pthread_cond_destroy(&ch->sync->not_empty);
-            pthread_cond_destroy(&ch->sync->not_full);
-            pthread_cond_destroy(&ch->sync->rendezvous);
-            free(ch->sync);
-        }
+        hml_chan_free(ch->chan);  // releases any values still queued
         free(ch);
     }
 }
@@ -585,17 +862,19 @@ void hml_release(HmlValue *val) {
     switch (val->type) {
         case HML_VAL_STRING:
             if (val->as.as_string) {
-                val->as.as_string->ref_count--;
-                if (val->as.as_string->ref_count <= 0) {
-                    string_free(val->as.as_string);
+                // Frozen (immortal pool) strings: never decrement, never free.
+                // Checked before the atomic sub so the count can't underflow.
+                if (atomic_load(&val->as.as_string->ref_count) < HML_REFCOUNT_IMMORTAL_MIN) {
+                    if (atomic_fetch_sub(&val->as.as_string->ref_count, 1) <= 1) {
+                        string_free(val->as.as_string);
+                    }
                 }
                 val->as.as_string = NULL;
             }
             break;
         case HML_VAL_BUFFER:
             if (val->as.as_buffer) {
-                val->as.as_buffer->ref_count--;
-                if (val->as.as_buffer->ref_count <= 0) {
+                if (atomic_fetch_sub(&val->as.as_buffer->ref_count, 1) <= 1) {
                     buffer_free(val->as.as_buffer);
                 }
                 val->as.as_buffer = NULL;
@@ -603,8 +882,7 @@ void hml_release(HmlValue *val) {
             break;
         case HML_VAL_ARRAY:
             if (val->as.as_array) {
-                val->as.as_array->ref_count--;
-                if (val->as.as_array->ref_count <= 0) {
+                if (atomic_fetch_sub(&val->as.as_array->ref_count, 1) <= 1) {
                     array_free(val->as.as_array);
                 }
                 val->as.as_array = NULL;
@@ -612,8 +890,7 @@ void hml_release(HmlValue *val) {
             break;
         case HML_VAL_OBJECT:
             if (val->as.as_object) {
-                val->as.as_object->ref_count--;
-                if (val->as.as_object->ref_count <= 0) {
+                if (atomic_fetch_sub(&val->as.as_object->ref_count, 1) <= 1) {
                     object_free(val->as.as_object);
                 }
                 val->as.as_object = NULL;
@@ -621,8 +898,7 @@ void hml_release(HmlValue *val) {
             break;
         case HML_VAL_FUNCTION:
             if (val->as.as_function) {
-                val->as.as_function->ref_count--;
-                if (val->as.as_function->ref_count <= 0) {
+                if (atomic_fetch_sub(&val->as.as_function->ref_count, 1) <= 1) {
                     function_free(val->as.as_function);
                 }
                 val->as.as_function = NULL;
@@ -630,8 +906,7 @@ void hml_release(HmlValue *val) {
             break;
         case HML_VAL_TASK:
             if (val->as.as_task) {
-                val->as.as_task->ref_count--;
-                if (val->as.as_task->ref_count <= 0) {
+                if (atomic_fetch_sub(&val->as.as_task->ref_count, 1) <= 1) {
                     task_free(val->as.as_task);
                 }
                 val->as.as_task = NULL;
@@ -639,15 +914,113 @@ void hml_release(HmlValue *val) {
             break;
         case HML_VAL_CHANNEL:
             if (val->as.as_channel) {
-                val->as.as_channel->ref_count--;
-                if (val->as.as_channel->ref_count <= 0) {
+                if (atomic_fetch_sub(&val->as.as_channel->ref_count, 1) <= 1) {
                     channel_free(val->as.as_channel);
                 }
                 val->as.as_channel = NULL;
             }
             break;
+        case HML_VAL_SOCKET:
+            if (val->as.as_socket) {
+                if (atomic_fetch_sub(&val->as.as_socket->ref_count, 1) <= 1) {
+                    // Defined in builtins_socket.c (stubbed on WASM): closes
+                    // the fd if still open and frees the handle struct.
+                    extern void hml_socket_destroy(HmlSocket *sock);
+                    hml_socket_destroy(val->as.as_socket);
+                }
+                val->as.as_socket = NULL;
+            }
+            break;
         default:
             break;  // Primitive types don't need reference counting
+    }
+}
+
+// ========== STATIC VARIABLE CLEANUP (for compiled binaries) ==========
+
+// Simple visited set for cycle detection during cleanup
+typedef struct {
+    void **items;
+    int count;
+    int capacity;
+} HmlCleanupVisited;
+
+static int cleanup_visited_contains(HmlCleanupVisited *v, void *ptr) {
+    for (int i = 0; i < v->count; i++) {
+        if (v->items[i] == ptr) return 1;
+    }
+    return 0;
+}
+
+static void cleanup_visited_add(HmlCleanupVisited *v, void *ptr) {
+    if (v->count >= v->capacity) {
+        int new_cap = v->capacity == 0 ? 32 : v->capacity * 2;
+        v->items = realloc(v->items, new_cap * sizeof(void *));
+        v->capacity = new_cap;
+    }
+    v->items[v->count++] = ptr;
+}
+
+// Recursively break circular references by detaching closure environments
+static void break_cycles_walk(HmlValue val, HmlCleanupVisited *visited) {
+    switch (val.type) {
+        case HML_VAL_FUNCTION:
+            if (val.as.as_function) {
+                HmlFunction *fn = val.as.as_function;
+                if (fn->closure_env) {
+                    hml_closure_env_release((HmlClosureEnv *)fn->closure_env);
+                    fn->closure_env = NULL;
+                }
+                if (fn->has_bound_self) {
+                    // Detach bound 'self' to break object<->method reference cycles
+                    HmlValue bound = fn->bound_self;
+                    fn->has_bound_self = 0;
+                    fn->bound_self = hml_val_null();
+                    hml_release(&bound);
+                }
+            }
+            break;
+
+        case HML_VAL_OBJECT:
+            if (val.as.as_object) {
+                HmlObject *obj = val.as.as_object;
+                if (atomic_load(&obj->freed)) return;
+                if (cleanup_visited_contains(visited, obj)) return;
+                cleanup_visited_add(visited, obj);
+                for (int i = 0; i < obj->num_fields; i++) {
+                    break_cycles_walk(obj->fields[i].value, visited);
+                }
+            }
+            break;
+
+        case HML_VAL_ARRAY:
+            if (val.as.as_array) {
+                HmlArray *arr = val.as.as_array;
+                if (atomic_load(&arr->freed)) return;
+                if (cleanup_visited_contains(visited, arr)) return;
+                cleanup_visited_add(visited, arr);
+                for (int i = 0; i < arr->length; i++) {
+                    break_cycles_walk(arr->elements[i], visited);
+                }
+            }
+            break;
+
+        default:
+            break;
+    }
+}
+
+void hml_break_cycles(HmlValue *statics[], int count) {
+    HmlCleanupVisited visited = {0};
+    for (int i = 0; i < count; i++) {
+        break_cycles_walk(*statics[i], &visited);
+    }
+    free(visited.items);
+}
+
+void hml_release_statics(HmlValue *statics[], int count) {
+    for (int i = count - 1; i >= 0; i--) {
+        hml_release(statics[i]);
     }
 }
 
@@ -765,10 +1138,10 @@ HmlValue hml_value_deep_copy(HmlValue val) {
             break;
 
         case HML_VAL_PTR:
-            // Raw pointers cannot be deep copied safely - this is intentional
-            // Tasks should not share raw pointers; use channels or buffers instead
-            fprintf(stderr, "Runtime error: Cannot pass raw pointer to spawned task (use buffer or channel instead)\n");
-            exit(1);
+            // Share raw pointers by reference - the programmer is responsible
+            // for synchronization, matching Hemlock's "unsafe is a feature" philosophy.
+            // This enables FFI handles (e.g. WebSocket ptrs) inside objects passed to tasks.
+            return val;
 
         case HML_VAL_FILE:
         case HML_VAL_SOCKET:
@@ -781,21 +1154,21 @@ HmlValue hml_value_deep_copy(HmlValue val) {
             // Functions are shared by reference
             // The closure environment is already designed for this
             if (val.as.as_function) {
-                val.as.as_function->ref_count++;
+                atomic_fetch_add(&val.as.as_function->ref_count, 1);
             }
             return val;
 
         case HML_VAL_TASK:
             // Task handles are shared - they're used for coordination
             if (val.as.as_task) {
-                val.as.as_task->ref_count++;
+                atomic_fetch_add(&val.as.as_task->ref_count, 1);
             }
             return val;
 
         case HML_VAL_CHANNEL:
             // Channels are shared - they're the communication mechanism
             if (val.as.as_channel) {
-                val.as.as_channel->ref_count++;
+                atomic_fetch_add(&val.as.as_channel->ref_count, 1);
             }
             return val;
 
@@ -1048,6 +1421,36 @@ const char* hml_type_name(HmlValueType type) {
     }
 }
 
+int32_t hml_typeid(HmlValue val) {
+    switch (val.type) {
+        case HML_VAL_I8:         return 0;   /* HML_TYPEID_I8 */
+        case HML_VAL_I16:        return 1;   /* HML_TYPEID_I16 */
+        case HML_VAL_I32:        return 2;   /* HML_TYPEID_I32 */
+        case HML_VAL_I64:        return 3;   /* HML_TYPEID_I64 */
+        case HML_VAL_U8:         return 4;   /* HML_TYPEID_U8 */
+        case HML_VAL_U16:        return 5;   /* HML_TYPEID_U16 */
+        case HML_VAL_U32:        return 6;   /* HML_TYPEID_U32 */
+        case HML_VAL_U64:        return 7;   /* HML_TYPEID_U64 */
+        case HML_VAL_F32:        return 8;   /* HML_TYPEID_F32 */
+        case HML_VAL_F64:        return 9;   /* HML_TYPEID_F64 */
+        case HML_VAL_BOOL:       return 10;  /* HML_TYPEID_BOOL */
+        case HML_VAL_STRING:     return 11;  /* HML_TYPEID_STRING */
+        case HML_VAL_RUNE:       return 12;  /* HML_TYPEID_RUNE */
+        case HML_VAL_PTR:        return 13;  /* HML_TYPEID_PTR */
+        case HML_VAL_BUFFER:     return 14;  /* HML_TYPEID_BUFFER */
+        case HML_VAL_ARRAY:      return 15;  /* HML_TYPEID_ARRAY */
+        case HML_VAL_OBJECT:     return 16;  /* HML_TYPEID_OBJECT */
+        case HML_VAL_FILE:       return 17;  /* HML_TYPEID_FILE */
+        case HML_VAL_FUNCTION:   return 18;  /* HML_TYPEID_FUNCTION */
+        case HML_VAL_BUILTIN_FN: return 18;  /* HML_TYPEID_FUNCTION */
+        case HML_VAL_TASK:       return 19;  /* HML_TYPEID_TASK */
+        case HML_VAL_CHANNEL:    return 20;  /* HML_TYPEID_CHANNEL */
+        case HML_VAL_SOCKET:     return 16;  /* HML_TYPEID_OBJECT (socket is object-like) */
+        case HML_VAL_NULL:       return 21;  /* HML_TYPEID_NULL */
+        default:                 return 21;  /* HML_TYPEID_NULL */
+    }
+}
+
 const char* hml_typeof_str(HmlValue val) {
     // For objects with custom type names
     if (val.type == HML_VAL_OBJECT && val.as.as_object && val.as.as_object->type_name) {
@@ -1062,7 +1465,9 @@ HmlClosureEnv* hml_closure_env_new(int num_vars) {
     HmlClosureEnv *env = malloc(sizeof(HmlClosureEnv));
     env->captured = calloc(num_vars, sizeof(HmlValue));
     env->num_captured = num_vars;
-    env->ref_count = 1;
+    env->parent = NULL;
+    atomic_store(&env->ref_count, 1);
+    pthread_mutex_init(&env->mutex, NULL);
 
     // Initialize all captured values to null
     for (int i = 0; i < num_vars; i++) {
@@ -1072,45 +1477,73 @@ HmlClosureEnv* hml_closure_env_new(int num_vars) {
     return env;
 }
 
+HmlClosureEnv* hml_closure_env_new_with_parent(int num_vars, HmlClosureEnv *parent) {
+    HmlClosureEnv *env = hml_closure_env_new(num_vars);
+    env->parent = parent;
+    hml_closure_env_retain(parent);
+    return env;
+}
+
 void hml_closure_env_free(HmlClosureEnv *env) {
     if (env) {
         // Release all captured values
         for (int i = 0; i < env->num_captured; i++) {
             hml_release(&env->captured[i]);
         }
+        // Release the parent environment link (if any)
+        if (env->parent) {
+            hml_closure_env_release(env->parent);
+            env->parent = NULL;
+        }
+        pthread_mutex_destroy(&env->mutex);
         free(env->captured);
         free(env);
     }
 }
 
+// Resolve a parent-encoded slot index (see HML_CLOSURE_ENV_PARENT_STRIDE) to
+// the environment that actually stores the slot.
+static HmlClosureEnv* closure_env_resolve(HmlClosureEnv *env, int *index) {
+    while (env && *index >= HML_CLOSURE_ENV_PARENT_STRIDE) {
+        *index -= HML_CLOSURE_ENV_PARENT_STRIDE;
+        env = env->parent;
+    }
+    return env;
+}
+
 void hml_closure_env_retain(HmlClosureEnv *env) {
     if (env) {
-        env->ref_count++;
+        atomic_fetch_add(&env->ref_count, 1);
     }
 }
 
 void hml_closure_env_release(HmlClosureEnv *env) {
     if (env) {
-        env->ref_count--;
-        if (env->ref_count <= 0) {
+        if (atomic_fetch_sub(&env->ref_count, 1) <= 1) {
             hml_closure_env_free(env);
         }
     }
 }
 
 HmlValue hml_closure_env_get(HmlClosureEnv *env, int index) {
+    env = closure_env_resolve(env, &index);
     if (env && index >= 0 && index < env->num_captured) {
+        pthread_mutex_lock(&env->mutex);
         HmlValue val = env->captured[index];
         hml_retain(&val);
+        pthread_mutex_unlock(&env->mutex);
         return val;
     }
     return hml_val_null();
 }
 
 void hml_closure_env_set(HmlClosureEnv *env, int index, HmlValue val) {
+    env = closure_env_resolve(env, &index);
     if (env && index >= 0 && index < env->num_captured) {
+        pthread_mutex_lock(&env->mutex);
         hml_release(&env->captured[index]);
         env->captured[index] = val;
         hml_retain(&env->captured[index]);
+        pthread_mutex_unlock(&env->mutex);
     }
 }

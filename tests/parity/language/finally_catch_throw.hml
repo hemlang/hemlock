@@ -1,0 +1,56 @@
+// finally must run when the exception is thrown inside the CATCH block,
+// before the exception unwinds to the outer handler (regression: the
+// compiled backend used to skip finally on the throw-from-catch path).
+
+// Throw from catch: finally runs, then the outer catch sees the new value
+try {
+    try { throw "x"; }
+    catch (e) { throw "y"; }
+    finally { print("FIN"); }
+} catch (e) { print("outer: " + e); }
+
+// Nested try/finally where both catches throw: every finally still runs
+try {
+    try {
+        try { throw "a"; }
+        catch (e) { throw "b"; }
+        finally { print("fin1"); }
+    } catch (e) {
+        print("mid: " + e);
+        throw "c";
+    } finally { print("fin2"); }
+} catch (e) { print("outer2: " + e); }
+
+// Finally itself throwing after catch threw: the finally's value wins
+try {
+    try { throw "x"; }
+    catch (e) { throw "y"; }
+    finally { print("fin3"); throw "z"; }
+} catch (e) { print("outer3: " + e); }
+
+// Return from catch still passes through finally exactly once
+fn ret_from_catch(): string {
+    try { throw "x"; }
+    catch (e) { return "ret"; }
+    finally { print("fin4"); }
+    return "after";
+}
+print(ret_from_catch());
+
+// Throw from catch inside a function: finally runs during unwinding
+fn boom() {
+    try { throw "inner"; }
+    catch (e) { throw "re-" + e; }
+    finally { print("fn-finally"); }
+}
+try { boom(); } catch (e) { print("outer4: " + e); }
+
+// Plain try/finally with no catch where try throws (must keep working)
+try {
+    try { throw "p"; }
+    finally { print("fin5"); }
+} catch (e) { print("outer5: " + e); }
+
+// Exception machinery still healthy afterwards
+try { throw "post"; } catch (e) { print("post: " + e); }
+print("done");

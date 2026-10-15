@@ -6,16 +6,13 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "../internal.h"
+#include "hemlock_platform.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <pthread.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <dirent.h>
 #include <unistd.h>
 #include <limits.h>
@@ -24,7 +21,15 @@
 #include <sys/time.h>
 #include <signal.h>
 #include <fcntl.h>  // For O_NOFOLLOW symlink protection
+#ifndef _WIN32
+#include <sys/wait.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <poll.h>   // For poll() in exec functions
+#include <spawn.h>  // For posix_spawn() / posix_spawnp()
+#endif
 
 // Define math constants if not available
 #ifndef M_PI
@@ -55,6 +60,7 @@ Value builtin_realloc(Value *args, int num_args, ExecutionContext *ctx);
 
 // Debugging builtins (debugging.c)
 Value builtin_typeof(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_typeid(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_assert(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_panic(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_set_stack_limit(Value *args, int num_args, ExecutionContext *ctx);
@@ -97,6 +103,8 @@ Value builtin_now(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_time_ms(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_sleep(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_clock(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_main_loop(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_main_loop_stop(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_localtime(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_gmtime(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_mktime(Value *args, int num_args, ExecutionContext *ctx);
@@ -119,7 +127,15 @@ Value builtin_kill(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_fork(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_wait(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_waitpid(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_abort(Value *args, int num_args, ExecutionContext *ctx);
+
+// Pipe builtins (env.c)
+Value builtin_pipe(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_close_fd(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_fd(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_fd(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_dup2(Value *args, int num_args, ExecutionContext *ctx);
 
 // Signal handling builtins (signals.c)
 Value builtin_signal(Value *args, int num_args, ExecutionContext *ctx);
@@ -127,11 +143,14 @@ Value builtin_raise(Value *args, int num_args, ExecutionContext *ctx);
 
 // Concurrency builtins (concurrency.c)
 Value builtin_spawn(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_spawn_with(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_join(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_detach(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_channel(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_select(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_task_debug_info(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_get_default_stack_size(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_set_default_stack_size(Value *args, int num_args, ExecutionContext *ctx);
 
 // Filesystem builtins (filesystem.c)
 Value builtin_exists(Value *args, int num_args, ExecutionContext *ctx);
@@ -144,6 +163,8 @@ Value builtin_copy_file(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_is_file(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_is_dir(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_file_stat(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_open_fd(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_fileno(Value *args, int num_args, ExecutionContext *ctx);
 
 // Directory builtins (directories.c)
 Value builtin_make_dir(Value *args, int num_args, ExecutionContext *ctx);
@@ -155,6 +176,7 @@ Value builtin_absolute_path(Value *args, int num_args, ExecutionContext *ctx);
 
 // I/O helper builtins (io_helpers.c)
 Value builtin_print(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_string_concat_many(Value *args, int num_args, ExecutionContext *ctx);
 
 // Internal helper builtins (internal_helpers.c)
@@ -173,6 +195,8 @@ Value builtin_dns_resolve(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_poll(Value *args, int num_args, ExecutionContext *ctx);
 Value val_socket(SocketHandle *sock);
 void socket_free(SocketHandle *sock);
+void socket_retain(SocketHandle *sock);
+void socket_release(SocketHandle *sock);
 Value get_socket_property(SocketHandle *sock, const char *property, ExecutionContext *ctx);
 Value call_socket_method(SocketHandle *sock, const char *method, Value *args, int num_args, ExecutionContext *ctx);
 
@@ -194,6 +218,7 @@ Value builtin_lws_response_free(Value *args, int num_args, ExecutionContext *ctx
 // Streaming HTTP builtins
 Value builtin_lws_http_stream_start(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_http_stream_read(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_http_stream_read_binary(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_http_stream_status(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_http_stream_headers(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_http_stream_close(Value *args, int num_args, ExecutionContext *ctx);
@@ -205,6 +230,7 @@ Value builtin_lws_ws_recv(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_msg_type(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_msg_text(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_msg_len(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_lws_msg_binary(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_msg_free(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_ws_close(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_lws_ws_is_closed(Value *args, int num_args, ExecutionContext *ctx);
@@ -229,7 +255,11 @@ Value builtin_zlib_compress_bound(Value *args, int num_args, ExecutionContext *c
 Value builtin_crc32(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_adler32(Value *args, int num_args, ExecutionContext *ctx);
 
+// CSPRNG builtin (crypto.c; available on every build)
+Value builtin_random_bytes(Value *args, int num_args, ExecutionContext *ctx);
+
 // Cryptographic hash builtins (crypto.c)
+Value builtin_sha1(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_sha256(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_sha512(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_md5(Value *args, int num_args, ExecutionContext *ctx);
@@ -253,6 +283,12 @@ Value builtin_os_version(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_os_name(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_tmpdir(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_uptime(Value *args, int num_args, ExecutionContext *ctx);
+
+// Terminal control builtins (os.c, backed by src/shared/term_core.c)
+Value builtin_term_is_tty(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_term_raw(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_term_read_byte(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_term_size(Value *args, int num_args, ExecutionContext *ctx);
 
 // FFI callback builtins (ffi_builtins.c)
 Value builtin_callback(Value *args, int num_args, ExecutionContext *ctx);
@@ -285,6 +321,16 @@ Value builtin_ptr_write_u64(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_ptr_write_f32(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_ptr_write_f64(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_ptr_write_ptr(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_i8(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_i16(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_ptr(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_i64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_u8(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_u16(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_u32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_u64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_f32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ptr_read_f64(Value *args, int num_args, ExecutionContext *ctx);
 
 // FFI utility builtins (ffi_builtins.c)
 Value builtin_ffi_sizeof(Value *args, int num_args, ExecutionContext *ctx);
@@ -315,6 +361,39 @@ Value builtin_atomic_cas_i64(Value *args, int num_args, ExecutionContext *ctx);
 Value builtin_atomic_exchange_i64(Value *args, int num_args, ExecutionContext *ctx);
 // Memory fence
 Value builtin_atomic_fence(Value *args, int num_args, ExecutionContext *ctx);
+
+// Byte order builtins (byteorder.c)
+Value builtin_bswap16(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_bswap32(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_bswap64(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_htons(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_htonl(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_htonll(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ntohs(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ntohl(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_ntohll(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_is_little_endian(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_u16_be(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_u16_le(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_u32_be(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_u32_le(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_u64_be(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_read_u64_le(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_u16_be(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_u16_le(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_u32_be(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_u32_le(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_u64_be(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_write_u64_le(Value *args, int num_args, ExecutionContext *ctx);
+
+// Memory-mapped file I/O builtins (mmap.c)
+Value builtin_mmap_open(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_open_anon(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_sync(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_close(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_size(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_advise(Value *args, int num_args, ExecutionContext *ctx);
+Value builtin_mmap_protect(Value *args, int num_args, ExecutionContext *ctx);
 
 // Regex builtins (regex.c)
 Value builtin_regex_compile(Value *args, int num_args, ExecutionContext *ctx);

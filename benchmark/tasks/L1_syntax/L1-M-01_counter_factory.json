@@ -1,0 +1,12 @@
+{
+  "id": "L1-M-01",
+  "level": "L1",
+  "difficulty": "medium",
+  "title": "Counter Factory",
+  "topic": "closures",
+  "prompt": "Write a Hemlock program that implements a `make_counter(start)` function which returns an object with three methods: `increment` (adds 1), `decrement` (subtracts 1), and `value` (returns current count). Each method should be a closure capturing the counter state. Create a counter starting at 10, call increment 3 times, decrement once, and print the result of value() after each operation (4 prints total).",
+  "expected_output": "11\n12\n13\n12\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "tags": ["closures", "objects", "functions", "state"]
+}

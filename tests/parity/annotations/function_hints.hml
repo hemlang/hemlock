@@ -1,4 +1,5 @@
 // Parity test: Function optimization hints should not change behavior
+import { divi } from "@stdlib/math";
 
 @inline
 fn add(a: i32, b: i32): i32 {

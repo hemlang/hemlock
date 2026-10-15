@@ -1,5 +1,6 @@
 // Test: TTY signal constants
 // SIGTTIN and SIGTTOU should be available
+import { SIGTTIN, SIGTTOU } from "@stdlib/signal";
 
 print(SIGTTIN);
 print(SIGTTOU);

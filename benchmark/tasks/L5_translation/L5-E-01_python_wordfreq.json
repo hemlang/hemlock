@@ -1,0 +1,14 @@
+{
+  "id": "L5-E-01",
+  "level": "L5",
+  "difficulty": "easy",
+  "title": "Python Word Frequency",
+  "topic": "Python to Hemlock",
+  "prompt": "Translate the following Python program to idiomatic Hemlock. Use Hemlock's HashMap from @stdlib/collections for the frequency map, and Hemlock's string methods (to_lower, split). The output must be identical.\n\n```python\ndef word_frequency(text):\n    words = text.lower().split()\n    freq = {}\n    for word in words:\n        if word in freq:\n            freq[word] += 1\n        else:\n            freq[word] = 1\n    # Sort by frequency descending, then alphabetically\n    items = sorted(freq.items(), key=lambda x: (-x[1], x[0]))\n    return items\n\nfor word, count in word_frequency(\"the cat sat on the mat the cat\"):\n    print(f\"{word}: {count}\")\n```\n\nExpected output:\nthe: 3\ncat: 2\nmat: 1\non: 1\nsat: 1",
+  "expected_output": "the: 3\ncat: 2\nmat: 1\non: 1\nsat: 1\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "source_language": "python",
+  "notes": "Tests translation of Python dict -> HashMap, f-strings -> template strings or concatenation, list comprehension -> Hemlock idioms.",
+  "tags": ["translation", "python", "collections", "strings", "sorting"]
+}

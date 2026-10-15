@@ -22,6 +22,7 @@ typedef struct {
 typedef struct {
     const char *input;
     int pos;
+    int depth;   // current nesting depth (bounds recursion on untrusted JSON)
 } JSONParser;
 
 // Serialization functions
@@ -44,6 +45,8 @@ Value json_parse_value(JSONParser *p, ExecutionContext *ctx);
 
 // Value comparison for array methods
 int values_equal(Value a, Value b);
+// Loose (==) equality for switch cases and match literal patterns
+int values_equal_loose(Value a, Value b);
 
 // ========== METHOD HANDLERS ==========
 

@@ -1,0 +1,60 @@
+// Side-effect-import every stdlib module whose load has no optional
+// system-library dependency (crypto needs libcrypto, sqlite needs
+// libsqlite3, vector needs libusearch — excluded so this runs on any
+// dev machine). Catches module-level wiring bugs in both backends:
+// the platform-gated FFI import in termios compiled to an undeclared
+// global for months because nothing ever compiled the module.
+//
+// Interpreted via `make test`; compiled via the repo-compile-check lane
+// (kept out of the parity harness: gcc needs ~90s for the 8 MB of
+// generated C, past the harness's 30s compile timeout).
+import "@stdlib/arena";
+import "@stdlib/args";
+import "@stdlib/assert";
+import "@stdlib/async";
+import "@stdlib/async_fs";
+import "@stdlib/atomic";
+import "@stdlib/bytes";
+import "@stdlib/collections";
+import "@stdlib/compression";
+import "@stdlib/csv";
+import "@stdlib/datetime";
+import "@stdlib/debug";
+import "@stdlib/decimal";
+import "@stdlib/encoding";
+import "@stdlib/env";
+import "@stdlib/fmt";
+import "@stdlib/fs";
+import "@stdlib/glob";
+import "@stdlib/hash";
+import "@stdlib/http";
+import "@stdlib/ipc";
+import "@stdlib/iter";
+import "@stdlib/jinja";
+import "@stdlib/json";
+import "@stdlib/logging";
+import "@stdlib/math";
+import "@stdlib/matrix";
+import "@stdlib/mmap";
+import "@stdlib/net";
+import "@stdlib/os";
+import "@stdlib/path";
+import "@stdlib/process";
+import "@stdlib/random";
+import "@stdlib/regex";
+import "@stdlib/retry";
+import "@stdlib/semver";
+import "@stdlib/shell";
+import "@stdlib/signal";
+import "@stdlib/strings";
+import "@stdlib/terminal";
+import "@stdlib/termios";
+import "@stdlib/testing";
+import "@stdlib/time";
+import "@stdlib/toml";
+import "@stdlib/unix_socket";
+import "@stdlib/url";
+import "@stdlib/uuid";
+import "@stdlib/websocket";
+import "@stdlib/yaml";
+print("all stdlib modules loaded");

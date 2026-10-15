@@ -1,4 +1,5 @@
 // Test math builtins
+import { sqrt, floor, ceil, round, pow, sin, cos, atan2, log, log10, log2, exp, trunc, abs, min, max, clamp, seed, rand_range } from "@stdlib/math";
 
 // sqrt
 let x = sqrt(16.0);

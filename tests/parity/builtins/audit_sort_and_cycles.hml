@@ -1,0 +1,36 @@
+// sort(): float-returning comparators, mixed numeric default ordering;
+// printing self-referential arrays; catchable typed-array/annotation errors.
+let b = [3, 1, 2];
+b.sort(fn(x, y) { return (x - y) / 10; });
+print(b);
+
+let c = [3, 1.5, 2, -1];
+c.sort();
+print(c);
+
+let big: i64 = 5000000000;
+let d = [big, 1, 3000000000];
+d.sort();
+print(d);
+
+try { [2, 1].sort(fn(x, y) { return "no"; }); } catch (err) { print("bad comparator"); }
+
+fn id(v) { return v; }
+let a = [1];
+a.push(id(a));
+print(a);
+print(`${a}`);
+print(a.join(","));
+
+let nums: array<i32> = [1];
+try { nums.push(id("x")); } catch (e) { print("push mismatch"); }
+try { nums[0] = id(2.5); } catch (e) { print("set mismatch"); }
+nums[3] = 5;
+print(nums);
+
+define P { x: i32 }
+enum E { A }
+try { let p: P = id({y: 1}); } catch (e) { print("missing field"); }
+try { let x: E = id(99); } catch (e) { print("bad variant"); }
+try { let x: array = id(5); } catch (e) { print("not array"); }
+print("end");

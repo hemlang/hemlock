@@ -78,9 +78,13 @@ static void parse_annotation_arg_value(Parser *p, Annotation *a, const char *arg
     if (match(p, TOK_STRING)) {
         // String argument
         annotation_add_arg_string(a, arg_name, p->previous.string_value);
+        free(p->previous.string_value);  // Parser owns this memory from lexer
+        p->previous.string_value = NULL;
     } else if (match(p, TOK_NUMBER)) {
         // Number argument
-        double value = p->previous.is_float ? p->previous.float_value : (double)p->previous.int_value;
+        double value = p->previous.is_float ? p->previous.float_value
+                     : p->previous.is_u64   ? (double)p->previous.uint_value
+                     : (double)p->previous.int_value;
         annotation_add_arg_number(a, arg_name, value);
     } else if (match(p, TOK_IDENT) || match(p, TOK_TRUE) || match(p, TOK_FALSE)) {
         // Identifier argument (including true/false as identifiers)
@@ -150,13 +154,48 @@ static Annotation **parse_annotations(Parser *p, int *count) {
     return annotations;
 }
 
+// Attach already-parsed annotations to a loop or conditional statement and
+// validate them against the statement's target kind. Ownership of the
+// annotation array is transferred to the statement. Returns 1 on success,
+// 0 if validation reported an error.
+static int attach_stmt_annotations(Stmt *stmt, Annotation **annotations, int count) {
+    switch (stmt->type) {
+        case STMT_WHILE:
+            stmt->as.while_stmt.annotations = annotations;
+            stmt->as.while_stmt.annotation_count = count;
+            break;
+        case STMT_LOOP:
+            stmt->as.loop_stmt.annotations = annotations;
+            stmt->as.loop_stmt.annotation_count = count;
+            break;
+        case STMT_FOR:
+            stmt->as.for_loop.annotations = annotations;
+            stmt->as.for_loop.annotation_count = count;
+            break;
+        case STMT_FOR_IN:
+            stmt->as.for_in.annotations = annotations;
+            stmt->as.for_in.annotation_count = count;
+            break;
+        case STMT_IF:
+            stmt->as.if_stmt.annotations = annotations;
+            stmt->as.if_stmt.annotation_count = count;
+            break;
+        default:
+            return 1;
+    }
+    if (count > 0) {
+        return validate_annotations(stmt);
+    }
+    return 1;
+}
+
 // ========== STATEMENT PARSING ==========
 
 Stmt* statement(Parser *p);
 Stmt* extern_fn_statement(Parser *p);
 Stmt* define_statement(Parser *p);
 
-Stmt* let_statement(Parser *p) {
+static Stmt* let_statement(Parser *p) {
     char *name = consume_identifier_or_type_keyword(p, "Expect variable name");
 
     Type *type_annotation = NULL;
@@ -177,7 +216,7 @@ Stmt* let_statement(Parser *p) {
     return stmt;
 }
 
-Stmt* const_statement(Parser *p) {
+static Stmt* const_statement(Parser *p) {
     char *name = consume_identifier_or_type_keyword(p, "Expect variable name");
 
     Type *type_annotation = NULL;
@@ -208,6 +247,12 @@ Stmt* block_statement(Parser *p) {
     int count = 0;
 
     while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+        // Snapshot the current token so we can detect no-progress iterations
+        // (same guard as parse_program). A statement that errors without
+        // consuming the offending token would otherwise spin this loop
+        // forever while growing the block unboundedly.
+        Token before = p->current;
+
         // Grow array if needed
         if (count >= capacity) {
             capacity *= 2;
@@ -220,6 +265,13 @@ Stmt* block_statement(Parser *p) {
             statements = new_statements;
         }
         statements[count++] = statement(p);
+
+        // Guarantee forward progress
+        if (p->current.type != TOK_EOF
+            && p->current.start == before.start
+            && p->current.length == before.length) {
+            advance(p);
+        }
     }
 
     consume(p, TOK_RBRACE, "Expect '}' after block");
@@ -227,7 +279,7 @@ Stmt* block_statement(Parser *p) {
     return stmt_block(statements, count);
 }
 
-Stmt* if_statement(Parser *p) {
+static Stmt* if_statement(Parser *p) {
     consume(p, TOK_LPAREN, "Expect '(' after 'if'");
     Expr *condition = expression(p);
     consume(p, TOK_RPAREN, "Expect ')' after condition");
@@ -258,7 +310,7 @@ Stmt* if_statement(Parser *p) {
     return stmt_if(condition, then_branch, else_branch);
 }
 
-Stmt* while_statement_with_label(Parser *p, const char *label) {
+static Stmt* while_statement_with_label(Parser *p, const char *label) {
     consume(p, TOK_LPAREN, "Expect '(' after 'while'");
     Expr *condition = expression(p);
     consume(p, TOK_RPAREN, "Expect ')' after condition");
@@ -274,22 +326,22 @@ Stmt* while_statement_with_label(Parser *p, const char *label) {
     return stmt_while_labeled(label, condition, body);
 }
 
-Stmt* while_statement(Parser *p) {
+static Stmt* while_statement(Parser *p) {
     return while_statement_with_label(p, NULL);
 }
 
-Stmt* loop_statement_with_label(Parser *p, const char *label) {
+static Stmt* loop_statement_with_label(Parser *p, const char *label) {
     consume(p, TOK_LBRACE, "Expect '{' after 'loop'");
     Stmt *body = block_statement(p);
 
     return stmt_loop_labeled(label, body);
 }
 
-Stmt* loop_statement(Parser *p) {
+static Stmt* loop_statement(Parser *p) {
     return loop_statement_with_label(p, NULL);
 }
 
-Stmt* switch_statement(Parser *p) {
+static Stmt* switch_statement(Parser *p) {
     consume(p, TOK_LPAREN, "Expect '(' after 'switch'");
     Expr *expr = expression(p);
     consume(p, TOK_RPAREN, "Expect ')' after switch expression");
@@ -349,7 +401,14 @@ Stmt* switch_statement(Parser *p) {
                     }
                     statements = new_statements;
                 }
+                Token before = p->current;
                 statements[count++] = statement(p);
+                // Guarantee forward progress (same guard as block_statement)
+                if (p->current.type != TOK_EOF
+                    && p->current.start == before.start
+                    && p->current.length == before.length) {
+                    advance(p);
+                }
             }
 
             case_bodies[num_cases] = stmt_block(statements, count);
@@ -380,7 +439,14 @@ Stmt* switch_statement(Parser *p) {
                     }
                     statements = new_statements;
                 }
+                Token before = p->current;
                 statements[count++] = statement(p);
+                // Guarantee forward progress (same guard as block_statement)
+                if (p->current.type != TOK_EOF
+                    && p->current.start == before.start
+                    && p->current.length == before.length) {
+                    advance(p);
+                }
             }
 
             case_bodies[num_cases] = stmt_block(statements, count);
@@ -395,7 +461,7 @@ Stmt* switch_statement(Parser *p) {
     return stmt_switch(expr, case_values, case_bodies, num_cases);
 }
 
-Stmt* for_statement_with_label(Parser *p, const char *label) {
+static Stmt* for_statement_with_label(Parser *p, const char *label) {
     consume(p, TOK_LPAREN, "Expect '(' after 'for'");
 
     // Check if this is a for-in loop by looking ahead
@@ -570,17 +636,17 @@ Stmt* for_statement_with_label(Parser *p, const char *label) {
     return stmt_for_labeled(label, initializer, condition, increment, body);
 }
 
-Stmt* for_statement(Parser *p) {
+static Stmt* for_statement(Parser *p) {
     return for_statement_with_label(p, NULL);
 }
 
-Stmt* expression_statement(Parser *p) {
+static Stmt* expression_statement(Parser *p) {
     Expr *expr = expression(p);
     consume(p, TOK_SEMICOLON, "Expect ';' after expression");
     return stmt_expr(expr);
 }
 
-Stmt* return_statement(Parser *p) {
+static Stmt* return_statement(Parser *p) {
     Expr *value = NULL;
 
     // Check if there's a return value
@@ -592,14 +658,25 @@ Stmt* return_statement(Parser *p) {
     return stmt_return(value);
 }
 
-Stmt* import_statement(Parser *p) {
-    // Check for FFI import: import "library.so"
+static Stmt* import_statement(Parser *p) {
+    // Bare string import: import "library.so" (FFI) or
+    // import "./module.hml" / import "@stdlib/module" (side-effect source import)
     if (check(p, TOK_STRING)) {
         advance(p);
         char *library_path = p->previous.string_value;
-        consume(p, TOK_SEMICOLON, "Expect ';' after FFI import");
+        consume(p, TOK_SEMICOLON, "Expect ';' after import");
 
-        Stmt *stmt = stmt_import_ffi(library_path);
+        // A bare import naming a source module (".hml" suffix or "@" package
+        // prefix) loads and executes the module without binding any exports —
+        // equivalent to `import {} from "path"`. Anything else keeps the
+        // existing FFI shared-library semantics.
+        size_t path_len = strlen(library_path);
+        int is_source_import = (library_path[0] == '@') ||
+            (path_len > 4 && strcmp(library_path + path_len - 4, ".hml") == 0);
+
+        Stmt *stmt = is_source_import
+            ? stmt_import_named(NULL, NULL, 0, library_path)
+            : stmt_import_ffi(library_path);
         free(library_path);
         return stmt;
     }
@@ -614,7 +691,10 @@ Stmt* import_statement(Parser *p) {
 
             consume_contextual(p, "from", "Expect 'from' in import statement");
             consume(p, TOK_STRING, "Expect module path string");
-            char *module_path = p->previous.string_value;
+            // On a failed consume p->previous is not a string token; a stale
+            // string_value here would be strdup'd and double-freed.
+            char *module_path =
+                (p->previous.type == TOK_STRING) ? p->previous.string_value : NULL;
 
             consume(p, TOK_SEMICOLON, "Expect ';' after import statement");
 
@@ -626,7 +706,10 @@ Stmt* import_statement(Parser *p) {
             // Star import: import * from "module" (imports all exports into current scope)
             consume_contextual(p, "from", "Expect 'from' after '*' in import statement");
             consume(p, TOK_STRING, "Expect module path string");
-            char *module_path = p->previous.string_value;
+            // On a failed consume p->previous is not a string token; a stale
+            // string_value here would be strdup'd and double-freed.
+            char *module_path =
+                (p->previous.type == TOK_STRING) ? p->previous.string_value : NULL;
 
             consume(p, TOK_SEMICOLON, "Expect ';' after import statement");
 
@@ -686,7 +769,9 @@ Stmt* import_statement(Parser *p) {
     consume(p, TOK_RBRACE, "Expect '}' after import list");
     consume_contextual(p, "from", "Expect 'from' in import statement");
     consume(p, TOK_STRING, "Expect module path string");
-    char *module_path = p->previous.string_value;
+    // See note above: a failed consume must not surface a stale string_value.
+    char *module_path =
+        (p->previous.type == TOK_STRING) ? p->previous.string_value : NULL;
 
     consume(p, TOK_SEMICOLON, "Expect ';' after import statement");
 
@@ -695,7 +780,7 @@ Stmt* import_statement(Parser *p) {
     return stmt;
 }
 
-Stmt* export_statement(Parser *p) {
+static Stmt* export_statement(Parser *p) {
     // Check for re-export: export { name1, name2 } from "module"
     if (match(p, TOK_LBRACE)) {
         int export_capacity = 32;
@@ -747,7 +832,10 @@ Stmt* export_statement(Parser *p) {
         // Check for re-export
         if (match_contextual(p, "from")) {
             consume(p, TOK_STRING, "Expect module path string");
-            char *module_path = p->previous.string_value;
+            // On a failed consume p->previous is not a string token; a stale
+            // string_value here would be strdup'd and double-freed.
+            char *module_path =
+                (p->previous.type == TOK_STRING) ? p->previous.string_value : NULL;
             consume(p, TOK_SEMICOLON, "Expect ';' after export statement");
 
             Stmt *stmt = stmt_export_reexport(export_names, export_aliases, num_exports, module_path);
@@ -768,6 +856,29 @@ Stmt* export_statement(Parser *p) {
 
     if (match(p, TOK_LET)) {
         Stmt *decl = let_statement(p);
+        // Self-rebind shortcut: `export let X = X;` is equivalent to `export { X };`.
+        // Without this, the let binding tries to define X again in a scope where X
+        // already exists (e.g. local fn or imported name), triggering a redefinition
+        // error. Treat it as a pure re-export of the existing name.
+        if (decl && decl->type == STMT_LET &&
+            decl->as.let.value && decl->as.let.value->type == EXPR_IDENT &&
+            decl->as.let.value->as.ident.name &&
+            decl->as.let.name &&
+            strcmp(decl->as.let.value->as.ident.name, decl->as.let.name) == 0 &&
+            decl->as.let.type_annotation == NULL) {
+            char **names = malloc(sizeof(char*));
+            char **aliases = malloc(sizeof(char*));
+            if (!names || !aliases) {
+                free(names);
+                free(aliases);
+                error(p, "Memory allocation failed for export list");
+                return decl;
+            }
+            names[0] = strdup(decl->as.let.name);
+            aliases[0] = NULL;
+            stmt_free(decl);
+            return stmt_export_list(names, aliases, 1);
+        }
         return stmt_export_declaration(decl);
     }
 
@@ -794,6 +905,8 @@ Stmt* export_statement(Parser *p) {
         error(p, "Expected declaration or export list after 'export'");
         return stmt_expr(expr_number(0));
     }
+
+    int fn_start_line = p->previous.line;
 
     // Must be a named function - contextual keywords can be used as function names
     char *name = consume_identifier_or_type_keyword(p, "Expect function name after 'export fn'");
@@ -926,6 +1039,7 @@ Stmt* export_statement(Parser *p) {
 
     // Create function expression
     Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
+    fn_expr->line = fn_start_line;
 
     // Create let statement
     Stmt *decl = stmt_let_typed(name, NULL, fn_expr);
@@ -1237,9 +1351,15 @@ Stmt* define_statement(Parser *p) {
                 // Free fn_param_defaults array (elements were copied to default_param_defaults)
                 free(fn_param_defaults);
             } else {
-                // Just a signature, no default
+                // Just a signature, no default implementation. Default-value
+                // expressions (e.g. `fn f(x?: 2);`) are not transferred
+                // anywhere, so free them along with the array.
                 method_defaults[num_methods] = NULL;
-                // Free fn_param_defaults when no default impl (elements are NULL anyway)
+                for (int i = 0; i < fn_num_params; i++) {
+                    if (fn_param_defaults[i]) {
+                        expr_free(fn_param_defaults[i]);
+                    }
+                }
                 free(fn_param_defaults);
             }
 
@@ -1346,7 +1466,29 @@ Stmt* define_statement(Parser *p) {
 // Helper macro to set line number and return
 #define RETURN_STMT(s) do { Stmt *_s = (s); _s->line = stmt_start_line; _s->column = stmt_start_column; return _s; } while(0)
 
+static Stmt* statement_inner(Parser *p);
+
+// Public entry: bound statement-recursion depth (e.g. deeply nested blocks
+// "{ { { ... } } }") so untrusted source raises a parse error instead of
+// overflowing the C stack. Consume a token on overflow so callers that loop on
+// statement() (such as block parsing) always make forward progress.
 Stmt* statement(Parser *p) {
+    if (p->parse_depth >= HML_MAX_PARSE_DEPTH) {
+        error_at_current(p, "Maximum nesting depth exceeded");
+        // Drain to EOF so the (many) enclosing parse loops unwind immediately
+        // instead of attempting per-token error recovery, which would be
+        // quadratic for pathologically nested input. Only reachable on input
+        // that already exceeds the depth limit, so valid code is unaffected.
+        while (p->current.type != TOK_EOF) advance(p);
+        return stmt_expr(expr_number(0));
+    }
+    p->parse_depth++;
+    Stmt *s = statement_inner(p);
+    p->parse_depth--;
+    return s;
+}
+
+static Stmt* statement_inner(Parser *p) {
     // Save the starting line/column for this statement
     int stmt_start_line = p->current.line;
     int stmt_start_column = p->current.column;
@@ -1731,6 +1873,7 @@ Stmt* statement(Parser *p) {
 
         // Create function expression (with is_async flag)
         Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
+        fn_expr->line = stmt_start_line;
 
         // Desugar to let statement
         Stmt *stmt = stmt_let_typed(name, NULL, fn_expr);
@@ -1749,18 +1892,18 @@ Stmt* statement(Parser *p) {
 
 not_function:
 
-    // Check if annotations were provided but statement doesn't support them
-    if (annotation_count > 0) {
-        error(p, "Annotations are only valid on 'let', 'const', 'fn', 'define', or 'enum' declarations");
-        // Free the annotations
-        for (int i = 0; i < annotation_count; i++) {
-            annotation_free(annotations[i]);
-        }
-        free(annotations);
-    }
+    // Loop statements (for/while/loop/for-in) and conditionals (if) accept
+    // statement-level annotations (@unroll, @simd, @likely, ...). Attaching a
+    // NULL/0 array is harmless, so attach unconditionally; validation runs only
+    // when annotations are present. Non-annotatable statements below report an
+    // error if annotations were provided.
 
     if (match(p, TOK_IF)) {
-        RETURN_STMT(if_statement(p));
+        Stmt *stmt = if_statement(p);
+        if (!attach_stmt_annotations(stmt, annotations, annotation_count)) {
+            p->had_error = 1;
+        }
+        RETURN_STMT(stmt);
     }
 
     // Check for labeled loop: identifier: while/for/loop
@@ -1784,14 +1927,23 @@ not_function:
                 if (match(p, TOK_WHILE)) {
                     Stmt *stmt = while_statement_with_label(p, label);
                     free(label);
+                    if (!attach_stmt_annotations(stmt, annotations, annotation_count)) {
+                        p->had_error = 1;
+                    }
                     RETURN_STMT(stmt);
                 } else if (match(p, TOK_LOOP)) {
                     Stmt *stmt = loop_statement_with_label(p, label);
                     free(label);
+                    if (!attach_stmt_annotations(stmt, annotations, annotation_count)) {
+                        p->had_error = 1;
+                    }
                     RETURN_STMT(stmt);
                 } else if (match(p, TOK_FOR)) {
                     Stmt *stmt = for_statement_with_label(p, label);
                     free(label);
+                    if (!attach_stmt_annotations(stmt, annotations, annotation_count)) {
+                        p->had_error = 1;
+                    }
                     RETURN_STMT(stmt);
                 }
                 free(label);
@@ -1821,15 +1973,39 @@ not_function:
     }
 
     if (match(p, TOK_WHILE)) {
-        RETURN_STMT(while_statement(p));
+        Stmt *stmt = while_statement(p);
+        if (!attach_stmt_annotations(stmt, annotations, annotation_count)) {
+            p->had_error = 1;
+        }
+        RETURN_STMT(stmt);
     }
 
     if (match(p, TOK_LOOP)) {
-        RETURN_STMT(loop_statement(p));
+        Stmt *stmt = loop_statement(p);
+        if (!attach_stmt_annotations(stmt, annotations, annotation_count)) {
+            p->had_error = 1;
+        }
+        RETURN_STMT(stmt);
     }
 
     if (match(p, TOK_FOR)) {
-        RETURN_STMT(for_statement(p));
+        Stmt *stmt = for_statement(p);
+        if (!attach_stmt_annotations(stmt, annotations, annotation_count)) {
+            p->had_error = 1;
+        }
+        RETURN_STMT(stmt);
+    }
+
+    // Remaining statements do not support annotations.
+    if (annotation_count > 0) {
+        error(p, "Annotations are only valid on 'let', 'const', 'fn', 'define', "
+                 "'enum', loop, and 'if' statements");
+        for (int i = 0; i < annotation_count; i++) {
+            annotation_free(annotations[i]);
+        }
+        free(annotations);
+        annotations = NULL;
+        annotation_count = 0;
     }
 
     if (match(p, TOK_BREAK)) {

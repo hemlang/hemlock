@@ -100,6 +100,10 @@
           "match": "\\b(PI|E|TAU|INF|NAN)\\b"
         },
         {
+          "name": "constant.language.socket.hemlock",
+          "match": "\\b(AF_INET|AF_INET6|SOCK_STREAM|SOCK_DGRAM|IPPROTO_TCP|IPPROTO_UDP|SOL_SOCKET|SO_REUSEADDR|SO_KEEPALIVE|SO_RCVTIMEO|SO_SNDTIMEO|POLLIN|POLLOUT|POLLERR|POLLHUP|POLLNVAL|POLLPRI)\\b"
+        },
+        {
           "name": "constant.language.regex.hemlock",
           "match": "\\b(REG_ICASE)\\b"
         }
@@ -232,15 +236,39 @@
       "patterns": [
         {
           "name": "support.function.builtin.hemlock",
-          "match": "\\b(print|typeof|alloc|free|memset|memcpy|realloc|talloc|sizeof|buffer|channel|signal|raise|open|exec|panic|assert)\\b"
+          "match": "\\b(print|write|eprint|read_line|typeof|alloc|free|memset|memcpy|realloc|talloc|sizeof|buffer|channel|open|exec|exec_argv|panic|assert|apply)\\b"
         },
         {
           "name": "support.function.async.hemlock",
-          "match": "\\b(spawn|join|detach)\\b"
+          "match": "\\b(spawn|spawn_with|join|detach|select)\\b"
         },
         {
-          "name": "support.function.time.hemlock",
+          "name": "support.function.stdlib.math.hemlock",
+          "match": "\\b(sin|cos|tan|asin|acos|atan|atan2|sqrt|pow|exp|log|log10|log2|floor|ceil|round|trunc|floori|ceili|roundi|trunci|div|divi|abs|min|max|clamp|rand|rand_range|seed)\\b"
+        },
+        {
+          "name": "support.function.stdlib.signal.hemlock",
+          "match": "\\b(signal|raise)\\b"
+        },
+        {
+          "name": "support.function.stdlib.time.hemlock",
           "match": "\\b(now|sleep|time_ms|clock|localtime|gmtime|mktime|strftime)\\b"
+        },
+        {
+          "name": "support.function.stdlib.env.hemlock",
+          "match": "\\b(getenv|setenv|unsetenv|get_pid)\\b"
+        },
+        {
+          "name": "support.function.stdlib.net.hemlock",
+          "match": "\\b(socket_create|dns_resolve|poll)\\b"
+        },
+        {
+          "name": "support.function.memory.hemlock",
+          "match": "\\b(ptr_read_i8|ptr_read_i16|ptr_read_i32|ptr_read_i64|ptr_read_u8|ptr_read_u16|ptr_read_u32|ptr_read_u64|ptr_read_f32|ptr_read_f64|ptr_read_ptr|ptr_write_i8|ptr_write_i16|ptr_write_i32|ptr_write_i64|ptr_write_u8|ptr_write_u16|ptr_write_u32|ptr_write_u64|ptr_write_f32|ptr_write_f64|ptr_write_ptr|ptr_offset|ptr_null|ptr_to_buffer|buffer_ptr|ffi_sizeof)\\b"
+        },
+        {
+          "name": "support.function.atomic.hemlock",
+          "match": "\\b(atomic_load_i32|atomic_store_i32|atomic_add_i32|atomic_sub_i32|atomic_and_i32|atomic_or_i32|atomic_xor_i32|atomic_cas_i32|atomic_exchange_i32|atomic_load_i64|atomic_store_i64|atomic_add_i64|atomic_sub_i64|atomic_and_i64|atomic_or_i64|atomic_xor_i64|atomic_cas_i64|atomic_exchange_i64|atomic_fence)\\b"
         }
       ]
     }

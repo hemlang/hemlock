@@ -11,6 +11,10 @@
 
 #include "builtins_internal.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 // ========== I/O OPERATIONS ==========
 
 HmlValue hml_read_line(void) {
@@ -77,16 +81,97 @@ HmlValue hml_open(HmlValue path, HmlValue mode) {
     return result;
 }
 
+// Translate a fopen-style mode string to open(2) flags. Returns -1 on
+// unrecognized mode.
+static int hml_mode_to_open_flags(const char *mode) {
+    if (!mode || !*mode) return -1;
+    int has_plus = strchr(mode, '+') != NULL;
+    int flags;
+    switch (mode[0]) {
+        case 'r': flags = has_plus ? O_RDWR : O_RDONLY; break;
+        case 'w': flags = (has_plus ? O_RDWR : O_WRONLY) | O_CREAT | O_TRUNC; break;
+        case 'a': flags = (has_plus ? O_RDWR : O_WRONLY) | O_CREAT | O_APPEND; break;
+        default: return -1;
+    }
+    return flags;
+}
+
+// open_fd(path, mode?) -> i32: open a file and return its raw POSIX fd.
+HmlValue hml_open_fd(HmlValue path, HmlValue mode) {
+    if (path.type != HML_VAL_STRING) {
+        hml_throw(hml_val_string("open_fd() expects string path"));
+    }
+
+    const char *path_str = path.as.as_string->data;
+    const char *mode_str = "r";
+    if (mode.type == HML_VAL_STRING) {
+        mode_str = mode.as.as_string->data;
+    }
+
+    int flags = hml_mode_to_open_flags(mode_str);
+    if (flags < 0) {
+        char err_buf[256];
+        snprintf(err_buf, sizeof(err_buf),
+                 "open_fd() unsupported mode '%s' (use r, w, a, r+, w+, a+)", mode_str);
+        hml_throw(hml_val_string(err_buf));
+    }
+
+    int is_write = (strchr(mode_str, 'w') != NULL || strchr(mode_str, 'a') != NULL ||
+                    strstr(mode_str, "r+") != NULL);
+    if (!hml_sandbox_path_allowed(path_str, is_write)) {
+        if (is_write) {
+            hml_sandbox_error("file write operations");
+        } else {
+            hml_sandbox_error("file read outside sandbox root");
+        }
+    }
+
+    int fd = open(path_str, flags, 0666);
+    if (fd < 0) {
+        char err_buf[512];
+        snprintf(err_buf, sizeof(err_buf), "Failed to open '%s' with mode '%s': %s",
+                 path_str, mode_str, strerror(errno));
+        hml_throw(hml_val_string(err_buf));
+    }
+
+    return hml_val_i32(fd);
+}
+
+// fileno(file) -> i32: extract the raw POSIX fd from a File handle. The
+// file retains ownership of the fd; closing the file closes the fd.
+HmlValue hml_fileno(HmlValue file) {
+    if (file.type != HML_VAL_FILE || !file.as.as_file) {
+        hml_throw(hml_val_string("fileno() expects file object"));
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed || !fh->fp) {
+        char err_buf[512];
+        snprintf(err_buf, sizeof(err_buf), "fileno() called on closed file '%s'",
+                 fh->path ? fh->path : "<unknown>");
+        hml_throw(hml_val_string(err_buf));
+    }
+
+    int fd = fileno((FILE*)fh->fp);
+    if (fd < 0) {
+        char err_buf[256];
+        snprintf(err_buf, sizeof(err_buf), "fileno() failed: %s", strerror(errno));
+        hml_throw(hml_val_string(err_buf));
+    }
+
+    return hml_val_i32(fd);
+}
+
 HmlValue hml_file_read(HmlValue file, HmlValue size) {
     if (file.type != HML_VAL_FILE) {
-        fprintf(stderr, "Error: read() expects file object\n");
-        exit(1);
+        hml_throw(hml_val_string("read() expects file object"));
     }
 
     HmlFileHandle *fh = file.as.as_file;
     if (fh->closed) {
-        fprintf(stderr, "Error: Cannot read from closed file '%s'\n", fh->path);
-        exit(1);
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Cannot read from closed file '%s'", fh->path);
+        hml_throw(hml_val_string(_err_buf));
     }
 
     int32_t read_size = 0;
@@ -96,9 +181,8 @@ HmlValue hml_file_read(HmlValue file, HmlValue size) {
         read_size = (int32_t)size.as.as_i64;
     }
 
-    if (read_size <= 0) {
-        return hml_file_read_all(file);
-    }
+    if (read_size == 0) { return hml_val_string(""); }
+    if (read_size < 0) { return hml_file_read_all(file); }
 
     char *buffer = malloc(read_size + 1);
     size_t bytes_read = fread(buffer, 1, read_size, (FILE*)fh->fp);
@@ -111,36 +195,36 @@ HmlValue hml_file_read(HmlValue file, HmlValue size) {
 
 HmlValue hml_file_read_all(HmlValue file) {
     if (file.type != HML_VAL_FILE) {
-        fprintf(stderr, "Error: read() expects file object\n");
-        exit(1);
+        hml_throw(hml_val_string("read() expects file object"));
     }
 
     HmlFileHandle *fh = file.as.as_file;
     if (fh->closed) {
-        fprintf(stderr, "Error: Cannot read from closed file '%s'\n", fh->path);
-        exit(1);
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Cannot read from closed file '%s'", fh->path);
+        hml_throw(hml_val_string(_err_buf));
     }
 
     FILE *fp = (FILE*)fh->fp;
     long start_pos = ftell(fp);
 
-    // Check if stream is seekable (regular file vs pipe/stdin)
+    // Try the seek/size fast path first, but if it reports size 0 fall
+    // through to chunked reading. /proc and /sys pseudo-files appear
+    // seekable and have st_size == 0 yet contain real data, so trusting the
+    // seek-based size silently returns "" for them. Real empty files just
+    // read 0 bytes via the chunked path -- same result, no harm.
+    long size = -1;
     int is_seekable = (start_pos != -1 && fseek(fp, 0, SEEK_END) == 0);
-
     if (is_seekable) {
-        // Seekable stream: get size and read in one go
         long end_pos = ftell(fp);
         fseek(fp, start_pos, SEEK_SET);
+        if (end_pos >= 0) size = end_pos - start_pos;
+    }
 
-        long size = end_pos - start_pos;
-        if (size <= 0) {
-            return hml_val_string("");
-        }
-
+    if (size > 0) {
         char *buffer = malloc(size + 1);
         if (!buffer) {
-            fprintf(stderr, "Error: Memory allocation failed\n");
-            exit(1);
+            hml_throw(hml_val_string("Memory allocation failed"));
         }
         size_t bytes_read = fread(buffer, 1, size, fp);
         buffer[bytes_read] = '\0';
@@ -154,8 +238,7 @@ HmlValue hml_file_read_all(HmlValue file) {
         size_t total_read = 0;
         char *buffer = malloc(capacity);
         if (!buffer) {
-            fprintf(stderr, "Error: Memory allocation failed\n");
-            exit(1);
+            hml_throw(hml_val_string("Memory allocation failed"));
         }
 
         while (1) {
@@ -165,8 +248,7 @@ HmlValue hml_file_read_all(HmlValue file) {
                 char *new_buffer = realloc(buffer, capacity);
                 if (!new_buffer) {
                     free(buffer);
-                    fprintf(stderr, "Error: Memory allocation failed\n");
-                    exit(1);
+                    hml_throw(hml_val_string("Memory allocation failed"));
                 }
                 buffer = new_buffer;
             }
@@ -178,8 +260,9 @@ HmlValue hml_file_read_all(HmlValue file) {
                 // EOF or error
                 if (ferror(fp)) {
                     free(buffer);
-                    fprintf(stderr, "Error: Read error on file '%s'\n", fh->path);
-                    exit(1);
+                    char _err_buf[512];
+                    snprintf(_err_buf, sizeof(_err_buf), "Read error on file '%s'", fh->path);
+                    hml_throw(hml_val_string(_err_buf));
                 }
                 break;  // EOF reached
             }
@@ -195,14 +278,14 @@ HmlValue hml_file_read_all(HmlValue file) {
 
 HmlValue hml_file_write(HmlValue file, HmlValue data) {
     if (file.type != HML_VAL_FILE) {
-        fprintf(stderr, "Error: write() expects file object\n");
-        exit(1);
+        hml_throw(hml_val_string("write() expects file object"));
     }
 
     HmlFileHandle *fh = file.as.as_file;
     if (fh->closed) {
-        fprintf(stderr, "Error: Cannot write to closed file '%s'\n", fh->path);
-        exit(1);
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Cannot write to closed file '%s'", fh->path);
+        hml_throw(hml_val_string(_err_buf));
     }
 
     const char *str = "";
@@ -216,14 +299,14 @@ HmlValue hml_file_write(HmlValue file, HmlValue data) {
 
 HmlValue hml_file_seek(HmlValue file, HmlValue position) {
     if (file.type != HML_VAL_FILE) {
-        fprintf(stderr, "Error: seek() expects file object\n");
-        exit(1);
+        hml_throw(hml_val_string("seek() expects file object"));
     }
 
     HmlFileHandle *fh = file.as.as_file;
     if (fh->closed) {
-        fprintf(stderr, "Error: Cannot seek in closed file '%s'\n", fh->path);
-        exit(1);
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Cannot seek in closed file '%s'", fh->path);
+        hml_throw(hml_val_string(_err_buf));
     }
 
     long pos = 0;
@@ -239,14 +322,14 @@ HmlValue hml_file_seek(HmlValue file, HmlValue position) {
 
 HmlValue hml_file_tell(HmlValue file) {
     if (file.type != HML_VAL_FILE) {
-        fprintf(stderr, "Error: tell() expects file object\n");
-        exit(1);
+        hml_throw(hml_val_string("tell() expects file object"));
     }
 
     HmlFileHandle *fh = file.as.as_file;
     if (fh->closed) {
-        fprintf(stderr, "Error: Cannot tell position in closed file '%s'\n", fh->path);
-        exit(1);
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Cannot tell position in closed file '%s'", fh->path);
+        hml_throw(hml_val_string(_err_buf));
     }
 
     return hml_val_i32((int32_t)ftell((FILE*)fh->fp));
@@ -266,14 +349,14 @@ void hml_file_close(HmlValue file) {
 
 HmlValue hml_file_read_bytes(HmlValue file, HmlValue size) {
     if (file.type != HML_VAL_FILE) {
-        fprintf(stderr, "Error: read_bytes() expects file object\n");
-        exit(1);
+        hml_throw(hml_val_string("read_bytes() expects file object"));
     }
 
     HmlFileHandle *fh = file.as.as_file;
     if (fh->closed) {
-        fprintf(stderr, "Error: Cannot read from closed file '%s'\n", fh->path);
-        exit(1);
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Cannot read from closed file '%s'", fh->path);
+        hml_throw(hml_val_string(_err_buf));
     }
 
     int32_t read_size = 0;
@@ -282,74 +365,204 @@ HmlValue hml_file_read_bytes(HmlValue file, HmlValue size) {
     } else if (size.type == HML_VAL_I64) {
         read_size = (int32_t)size.as.as_i64;
     } else {
-        fprintf(stderr, "Error: read_bytes() expects integer size argument\n");
-        exit(1);
+        hml_throw(hml_val_string("read_bytes() expects integer size argument"));
     }
 
     if (read_size <= 0) {
         // Return empty buffer
-        HmlBuffer *buf = malloc(sizeof(HmlBuffer));
+        HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
         buf->data = malloc(1);
         buf->length = 0;
         buf->capacity = 0;
         buf->ref_count = 1;
         atomic_store(&buf->freed, 0);
+        buf->parent = NULL;
         return (HmlValue){ .type = HML_VAL_BUFFER, .as.as_buffer = buf };
     }
 
     void *data = malloc(read_size);
     if (!data) {
-        fprintf(stderr, "Error: Memory allocation failed in read_bytes()\n");
-        exit(1);
+        hml_throw(hml_val_string("Memory allocation failed in read_bytes()"));
     }
 
     size_t bytes_read = fread(data, 1, read_size, (FILE*)fh->fp);
 
     if (ferror((FILE*)fh->fp)) {
         free(data);
-        fprintf(stderr, "Error: Read error on file '%s': %s\n", fh->path, strerror(errno));
-        exit(1);
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Read error on file '%s': %s", fh->path, strerror(errno));
+        hml_throw(hml_val_string(_err_buf));
     }
 
-    HmlBuffer *buf = malloc(sizeof(HmlBuffer));
+    HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
     buf->data = data;
     buf->length = (int)bytes_read;
     buf->capacity = read_size;
     buf->ref_count = 1;
     atomic_store(&buf->freed, 0);
+    buf->parent = NULL;
 
+    return (HmlValue){ .type = HML_VAL_BUFFER, .as.as_buffer = buf };
+}
+
+HmlValue hml_file_read_binary_all(HmlValue file) {
+    if (file.type != HML_VAL_FILE) {
+        hml_throw(hml_val_string("read_binary() expects file object"));
+    }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed) {
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Cannot read from closed file '%s'", fh->path);
+        hml_throw(hml_val_string(_err_buf));
+    }
+
+    FILE *fp = (FILE*)fh->fp;
+    long start_pos = ftell(fp);
+    long size = -1;
+    int is_seekable = (start_pos != -1 && fseek(fp, 0, SEEK_END) == 0);
+    if (is_seekable) {
+        long end_pos = ftell(fp);
+        fseek(fp, start_pos, SEEK_SET);
+        if (end_pos >= 0) size = end_pos - start_pos;
+    }
+
+    void *data;
+    size_t total_read;
+
+    if (size > 0) {
+        data = malloc(size);
+        if (!data) hml_throw(hml_val_string("Memory allocation failed"));
+        total_read = fread(data, 1, size, fp);
+        if (ferror(fp)) {
+            free(data);
+            char _err_buf[512];
+            snprintf(_err_buf, sizeof(_err_buf), "Read error on file '%s'", fh->path);
+            hml_throw(hml_val_string(_err_buf));
+        }
+    } else {
+        size_t capacity = 4096;
+        total_read = 0;
+        data = malloc(capacity);
+        if (!data) hml_throw(hml_val_string("Memory allocation failed"));
+
+        while (1) {
+            if (total_read + 4096 > capacity) {
+                capacity *= 2;
+                void *new_data = realloc(data, capacity);
+                if (!new_data) {
+                    free(data);
+                    hml_throw(hml_val_string("Memory allocation failed"));
+                }
+                data = new_data;
+            }
+            size_t bytes = fread((char *)data + total_read, 1, 4096, fp);
+            total_read += bytes;
+            if (bytes < 4096) {
+                if (ferror(fp)) {
+                    free(data);
+                    char _err_buf[512];
+                    snprintf(_err_buf, sizeof(_err_buf), "Read error on file '%s'", fh->path);
+                    hml_throw(hml_val_string(_err_buf));
+                }
+                break;
+            }
+        }
+    }
+
+    HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
+    buf->data = data;
+    buf->length = (int)total_read;
+    buf->capacity = (int)(total_read > 0 ? total_read : 1);
+    buf->ref_count = 1;
+    atomic_store(&buf->freed, 0);
+    buf->parent = NULL;
+    return (HmlValue){ .type = HML_VAL_BUFFER, .as.as_buffer = buf };
+}
+
+HmlValue hml_file_read_binary(HmlValue file, HmlValue size) {
+    if (file.type != HML_VAL_FILE) {
+        hml_throw(hml_val_string("read_binary() expects file object"));
+    }
+
+    int32_t read_size = 0;
+    if (size.type == HML_VAL_I32) {
+        read_size = size.as.as_i32;
+    } else if (size.type == HML_VAL_I64) {
+        read_size = (int32_t)size.as.as_i64;
+    }
+
+    if (read_size < 0) { return hml_file_read_binary_all(file); }
+
+    HmlFileHandle *fh = file.as.as_file;
+    if (fh->closed) {
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Cannot read from closed file '%s'", fh->path);
+        hml_throw(hml_val_string(_err_buf));
+    }
+
+    if (read_size == 0) {
+        HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
+        buf->data = malloc(1);
+        buf->length = 0;
+        buf->capacity = 0;
+        buf->ref_count = 1;
+        atomic_store(&buf->freed, 0);
+        buf->parent = NULL;
+        return (HmlValue){ .type = HML_VAL_BUFFER, .as.as_buffer = buf };
+    }
+
+    void *data = malloc(read_size);
+    if (!data) hml_throw(hml_val_string("Memory allocation failed in read_binary()"));
+
+    size_t bytes_read = fread(data, 1, read_size, (FILE*)fh->fp);
+    if (ferror((FILE*)fh->fp)) {
+        free(data);
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Read error on file '%s': %s", fh->path, strerror(errno));
+        hml_throw(hml_val_string(_err_buf));
+    }
+
+    HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
+    buf->data = data;
+    buf->length = (int)bytes_read;
+    buf->capacity = read_size;
+    buf->ref_count = 1;
+    atomic_store(&buf->freed, 0);
+    buf->parent = NULL;
     return (HmlValue){ .type = HML_VAL_BUFFER, .as.as_buffer = buf };
 }
 
 HmlValue hml_file_write_bytes(HmlValue file, HmlValue data) {
     if (file.type != HML_VAL_FILE) {
-        fprintf(stderr, "Error: write_bytes() expects file object\n");
-        exit(1);
+        hml_throw(hml_val_string("write_bytes() expects file object"));
     }
 
     HmlFileHandle *fh = file.as.as_file;
     if (fh->closed) {
-        fprintf(stderr, "Error: Cannot write to closed file '%s'\n", fh->path);
-        exit(1);
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Cannot write to closed file '%s'", fh->path);
+        hml_throw(hml_val_string(_err_buf));
     }
 
     // Check if file is writable
     if (fh->mode[0] == 'r' && strchr(fh->mode, '+') == NULL) {
-        fprintf(stderr, "Error: Cannot write to file '%s' opened in read-only mode\n", fh->path);
-        exit(1);
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Cannot write to file '%s' opened in read-only mode", fh->path);
+        hml_throw(hml_val_string(_err_buf));
     }
 
     if (data.type != HML_VAL_BUFFER || !data.as.as_buffer) {
-        fprintf(stderr, "Error: write_bytes() expects buffer argument\n");
-        exit(1);
+        hml_throw(hml_val_string("write_bytes() expects buffer argument"));
     }
 
     HmlBuffer *buf = data.as.as_buffer;
     size_t written = fwrite(buf->data, 1, buf->length, (FILE*)fh->fp);
 
     if (ferror((FILE*)fh->fp)) {
-        fprintf(stderr, "Error: Write error on file '%s': %s\n", fh->path, strerror(errno));
-        exit(1);
+        char _err_buf[512];
+        snprintf(_err_buf, sizeof(_err_buf), "Write error on file '%s': %s", fh->path, strerror(errno));
+        hml_throw(hml_val_string(_err_buf));
     }
 
     return hml_val_i32((int32_t)written);
@@ -358,7 +571,9 @@ HmlValue hml_file_write_bytes(HmlValue file, HmlValue data) {
 // ========== SYSTEM INFO OPERATIONS ==========
 
 HmlValue hml_platform(void) {
-#ifdef __linux__
+#ifdef __EMSCRIPTEN__
+    return hml_val_string("wasm");
+#elif defined(__linux__)
     return hml_val_string("linux");
 #elif defined(__APPLE__)
     return hml_val_string("macos");
@@ -369,6 +584,22 @@ HmlValue hml_platform(void) {
 #endif
 }
 
+#ifdef __EMSCRIPTEN__
+HmlValue hml_arch(void) {
+    return hml_val_string("wasm32");
+}
+#elif defined(_WIN32)
+HmlValue hml_arch(void) {
+    SYSTEM_INFO info;
+    GetNativeSystemInfo(&info);
+    switch (info.wProcessorArchitecture) {
+        case PROCESSOR_ARCHITECTURE_AMD64: return hml_val_string("x86_64");
+        case PROCESSOR_ARCHITECTURE_ARM64: return hml_val_string("aarch64");
+        case PROCESSOR_ARCHITECTURE_INTEL: return hml_val_string("i686");
+        default:                           return hml_val_string("unknown");
+    }
+}
+#else
 HmlValue hml_arch(void) {
     struct utsname info;
     if (uname(&info) != 0) {
@@ -377,17 +608,45 @@ HmlValue hml_arch(void) {
     }
     return hml_val_string(info.machine);
 }
+#endif
 
 HmlValue hml_hostname(void) {
+#ifdef __EMSCRIPTEN__
+    return hml_val_string("wasm-host");
+#else
+    hml_platform_init();  // gethostname needs WSAStartup on Windows
     char hostname[256];
     if (gethostname(hostname, sizeof(hostname)) != 0) {
         fprintf(stderr, "Error: hostname() failed: %s\n", strerror(errno));
         exit(1);
     }
     return hml_val_string(hostname);
+#endif
 }
 
 HmlValue hml_username(void) {
+#ifdef __EMSCRIPTEN__
+    char *env_user = getenv("USER");
+    if (env_user != NULL) {
+        return hml_val_string(env_user);
+    }
+    return hml_val_string("wasm-user");
+#elif defined(_WIN32)
+    char username[256];
+    DWORD username_len = sizeof(username);
+    if (GetUserNameA(username, &username_len)) {
+        return hml_val_string(username);
+    }
+
+    // Fall back to environment variable
+    char *env_user = getenv("USERNAME");
+    if (env_user != NULL) {
+        return hml_val_string(env_user);
+    }
+
+    fprintf(stderr, "Error: username() failed: could not determine username\n");
+    exit(1);
+#else
     // Try getlogin_r first
     char username[256];
     if (getlogin_r(username, sizeof(username)) == 0) {
@@ -408,6 +667,7 @@ HmlValue hml_username(void) {
 
     fprintf(stderr, "Error: username() failed: could not determine username\n");
     exit(1);
+#endif
 }
 
 HmlValue hml_homedir(void) {
@@ -417,26 +677,56 @@ HmlValue hml_homedir(void) {
         return hml_val_string(home);
     }
 
-    // Fall back to getpwuid
+#ifdef _WIN32
+    home = getenv("USERPROFILE");
+    if (home != NULL) {
+        return hml_val_string(home);
+    }
+#elif !defined(__EMSCRIPTEN__)
+    // Fall back to getpwuid (not available in WASM)
     struct passwd *pw = getpwuid(getuid());
     if (pw != NULL && pw->pw_dir != NULL) {
         return hml_val_string(pw->pw_dir);
     }
+#endif
 
-    fprintf(stderr, "Error: homedir() failed: could not determine home directory\n");
-    exit(1);
+    return hml_val_string("/home");
 }
 
 HmlValue hml_cpu_count(void) {
+#ifdef __EMSCRIPTEN__
+    return hml_val_i32(1);  // WASM runs single-threaded
+#elif defined(_WIN32)
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    long nprocs = (long)info.dwNumberOfProcessors;
+    if (nprocs < 1) {
+        nprocs = 1;  // Default to 1 if we can't determine
+    }
+    return hml_val_i32((int32_t)nprocs);
+#else
     long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
     if (nprocs < 1) {
         nprocs = 1;  // Default to 1 if we can't determine
     }
     return hml_val_i32((int32_t)nprocs);
+#endif
 }
 
 HmlValue hml_total_memory(void) {
-#ifdef __linux__
+#ifdef __EMSCRIPTEN__
+    // Query actual WASM heap size via Emscripten
+    size_t heap_size = (size_t)EM_ASM_INT({ return HEAP8.length; });
+    return hml_val_i64((int64_t)heap_size);
+#elif defined(_WIN32)
+    MEMORYSTATUSEX status;
+    status.dwLength = sizeof(status);
+    if (!GlobalMemoryStatusEx(&status)) {
+        fprintf(stderr, "Error: total_memory() failed: error %lu\n", (unsigned long)GetLastError());
+        exit(1);
+    }
+    return hml_val_i64((int64_t)status.ullTotalPhys);
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         fprintf(stderr, "Error: total_memory() failed: %s\n", strerror(errno));
@@ -465,7 +755,23 @@ HmlValue hml_total_memory(void) {
 }
 
 HmlValue hml_free_memory(void) {
-#ifdef __linux__
+#ifdef __EMSCRIPTEN__
+    // Estimate free memory as total heap minus dynamically used
+    size_t heap_size = (size_t)EM_ASM_INT({ return HEAP8.length; });
+    // sbrk(0) returns current break — approximate used heap
+    size_t used = (size_t)sbrk(0);
+    int64_t free_mem = (int64_t)heap_size - (int64_t)used;
+    if (free_mem < 0) free_mem = 0;
+    return hml_val_i64(free_mem);
+#elif defined(_WIN32)
+    MEMORYSTATUSEX status;
+    status.dwLength = sizeof(status);
+    if (!GlobalMemoryStatusEx(&status)) {
+        fprintf(stderr, "Error: free_memory() failed: error %lu\n", (unsigned long)GetLastError());
+        exit(1);
+    }
+    return hml_val_i64((int64_t)status.ullAvailPhys);
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         fprintf(stderr, "Error: free_memory() failed: %s\n", strerror(errno));
@@ -504,6 +810,35 @@ HmlValue hml_free_memory(void) {
 #endif
 }
 
+#ifdef __EMSCRIPTEN__
+HmlValue hml_os_version(void) {
+    return hml_val_string("1.0");
+}
+HmlValue hml_os_name(void) {
+    return hml_val_string("Emscripten");
+}
+#elif defined(_WIN32)
+HmlValue hml_os_version(void) {
+    // GetVersionEx lies on Win 8.1+ without a manifest, but it is the only
+    // stable public API; the value is informational anyway
+    OSVERSIONINFOA info;
+    info.dwOSVersionInfoSize = sizeof(info);
+    if (!GetVersionExA(&info)) {
+        fprintf(stderr, "Error: os_version() failed: error %lu\n", (unsigned long)GetLastError());
+        exit(1);
+    }
+    char version[64];
+    snprintf(version, sizeof(version), "%lu.%lu.%lu",
+             (unsigned long)info.dwMajorVersion,
+             (unsigned long)info.dwMinorVersion,
+             (unsigned long)info.dwBuildNumber);
+    return hml_val_string(version);
+}
+
+HmlValue hml_os_name(void) {
+    return hml_val_string("Windows");
+}
+#else
 HmlValue hml_os_version(void) {
     struct utsname info;
     if (uname(&info) != 0) {
@@ -521,8 +856,13 @@ HmlValue hml_os_name(void) {
     }
     return hml_val_string(info.sysname);
 }
+#endif
 
 HmlValue hml_tmpdir(void) {
+#ifdef __EMSCRIPTEN__
+    // Emscripten MEMFS provides /tmp by default
+    return hml_val_string("/tmp");
+#else
     char *tmpdir = getenv("TMPDIR");
     if (tmpdir != NULL && tmpdir[0] != '\0') {
         return hml_val_string(tmpdir);
@@ -535,11 +875,25 @@ HmlValue hml_tmpdir(void) {
     if (tmpdir != NULL && tmpdir[0] != '\0') {
         return hml_val_string(tmpdir);
     }
+#ifdef _WIN32
+    char temp_path[MAX_PATH + 1];
+    DWORD len = GetTempPathA(sizeof(temp_path), temp_path);
+    if (len > 0 && len < sizeof(temp_path)) {
+        return hml_val_string(temp_path);
+    }
+#endif
     return hml_val_string("/tmp");
+#endif
 }
 
 HmlValue hml_uptime(void) {
-#ifdef __linux__
+#ifdef __EMSCRIPTEN__
+    // Return time since page load in seconds (via emscripten_get_now in ms)
+    double ms = emscripten_get_now();
+    return hml_val_i64((int64_t)(ms / 1000.0));
+#elif defined(_WIN32)
+    return hml_val_i64((int64_t)(GetTickCount64() / 1000));
+#elif defined(__linux__)
     struct sysinfo info;
     if (sysinfo(&info) != 0) {
         fprintf(stderr, "Error: uptime() failed: %s\n", strerror(errno));
@@ -560,6 +914,17 @@ HmlValue hml_uptime(void) {
     fprintf(stderr, "Error: uptime() not supported on this platform\n");
     exit(1);
 #endif
+}
+
+// File I/O builtin wrappers (for indirect calls through HmlValue function refs)
+HmlValue hml_builtin_open_fd(HmlClosureEnv *env, HmlValue path, HmlValue mode) {
+    (void)env;
+    return hml_open_fd(path, mode);
+}
+
+HmlValue hml_builtin_fileno(HmlClosureEnv *env, HmlValue file) {
+    (void)env;
+    return hml_fileno(file);
 }
 
 // System info builtin wrappers
@@ -675,8 +1040,17 @@ HmlValue hml_write_file(HmlValue path, HmlValue content) {
         fprintf(stderr, "Error: write_file() requires a string path\n");
         exit(1);
     }
-    if (content.type != HML_VAL_STRING || !content.as.as_string) {
-        fprintf(stderr, "Error: write_file() requires string content\n");
+
+    const char *data;
+    size_t length;
+    if (content.type == HML_VAL_STRING && content.as.as_string) {
+        data = content.as.as_string->data;
+        length = content.as.as_string->length;
+    } else if (content.type == HML_VAL_BUFFER && content.as.as_buffer) {
+        data = (const char *)content.as.as_buffer->data;
+        length = content.as.as_buffer->length;
+    } else {
+        fprintf(stderr, "Error: write_file() requires string or buffer content\n");
         exit(1);
     }
 
@@ -685,13 +1059,14 @@ HmlValue hml_write_file(HmlValue path, HmlValue content) {
         hml_sandbox_error("file write operations");
     }
 
-    FILE *fp = fopen(path.as.as_string->data, "w");
+    // Binary mode preserves all bytes regardless of content type
+    FILE *fp = fopen(path.as.as_string->data, "wb");
     if (!fp) {
         fprintf(stderr, "Error: Failed to open '%s': %s\n", path.as.as_string->data, strerror(errno));
         exit(1);
     }
 
-    fwrite(content.as.as_string->data, 1, content.as.as_string->length, fp);
+    fwrite(data, 1, length, fp);
     fclose(fp);
     return hml_val_null();
 }
@@ -814,15 +1189,15 @@ HmlValue hml_is_dir(HmlValue path) {
 
 HmlValue hml_file_stat(HmlValue path) {
     if (path.type != HML_VAL_STRING || !path.as.as_string) {
-        fprintf(stderr, "Error: file_stat() requires a string path\n");
-        exit(1);
+        hml_throw(hml_val_string("file_stat() requires a string path"));
     }
 
     struct stat st;
     if (stat(path.as.as_string->data, &st) != 0) {
-        fprintf(stderr, "Error: Failed to stat '%s': %s\n",
+        char err_buf[512];
+        snprintf(err_buf, sizeof(err_buf), "Failed to stat '%s': %s",
             path.as.as_string->data, strerror(errno));
-        exit(1);
+        hml_throw(hml_val_string(err_buf));
     }
 
     HmlValue obj = hml_val_object();
@@ -851,7 +1226,7 @@ HmlValue hml_make_dir(HmlValue path, HmlValue mode) {
         dir_mode = (uint32_t)mode.as.as_i32;
     }
 
-    if (mkdir(path.as.as_string->data, dir_mode) != 0) {
+    if (hml_mkdir(path.as.as_string->data, dir_mode) != 0) {
         fprintf(stderr, "Error: Failed to create directory '%s': %s\n",
             path.as.as_string->data, strerror(errno));
         exit(1);
@@ -930,7 +1305,11 @@ HmlValue hml_absolute_path(HmlValue path) {
     }
 
     char buffer[PATH_MAX];
+#ifdef _WIN32
+    if (_fullpath(buffer, path.as.as_string->data, sizeof(buffer)) == NULL) {
+#else
     if (realpath(path.as.as_string->data, buffer) == NULL) {
+#endif
         fprintf(stderr, "Error: Failed to resolve path '%s': %s\n",
             path.as.as_string->data, strerror(errno));
         exit(1);

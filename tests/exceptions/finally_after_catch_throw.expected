@@ -1,0 +1,12 @@
+catch: x
+finally
+outer: y
+fin1
+mid: b
+fin2
+outer2: c
+fin3
+outer3: z
+fn-finally
+outer4: re-inner
+done

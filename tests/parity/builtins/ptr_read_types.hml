@@ -1,0 +1,60 @@
+// Test: ptr_read_* functions for all types
+// Tests direct memory read for i32, i64, u64, f32, f64, ptr
+
+// ptr_read_i32
+let p32 = alloc(4);
+ptr_write_i32(p32, 42);
+let v32 = ptr_read_i32(p32);
+print(v32);
+print(typeof(v32));
+free(p32);
+
+// ptr_read_i64
+let p64 = alloc(8);
+ptr_write_i64(p64, 1000000000000);
+let v64 = ptr_read_i64(p64);
+print(v64);
+print(typeof(v64));
+free(p64);
+
+// ptr_read_u64
+let pu64 = alloc(8);
+ptr_write_u64(pu64, 9999999999);
+let vu64 = ptr_read_u64(pu64);
+print(vu64);
+print(typeof(vu64));
+free(pu64);
+
+// ptr_read_f32
+let pf32 = alloc(4);
+ptr_write_f32(pf32, 3.14);
+let vf32 = ptr_read_f32(pf32);
+print(typeof(vf32));
+free(pf32);
+
+// ptr_read_f64
+let pf64 = alloc(8);
+ptr_write_f64(pf64, 2.718281828);
+let vf64 = ptr_read_f64(pf64);
+print(vf64);
+print(typeof(vf64));
+free(pf64);
+
+// ptr_read_ptr (non-null)
+let pp = alloc(8);
+let target = alloc(4);
+ptr_write_ptr(pp, target);
+let vp = ptr_read_ptr(pp);
+print(typeof(vp));
+print(vp == target);
+free(pp);
+free(target);
+
+// ptr_read_ptr (null)
+let ppn = alloc(8);
+ptr_write_ptr(ppn, ptr_null());
+let vpn = ptr_read_ptr(ppn);
+print(vpn == null);
+free(ppn);
+
+print("done");

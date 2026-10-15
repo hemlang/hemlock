@@ -19,670 +19,11 @@ Expr* term(Parser *p);
 Expr* factor(Parser *p);
 Expr* unary(Parser *p);
 Expr* postfix(Parser *p);
-Expr* primary(Parser *p);
-Type* parse_type(Parser *p);
-Pattern* parse_pattern(Parser *p);
-static Pattern* parse_primary_pattern(Parser *p);
-
-// Use the shared is_identifier_or_type_keyword and consume_identifier_or_type_keyword from core.c
-
-// Helper: Parse interpolated string with ${...} expressions
-static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
-    char **string_parts = malloc(sizeof(char*) * 32);  // Array of string literals
-    Expr **expr_parts = malloc(sizeof(Expr*) * 32);    // Array of expressions
-    if (!string_parts || !expr_parts) {
-        free(string_parts);
-        free(expr_parts);
-        error(p, "Memory allocation failed in string interpolation");
-        return expr_string("");
-    }
-    int num_parts = 0;
-    int capacity = 32;
-
-    const char *ptr = str_content;
-    char *current_string = malloc(1024);
-    if (!current_string) {
-        free(string_parts);
-        free(expr_parts);
-        error(p, "Memory allocation failed in string interpolation");
-        return expr_string("");
-    }
-    int str_len = 0;
-    int str_capacity = 1024;
-
-    while (*ptr != '\0') {
-        if (*ptr == '$' && *(ptr + 1) == '{') {
-            // Found interpolation start
-            // Save current string part
-            current_string[str_len] = '\0';
-            string_parts[num_parts] = strdup(current_string);
-            if (!string_parts[num_parts]) {
-                error(p, "Memory allocation failed in string interpolation");
-                free(current_string);
-                for (int i = 0; i < num_parts; i++) {
-                    free(string_parts[i]);
-                }
-                free(string_parts);
-                free(expr_parts);
-                return expr_string("");
-            }
-            str_len = 0;
-
-            // Find matching }
-            ptr += 2;  // Skip ${
-            const char *expr_start = ptr;
-            int brace_count = 1;
-            while (*ptr != '\0' && brace_count > 0) {
-                if (*ptr == '{') brace_count++;
-                if (*ptr == '}') brace_count--;
-                if (brace_count > 0) ptr++;
-            }
-
-            if (brace_count != 0) {
-                error(p, "Unclosed ${...} in string interpolation");
-                // Cleanup all allocated memory before returning
-                free(current_string);
-                for (int i = 0; i <= num_parts; i++) {
-                    free(string_parts[i]);
-                    // Note: expr_parts[i] will be cleaned by AST system
-                }
-                free(string_parts);
-                free(expr_parts);
-                return expr_string("");
-            }
-
-            // Extract expression text
-            int expr_len = ptr - expr_start;
-            char *expr_text = malloc(expr_len + 1);
-            if (!expr_text) {
-                error(p, "Memory allocation failed in string interpolation");
-                free(current_string);
-                for (int i = 0; i <= num_parts; i++) {
-                    free(string_parts[i]);
-                }
-                free(string_parts);
-                free(expr_parts);
-                return expr_string("");
-            }
-            memcpy(expr_text, expr_start, expr_len);
-            expr_text[expr_len] = '\0';
-
-            // Parse the expression using a new parser
-            Lexer expr_lexer;
-            lexer_init(&expr_lexer, expr_text);
-
-            Parser expr_parser;
-            parser_init(&expr_parser, &expr_lexer);
-
-            Expr *interpolated_expr = expression(&expr_parser);
-            expr_parts[num_parts] = interpolated_expr;
-
-            // Safe to free expr_text now - token_text() makes copies of all string data
-            free(expr_text);
-
-            num_parts++;
-            if (num_parts >= capacity) {
-                int new_capacity = capacity * 2;
-                char **new_string_parts = realloc(string_parts, sizeof(char*) * new_capacity);
-                if (!new_string_parts) {
-                    error(p, "Memory allocation failed in string interpolation");
-                    free(current_string);
-                    for (int i = 0; i < num_parts; i++) {
-                        free(string_parts[i]);
-                    }
-                    free(string_parts);
-                    free(expr_parts);
-                    return expr_string("");
-                }
-                string_parts = new_string_parts;
-
-                Expr **new_expr_parts = realloc(expr_parts, sizeof(Expr*) * new_capacity);
-                if (!new_expr_parts) {
-                    error(p, "Memory allocation failed in string interpolation");
-                    free(current_string);
-                    for (int i = 0; i < num_parts; i++) {
-                        free(string_parts[i]);
-                    }
-                    free(string_parts);
-                    free(expr_parts);
-                    return expr_string("");
-                }
-                expr_parts = new_expr_parts;
-                capacity = new_capacity;
-            }
-
-            ptr++;  // Skip closing }
-        } else {
-            // Regular character
-            if (str_len >= str_capacity - 1) {
-                str_capacity *= 2;
-                char *new_string = realloc(current_string, str_capacity);
-                if (!new_string) {
-                    error(p, "Memory allocation failed in string interpolation");
-                    // Cleanup and return
-                    free(current_string);
-                    for (int i = 0; i < num_parts; i++) {
-                        free(string_parts[i]);
-                    }
-                    free(string_parts);
-                    free(expr_parts);
-                    return expr_string("");
-                }
-                current_string = new_string;
-            }
-            current_string[str_len++] = *ptr;
-            ptr++;
-        }
-    }
-
-    // Save final string part
-    current_string[str_len] = '\0';
-    string_parts[num_parts] = strdup(current_string);
-    free(current_string);
-
-    // Create interpolation expression
-    Expr *result = expr_string_interpolation(string_parts, expr_parts, num_parts);
-    return result;
-}
-
-// ========== PATTERN PARSING (for match expressions) ==========
-
-// Parse a primary pattern (non-OR pattern)
-static Pattern* parse_primary_pattern(Parser *p) {
-    int line = p->current.line;
-    int column = p->current.column;
-
-    // Wildcard pattern: _
-    if (check(p, TOK_IDENT) && p->current.length == 1 && p->current.start[0] == '_') {
-        advance(p);
-        Pattern *pat = pattern_wildcard();
-        pat->line = line;
-        pat->column = column;
-        return pat;
-    }
-
-    // Literal patterns: numbers, strings, booleans, null
-    // Handle negative numbers: -NUMBER
-    if (match(p, TOK_MINUS)) {
-        if (match(p, TOK_NUMBER)) {
-            Expr *lit;
-            if (p->previous.is_float) {
-                lit = expr_number_float(-p->previous.float_value);
-            } else {
-                lit = expr_number_int(-p->previous.int_value);
-            }
-            Pattern *pat = pattern_literal(lit);
-            pat->line = line;
-            pat->column = column;
-            return pat;
-        } else {
-            error(p, "Expect number after '-' in pattern");
-            return pattern_wildcard();
-        }
-    }
-
-    if (match(p, TOK_NUMBER)) {
-        Expr *lit;
-        if (p->previous.is_float) {
-            lit = expr_number_float(p->previous.float_value);
-        } else {
-            lit = expr_number_int(p->previous.int_value);
-        }
-        Pattern *pat = pattern_literal(lit);
-        pat->line = line;
-        pat->column = column;
-        return pat;
-    }
-
-    if (match(p, TOK_STRING)) {
-        char *str = p->previous.string_value;
-        Expr *lit = expr_string(str);
-        free(str);
-        Pattern *pat = pattern_literal(lit);
-        pat->line = line;
-        pat->column = column;
-        return pat;
-    }
-
-    if (match(p, TOK_TRUE)) {
-        Pattern *pat = pattern_literal(expr_bool(1));
-        pat->line = line;
-        pat->column = column;
-        return pat;
-    }
-
-    if (match(p, TOK_FALSE)) {
-        Pattern *pat = pattern_literal(expr_bool(0));
-        pat->line = line;
-        pat->column = column;
-        return pat;
-    }
-
-    if (match(p, TOK_NULL)) {
-        Pattern *pat = pattern_literal(expr_null());
-        pat->line = line;
-        pat->column = column;
-        return pat;
-    }
-
-    if (match(p, TOK_RUNE)) {
-        Pattern *pat = pattern_literal(expr_rune(p->previous.rune_value));
-        pat->line = line;
-        pat->column = column;
-        return pat;
-    }
-
-    // Object pattern: { field, field: pattern, ...rest }
-    if (match(p, TOK_LBRACE)) {
-        int field_capacity = 8;
-        ObjectFieldPattern *fields = malloc(sizeof(ObjectFieldPattern) * field_capacity);
-        if (!fields) {
-            error(p, "Memory allocation failed for object pattern");
-            return pattern_wildcard();
-        }
-        int num_fields = 0;
-        int has_rest = 0;
-        char *rest_name = NULL;
-
-        while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
-            if (num_fields >= field_capacity) {
-                field_capacity *= 2;
-                ObjectFieldPattern *new_fields = realloc(fields, sizeof(ObjectFieldPattern) * field_capacity);
-                if (!new_fields) {
-                    error(p, "Memory allocation failed for object pattern");
-                    break;
-                }
-                fields = new_fields;
-            }
-
-            // Check for rest pattern: ...name
-            if (match(p, TOK_DOT_DOT_DOT)) {
-                char *name = consume_identifier_or_type_keyword(p, "Expect identifier after '...' in object pattern");
-                has_rest = 1;
-                rest_name = name;
-                match(p, TOK_COMMA);
-                continue;
-            }
-
-            // Regular field: name or name: pattern
-            char *field_name = consume_identifier_or_type_keyword(p, "Expect field name in object pattern");
-            fields[num_fields].name = field_name;
-
-            if (match(p, TOK_COLON)) {
-                // Field with explicit pattern
-                fields[num_fields].pattern = parse_pattern(p);
-            } else {
-                // Shorthand: just the name (binds to same name)
-                fields[num_fields].pattern = NULL;
-            }
-
-            num_fields++;
-            if (!check(p, TOK_RBRACE)) {
-                match(p, TOK_COMMA);
-            }
-        }
-
-        consume(p, TOK_RBRACE, "Expect '}' after object pattern");
-        Pattern *pat = pattern_object(fields, num_fields, has_rest, rest_name);
-        free(rest_name);  // pattern_object makes a copy
-        pat->line = line;
-        pat->column = column;
-        return pat;
-    }
-
-    // Array pattern: [elem, elem, ...rest]
-    if (match(p, TOK_LBRACKET)) {
-        int elem_capacity = 8;
-        ArrayElementPattern *elements = malloc(sizeof(ArrayElementPattern) * elem_capacity);
-        if (!elements) {
-            error(p, "Memory allocation failed for array pattern");
-            return pattern_wildcard();
-        }
-        int num_elements = 0;
-
-        while (!check(p, TOK_RBRACKET) && !check(p, TOK_EOF)) {
-            if (num_elements >= elem_capacity) {
-                elem_capacity *= 2;
-                ArrayElementPattern *new_elements = realloc(elements, sizeof(ArrayElementPattern) * elem_capacity);
-                if (!new_elements) {
-                    error(p, "Memory allocation failed for array pattern");
-                    break;
-                }
-                elements = new_elements;
-            }
-
-            // Check for rest pattern: ...name
-            if (match(p, TOK_DOT_DOT_DOT)) {
-                char *name = consume_identifier_or_type_keyword(p, "Expect identifier after '...' in array pattern");
-                elements[num_elements].is_rest = 1;
-                elements[num_elements].rest_name = name;
-                elements[num_elements].pattern = NULL;
-                num_elements++;
-                match(p, TOK_COMMA);
-                continue;
-            }
-
-            // Regular element pattern
-            elements[num_elements].is_rest = 0;
-            elements[num_elements].rest_name = NULL;
-            elements[num_elements].pattern = parse_pattern(p);
-            num_elements++;
-
-            if (!check(p, TOK_RBRACKET)) {
-                match(p, TOK_COMMA);
-            }
-        }
-
-        consume(p, TOK_RBRACKET, "Expect ']' after array pattern");
-        Pattern *pat = pattern_array(elements, num_elements);
-        pat->line = line;
-        pat->column = column;
-        return pat;
-    }
-
-    // Variable binding or typed pattern: name or name: type
-    if (is_identifier_or_type_keyword(p->current.type)) {
-        char *name = consume_identifier_or_type_keyword(p, "Expect pattern");
-
-        // Check for type annotation: name: type
-        if (match(p, TOK_COLON)) {
-            Type *type_ann = parse_type(p);
-            Pattern *pat = pattern_typed(name, type_ann);
-            free(name);
-            pat->line = line;
-            pat->column = column;
-            return pat;
-        }
-
-        // Plain binding
-        Pattern *pat = pattern_binding(name);
-        free(name);
-        pat->line = line;
-        pat->column = column;
-        return pat;
-    }
-
-    error(p, "Expect pattern");
-    return pattern_wildcard();
-}
-
-// Parse a pattern, including OR patterns: pattern | pattern | ...
-Pattern* parse_pattern(Parser *p) {
-    Pattern *first = parse_primary_pattern(p);
-
-    // Check for OR pattern
-    if (!check(p, TOK_PIPE)) {
-        return first;
-    }
-
-    // Build OR pattern
-    int alt_capacity = 4;
-    Pattern **alternatives = malloc(sizeof(Pattern*) * alt_capacity);
-    if (!alternatives) {
-        error(p, "Memory allocation failed for OR pattern");
-        return first;
-    }
-    alternatives[0] = first;
-    int num_alternatives = 1;
-
-    while (match(p, TOK_PIPE)) {
-        if (num_alternatives >= alt_capacity) {
-            alt_capacity *= 2;
-            Pattern **new_alternatives = realloc(alternatives, sizeof(Pattern*) * alt_capacity);
-            if (!new_alternatives) {
-                error(p, "Memory allocation failed for OR pattern");
-                break;
-            }
-            alternatives = new_alternatives;
-        }
-        alternatives[num_alternatives++] = parse_primary_pattern(p);
-    }
-
-    Pattern *or_pat = pattern_or(alternatives, num_alternatives);
-    or_pat->line = first->line;
-    or_pat->column = first->column;
-    return or_pat;
-}
-
-// ========== PRIMARY EXPRESSION PARSING ==========
-
-Expr* primary(Parser *p) {
-    if (match(p, TOK_TRUE)) {
-        return expr_bool(1);
-    }
-
-    if (match(p, TOK_FALSE)) {
-        return expr_bool(0);
-    }
-
-    if (match(p, TOK_NULL)) {
-        return expr_null();
-    }
-
-    if (match(p, TOK_NUMBER)) {
-        Expr *expr;
-        if (p->previous.is_float) {
-            expr = expr_number_float(p->previous.float_value);
-        } else {
-            expr = expr_number_int(p->previous.int_value);
-        }
-        // Preserve source location for formatter literal preservation
-        expr->line = p->previous.line;
-        expr->column = p->previous.column;
-        return expr;
-    }
-
-    if (match(p, TOK_STRING)) {
-        char *str = p->previous.string_value;
-        Expr *expr = expr_string(str);
-        free(str);  // Parser owns this memory from lexer
-        return expr;
-    }
-
-    if (match(p, TOK_TEMPLATE_STRING)) {
-        char *str = p->previous.string_value;
-        Expr *expr = parse_interpolated_string(p, str);
-        free(str);  // Parser owns this memory from lexer
-        return expr;
-    }
-
-    if (match(p, TOK_RUNE)) {
-        return expr_rune(p->previous.rune_value);
-    }
-
-    // Match expression: match (expr) { pattern => expr, ... }
-    if (match(p, TOK_MATCH)) {
-        consume(p, TOK_LPAREN, "Expect '(' after 'match'");
-        Expr *scrutinee = expression(p);
-        consume(p, TOK_RPAREN, "Expect ')' after match expression");
-        consume(p, TOK_LBRACE, "Expect '{' to begin match arms");
-
-        int arm_capacity = 16;
-        MatchArm *arms = malloc(sizeof(MatchArm) * arm_capacity);
-        if (!arms) {
-            error(p, "Memory allocation failed for match arms");
-            return expr_null();
-        }
-        int num_arms = 0;
-
-        while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
-            // Grow array if needed
-            if (num_arms >= arm_capacity) {
-                arm_capacity *= 2;
-                MatchArm *new_arms = realloc(arms, sizeof(MatchArm) * arm_capacity);
-                if (!new_arms) {
-                    error(p, "Memory allocation failed for match arms");
-                    break;
-                }
-                arms = new_arms;
-            }
-
-            // Parse pattern
-            Pattern *pattern = parse_pattern(p);
-
-            // Parse optional guard: if condition
-            Expr *guard = NULL;
-            if (match(p, TOK_IF)) {
-                guard = expression(p);
-            }
-
-            // Expect =>
-            consume(p, TOK_ARROW, "Expect '=>' after pattern");
-
-            // Parse arm body expression
-            Expr *body = expression(p);
-
-            arms[num_arms].pattern = pattern;
-            arms[num_arms].guard = guard;
-            arms[num_arms].body = body;
-            arms[num_arms].line = pattern ? pattern->line : p->previous.line;
-            arms[num_arms].column = pattern ? pattern->column : p->previous.column;
-            num_arms++;
-
-            // Optional comma between arms
-            match(p, TOK_COMMA);
-        }
-
-        consume(p, TOK_RBRACE, "Expect '}' after match arms");
-        return expr_match(scrutinee, arms, num_arms);
-    }
-
-    // Function expression: fn(...) { ... } or async fn(...) { ... }
-    // Must check this BEFORE treating 'async' as a plain identifier
-    int is_async_fn = 0;
-    if (check(p, TOK_ASYNC) && p->next.type == TOK_FN) {
-        advance(p);  // consume 'async'
-        is_async_fn = 1;
-        consume(p, TOK_FN, "Expect 'fn' after 'async'");
-        goto parse_fn_expr;
-    } else if (match(p, TOK_FN)) {
-        is_async_fn = 0;
-        goto parse_fn_expr;
-    }
-
-    // Identifier or contextual keywords used as identifiers
-    // Keywords like 'type', 'define', 'enum', 'import', 'export', 'extern', 'async', 'defer'
-    // can be used as variable names when not at the start of a statement
-    if (is_identifier_or_type_keyword(p->current.type)) {
-        advance(p);
-        char *name = token_text(&p->previous);
-        Expr *ident = expr_ident(name);
-        free(name);
-        return ident;
-    }
-
-    if (match(p, TOK_SELF)) {
-        return expr_ident("self");
-    }
-
-    if (match(p, TOK_LPAREN)) {
-        Expr *expr = expression(p);
-        consume(p, TOK_RPAREN, "Expect ')' after expression");
-        return expr;
-    }
-
-    // Object literal: { field: value, ... }
-    // Also supports shorthand: { name } means { name: name }
-    // Also supports spread: { ...obj } copies all fields from obj
-    if (match(p, TOK_LBRACE)) {
-        int capacity = 32;
-        char **field_names = malloc(sizeof(char*) * capacity);
-        Expr **field_values = malloc(sizeof(Expr*) * capacity);
-        if (!field_names || !field_values) {
-            free(field_names);
-            free(field_values);
-            error(p, "Memory allocation failed for object literal");
-            return expr_object_literal(NULL, NULL, 0);
-        }
-        int num_fields = 0;
-
-        while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
-            // Grow arrays if needed
-            if (num_fields >= capacity) {
-                int new_capacity = capacity * 2;
-                char **new_field_names = realloc(field_names, sizeof(char*) * new_capacity);
-                if (!new_field_names) {
-                    error(p, "Memory allocation failed for object literal");
-                    break;
-                }
-                field_names = new_field_names;
-
-                Expr **new_field_values = realloc(field_values, sizeof(Expr*) * new_capacity);
-                if (!new_field_values) {
-                    error(p, "Memory allocation failed for object literal");
-                    break;
-                }
-                field_values = new_field_values;
-                capacity = new_capacity;
-            }
-
-            // Check for spread operator: ...expr
-            if (match(p, TOK_DOT_DOT_DOT)) {
-                field_names[num_fields] = NULL;  // NULL marks spread
-                field_values[num_fields] = expression(p);
-                num_fields++;
-            } else {
-                // Normal field or shorthand
-                field_names[num_fields] = consume_identifier_or_type_keyword(p, "Expect field name");
-
-                // Check for shorthand: { name } vs { name: value }
-                if (check(p, TOK_COMMA) || check(p, TOK_RBRACE)) {
-                    // Shorthand syntax: { name } means { name: name }
-                    field_values[num_fields] = expr_ident(field_names[num_fields]);
-                } else {
-                    consume(p, TOK_COLON, "Expect ':' after field name");
-                    field_values[num_fields] = expression(p);
-                }
-                num_fields++;
-            }
-
-            if (!match(p, TOK_COMMA)) break;
-        }
-
-        consume(p, TOK_RBRACE, "Expect '}' after object fields");
-
-        return expr_object_literal(field_names, field_values, num_fields);
-    }
-
-    // Array literal: [elem1, elem2, ...]
-    // Supports trailing commas: [1, 2, 3,]
-    if (match(p, TOK_LBRACKET)) {
-        int capacity = 64;
-        Expr **elements = malloc(sizeof(Expr*) * capacity);
-        if (!elements) {
-            error(p, "Memory allocation failed for array literal");
-            return expr_array_literal(NULL, 0);
-        }
-        int num_elements = 0;
-
-        if (!check(p, TOK_RBRACKET)) {
-            do {
-                // Allow trailing comma before closing bracket
-                if (check(p, TOK_RBRACKET)) break;
-                // Grow array if needed
-                if (num_elements >= capacity) {
-                    capacity *= 2;
-                    Expr **new_elements = realloc(elements, sizeof(Expr*) * capacity);
-                    if (!new_elements) {
-                        error(p, "Memory allocation failed for array literal");
-                        break;
-                    }
-                    elements = new_elements;
-                }
-                elements[num_elements++] = expression(p);
-            } while (match(p, TOK_COMMA));
-        }
-
-        consume(p, TOK_RBRACKET, "Expect ']' after array elements");
-
-        return expr_array_literal(elements, num_elements);
-    }
-
-    // Not a function expression, skip to other cases
-    goto not_fn_expr;
-
-parse_fn_expr:
-    // Parse function expression (jumped to from async fn / fn detection above)
+// Parse the remainder of a function expression after the 'fn' keyword has
+// been consumed: (params) [: type] { body }  or  (params) [: type] => expr
+// Shared by fn/async fn expressions and object-literal method shorthand.
+static Expr* fn_expression_rest(Parser *p, int is_async_fn) {
+    int fn_start_line = p->previous.line;  // the 'fn' keyword just consumed
     consume(p, TOK_LPAREN, "Expect '(' after 'fn'");
 
     // Parse parameters - start with small capacity and grow as needed
@@ -824,9 +165,763 @@ parse_fn_expr:
         body = block_statement(p);
     }
 
-    return expr_function(is_async_fn, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
+    Expr *fn_expr = expr_function(is_async_fn, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
+    fn_expr->line = fn_start_line;
+    return fn_expr;
+}
 
-not_fn_expr:
+Expr* primary(Parser *p);
+Type* parse_type(Parser *p);
+Pattern* parse_pattern(Parser *p);
+static Pattern* parse_primary_pattern(Parser *p);
+
+// Use the shared is_identifier_or_type_keyword and consume_identifier_or_type_keyword from core.c
+
+// Helper: Parse interpolated string with ${...} expressions
+static Expr* parse_interpolated_string(Parser *p, const char *str_content) {
+    char **string_parts = malloc(sizeof(char*) * 32);  // Array of string literals
+    Expr **expr_parts = malloc(sizeof(Expr*) * 32);    // Array of expressions
+    if (!string_parts || !expr_parts) {
+        free(string_parts);
+        free(expr_parts);
+        error(p, "Memory allocation failed in string interpolation");
+        return expr_string("");
+    }
+    int num_parts = 0;
+    int capacity = 32;
+
+    const char *ptr = str_content;
+    char *current_string = malloc(1024);
+    if (!current_string) {
+        free(string_parts);
+        free(expr_parts);
+        error(p, "Memory allocation failed in string interpolation");
+        return expr_string("");
+    }
+    int str_len = 0;
+    int str_capacity = 1024;
+
+    while (*ptr != '\0') {
+        if (*ptr == '$' && *(ptr + 1) == '{') {
+            // Found interpolation start
+            // Save current string part
+            current_string[str_len] = '\0';
+            string_parts[num_parts] = strdup(current_string);
+            if (!string_parts[num_parts]) {
+                error(p, "Memory allocation failed in string interpolation");
+                free(current_string);
+                for (int i = 0; i < num_parts; i++) {
+                    free(string_parts[i]);
+                }
+                free(string_parts);
+                free(expr_parts);
+                return expr_string("");
+            }
+            str_len = 0;
+
+            // Find matching }
+            ptr += 2;  // Skip ${
+            const char *expr_start = ptr;
+            int brace_count = 1;
+            while (*ptr != '\0' && brace_count > 0) {
+                // Skip string/rune literals so braces inside them don't count
+                if (*ptr == '"' || *ptr == '\'') {
+                    char quote = *ptr++;
+                    while (*ptr != '\0' && *ptr != quote) {
+                        if (*ptr == '\\' && *(ptr + 1) != '\0') ptr++;
+                        ptr++;
+                    }
+                    if (*ptr == '\0') break;
+                    ptr++;
+                    continue;
+                }
+                if (*ptr == '{') brace_count++;
+                if (*ptr == '}') brace_count--;
+                if (brace_count > 0) ptr++;
+            }
+
+            if (brace_count != 0) {
+                error(p, "Unclosed ${...} in string interpolation");
+                // Cleanup all allocated memory before returning
+                free(current_string);
+                for (int i = 0; i <= num_parts; i++) {
+                    free(string_parts[i]);
+                    // Note: expr_parts[i] will be cleaned by AST system
+                }
+                free(string_parts);
+                free(expr_parts);
+                return expr_string("");
+            }
+
+            // Extract expression text
+            int expr_len = ptr - expr_start;
+            char *expr_text = malloc(expr_len + 1);
+            if (!expr_text) {
+                error(p, "Memory allocation failed in string interpolation");
+                free(current_string);
+                for (int i = 0; i <= num_parts; i++) {
+                    free(string_parts[i]);
+                }
+                free(string_parts);
+                free(expr_parts);
+                return expr_string("");
+            }
+            memcpy(expr_text, expr_start, expr_len);
+            expr_text[expr_len] = '\0';
+
+            // Parse the expression using a new parser
+            Lexer expr_lexer;
+            lexer_init(&expr_lexer, expr_text);
+
+            Parser expr_parser;
+            parser_init(&expr_parser, &expr_lexer);
+            expr_parser.collect_errors = p->collect_errors;
+
+            Expr *interpolated_expr = NULL;
+            if (expr_parser.current.type == TOK_EOF) {
+                error(p, "Empty expression in string interpolation");
+            } else {
+                interpolated_expr = expression(&expr_parser);
+                // The whole ${...} body must be exactly one expression
+                if (expr_parser.had_error || expr_parser.current.type != TOK_EOF) {
+                    error(p, "Invalid expression in string interpolation");
+                }
+            }
+            parser_free_errors(&expr_parser);
+            if (!interpolated_expr) {
+                interpolated_expr = expr_string("");
+            }
+            expr_parts[num_parts] = interpolated_expr;
+
+            // Safe to free expr_text now - token_text() makes copies of all string data
+            free(expr_text);
+
+            num_parts++;
+            if (num_parts >= capacity) {
+                int new_capacity = capacity * 2;
+                char **new_string_parts = realloc(string_parts, sizeof(char*) * new_capacity);
+                if (!new_string_parts) {
+                    error(p, "Memory allocation failed in string interpolation");
+                    free(current_string);
+                    for (int i = 0; i < num_parts; i++) {
+                        free(string_parts[i]);
+                    }
+                    free(string_parts);
+                    free(expr_parts);
+                    return expr_string("");
+                }
+                string_parts = new_string_parts;
+
+                Expr **new_expr_parts = realloc(expr_parts, sizeof(Expr*) * new_capacity);
+                if (!new_expr_parts) {
+                    error(p, "Memory allocation failed in string interpolation");
+                    free(current_string);
+                    for (int i = 0; i < num_parts; i++) {
+                        free(string_parts[i]);
+                    }
+                    free(string_parts);
+                    free(expr_parts);
+                    return expr_string("");
+                }
+                expr_parts = new_expr_parts;
+                capacity = new_capacity;
+            }
+
+            ptr++;  // Skip closing }
+        } else {
+            // Regular character
+            if (str_len >= str_capacity - 1) {
+                str_capacity *= 2;
+                char *new_string = realloc(current_string, str_capacity);
+                if (!new_string) {
+                    error(p, "Memory allocation failed in string interpolation");
+                    // Cleanup and return
+                    free(current_string);
+                    for (int i = 0; i < num_parts; i++) {
+                        free(string_parts[i]);
+                    }
+                    free(string_parts);
+                    free(expr_parts);
+                    return expr_string("");
+                }
+                current_string = new_string;
+            }
+            current_string[str_len++] = *ptr;
+            ptr++;
+        }
+    }
+
+    // Save final string part
+    current_string[str_len] = '\0';
+    string_parts[num_parts] = strdup(current_string);
+    free(current_string);
+
+    // Create interpolation expression
+    Expr *result = expr_string_interpolation(string_parts, expr_parts, num_parts);
+    return result;
+}
+
+// ========== PATTERN PARSING (for match expressions) ==========
+
+// Parse a primary pattern (non-OR pattern)
+static Pattern* parse_primary_pattern(Parser *p) {
+    int line = p->current.line;
+    int column = p->current.column;
+
+    // Wildcard pattern: _
+    if (check(p, TOK_IDENT) && p->current.length == 1 && p->current.start[0] == '_') {
+        advance(p);
+        Pattern *pat = pattern_wildcard();
+        pat->line = line;
+        pat->column = column;
+        return pat;
+    }
+
+    // Literal patterns: numbers, strings, booleans, null
+    // Handle negative numbers: -NUMBER
+    if (match(p, TOK_MINUS)) {
+        if (match(p, TOK_NUMBER)) {
+            Expr *lit;
+            if (p->previous.is_float) {
+                lit = expr_number_float(-p->previous.float_value);
+            } else if (p->previous.is_u64) {
+                // Negating a u64 literal > INT64_MAX: cast to i64 (wraps, same as C)
+                lit = expr_number_int(-(int64_t)p->previous.uint_value);
+            } else {
+                lit = expr_number_int(-p->previous.int_value);
+            }
+            Pattern *pat = pattern_literal(lit);
+            pat->line = line;
+            pat->column = column;
+            return pat;
+        } else {
+            error(p, "Expect number after '-' in pattern");
+            return pattern_wildcard();
+        }
+    }
+
+    if (match(p, TOK_NUMBER)) {
+        Expr *lit;
+        if (p->previous.is_float) {
+            lit = expr_number_float(p->previous.float_value);
+        } else if (p->previous.is_u64) {
+            lit = expr_number_u64(p->previous.uint_value);
+        } else {
+            lit = expr_number_int(p->previous.int_value);
+        }
+        Pattern *pat = pattern_literal(lit);
+        pat->line = line;
+        pat->column = column;
+        return pat;
+    }
+
+    if (match(p, TOK_STRING)) {
+        char *str = p->previous.string_value;
+        Expr *lit = expr_string(str);
+        free(str);
+        Pattern *pat = pattern_literal(lit);
+        pat->line = line;
+        pat->column = column;
+        return pat;
+    }
+
+    if (match(p, TOK_TRUE)) {
+        Pattern *pat = pattern_literal(expr_bool(1));
+        pat->line = line;
+        pat->column = column;
+        return pat;
+    }
+
+    if (match(p, TOK_FALSE)) {
+        Pattern *pat = pattern_literal(expr_bool(0));
+        pat->line = line;
+        pat->column = column;
+        return pat;
+    }
+
+    if (match(p, TOK_NULL)) {
+        Pattern *pat = pattern_literal(expr_null());
+        pat->line = line;
+        pat->column = column;
+        return pat;
+    }
+
+    if (match(p, TOK_RUNE)) {
+        Pattern *pat = pattern_literal(expr_rune(p->previous.rune_value));
+        pat->line = line;
+        pat->column = column;
+        return pat;
+    }
+
+    // Object pattern: { field, field: pattern, ...rest }
+    if (match(p, TOK_LBRACE)) {
+        int field_capacity = 8;
+        ObjectFieldPattern *fields = malloc(sizeof(ObjectFieldPattern) * field_capacity);
+        if (!fields) {
+            error(p, "Memory allocation failed for object pattern");
+            return pattern_wildcard();
+        }
+        int num_fields = 0;
+        int has_rest = 0;
+        char *rest_name = NULL;
+
+        while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+            // After an error nothing below is guaranteed to consume a token;
+            // bail out and let the closing consume() report/recover.
+            if (p->panic_mode) break;
+            if (num_fields >= field_capacity) {
+                field_capacity *= 2;
+                ObjectFieldPattern *new_fields = realloc(fields, sizeof(ObjectFieldPattern) * field_capacity);
+                if (!new_fields) {
+                    error(p, "Memory allocation failed for object pattern");
+                    break;
+                }
+                fields = new_fields;
+            }
+
+            // Check for rest pattern: ...name
+            if (match(p, TOK_DOT_DOT_DOT)) {
+                char *name = consume_identifier_or_type_keyword(p, "Expect identifier after '...' in object pattern");
+                has_rest = 1;
+                rest_name = name;
+                match(p, TOK_COMMA);
+                continue;
+            }
+
+            // Regular field: name or name: pattern
+            char *field_name = consume_identifier_or_type_keyword(p, "Expect field name in object pattern");
+            fields[num_fields].name = field_name;
+
+            if (match(p, TOK_COLON)) {
+                // Field with explicit pattern
+                fields[num_fields].pattern = parse_pattern(p);
+            } else {
+                // Shorthand: just the name (binds to same name)
+                fields[num_fields].pattern = NULL;
+            }
+
+            num_fields++;
+            if (!check(p, TOK_RBRACE) && !match(p, TOK_COMMA)) {
+                error_at_current(p, "Expect ',' or '}' in object pattern");
+                break;
+            }
+        }
+
+        consume(p, TOK_RBRACE, "Expect '}' after object pattern");
+        Pattern *pat = pattern_object(fields, num_fields, has_rest, rest_name);
+        free(rest_name);  // pattern_object makes a copy
+        pat->line = line;
+        pat->column = column;
+        return pat;
+    }
+
+    // Array pattern: [elem, elem, ...rest]
+    if (match(p, TOK_LBRACKET)) {
+        int elem_capacity = 8;
+        ArrayElementPattern *elements = malloc(sizeof(ArrayElementPattern) * elem_capacity);
+        if (!elements) {
+            error(p, "Memory allocation failed for array pattern");
+            return pattern_wildcard();
+        }
+        int num_elements = 0;
+
+        while (!check(p, TOK_RBRACKET) && !check(p, TOK_EOF)) {
+            // After an error nothing below is guaranteed to consume a token
+            if (p->panic_mode) break;
+            if (num_elements >= elem_capacity) {
+                elem_capacity *= 2;
+                ArrayElementPattern *new_elements = realloc(elements, sizeof(ArrayElementPattern) * elem_capacity);
+                if (!new_elements) {
+                    error(p, "Memory allocation failed for array pattern");
+                    break;
+                }
+                elements = new_elements;
+            }
+
+            // Check for rest pattern: ...name
+            if (match(p, TOK_DOT_DOT_DOT)) {
+                char *name = consume_identifier_or_type_keyword(p, "Expect identifier after '...' in array pattern");
+                elements[num_elements].is_rest = 1;
+                elements[num_elements].rest_name = name;
+                elements[num_elements].pattern = NULL;
+                num_elements++;
+                match(p, TOK_COMMA);
+                continue;
+            }
+
+            // Regular element pattern
+            elements[num_elements].is_rest = 0;
+            elements[num_elements].rest_name = NULL;
+            elements[num_elements].pattern = parse_pattern(p);
+            num_elements++;
+
+            if (!check(p, TOK_RBRACKET) && !match(p, TOK_COMMA)) {
+                error_at_current(p, "Expect ',' or ']' in array pattern");
+                break;
+            }
+        }
+
+        consume(p, TOK_RBRACKET, "Expect ']' after array pattern");
+        Pattern *pat = pattern_array(elements, num_elements);
+        pat->line = line;
+        pat->column = column;
+        return pat;
+    }
+
+    // Variable binding or typed pattern: name or name: type
+    if (is_identifier_or_type_keyword(p->current.type)) {
+        char *name = consume_identifier_or_type_keyword(p, "Expect pattern");
+
+        // Check for type annotation: name: type
+        if (match(p, TOK_COLON)) {
+            Type *type_ann = parse_type(p);
+            Pattern *pat = pattern_typed(name, type_ann);
+            free(name);
+            pat->line = line;
+            pat->column = column;
+            return pat;
+        }
+
+        // Plain binding
+        Pattern *pat = pattern_binding(name);
+        free(name);
+        pat->line = line;
+        pat->column = column;
+        return pat;
+    }
+
+    error(p, "Expect pattern");
+    return pattern_wildcard();
+}
+
+// Parse a pattern, including OR patterns: pattern | pattern | ...
+Pattern* parse_pattern(Parser *p) {
+    Pattern *first = parse_primary_pattern(p);
+
+    // Check for OR pattern
+    if (!check(p, TOK_PIPE)) {
+        return first;
+    }
+
+    // Build OR pattern
+    int alt_capacity = 4;
+    Pattern **alternatives = malloc(sizeof(Pattern*) * alt_capacity);
+    if (!alternatives) {
+        error(p, "Memory allocation failed for OR pattern");
+        return first;
+    }
+    alternatives[0] = first;
+    int num_alternatives = 1;
+
+    while (match(p, TOK_PIPE)) {
+        if (num_alternatives >= alt_capacity) {
+            alt_capacity *= 2;
+            Pattern **new_alternatives = realloc(alternatives, sizeof(Pattern*) * alt_capacity);
+            if (!new_alternatives) {
+                error(p, "Memory allocation failed for OR pattern");
+                break;
+            }
+            alternatives = new_alternatives;
+        }
+        alternatives[num_alternatives++] = parse_primary_pattern(p);
+    }
+
+    Pattern *or_pat = pattern_or(alternatives, num_alternatives);
+    or_pat->line = first->line;
+    or_pat->column = first->column;
+    return or_pat;
+}
+
+// ========== PRIMARY EXPRESSION PARSING ==========
+
+Expr* primary(Parser *p) {
+    if (match(p, TOK_TRUE)) {
+        return expr_bool(1);
+    }
+
+    if (match(p, TOK_FALSE)) {
+        return expr_bool(0);
+    }
+
+    if (match(p, TOK_NULL)) {
+        return expr_null();
+    }
+
+    if (match(p, TOK_NUMBER)) {
+        Expr *expr;
+        if (p->previous.is_float) {
+            expr = expr_number_float(p->previous.float_value);
+        } else if (p->previous.is_u64) {
+            expr = expr_number_u64(p->previous.uint_value);
+        } else {
+            expr = expr_number_int(p->previous.int_value);
+        }
+        // Preserve source location for formatter literal preservation
+        expr->line = p->previous.line;
+        expr->column = p->previous.column;
+        return expr;
+    }
+
+    if (match(p, TOK_STRING)) {
+        char *str = p->previous.string_value;
+        Expr *expr = expr_string(str);
+        free(str);  // Parser owns this memory from lexer
+        return expr;
+    }
+
+    if (match(p, TOK_TEMPLATE_STRING)) {
+        char *str = p->previous.string_value;
+        Expr *expr = parse_interpolated_string(p, str);
+        free(str);  // Parser owns this memory from lexer
+        return expr;
+    }
+
+    if (match(p, TOK_RUNE)) {
+        return expr_rune(p->previous.rune_value);
+    }
+
+    // Match expression: match (expr) { pattern => expr, ... }
+    if (match(p, TOK_MATCH)) {
+        consume(p, TOK_LPAREN, "Expect '(' after 'match'");
+        Expr *scrutinee = expression(p);
+        consume(p, TOK_RPAREN, "Expect ')' after match expression");
+        consume(p, TOK_LBRACE, "Expect '{' to begin match arms");
+
+        int arm_capacity = 16;
+        MatchArm *arms = malloc(sizeof(MatchArm) * arm_capacity);
+        if (!arms) {
+            error(p, "Memory allocation failed for match arms");
+            return expr_null();
+        }
+        int num_arms = 0;
+
+        while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+            // Snapshot the current token so we can detect no-progress
+            // iterations (e.g. when an arm body is malformed and its
+            // parser returns without consuming the problem token).
+            Token arm_before = p->current;
+
+            // Grow array if needed
+            if (num_arms >= arm_capacity) {
+                arm_capacity *= 2;
+                MatchArm *new_arms = realloc(arms, sizeof(MatchArm) * arm_capacity);
+                if (!new_arms) {
+                    error(p, "Memory allocation failed for match arms");
+                    break;
+                }
+                arms = new_arms;
+            }
+
+            // Parse pattern
+            Pattern *pattern = parse_pattern(p);
+
+            // Parse optional guard: if condition
+            Expr *guard = NULL;
+            if (match(p, TOK_IF)) {
+                guard = expression(p);
+            }
+
+            // Expect =>
+            consume(p, TOK_ARROW, "Expect '=>' after pattern");
+
+            // Parse arm body expression
+            Expr *body = expression(p);
+
+            arms[num_arms].pattern = pattern;
+            arms[num_arms].guard = guard;
+            arms[num_arms].body = body;
+            arms[num_arms].line = pattern ? pattern->line : p->previous.line;
+            arms[num_arms].column = pattern ? pattern->column : p->previous.column;
+            num_arms++;
+
+            // Optional comma between arms
+            match(p, TOK_COMMA);
+
+            // Guarantee forward progress: if the arm body errored and its
+            // parser returned without consuming the offending token, force
+            // a token advance so we can escape this arm and try the next.
+            if (p->current.type != TOK_EOF
+                && p->current.start == arm_before.start
+                && p->current.length == arm_before.length) {
+                advance(p);
+            }
+        }
+
+        consume(p, TOK_RBRACE, "Expect '}' after match arms");
+        return expr_match(scrutinee, arms, num_arms);
+    }
+
+    // Function expression: fn(...) { ... } or async fn(...) { ... }
+    // Must check this BEFORE treating 'async' as a plain identifier
+    if (check(p, TOK_ASYNC) && p->next.type == TOK_FN) {
+        advance(p);  // consume 'async'
+        consume(p, TOK_FN, "Expect 'fn' after 'async'");
+        return fn_expression_rest(p, 1);
+    } else if (match(p, TOK_FN)) {
+        return fn_expression_rest(p, 0);
+    }
+
+    // Identifier or contextual keywords used as identifiers
+    // Keywords like 'type', 'define', 'enum', 'import', 'export', 'extern', 'async', 'defer'
+    // can be used as variable names when not at the start of a statement
+    if (is_identifier_or_type_keyword(p->current.type)) {
+        advance(p);
+        char *name = token_text(&p->previous);
+        Expr *ident = expr_ident(name);
+        // expr_ident() defaults line/column to 0. Diagnostics that anchor on
+        // an identifier (e.g. --strict-types "identifier has unknown type")
+        // reported "file:0" without this.
+        ident->line = p->previous.line;
+        ident->column = p->previous.column;
+        free(name);
+        return ident;
+    }
+
+    if (match(p, TOK_SELF)) {
+        Expr *self_ident = expr_ident("self");
+        self_ident->line = p->previous.line;
+        self_ident->column = p->previous.column;
+        return self_ident;
+    }
+
+    if (match(p, TOK_LPAREN)) {
+        Expr *expr = expression(p);
+        consume(p, TOK_RPAREN, "Expect ')' after expression");
+        return expr;
+    }
+
+    // Object literal: { field: value, ... }
+    // Also supports shorthand: { name } means { name: name }
+    // Also supports spread: { ...obj } copies all fields from obj
+    if (match(p, TOK_LBRACE)) {
+        int capacity = 32;
+        char **field_names = malloc(sizeof(char*) * capacity);
+        Expr **field_values = malloc(sizeof(Expr*) * capacity);
+        if (!field_names || !field_values) {
+            free(field_names);
+            free(field_values);
+            error(p, "Memory allocation failed for object literal");
+            return expr_object_literal(NULL, NULL, 0);
+        }
+        int num_fields = 0;
+
+        while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+            // Grow arrays if needed
+            if (num_fields >= capacity) {
+                int new_capacity = capacity * 2;
+                char **new_field_names = realloc(field_names, sizeof(char*) * new_capacity);
+                if (!new_field_names) {
+                    error(p, "Memory allocation failed for object literal");
+                    break;
+                }
+                field_names = new_field_names;
+
+                Expr **new_field_values = realloc(field_values, sizeof(Expr*) * new_capacity);
+                if (!new_field_values) {
+                    error(p, "Memory allocation failed for object literal");
+                    break;
+                }
+                field_values = new_field_values;
+                capacity = new_capacity;
+            }
+
+            // Check for spread operator: ...expr
+            if (match(p, TOK_DOT_DOT_DOT)) {
+                field_names[num_fields] = NULL;  // NULL marks spread
+                field_values[num_fields] = expression(p);
+                num_fields++;
+            } else if (check(p, TOK_FN) ||
+                       (check(p, TOK_ASYNC) && p->next.type == TOK_FN)) {
+                // Method shorthand: { fn name(...) { ... } }
+                // Sugar for { name: fn(...) { ... } }; entries are still
+                // comma-separated like any other field.
+                int method_is_async = 0;
+                if (check(p, TOK_ASYNC)) {
+                    advance(p);  // consume 'async'
+                    method_is_async = 1;
+                }
+                consume(p, TOK_FN, "Expect 'fn'");
+                field_names[num_fields] = consume_identifier_or_type_keyword(
+                    p, "Expect method name after 'fn' in object literal");
+                field_values[num_fields] = fn_expression_rest(p, method_is_async);
+                num_fields++;
+            } else if (match(p, TOK_STRING)) {
+                // Quoted field name: { "chat-mahou": value }
+                // Required when the key contains characters that aren't valid
+                // in a bare identifier (hyphens, spaces, leading digits, etc.).
+                // Shorthand is not allowed for string keys - a colon is required.
+                field_names[num_fields] = p->previous.string_value;
+                p->previous.string_value = NULL;  // ownership transferred
+                consume(p, TOK_COLON, "Expect ':' after string field name");
+                field_values[num_fields] = expression(p);
+                num_fields++;
+            } else {
+                // Normal field or shorthand
+                if (!check_identifier_or_type_keyword(p)) {
+                    error_at_current(p,
+                        "Expect field name (use a bare identifier, or quote keys "
+                        "with non-identifier characters: { \"my-key\": value })");
+                    // Skip the offending token to avoid an infinite loop
+                    if (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
+                        advance(p);
+                    }
+                    break;
+                }
+                field_names[num_fields] = consume_identifier_or_type_keyword(p, "Expect field name");
+
+                // Check for shorthand: { name } vs { name: value }
+                if (check(p, TOK_COMMA) || check(p, TOK_RBRACE)) {
+                    // Shorthand syntax: { name } means { name: name }
+                    field_values[num_fields] = expr_ident(field_names[num_fields]);
+                } else {
+                    consume(p, TOK_COLON, "Expect ':' after field name");
+                    field_values[num_fields] = expression(p);
+                }
+                num_fields++;
+            }
+
+            if (!match(p, TOK_COMMA)) break;
+        }
+
+        consume(p, TOK_RBRACE, "Expect '}' after object fields");
+
+        return expr_object_literal(field_names, field_values, num_fields);
+    }
+
+    // Array literal: [elem1, elem2, ...]
+    // Supports trailing commas: [1, 2, 3,]
+    if (match(p, TOK_LBRACKET)) {
+        int capacity = 64;
+        Expr **elements = malloc(sizeof(Expr*) * capacity);
+        if (!elements) {
+            error(p, "Memory allocation failed for array literal");
+            return expr_array_literal(NULL, 0);
+        }
+        int num_elements = 0;
+
+        if (!check(p, TOK_RBRACKET)) {
+            do {
+                // Allow trailing comma before closing bracket
+                if (check(p, TOK_RBRACKET)) break;
+                // Grow array if needed
+                if (num_elements >= capacity) {
+                    capacity *= 2;
+                    Expr **new_elements = realloc(elements, sizeof(Expr*) * capacity);
+                    if (!new_elements) {
+                        error(p, "Memory allocation failed for array literal");
+                        break;
+                    }
+                    elements = new_elements;
+                }
+                elements[num_elements++] = expression(p);
+            } while (match(p, TOK_COMMA));
+        }
+
+        consume(p, TOK_RBRACKET, "Expect ']' after array elements");
+
+        return expr_array_literal(elements, num_elements);
+    }
+
 
     // Allow type keywords to be used as identifiers (for sizeof, talloc, etc.)
     if (match(p, TOK_TYPE_I8)) return expr_ident("i8");
@@ -858,6 +953,13 @@ Expr* postfix(Parser *p) {
 
     // Handle chained property access, indexing, method calls, and postfix operators
     for (;;) {
+        if (match(p, TOK_QUESTION_LBRACKET)) {
+            // Safe indexing: obj?[index] - returns null if obj is null or key missing
+            Expr *index = expression(p);
+            consume(p, TOK_RBRACKET, "Expect ']' after optional chaining index");
+            expr = expr_optional_chain_index(expr, index);
+            continue;
+        }
         if (match(p, TOK_QUESTION_DOT)) {
             // Optional chaining: obj?.property, obj?.[index], or obj?.method()
             if (match(p, TOK_LBRACKET)) {
@@ -1035,7 +1137,30 @@ Expr* postfix(Parser *p) {
     return expr;
 }
 
+static Expr* unary_inner(Parser *p);
+
+// Public entry: bound expression-recursion depth so deeply nested input
+// (e.g. "((((...))))", "[[[[...]]]]", or a long prefix-operator chain) raises a
+// parse error instead of overflowing the C stack. Every nesting level descends
+// through unary() exactly once, and prefix operators recurse here directly, so
+// this single guard covers all expression-nesting vectors.
 Expr* unary(Parser *p) {
+    if (p->parse_depth >= HML_MAX_PARSE_DEPTH) {
+        error_at_current(p, "Maximum expression nesting depth exceeded");
+        // Drain to EOF so all enclosing parse loops unwind immediately instead
+        // of attempting per-token error recovery (which can be quadratic for
+        // pathologically nested input). Only reachable past the depth limit, so
+        // valid code is unaffected.
+        while (p->current.type != TOK_EOF) advance(p);
+        return expr_null();
+    }
+    p->parse_depth++;
+    Expr *e = unary_inner(p);
+    p->parse_depth--;
+    return e;
+}
+
+static Expr* unary_inner(Parser *p) {
     if (match(p, TOK_AWAIT)) {
         Expr *operand = unary(p);  // Recursive for multiple await/unary ops
         return expr_await(operand);

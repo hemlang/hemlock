@@ -252,5 +252,6 @@ fn show_progress(downloaded, total, elapsed) {
 
 ## See Also
 
+- [@stdlib/decimal](decimal.md) - Number formatting (`to_fixed`, `to_hex`, `parse_int`, StringBuilder)
 - [@stdlib/strings](strings.md) - Additional string utilities
 - [@stdlib/terminal](terminal.md) - ANSI colors and styles

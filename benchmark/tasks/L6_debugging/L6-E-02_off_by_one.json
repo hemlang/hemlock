@@ -1,0 +1,18 @@
+{
+  "id": "L6-E-02",
+  "level": "L6",
+  "difficulty": "easy",
+  "title": "Fix Off-By-One Errors",
+  "topic": "logic bugs",
+  "prompt": "The following Hemlock program has off-by-one errors. Fix all bugs so it produces the expected output.\n\n```hemlock\n// Reverse an array in-place\nfn reverse_array(arr) {\n    let left = 0;\n    let right = arr.length;\n    while (left < right) {\n        let temp = arr[left];\n        arr[left] = arr[right];\n        arr[right] = temp;\n        left++;\n        right--;\n    }\n    return arr;\n}\n\n// Sum elements from index start to end (inclusive)\nfn sum_range(arr, start, end) {\n    let total = 0;\n    for (let i = start; i < end; i++) {\n        total += arr[i];\n    }\n    return total;\n}\n\n// Find last occurrence of value\nfn find_last(arr, value) {\n    for (let i = arr.length; i >= 0; i--) {\n        if (arr[i] == value) {\n            return i;\n        }\n    }\n    return -1;\n}\n\nlet nums = [1, 2, 3, 4, 5];\nprint(reverse_array(nums).join(\" \"));\nprint(sum_range([10, 20, 30, 40, 50], 1, 3));\nprint(find_last([1, 2, 3, 2, 1], 2));\n```",
+  "expected_output": "5 4 3 2 1\n90\n3\n",
+  "timeout_ms": 5000,
+  "validator": "exact_match",
+  "buggy_code": "fn reverse_array(arr) {\n    let left = 0;\n    let right = arr.length;\n    while (left < right) {\n        let temp = arr[left];\n        arr[left] = arr[right];\n        arr[right] = temp;\n        left++;\n        right--;\n    }\n    return arr;\n}\n\nfn sum_range(arr, start, end) {\n    let total = 0;\n    for (let i = start; i < end; i++) {\n        total += arr[i];\n    }\n    return total;\n}\n\nfn find_last(arr, value) {\n    for (let i = arr.length; i >= 0; i--) {\n        if (arr[i] == value) {\n            return i;\n        }\n    }\n    return -1;\n}\n\nlet nums = [1, 2, 3, 4, 5];\nprint(reverse_array(nums).join(\" \"));\nprint(sum_range([10, 20, 30, 40, 50], 1, 3));\nprint(find_last([1, 2, 3, 2, 1], 2));\n",
+  "bug_descriptions": [
+    "reverse_array: right should be arr.length - 1 (last valid index)",
+    "sum_range: loop should be i <= end for inclusive range (90 = 20+30+40)",
+    "find_last: i should start at arr.length - 1 (last valid index)"
+  ],
+  "tags": ["debugging", "off-by-one", "arrays", "loops"]
+}

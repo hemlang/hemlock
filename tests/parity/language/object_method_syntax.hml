@@ -1,0 +1,40 @@
+// Object literal method shorthand: { fn name(...) { ... } }
+// is sugar for { name: fn(...) { ... } }. Entries are comma-separated
+// like any other field, and `self` binds to the object on method calls.
+let counter = {
+    count: 0,
+    step: 2,
+    fn inc() {
+        self.count = self.count + self.step;
+        return self.count;
+    },
+    fn reset() { self.count = 0; },
+    fn describe(): string => "count=" + self.count,
+};
+
+print(counter.inc());
+print(counter.inc());
+print(counter.describe());
+counter.reset();
+print(counter.count);
+
+// Mixed with regular fields, shorthand, and value-style methods
+let base = 10;
+let calc = {
+    base,
+    fn add(n: i32): i32 { return self.base + n; },
+    mul: fn(n: i32): i32 { return self.base * n; },
+};
+print(calc.add(5));
+print(calc.mul(3));
+
+// async method shorthand
+let worker = {
+    name: "w1",
+    async fn work(n: i32): i32 { return n * 2; },
+};
+print(await spawn(worker.work, 21));
+
+// Trailing comma after a method, single-method object
+let single = { fn answer(): i32 => 42, };
+print(single.answer());
