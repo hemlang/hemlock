@@ -79,8 +79,12 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
         }
 
         case STMT_WHILE: {
-            // Create iteration environment once, reuse each iteration
-            Environment *iter_env = env_new(env);
+            // A block body allocates its own scope per iteration, so it runs
+            // directly in the enclosing environment (the resolver mirrors
+            // this). Only a braceless body gets a reused, cleared iteration
+            // environment to hold whatever it declares.
+            Stmt *body = stmt->as.while_stmt.body;
+            Environment *iter_env = (body->type == STMT_BLOCK) ? NULL : env_new(env);
             const char *loop_label = stmt->as.while_stmt.label;
             for (;;) {
                 Value condition = eval_expr(stmt->as.while_stmt.condition, env, ctx);
@@ -97,9 +101,13 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
                 VALUE_RELEASE(condition);  // Release condition after checking
 
-                // Clear and reuse iteration environment
-                env_clear(iter_env);
-                eval_stmt(stmt->as.while_stmt.body, iter_env, ctx);
+                if (iter_env) {
+                    // Clear and reuse iteration environment
+                    env_clear(iter_env);
+                    eval_stmt(body, iter_env, ctx);
+                } else {
+                    eval_stmt(body, env, ctx);
+                }
 
                 // Check for break/continue/return/exception
                 if (ctx->loop_state.is_breaking) {
@@ -136,18 +144,24 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     break;
                 }
             }
-            env_release(iter_env);
+            if (iter_env) env_release(iter_env);
             break;
         }
 
         case STMT_LOOP: {
-            // Create iteration environment once, reuse each iteration
-            Environment *iter_env = env_new(env);
+            // Same scope structure as while: a block body runs in the
+            // enclosing environment, a braceless one in a reused iter_env.
+            Stmt *body = stmt->as.loop_stmt.body;
+            Environment *iter_env = (body->type == STMT_BLOCK) ? NULL : env_new(env);
             const char *loop_label = stmt->as.loop_stmt.label;
             for (;;) {
-                // Clear and reuse iteration environment
-                env_clear(iter_env);
-                eval_stmt(stmt->as.loop_stmt.body, iter_env, ctx);
+                if (iter_env) {
+                    // Clear and reuse iteration environment
+                    env_clear(iter_env);
+                    eval_stmt(body, iter_env, ctx);
+                } else {
+                    eval_stmt(body, env, ctx);
+                }
 
                 // Check for break/continue/return/exception
                 if (ctx->loop_state.is_breaking) {
@@ -184,7 +198,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     break;
                 }
             }
-            env_release(iter_env);
+            if (iter_env) env_release(iter_env);
             break;
         }
 
@@ -220,31 +234,39 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(cond);  // Release condition after checking
                 }
 
-                // Create a FRESH iteration environment each iteration.
-                // This provides per-iteration variable binding so that closures
-                // created in the loop body capture their own copy of loop variables
-                // (e.g., for (let i = 0; ...) { fns.push(fn() { return i; }); })
-                Environment *iter_env = env_new(loop_env);
+                if (stmt->as.for_loop.elide_iter_env) {
+                    // The resolver proved nothing in the body can capture a
+                    // per-iteration copy of the loop variable (no closures,
+                    // no defer), so the body runs in loop_env directly.
+                    eval_stmt(stmt->as.for_loop.body, loop_env, ctx);
+                } else {
+                    // Create a FRESH iteration environment each iteration.
+                    // This provides per-iteration variable binding so that closures
+                    // created in the loop body capture their own copy of loop variables
+                    // (e.g., for (let i = 0; ...) { fns.push(fn() { return i; }); })
+                    Environment *iter_env = env_new(loop_env);
 
-                // Copy loop variables into iter_env for per-iteration capture.
-                // The body sees these copies; condition/increment use loop_env directly.
-                for (int vi = 0; vi < loop_env->count; vi++) {
-                    env_define(iter_env, loop_env->names[vi], loop_env->values[vi], 0, ctx);
+                    // Copy loop variables into iter_env for per-iteration capture.
+                    // The body sees these copies; condition/increment use loop_env directly.
+                    // Names are borrowed: loop_env owns them and outlives iter_env.
+                    for (int vi = 0; vi < loop_env->count; vi++) {
+                        env_define_borrowed(iter_env, loop_env->names[vi], loop_env->values[vi], 0, ctx);
+                    }
+                    eval_stmt(stmt->as.for_loop.body, iter_env, ctx);
+
+                    // Copy loop variable values back from iter_env to loop_env
+                    // so that body modifications (e.g., i = 100) still affect
+                    // the loop counter for condition/increment evaluation.
+                    for (int vi = 0; vi < loop_env->count; vi++) {
+                        Value old_val = loop_env->values[vi];
+                        Value new_val = iter_env->values[vi];
+                        VALUE_RETAIN(new_val);
+                        loop_env->values[vi] = new_val;
+                        VALUE_RELEASE(old_val);
+                    }
+
+                    env_release(iter_env);
                 }
-                eval_stmt(stmt->as.for_loop.body, iter_env, ctx);
-
-                // Copy loop variable values back from iter_env to loop_env
-                // so that body modifications (e.g., i = 100) still affect
-                // the loop counter for condition/increment evaluation.
-                for (int vi = 0; vi < loop_env->count; vi++) {
-                    Value old_val = loop_env->values[vi];
-                    Value new_val = iter_env->values[vi];
-                    VALUE_RETAIN(new_val);
-                    loop_env->values[vi] = new_val;
-                    VALUE_RELEASE(old_val);
-                }
-
-                env_release(iter_env);
 
                 // Check for break/continue/return/exception
                 if (ctx->loop_state.is_breaking) {
@@ -529,7 +551,9 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             // Create a new environment for the block to enable proper lexical scoping.
             // This allows variables declared with 'let' inside a block to shadow
             // outer variables, matching JavaScript's let/const semantics.
-            Environment *block_env = env_new(env);
+            // When the resolver found nothing declared in the block's own scope
+            // (elide_env), the statements run in the enclosing environment.
+            Environment *block_env = stmt->as.block.elide_env ? env : env_new(env);
             for (int i = 0; i < stmt->as.block.count; i++) {
                 eval_stmt(stmt->as.block.statements[i], block_env, ctx);
                 // Check if a return/break/continue/exception happened
@@ -538,7 +562,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     break;
                 }
             }
-            env_release(block_env);
+            if (block_env != env) env_release(block_env);
             break;
         }
 

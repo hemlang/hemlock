@@ -200,12 +200,13 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         }
 
         case EXPR_IDENT: {
-            // Use fast resolved lookup if available, else fall back to hash lookup
+            // Use fast resolved lookup if available, else the per-node inline
+            // cache (globals, module bindings, builtins) with hash fallback
             Value val;
             if (expr->as.ident.resolved.is_resolved) {
                 val = env_get_resolved(env, expr->as.ident.resolved.depth, expr->as.ident.resolved.slot);
             } else {
-                val = env_get(env, expr->as.ident.name, ctx);
+                val = env_get_ic(env, expr->as.ident.name, &expr->as.ident.resolved, ctx);
             }
             // Auto-dereference if this is a reference (from ref parameter)
             if (val.type == VAL_REF) {
@@ -222,43 +223,15 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 VALUE_RELEASE(new_value);
                 return val_null();
             }
-            // Check if target is a reference (from ref parameter)
-            Value target;
+            // One chain walk handles: write-through for ref parameters, the
+            // const check, and the declared-type conversion (annotations are
+            // enforced at runtime by the interpreter — CLAUDE.md /
+            // docs/language-guide/types.md), then the store.
             if (expr->as.assign.resolved.is_resolved) {
-                target = env_get_resolved(env, expr->as.assign.resolved.depth, expr->as.assign.resolved.slot);
-            } else {
-                target = env_get(env, expr->as.assign.name, ctx);
+                return env_assign_resolved(env, expr->as.assign.resolved.depth,
+                                           expr->as.assign.resolved.slot, new_value, ctx);
             }
-            if (target.type == VAL_REF) {
-                // Write through the reference to the original location
-                ref_assign(target.as.as_ref, new_value, ctx);
-                VALUE_RELEASE(target);
-                return new_value;
-            }
-            VALUE_RELEASE(target);
-            // Enforce the variable's declared type on reassignment using the
-            // same conversion as the declaration (annotations are enforced at
-            // runtime by the interpreter — CLAUDE.md/docs/language-guide/types.md)
-            {
-                Type *declared = expr->as.assign.resolved.is_resolved
-                    ? env_get_declared_type_resolved(env, expr->as.assign.resolved.depth,
-                                                     expr->as.assign.resolved.slot)
-                    : env_get_declared_type(env, expr->as.assign.name);
-                if (declared != NULL) {
-                    new_value = convert_to_type(new_value, declared, env, ctx);
-                    if (ctx->exception_state.is_throwing) {
-                        VALUE_RELEASE(new_value);
-                        return val_null();
-                    }
-                }
-            }
-            // Regular assignment
-            if (expr->as.assign.resolved.is_resolved) {
-                env_set_resolved(env, expr->as.assign.resolved.depth, expr->as.assign.resolved.slot, new_value, ctx);
-            } else {
-                env_set(env, expr->as.assign.name, new_value, ctx);
-            }
-            return new_value;
+            return env_assign_ic(env, expr->as.assign.name, &expr->as.assign.resolved, new_value, ctx);
         }
 
         case EXPR_BINARY:

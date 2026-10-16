@@ -29,6 +29,21 @@ static EnvironmentPool env_pool = {0};
 static int env_pool_initialized = 0;
 static pthread_once_t env_pool_once = PTHREAD_ONCE_INIT;
 
+// ========== SINGLE-THREADED LOCK ELISION ==========
+// Environments are shared across task threads, so every access takes the
+// per-environment mutex. A program that never spawns a task has exactly one
+// thread, and the uncontended lock/unlock pairs were ~25% of all instructions
+// in tight loops. g_interp_has_spawned flips (monotonically, before the first
+// task thread is created) so until then no lock is taken at all. Once set,
+// every thread sees it and locks as before.
+static inline int interp_is_threaded(void) {
+    return __atomic_load_n(&g_interp_has_spawned, __ATOMIC_ACQUIRE);
+}
+
+static inline pthread_mutex_t *env_lock_of(Environment *env) {
+    return interp_is_threaded() ? (pthread_mutex_t*)env->mutex : NULL;
+}
+
 static void env_pool_init_internal(void) {
     pthread_mutex_init(&env_pool.mutex, NULL);
     for (int i = 0; i < ENV_POOL_SIZE; i++) {
@@ -56,12 +71,13 @@ static void env_pool_init(void) {
 static Environment* env_pool_alloc(void) {
     env_pool_init();  // Ensure initialized (thread-safe via pthread_once)
 
-    pthread_mutex_lock(&env_pool.mutex);
+    int threaded = interp_is_threaded();
+    if (threaded) pthread_mutex_lock(&env_pool.mutex);
 
     // O(1) allocation from free list
     if (env_pool.free_count > 0) {
         int idx = env_pool.free_list[--env_pool.free_count];
-        pthread_mutex_unlock(&env_pool.mutex);
+        if (threaded) pthread_mutex_unlock(&env_pool.mutex);
 
         Environment *env = &env_pool.envs[idx];
         // Reset to default storage (in case it was grown)
@@ -75,7 +91,7 @@ static Environment* env_pool_alloc(void) {
         return env;
     }
 
-    pthread_mutex_unlock(&env_pool.mutex);
+    if (threaded) pthread_mutex_unlock(&env_pool.mutex);
     return NULL;  // Pool exhausted
 }
 
@@ -113,9 +129,10 @@ static void env_pool_free(Environment *env) {
     env->capacity = ENV_DEFAULT_CAPACITY;
     env->hash_capacity = ENV_DEFAULT_CAPACITY * 2;
     // O(1) return to free list (thread-safe)
-    pthread_mutex_lock(&env_pool.mutex);
+    int threaded = interp_is_threaded();
+    if (threaded) pthread_mutex_lock(&env_pool.mutex);
     env_pool.free_list[env_pool.free_count++] = idx;
-    pthread_mutex_unlock(&env_pool.mutex);
+    if (threaded) pthread_mutex_unlock(&env_pool.mutex);
 }
 
 // ========== ENVIRONMENT ==========
@@ -572,7 +589,7 @@ void env_define(Environment *env, const char *name, Value value, int is_const, E
     uint32_t hash = hash_string(name);
 
     // Lock environment for thread-safe access
-    pthread_mutex_t *mutex = (pthread_mutex_t*)env->mutex;
+    pthread_mutex_t *mutex = env_lock_of(env);
     if (mutex) pthread_mutex_lock(mutex);
 
     // Check if variable already exists in current scope using hash table
@@ -617,7 +634,7 @@ void env_define_borrowed(Environment *env, const char *name, Value value, int is
     uint32_t hash = hash_string(name);
 
     // Lock environment for thread-safe access
-    pthread_mutex_t *mutex = (pthread_mutex_t*)env->mutex;
+    pthread_mutex_t *mutex = env_lock_of(env);
     if (mutex) pthread_mutex_lock(mutex);
 
     // Check if variable already exists in current scope using hash table
@@ -660,7 +677,7 @@ void env_define_borrowed(Environment *env, const char *name, Value value, int is
 // but we still lock for consistency if the env happens to be shared.
 void env_define_param(Environment *env, const char *name, uint32_t hash, Value value) {
     // Lock environment for thread-safe access
-    pthread_mutex_t *mutex = (pthread_mutex_t*)env->mutex;
+    pthread_mutex_t *mutex = env_lock_of(env);
     if (mutex) pthread_mutex_lock(mutex);
 
     // Grow if needed (unlikely for params, but be safe)
@@ -696,7 +713,7 @@ void env_define_import(Environment *env, const char *alias_name,
 
     uint32_t hash = hash_string(alias_name);
 
-    pthread_mutex_t *mutex = (pthread_mutex_t*)env->mutex;
+    pthread_mutex_t *mutex = env_lock_of(env);
     if (mutex) pthread_mutex_lock(mutex);
 
     if (env_lookup(env, alias_name, hash) >= 0 ||
@@ -741,7 +758,7 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
     uint32_t hash = hash_string(name);
 
     // Lock current environment for thread-safe access
-    pthread_mutex_t *mutex = (pthread_mutex_t*)env->mutex;
+    pthread_mutex_t *mutex = env_lock_of(env);
     if (mutex) pthread_mutex_lock(mutex);
 
     // Fast path: check first variable (common for loop counters and function params)
@@ -795,7 +812,7 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
     // Check parent scopes using hash table
     Environment *search_env = env->parent;
     while (search_env != NULL) {
-        pthread_mutex_t *parent_mutex = (pthread_mutex_t*)search_env->mutex;
+        pthread_mutex_t *parent_mutex = env_lock_of(search_env);
         if (parent_mutex) pthread_mutex_lock(parent_mutex);
 
         int pidx = env_lookup(search_env, name, hash);
@@ -869,7 +886,7 @@ Value env_get(Environment *env, const char *name, ExecutionContext *ctx) {
     Environment *search_env = env;
     while (search_env != NULL) {
         // Lock this environment for thread-safe access
-        pthread_mutex_t *mutex = (pthread_mutex_t*)search_env->mutex;
+        pthread_mutex_t *mutex = env_lock_of(search_env);
         if (mutex) pthread_mutex_lock(mutex);
 
         // Fast path: check if first variable in current scope matches
@@ -947,7 +964,7 @@ Value env_get_resolved(Environment *env, int depth, int slot) {
     }
 
     // Lock target environment for thread-safe access
-    pthread_mutex_t *mutex = (pthread_mutex_t*)target->mutex;
+    pthread_mutex_t *mutex = env_lock_of(target);
     if (mutex) pthread_mutex_lock(mutex);
 
     // Direct indexed access - O(1) instead of hash lookup
@@ -988,7 +1005,7 @@ int env_set_resolved(Environment *env, int depth, int slot, Value value, Executi
     }
 
     // Lock target environment for thread-safe access
-    pthread_mutex_t *mutex = (pthread_mutex_t*)target->mutex;
+    pthread_mutex_t *mutex = env_lock_of(target);
     if (mutex) pthread_mutex_lock(mutex);
 
     // Check bounds
@@ -1022,7 +1039,7 @@ int env_set_resolved(Environment *env, int depth, int slot, Value value, Executi
 void env_set_declared_type_last(Environment *env, struct Type *type) {
     if (!env || !type || env->count == 0) return;
 
-    pthread_mutex_t *mutex = (pthread_mutex_t*)env->mutex;
+    pthread_mutex_t *mutex = env_lock_of(env);
     if (mutex) pthread_mutex_lock(mutex);
 
     if (!env->declared_types) {
@@ -1041,7 +1058,7 @@ struct Type *env_get_declared_type(Environment *env, const char *name) {
     uint32_t hash = hash_string(name);
 
     for (Environment *e = env; e != NULL; e = e->parent) {
-        pthread_mutex_t *mutex = (pthread_mutex_t*)e->mutex;
+        pthread_mutex_t *mutex = env_lock_of(e);
         if (mutex) pthread_mutex_lock(mutex);
 
         int idx = env_lookup(e, name, hash);
@@ -1065,7 +1082,7 @@ struct Type *env_get_declared_type_resolved(Environment *env, int depth, int slo
         if (!target) return NULL;
     }
 
-    pthread_mutex_t *mutex = (pthread_mutex_t*)target->mutex;
+    pthread_mutex_t *mutex = env_lock_of(target);
     if (mutex) pthread_mutex_lock(mutex);
 
     struct Type *t = NULL;
@@ -1075,4 +1092,276 @@ struct Type *env_get_declared_type_resolved(Environment *env, int depth, int slo
 
     if (mutex) pthread_mutex_unlock(mutex);
     return t;
+}
+
+// ========== FAST PATHS: ONE-WALK ASSIGNMENT AND UNRESOLVED-NAME INLINE CACHE ==========
+
+Environment *env_walk(Environment *env, int depth) {
+    while (depth-- > 0 && env) {
+        env = env->parent;
+    }
+    return env;
+}
+
+// Store `new_value` into target->values[slot] with the full assignment
+// semantics the by-name and resolved paths share: write through a ref
+// binding, reject const, enforce the declared annotation. `env` is the
+// executing environment (convert_to_type evaluates in it). Takes ownership
+// of new_value and returns the stored value.
+static Value env_assign_slot(Environment *target, int slot, Value new_value,
+                             Environment *env, ExecutionContext *ctx,
+                             int resolved_messages) {
+    pthread_mutex_t *mutex = env_lock_of(target);
+    if (mutex) pthread_mutex_lock(mutex);
+    Value current = target->values[slot];
+    int is_const = target->is_const[slot];
+    struct Type *declared = target->declared_types ? target->declared_types[slot] : NULL;
+    const char *vname = target->names[slot];
+    if (current.type == VAL_REF) value_retain(current);  // keep alive across the write-through
+    if (mutex) pthread_mutex_unlock(mutex);
+
+    if (current.type == VAL_REF) {
+        ref_assign(current.as.as_ref, new_value, ctx);
+        value_release(current);
+        return new_value;
+    }
+
+    if (is_const) {
+        VALUE_RELEASE(new_value);
+        if (resolved_messages) {
+            runtime_error(ctx, "Cannot assign to constant '%s'", vname);
+        } else {
+            char error_msg[256];
+            snprintf(error_msg, sizeof(error_msg), "Cannot assign to const variable '%s'", vname);
+            ctx->exception_state.exception_value = val_string(error_msg);
+            ctx->exception_state.is_throwing = 1;
+        }
+        return val_null();
+    }
+
+    if (declared != NULL) {
+        new_value = convert_to_type(new_value, declared, env, ctx);
+        if (ctx->exception_state.is_throwing) {
+            VALUE_RELEASE(new_value);
+            return val_null();
+        }
+    }
+
+    if (mutex) pthread_mutex_lock(mutex);
+    VALUE_RELEASE(target->values[slot]);
+    VALUE_RETAIN(new_value);
+    target->values[slot] = new_value;
+    if (mutex) pthread_mutex_unlock(mutex);
+    return new_value;
+}
+
+Value env_assign_resolved(Environment *env, int depth, int slot, Value new_value,
+                          ExecutionContext *ctx) {
+    Environment *target = env_walk(env, depth);
+    if (!target) {
+        VALUE_RELEASE(new_value);
+        runtime_error(ctx, "Invalid resolved variable depth");
+        return val_null();
+    }
+    if (slot < 0 || slot >= target->count) {
+        VALUE_RELEASE(new_value);
+        runtime_error(ctx, "Invalid resolved variable slot");
+        return val_null();
+    }
+    return env_assign_slot(target, slot, new_value, env, ctx, 1);
+}
+
+// Find a real binding (not an import alias) for `name` by walking the chain.
+// Returns 1 and the location on success. Returns 0 when the name is absent
+// or the first match is a live import alias (*out_import set, *out_env is the
+// env holding the alias) -- callers decide whether to follow it.
+static int env_locate(Environment *env, const char *name, uint32_t hash,
+                      Environment **out_env, int *out_slot, int *out_depth,
+                      EnvImport **out_import) {
+    int depth = 0;
+    *out_import = NULL;
+    for (Environment *e = env; e != NULL; e = e->parent, depth++) {
+        pthread_mutex_t *mutex = env_lock_of(e);
+        if (mutex) pthread_mutex_lock(mutex);
+        int idx = env_lookup(e, name, hash);
+        if (idx >= 0) {
+            if (mutex) pthread_mutex_unlock(mutex);
+            *out_env = e;
+            *out_slot = idx;
+            *out_depth = depth;
+            return 1;
+        }
+        EnvImport *imp = env_find_import(e, name);
+        if (mutex) pthread_mutex_unlock(mutex);
+        if (imp) {
+            *out_env = e;
+            *out_depth = depth;
+            *out_import = imp;
+            return 0;
+        }
+    }
+    return 0;
+}
+
+// Resolve `name` through the node's inline cache. Only called when the
+// interpreter is single-threaded (the cache lives in the shared AST). On
+// success *out_env/*out_slot name a live binding reached by walking from
+// `env`, so the pointer is valid; the cached pointer itself is only ever
+// compared, never dereferenced before that walk confirms it.
+//
+// The cache is bypassed for `self`: it is injected per call, so the same
+// node can see it at different depths depending on how the enclosing
+// function was invoked.
+static int env_ic_locate(Environment *env, const char *name, ResolvedVar *rv,
+                         Environment **out_env, int *out_slot) {
+    if (rv->ic_state == HML_IC_STATE_MEGAMORPHIC) return 0;
+
+    if (rv->ic_state == HML_IC_STATE_MONOMORPHIC) {
+        Environment *t = env_walk(env, rv->ic_depth);
+        if (t == (Environment*)rv->ic_env) {
+            if (rv->ic_slot >= 0) {
+                int slot = rv->ic_slot;
+                if (slot < t->count &&
+                    (t->names[slot] == name || strcmp(t->names[slot], name) == 0)) {
+                    *out_env = t;
+                    *out_slot = slot;
+                    return 1;
+                }
+            } else {
+                // Cached import alias: confirm it is still installed here,
+                // then look the exported name up in the exporting scope.
+                EnvImport *imp = NULL;
+                for (EnvImport *p = t->imports; p; p = p->next) {
+                    if (p == (EnvImport*)rv->ic_import) { imp = p; break; }
+                }
+                if (imp) {
+                    Environment *src = imp->source_env;
+                    int src_slot = env_lookup(src, imp->source_name,
+                                              hash_string(imp->source_name));
+                    if (src_slot >= 0) {
+                        *out_env = src;
+                        *out_slot = src_slot;
+                        return 1;
+                    }
+                }
+            }
+        }
+        if (++rv->ic_misses >= HML_IC_MAX_MISSES) {
+            rv->ic_state = HML_IC_STATE_MEGAMORPHIC;
+            return 0;
+        }
+    } else if (name[0] == 's' && strcmp(name, "self") == 0) {
+        rv->ic_state = HML_IC_STATE_MEGAMORPHIC;
+        return 0;
+    }
+
+    if (rv->ic_hash == 0) rv->ic_hash = hash_string(name);
+    Environment *found_env;
+    int found_slot, found_depth;
+    EnvImport *imp;
+    if (env_locate(env, name, rv->ic_hash, &found_env, &found_slot, &found_depth, &imp)) {
+        rv->ic_env = found_env;
+        rv->ic_depth = found_depth;
+        rv->ic_slot = found_slot;
+        rv->ic_import = NULL;
+        rv->ic_state = HML_IC_STATE_MONOMORPHIC;
+        *out_env = found_env;
+        *out_slot = found_slot;
+        return 1;
+    }
+    if (imp) {
+        // Alias at found_env: only cache when the exported name is a plain
+        // binding in the exporting scope itself (re-export chains stay slow).
+        Environment *src = imp->source_env;
+        int src_slot = env_lookup(src, imp->source_name, hash_string(imp->source_name));
+        if (src_slot >= 0) {
+            rv->ic_env = found_env;
+            rv->ic_depth = found_depth;
+            rv->ic_slot = -1;
+            rv->ic_import = imp;
+            rv->ic_state = HML_IC_STATE_MONOMORPHIC;
+            *out_env = src;
+            *out_slot = src_slot;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+Value env_get_ic(Environment *env, const char *name, ResolvedVar *rv, ExecutionContext *ctx) {
+    if (!interp_is_threaded()) {
+        Environment *target;
+        int slot;
+        if (env_ic_locate(env, name, rv, &target, &slot)) {
+            Value val = target->values[slot];
+            VALUE_RETAIN(val);
+            return val;
+        }
+    }
+    return env_get(env, name, ctx);
+}
+
+Value env_assign_ic(Environment *env, const char *name, ResolvedVar *rv, Value new_value,
+                    ExecutionContext *ctx) {
+    if (!interp_is_threaded()) {
+        Environment *target;
+        int slot;
+        // Imports are read-only at the import site; let env_set report that.
+        if (env_ic_locate(env, name, rv, &target, &slot) && rv->ic_slot >= 0) {
+            return env_assign_slot(target, slot, new_value, env, ctx, 0);
+        }
+    }
+
+    // By-name path (mirrors the historical EXPR_ASSIGN sequence).
+    Value target_val = env_get(env, name, ctx);
+    if (target_val.type == VAL_REF) {
+        ref_assign(target_val.as.as_ref, new_value, ctx);
+        VALUE_RELEASE(target_val);
+        return new_value;
+    }
+    VALUE_RELEASE(target_val);
+    struct Type *declared = env_get_declared_type(env, name);
+    if (declared != NULL) {
+        new_value = convert_to_type(new_value, declared, env, ctx);
+        if (ctx->exception_state.is_throwing) {
+            VALUE_RELEASE(new_value);
+            return val_null();
+        }
+    }
+    env_set(env, name, new_value, ctx);
+    return new_value;
+}
+
+void env_bind_self(Environment *env, Value value) {
+    static const char self_name[] = "self";
+    uint32_t hash = hash_string(self_name);
+
+    pthread_mutex_t *mutex = env_lock_of(env);
+    if (mutex) pthread_mutex_lock(mutex);
+
+    int idx = env_lookup(env, self_name, hash);
+    if (idx >= 0) {
+        VALUE_RELEASE(env->values[idx]);
+        VALUE_RETAIN(value);
+        env->values[idx] = value;
+        if (mutex) pthread_mutex_unlock(mutex);
+        return;
+    }
+
+    if (env->count >= env->capacity) {
+        env_grow(env);
+    }
+    int index = env->count;
+    const char *borrowed = self_name;
+    memcpy(&env->names[index], &borrowed, sizeof(char *));  // static storage, never freed
+    if (index < 32) {
+        env->borrowed_flags |= (1U << index);
+    }
+    VALUE_RETAIN(value);
+    env->values[index] = value;
+    env->is_const[index] = 0;
+    env->count++;
+    env_hash_insert_with_hash(env, hash, index);
+
+    if (mutex) pthread_mutex_unlock(mutex);
 }

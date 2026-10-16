@@ -39,6 +39,12 @@ typedef struct ResolverScope {
 typedef struct {
     ResolverScope *current;    // Current innermost scope
     int scope_depth;           // Current nesting depth (0 = global)
+    // Scan mode: walk a subtree only to collect the counters below. No
+    // warnings are printed and no scope-elision decisions are made; the
+    // resolution fields it writes are overwritten by the real pass.
+    int scan_only;
+    int capture_count;         // closures (fn expressions) and defer statements seen
+    int implicit_assign_count; // assignments to names no enclosing scope declares
 } ResolverContext;
 
 /*

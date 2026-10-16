@@ -1432,6 +1432,19 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
 
     TypeKind kind = target_type->kind;
 
+    // FAST PATH: the value already has exactly the annotated primitive type.
+    // Every branch below returns such a value unchanged; this skips the
+    // dispatch for the common `fn f(n: i32)` / `let x: f64 = ...` cases.
+    switch (kind) {
+        case TYPE_I32:    if (value.type == VAL_I32) return value; break;
+        case TYPE_I64:    if (value.type == VAL_I64) return value; break;
+        case TYPE_F64:    if (value.type == VAL_F64) return value; break;
+        case TYPE_BOOL:   if (value.type == VAL_BOOL) return value; break;
+        case TYPE_STRING: if (value.type == VAL_STRING) return value; break;
+        case TYPE_RUNE:   if (value.type == VAL_RUNE) return value; break;
+        default: break;
+    }
+
     // Handle function types early - validate function signature matches
     if (kind == TYPE_FUNCTION) {
         if (value.type == VAL_FUNCTION) {

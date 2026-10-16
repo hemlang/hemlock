@@ -1,0 +1,73 @@
+// Semantics that must survive the interpreter's scope elision and
+// variable inline caching: per-iteration closure capture in for loops,
+// defer capturing the iteration value, `self` bound per call (never
+// written through to an enclosing method's self), braceless loop bodies,
+// block shadowing, labeled breaks, and globals mutated from functions.
+
+// per-iteration closure capture
+let fns = [];
+for (let i = 0; i < 3; i++) { fns.push(fn() { return i; }); }
+print(fns[0]() + "," + fns[1]() + "," + fns[2]());
+
+// a body without closures still mutates the live counter
+let hits = 0;
+for (let i = 0; i < 10; i++) { if (i == 2) { i = 8; } hits = hits + 1; }
+print(hits);
+
+// defer inside a loop captures each iteration's value
+fn deferred() {
+    for (let i = 0; i < 3; i++) { defer print("defer " + i); }
+    print("body done");
+}
+deferred();
+
+// an inner object's method call must not clobber the outer method's self
+let outer = {
+    name: "outer",
+    fn run() {
+        let inner = { name: "inner", fn who() { return self.name; } };
+        let a = inner.who();
+        return a + "/" + self.name;
+    }
+};
+print(outer.run());
+
+// braceless while body
+let k = 0;
+while (k < 3) k = k + 1;
+print(k);
+
+// block-scoped shadowing inside a loop body
+let s = "outer";
+for (let i = 0; i < 2; i++) { let s = "inner" + i; print(s); }
+print(s);
+
+// closure over a block-scoped variable declared inside a while body
+let getters = [];
+let w = 0;
+while (w < 2) { let captured = w * 10; getters.push(fn() { return captured; }); w = w + 1; }
+print(getters[0]() + "," + getters[1]());
+
+// labeled break through nested block bodies
+let found = -1;
+outer_loop: for (let i = 0; i < 5; i++) {
+    for (let j = 0; j < 5; j++) {
+        if (i * j == 6) { found = i * 10 + j; break outer_loop; }
+    }
+}
+print(found);
+
+// global read and written from inside a function, then read at top level
+let counter = 0;
+fn bump() { counter = counter + 1; }
+for (let i = 0; i < 5; i++) { bump(); }
+print(counter);
+
+// recursive method keeps self across calls
+let node = { depth: 0, fn down(n: i32): i32 { if (n == 0) { return self.depth; } self.depth = self.depth + 1; return self.down(n - 1); } };
+print(node.down(4));
+
+// declared type enforced on reassignment of a global
+let f: f64 = 1;
+f = 2;
+print(typeof(f));
