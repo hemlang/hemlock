@@ -485,6 +485,399 @@ export fn redirect_all(command: string, file: string): string {
 }
 
 // ============================================================================
+// Quick Shell Execution
+// ============================================================================
+
+// Last exit code from sh() or run()
+let _last_exit_code: i32 = 0;
+
+// Run a raw shell string directly (like Bash)
+// This is the quick-and-dirty way to run shell commands.
+// For safer execution with proper quoting, use run() with arrays.
+// Parameters:
+// cmd: string - Shell command string to execute
+// Returns: string - stdout output (trimmed)
+// Throws: on command failure
+export fn sh(cmd: string): string {
+	let result = exec_cmd(cmd);
+	_last_exit_code = result["exit_code"];
+	if (result["exit_code"] != 0) {
+		throw "Command failed with code " + result["exit_code"];
+	}
+	let output = result["output"];
+	// Trim trailing newline
+	if (output.length > 0 && output.char_at(output.length - 1) == '\n') {
+		output = output.slice(0, output.length - 1);
+	}
+	return output;
+}
+
+// Run a raw shell string, returning success status (doesn't throw)
+// Parameters:
+// cmd: string - Shell command string to execute
+// Returns: bool - true if command succeeded
+export fn sh_ok(cmd: string): bool {
+	let result = exec_cmd(cmd);
+	_last_exit_code = result["exit_code"];
+	return result["exit_code"] == 0;
+}
+
+// Get the exit code from the last sh() or sh_ok() call
+// Returns: i32 - exit code (0 = success)
+export fn last_exit(): i32 {
+	return _last_exit_code;
+}
+
+// ============================================================================
+// Range Generation (Bash-like {1..10})
+// ============================================================================
+
+// Generate a numeric range as an array
+// Parameters:
+// start: i32 - Starting number (inclusive)
+// end: i32 - Ending number (inclusive)
+// step: i32 - Step increment (default: 1 or -1 based on direction)
+// Returns: array - Array of numbers in the range
+export fn range(start: i32, end: i32, step?: 0): array {
+	let result: array = [];
+
+	// Auto-determine step if not provided
+	let s = step;
+	if (s == 0) {
+		if (start <= end) {
+			s = 1;
+		} else {
+			s = -1;
+		}
+	}
+
+	// Validate step direction
+	if (s > 0 && start > end) {
+		return result;  // Empty array for invalid range
+	}
+	if (s < 0 && start < end) {
+		return result;  // Empty array for invalid range
+	}
+	if (s == 0) {
+		return result;  // Prevent infinite loop
+	}
+
+	let i = start;
+	if (s > 0) {
+		while (i <= end) {
+			result.push(i);
+			i = i + s;
+		}
+	} else {
+		while (i >= end) {
+			result.push(i);
+			i = i + s;
+		}
+	}
+
+	return result;
+}
+
+// Generate a character range (e.g., 'a' to 'z')
+// Parameters:
+// start: rune - Starting character (inclusive)
+// end: rune - Ending character (inclusive)
+// Returns: array - Array of single-character strings in the range
+export fn char_range(start: rune, end: rune): array {
+	let result: array = [];
+	let s = i32(start);
+	let e = i32(end);
+
+	// Build lookup string for ASCII printable range
+	let chars = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
+
+	if (s <= e) {
+		let i = s;
+		while (i <= e) {
+			// Convert code point to character via lookup
+			let ch = code_to_char(i, chars);
+			if (ch != null) {
+				result.push(ch);
+			}
+			i = i + 1;
+		}
+	} else {
+		let i = s;
+		while (i >= e) {
+			let ch = code_to_char(i, chars);
+			if (ch != null) {
+				result.push(ch);
+			}
+			i = i - 1;
+		}
+	}
+
+	return result;
+}
+
+// Internal: Convert ASCII code to character string
+fn code_to_char(code: i32, lookup: string) {
+	// ASCII printable range starts at 32 (space)
+	let offset = code - 32;
+	if (offset >= 0 && offset < lookup.length) {
+		return "" + lookup.char_at(offset);
+	}
+	return null;
+}
+
+// ============================================================================
+// Brace Expansion (Bash-like {a,b,c} and {1..5})
+// ============================================================================
+
+// Expand a brace expression like Bash
+// Supports:
+// - List expansion: {a,b,c} -> ["a", "b", "c"]
+// - Range expansion: {1..5} -> ["1", "2", "3", "4", "5"]
+// - Character range: {a..z} -> ["a", "b", ..., "z"]
+// - With prefix/suffix: file{1..3}.txt -> ["file1.txt", "file2.txt", "file3.txt"]
+// - Multiple braces: {a,b}{1,2} -> ["a1", "a2", "b1", "b2"]
+// Parameters:
+// pattern: string - Brace expression to expand
+// Returns: array - Array of expanded strings
+export fn expand(pattern: string): array {
+	return expand_braces(pattern);
+}
+
+// Internal: Expand braces recursively
+fn expand_braces(pattern: string): array {
+	// Find first brace group
+	let brace_start = -1;
+	let brace_end = -1;
+	let depth = 0;
+
+	let i = 0;
+	while (i < pattern.length) {
+		let ch = pattern.char_at(i);
+		if (ch == '{') {
+			if (depth == 0) {
+				brace_start = i;
+			}
+			depth = depth + 1;
+		} else if (ch == '}') {
+			depth = depth - 1;
+			if (depth == 0 && brace_start >= 0) {
+				brace_end = i;
+				break;
+			}
+		}
+		i = i + 1;
+	}
+
+	// No braces found, return pattern as-is
+	if (brace_start < 0 || brace_end < 0) {
+		return [pattern];
+	}
+
+	// Extract prefix, brace content, and suffix
+	let prefix = pattern.slice(0, brace_start);
+	let content = pattern.slice(brace_start + 1, brace_end);
+	let suffix = pattern.slice(brace_end + 1, pattern.length);
+
+	// Parse brace content
+	let expansions = parse_brace_content(content);
+
+	// Combine with prefix/suffix and recursively expand suffix
+	let result: array = [];
+	let j = 0;
+	while (j < expansions.length) {
+		let expanded = prefix + expansions[j] + suffix;
+		// Recursively expand any remaining braces
+		let sub_expanded = expand_braces(expanded);
+		let k = 0;
+		while (k < sub_expanded.length) {
+			result.push(sub_expanded[k]);
+			k = k + 1;
+		}
+		j = j + 1;
+	}
+
+	return result;
+}
+
+// Internal: Parse brace content (list or range)
+fn parse_brace_content(content: string): array {
+	// Check for range pattern: start..end or start..end..step
+	let dot_dot = content.find("..");
+	if (dot_dot >= 0) {
+		return parse_brace_range(content);
+	}
+
+	// Otherwise, split by comma (respecting nested braces)
+	return split_brace_list(content);
+}
+
+// Internal: Parse range like 1..5 or a..z or 1..10..2
+fn parse_brace_range(content: string): array {
+	let parts = split_dotdot(content);
+
+	if (parts.length < 2) {
+		return [content];  // Invalid range, return as-is
+	}
+
+	let start_str = parts[0];
+	let end_str = parts[1];
+	let step_str = "";
+	if (parts.length >= 3) {
+		step_str = parts[2];
+	}
+
+	// Check if it's a character range
+	if (start_str.length == 1 && end_str.length == 1) {
+		let start_ch = start_str.char_at(0);
+		let end_ch = end_str.char_at(0);
+
+		// Check if both are letters or both are digits
+		if ((is_letter(start_ch) && is_letter(end_ch)) ||
+			(is_digit(start_ch) && is_digit(end_ch) && step_str == "")) {
+			// Character range
+			let chars = char_range(start_ch, end_ch);
+			let result: array = [];
+			let i = 0;
+			while (i < chars.length) {
+				result.push("" + chars[i]);
+				i = i + 1;
+			}
+			return result;
+		}
+	}
+
+	// Numeric range
+	let start_num = parse_int(start_str);
+	let end_num = parse_int(end_str);
+	let step_num = 0;
+	if (step_str != "") {
+		step_num = parse_int(step_str);
+	}
+
+	if (start_num == null || end_num == null) {
+		return [content];  // Invalid numbers, return as-is
+	}
+
+	// Handle padding (e.g., 01..05 -> 01, 02, 03, 04, 05)
+	let pad_width = 0;
+	if (start_str.length > 1 && start_str.char_at(0) == '0') {
+		pad_width = start_str.length;
+	}
+	if (end_str.length > 1 && end_str.char_at(0) == '0') {
+		if (end_str.length > pad_width) {
+			pad_width = end_str.length;
+		}
+	}
+
+	let nums = range(start_num, end_num, step_num);
+	let result: array = [];
+	let i = 0;
+	while (i < nums.length) {
+		let s = "" + nums[i];
+		// Apply zero-padding if needed
+		if (pad_width > 0) {
+			while (s.length < pad_width) {
+				s = "0" + s;
+			}
+		}
+		result.push(s);
+		i = i + 1;
+	}
+	return result;
+}
+
+// Internal: Split by ".."
+fn split_dotdot(s: string): array {
+	let result: array = [];
+	let current = "";
+	let i = 0;
+
+	while (i < s.length) {
+		if (i + 1 < s.length && s.char_at(i) == '.' && s.char_at(i + 1) == '.') {
+			result.push(current);
+			current = "";
+			i = i + 2;
+		} else {
+			current = current + s.char_at(i);
+			i = i + 1;
+		}
+	}
+	result.push(current);
+	return result;
+}
+
+// Internal: Split comma-separated list respecting nested braces
+fn split_brace_list(content: string): array {
+	let result: array = [];
+	let current = "";
+	let depth = 0;
+
+	let i = 0;
+	while (i < content.length) {
+		let ch = content.char_at(i);
+		if (ch == '{') {
+			depth = depth + 1;
+			current = current + ch;
+		} else if (ch == '}') {
+			depth = depth - 1;
+			current = current + ch;
+		} else if (ch == ',' && depth == 0) {
+			result.push(current);
+			current = "";
+		} else {
+			current = current + ch;
+		}
+		i = i + 1;
+	}
+
+	result.push(current);
+	return result;
+}
+
+// Internal: Check if character is a letter
+fn is_letter(ch: rune): bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+}
+
+// Internal: Check if character is a digit
+fn is_digit(ch: rune): bool {
+	return ch >= '0' && ch <= '9';
+}
+
+// Internal: Parse integer from string (simple implementation)
+fn parse_int(s: string) {
+	if (s.length == 0) {
+		return null;
+	}
+
+	let negative = false;
+	let start = 0;
+
+	if (s.char_at(0) == '-') {
+		negative = true;
+		start = 1;
+	} else if (s.char_at(0) == '+') {
+		start = 1;
+	}
+
+	let result = 0;
+	let i = start;
+	while (i < s.length) {
+		let ch = s.char_at(i);
+		if (ch < '0' || ch > '9') {
+			return null;  // Invalid character
+		}
+		result = result * 10 + (i32(ch) - i32('0'));
+		i = i + 1;
+	}
+
+	if (negative) {
+		result = -result;
+	}
+	return result;
+}
+
+// ============================================================================
 // Built-in Wrappers
 // ============================================================================
 
