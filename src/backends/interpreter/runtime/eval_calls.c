@@ -952,8 +952,10 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     fn_name = expr->as.call.func->as.ident.name;
                 }
 
-                // Check for stack overflow (prevent infinite recursion)
-                if (ctx->call_stack.count >= ctx->max_stack_depth) {
+                // Check for stack overflow (prevent infinite recursion): the frame count, and
+                // the C stack actually left, which a call from inside try/catch spends faster
+                // than the count assumes (runtime/stack_guard.c)
+                if (ctx->call_stack.count >= ctx->max_stack_depth || interp_stack_exhausted()) {
                     runtime_error(ctx, "Maximum call stack depth exceeded (infinite recursion?)");
                     // Release function and args before returning
                     VALUE_RELEASE(func);

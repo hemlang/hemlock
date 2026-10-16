@@ -1,0 +1,58 @@
+// Test: infinite recursion through try/catch is a catchable error, not a crash
+// A call made from inside a try or a catch costs more C stack than a plain one; in the
+// interpreter the frame count alone let this overflow the 8 MB main-thread stack into a
+// SIGSEGV before the limit was reached. Depths differ by backend, so only the outcome prints,
+// and only whether it is the depth error: the interpreter prefixes a runtime error with the
+// last source line it recorded, which here is a line from an earlier statement.
+
+fn depth_error(e): string {
+    if (typeof(e) == "string" && e.find("Maximum call stack depth exceeded") >= 0) {
+        return "depth error";
+    }
+    return "something else: " + e;
+}
+
+fn through_try(n: i32): i32 {
+    try {
+        return through_try(n + 1);
+    } catch (e) {
+        throw e;
+    }
+}
+
+fn from_catch(n: i32): i32 {
+    try {
+        throw "again";
+    } catch (e) {
+        return from_catch(n + 1);
+    }
+}
+
+// The shape that crashed a game server: a failing send reports to a handler that sends again.
+let conn = { on_error: null, sends: 0 };
+conn.send = fn() {
+    try {
+        throw "closed";
+    } catch (e) {
+        conn.sends = conn.sends + 1;
+        conn.on_error(e);
+    }
+};
+conn.on_error = fn(e) { conn.send(); };
+
+try {
+    through_try(0);
+} catch (e) {
+    print("through try: " + depth_error(e));
+}
+try {
+    from_catch(0);
+} catch (e) {
+    print("from catch: " + depth_error(e));
+}
+try {
+    conn.send();
+} catch (e) {
+    print("handler: " + depth_error(e));
+}
+print("still running");

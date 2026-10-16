@@ -208,6 +208,13 @@
 // for sequential server-spawn patterns without wasting significant virtual memory.
 #define HML_THREAD_STACK_SIZE (16 * 1024 * 1024)
 
+// C stack the interpreter keeps in reserve below its deepest Hemlock call (in bytes).
+// A call that would start within this much of the thread's stack limit raises the same
+// catchable "Maximum call stack depth exceeded" as max_stack_depth, instead of letting the
+// next few frames overflow into a SIGSEGV (src/backends/interpreter/runtime/stack_guard.c).
+// Never more than a quarter of the thread's stack.
+#define HML_STACK_GUARD_MARGIN (256 * 1024)
+
 // ========== ATOMIC OPERATION CONSTANTS ==========
 
 // Required alignment for atomic operations
