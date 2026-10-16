@@ -258,25 +258,28 @@ typedef struct HmlTypeDef {
 
 // ========== VALUE CONSTRUCTORS ==========
 
-HmlValue hml_val_i8(int8_t val);
-HmlValue hml_val_i16(int16_t val);
-HmlValue hml_val_i32(int32_t val);
-HmlValue hml_val_i64(int64_t val);
-HmlValue hml_val_u8(uint8_t val);
-HmlValue hml_val_u16(uint16_t val);
-HmlValue hml_val_u32(uint32_t val);
-HmlValue hml_val_u64(uint64_t val);
-HmlValue hml_val_f32(float val);
-HmlValue hml_val_f64(double val);
-HmlValue hml_val_bool(int val);
+// Primitive constructors are inline: generated code boxes and unboxes
+// scalars constantly (every temporary, every loop condition), and an
+// out-of-line call per box was a measurable share of tight loops.
+static inline HmlValue hml_val_i8(int8_t val)     { HmlValue v; v.type = HML_VAL_I8;   v.as.as_i8 = val;   return v; }
+static inline HmlValue hml_val_i16(int16_t val)   { HmlValue v; v.type = HML_VAL_I16;  v.as.as_i16 = val;  return v; }
+static inline HmlValue hml_val_i32(int32_t val)   { HmlValue v; v.type = HML_VAL_I32;  v.as.as_i32 = val;  return v; }
+static inline HmlValue hml_val_i64(int64_t val)   { HmlValue v; v.type = HML_VAL_I64;  v.as.as_i64 = val;  return v; }
+static inline HmlValue hml_val_u8(uint8_t val)    { HmlValue v; v.type = HML_VAL_U8;   v.as.as_u8 = val;   return v; }
+static inline HmlValue hml_val_u16(uint16_t val)  { HmlValue v; v.type = HML_VAL_U16;  v.as.as_u16 = val;  return v; }
+static inline HmlValue hml_val_u32(uint32_t val)  { HmlValue v; v.type = HML_VAL_U32;  v.as.as_u32 = val;  return v; }
+static inline HmlValue hml_val_u64(uint64_t val)  { HmlValue v; v.type = HML_VAL_U64;  v.as.as_u64 = val;  return v; }
+static inline HmlValue hml_val_f32(float val)     { HmlValue v; v.type = HML_VAL_F32;  v.as.as_f32 = val;  return v; }
+static inline HmlValue hml_val_f64(double val)    { HmlValue v; v.type = HML_VAL_F64;  v.as.as_f64 = val;  return v; }
+static inline HmlValue hml_val_bool(int val)      { HmlValue v; v.type = HML_VAL_BOOL; v.as.as_bool = val ? 1 : 0; return v; }
+static inline HmlValue hml_val_rune(uint32_t cp)  { HmlValue v; v.type = HML_VAL_RUNE; v.as.as_rune = cp;  return v; }
+static inline HmlValue hml_val_ptr(void *ptr)     { HmlValue v; v.type = HML_VAL_PTR;  v.as.as_ptr = ptr;  return v; }
+static inline HmlValue hml_val_null(void)         { HmlValue v; v.type = HML_VAL_NULL; v.as.as_ptr = NULL; return v; }
 HmlValue hml_val_string(const char *str);
 HmlValue hml_val_string_owned(char *str, int length, int capacity);
-HmlValue hml_val_rune(uint32_t codepoint);
-HmlValue hml_val_ptr(void *ptr);
 HmlValue hml_val_buffer(int size);
 HmlValue hml_val_array(void);
 HmlValue hml_val_object(void);
-HmlValue hml_val_null(void);
 HmlValue hml_val_function(void *fn_ptr, int num_params, int num_required, int is_async);
 HmlValue hml_val_function_rest(void *fn_ptr, int num_params, int num_required, int is_async, int has_rest_param);
 HmlValue hml_val_function_with_env(void *fn_ptr, void *env, int num_params, int num_required, int is_async);
@@ -302,8 +305,14 @@ HmlValue hml_val_socket(HmlSocket *sock);
 
 // ========== REFERENCE COUNTING ==========
 
-void hml_retain(HmlValue *val);
-void hml_release(HmlValue *val);
+// hml_retain / hml_release are inline wrappers (defined after
+// hml_needs_refcount below) that only call into the runtime for the
+// refcounted types; primitives cost a type compare and nothing else.
+// The _slow variants are the real implementations in value.c.
+void hml_retain_slow(HmlValue *val);
+void hml_release_slow(HmlValue *val);
+static inline void hml_retain(HmlValue *val);
+static inline void hml_release(HmlValue *val);
 
 // ========== STATIC VARIABLE CLEANUP (for compiled binaries) ==========
 
@@ -341,10 +350,30 @@ int hml_is_integer(HmlValue val);
 
 // ========== TYPE CONVERSION ==========
 
-int hml_to_bool(HmlValue val);
-int32_t hml_to_i32(HmlValue val);
-int64_t hml_to_i64(HmlValue val);
-double hml_to_f64(HmlValue val);
+// Scalar conversions: the exact-type case is inline, every other source
+// type goes through the full switch in value.c.
+int hml_to_bool_slow(HmlValue val);
+int32_t hml_to_i32_slow(HmlValue val);
+int64_t hml_to_i64_slow(HmlValue val);
+double hml_to_f64_slow(HmlValue val);
+static inline int hml_to_bool(HmlValue val) {
+    if (val.type == HML_VAL_BOOL) return val.as.as_bool;
+    if (val.type == HML_VAL_I32) return val.as.as_i32 != 0;
+    return hml_to_bool_slow(val);
+}
+static inline int32_t hml_to_i32(HmlValue val) {
+    if (val.type == HML_VAL_I32) return val.as.as_i32;
+    return hml_to_i32_slow(val);
+}
+static inline int64_t hml_to_i64(HmlValue val) {
+    if (val.type == HML_VAL_I64) return val.as.as_i64;
+    if (val.type == HML_VAL_I32) return (int64_t)val.as.as_i32;
+    return hml_to_i64_slow(val);
+}
+static inline double hml_to_f64(HmlValue val) {
+    if (val.type == HML_VAL_F64) return val.as.as_f64;
+    return hml_to_f64_slow(val);
+}
 const char* hml_to_string_ptr(HmlValue val);  // Returns pointer to string data
 HmlValue hml_to_string(HmlValue val);         // Converts any value to string
 
@@ -603,6 +632,16 @@ static inline int hml_needs_refcount(HmlValue val) {
            val.type == HML_VAL_ARRAY || val.type == HML_VAL_OBJECT ||
            val.type == HML_VAL_FUNCTION || val.type == HML_VAL_TASK ||
            val.type == HML_VAL_CHANNEL || val.type == HML_VAL_SOCKET;
+}
+
+// Refcount entry points: generated code releases every temporary, and most
+// temporaries are scalars, so the type test happens here and only
+// refcounted values pay for the call and the atomic.
+static inline void hml_retain(HmlValue *val) {
+    if (val && hml_needs_refcount(*val)) hml_retain_slow(val);
+}
+static inline void hml_release(HmlValue *val) {
+    if (val && hml_needs_refcount(*val)) hml_release_slow(val);
 }
 
 // Fast path: array[i32] access (bounds checked, skip retain for primitives)

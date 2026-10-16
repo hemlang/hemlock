@@ -174,83 +174,6 @@ static HmlFunction* fn_alloc(void) {
 
 // ========== VALUE CONSTRUCTORS ==========
 
-HmlValue hml_val_i8(int8_t val) {
-    HmlValue v;
-    v.type = HML_VAL_I8;
-    v.as.as_i8 = val;
-    return v;
-}
-
-HmlValue hml_val_i16(int16_t val) {
-    HmlValue v;
-    v.type = HML_VAL_I16;
-    v.as.as_i16 = val;
-    return v;
-}
-
-HmlValue hml_val_i32(int32_t val) {
-    HmlValue v;
-    v.type = HML_VAL_I32;
-    v.as.as_i32 = val;
-    return v;
-}
-
-HmlValue hml_val_i64(int64_t val) {
-    HmlValue v;
-    v.type = HML_VAL_I64;
-    v.as.as_i64 = val;
-    return v;
-}
-
-HmlValue hml_val_u8(uint8_t val) {
-    HmlValue v;
-    v.type = HML_VAL_U8;
-    v.as.as_u8 = val;
-    return v;
-}
-
-HmlValue hml_val_u16(uint16_t val) {
-    HmlValue v;
-    v.type = HML_VAL_U16;
-    v.as.as_u16 = val;
-    return v;
-}
-
-HmlValue hml_val_u32(uint32_t val) {
-    HmlValue v;
-    v.type = HML_VAL_U32;
-    v.as.as_u32 = val;
-    return v;
-}
-
-HmlValue hml_val_u64(uint64_t val) {
-    HmlValue v;
-    v.type = HML_VAL_U64;
-    v.as.as_u64 = val;
-    return v;
-}
-
-HmlValue hml_val_f32(float val) {
-    HmlValue v;
-    v.type = HML_VAL_F32;
-    v.as.as_f32 = val;
-    return v;
-}
-
-HmlValue hml_val_f64(double val) {
-    HmlValue v;
-    v.type = HML_VAL_F64;
-    v.as.as_f64 = val;
-    return v;
-}
-
-HmlValue hml_val_bool(int val) {
-    HmlValue v;
-    v.type = HML_VAL_BOOL;
-    v.as.as_bool = val ? 1 : 0;
-    return v;
-}
-
 // Pre-allocated single-character ASCII strings (immortal, never freed).
 // Uses SSO - data stored inline in each HmlString struct.
 //
@@ -372,20 +295,6 @@ HmlValue hml_val_string_owned(char *str, int length, int capacity) {
     return v;
 }
 
-HmlValue hml_val_rune(uint32_t codepoint) {
-    HmlValue v;
-    v.type = HML_VAL_RUNE;
-    v.as.as_rune = codepoint;
-    return v;
-}
-
-HmlValue hml_val_ptr(void *ptr) {
-    HmlValue v;
-    v.type = HML_VAL_PTR;
-    v.as.as_ptr = ptr;
-    return v;
-}
-
 HmlValue hml_val_buffer(int size) {
     if (size < 0) {
         hml_runtime_error("buffer() size must be positive");
@@ -450,13 +359,6 @@ HmlValue hml_val_object(void) {
     }
 
     v.as.as_object = o;
-    return v;
-}
-
-HmlValue hml_val_null(void) {
-    HmlValue v;
-    v.type = HML_VAL_NULL;
-    v.as.as_ptr = NULL;
     return v;
 }
 
@@ -674,7 +576,7 @@ HmlValue hml_val_socket(HmlSocket *sock) {
 
 // ========== REFERENCE COUNTING ==========
 
-void hml_retain(HmlValue *val) {
+void hml_retain_slow(HmlValue *val) {
     if (val == NULL) return;
 
     switch (val->type) {
@@ -856,7 +758,7 @@ static void channel_free(HmlChannel *ch) {
     }
 }
 
-void hml_release(HmlValue *val) {
+void hml_release_slow(HmlValue *val) {
     if (val == NULL) return;
 
     switch (val->type) {
@@ -1256,7 +1158,7 @@ int hml_is_integer(HmlValue val) {
 
 // ========== TYPE CONVERSION ==========
 
-int hml_to_bool(HmlValue val) {
+int hml_to_bool_slow(HmlValue val) {
     switch (val.type) {
         case HML_VAL_BOOL:
             return val.as.as_bool;
@@ -1291,7 +1193,7 @@ int hml_to_bool(HmlValue val) {
     }
 }
 
-int32_t hml_to_i32(HmlValue val) {
+int32_t hml_to_i32_slow(HmlValue val) {
     switch (val.type) {
         case HML_VAL_I8:
             return (int32_t)val.as.as_i8;
@@ -1322,7 +1224,7 @@ int32_t hml_to_i32(HmlValue val) {
     }
 }
 
-int64_t hml_to_i64(HmlValue val) {
+int64_t hml_to_i64_slow(HmlValue val) {
     switch (val.type) {
         case HML_VAL_I8:
             return (int64_t)val.as.as_i8;
@@ -1353,7 +1255,7 @@ int64_t hml_to_i64(HmlValue val) {
     }
 }
 
-double hml_to_f64(HmlValue val) {
+double hml_to_f64_slow(HmlValue val) {
     switch (val.type) {
         case HML_VAL_I8:
             return (double)val.as.as_i8;

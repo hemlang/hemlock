@@ -85,9 +85,7 @@ Expr* expr_ident(const char *name) {
     expr->line = 0;
     expr->column = 0;
     expr->as.ident.name = strdup(name);
-    expr->as.ident.resolved.is_resolved = 0;  // Not resolved yet
-    expr->as.ident.resolved.depth = 0;
-    expr->as.ident.resolved.slot = 0;
+    memset(&expr->as.ident.resolved, 0, sizeof(ResolvedVar));  // Not resolved yet
     return expr;
 }
 
@@ -154,9 +152,7 @@ Expr* expr_assign(const char *name, Expr *value) {
     expr->column = 0;
     expr->as.assign.name = strdup(name);
     expr->as.assign.value = value;
-    expr->as.assign.resolved.is_resolved = 0;  // Not resolved yet
-    expr->as.assign.resolved.depth = 0;
-    expr->as.assign.resolved.slot = 0;
+    memset(&expr->as.assign.resolved, 0, sizeof(ResolvedVar));  // Not resolved yet
     return expr;
 }
 
@@ -762,6 +758,7 @@ Stmt* stmt_for_labeled(const char *label, Stmt *initializer, Expr *condition, Ex
     stmt->as.for_loop.body = body;
     stmt->as.for_loop.annotations = NULL;
     stmt->as.for_loop.annotation_count = 0;
+    stmt->as.for_loop.elide_iter_env = 0;
     return stmt;
 }
 
@@ -817,6 +814,7 @@ Stmt* stmt_block(Stmt **statements, int count) {
     stmt->column = 0;
     stmt->as.block.statements = statements;
     stmt->as.block.count = count;
+    stmt->as.block.elide_env = 0;
     return stmt;
 }
 

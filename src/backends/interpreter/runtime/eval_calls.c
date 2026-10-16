@@ -1141,10 +1141,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     VALUE_RELEASE(rest_val);  // Release caller's reference (env_define retained it)
                 }
 
-                // Inject 'self' AFTER parameters to preserve slot order for resolved lookups
+                // Inject 'self' AFTER parameters to preserve slot order for resolved lookups.
+                // Bound in the call environment itself (never written through to an
+                // enclosing method's `self`), without hashing up the closure chain.
                 if (is_method_call) {
-                    env_set(call_env, "self", method_self, ctx);
-                    VALUE_RELEASE(method_self);  // Release original reference (env_set retained it)
+                    env_bind_self(call_env, method_self);
+                    VALUE_RELEASE(method_self);  // Release original reference (env_bind_self retained it)
                 }
 
                 // Save defer stack depth before executing function body

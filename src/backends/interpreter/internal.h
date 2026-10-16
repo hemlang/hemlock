@@ -209,6 +209,28 @@ int object_hash_insert(Object *obj, const char *name, int field_index);  // Inse
 // __atomic_* (SEQ_CST). Defined in builtins/concurrency.c.
 extern int g_interp_has_spawned;
 
+// ========== ENVIRONMENT FAST PATHS (environment.c) ==========
+
+// Walk `depth` parent links; NULL if the chain is shorter than that.
+Environment *env_walk(Environment *env, int depth);
+
+// Read / assign a name the resolver left unresolved, through the per-node
+// inline cache in `rv`. Falls back to the by-name path (env_get / env_set
+// semantics, including live import aliases) whenever the cache cannot answer.
+Value env_get_ic(Environment *env, const char *name, ResolvedVar *rv, ExecutionContext *ctx);
+Value env_assign_ic(Environment *env, const char *name, ResolvedVar *rv, Value new_value,
+                    ExecutionContext *ctx);
+
+// Assign through a resolved (depth, slot): one chain walk covering the ref
+// write-through, const check, declared-type conversion and the store.
+// Takes ownership of new_value; returns the stored value (or null on error).
+Value env_assign_resolved(Environment *env, int depth, int slot, Value new_value,
+                          ExecutionContext *ctx);
+
+// Bind `self` in a call environment: overwrites a same-named local (a `self`
+// parameter), otherwise defines a new slot. Never touches enclosing scopes.
+void env_bind_self(Environment *env, Value value);
+
 // Fast path macro: check if type needs refcounting before calling
 // Types that need refcounting: STRING, BUFFER, ARRAY, OBJECT, FUNCTION, TASK,
 // SOCKET, WEBSOCKET, CHANNEL, REF

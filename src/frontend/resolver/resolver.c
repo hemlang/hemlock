@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include "frontend/resolver.h"
 #include "frontend/annotations.h"
+#include "hemlock_limits.h"
 
 /*
  * Create a new resolver scope.
@@ -48,6 +49,9 @@ ResolverContext *resolver_new(void) {
     ResolverContext *ctx = malloc(sizeof(ResolverContext));
     ctx->current = scope_new(NULL);  // Global scope
     ctx->scope_depth = 0;
+    ctx->scan_only = 0;
+    ctx->capture_count = 0;
+    ctx->implicit_assign_count = 0;
     return ctx;
 }
 
@@ -147,9 +151,16 @@ int resolver_define(ResolverContext *ctx, const char *name, Annotation **annotat
  * Look up a variable.
  * Returns 1 if found (and sets depth/slot), 0 if not found.
  */
-int resolver_lookup(ResolverContext *ctx, const char *name, int *depth, int *slot) {
+// As resolver_lookup, but also reports (via *in_dynamic) whether the first
+// match sits in a dynamic scope. Such names are bound by the runtime
+// pattern matcher, possibly only on some paths (an or-pattern binds only
+// the alternative that matched), so the interpreter's inline cache must
+// never pin them to one location.
+static int resolver_lookup_ex(ResolverContext *ctx, const char *name, int *depth, int *slot,
+                              int *in_dynamic) {
     ResolverScope *scope = ctx->current;
     int d = 0;
+    *in_dynamic = 0;
 
     while (scope) {
         // Search this scope
@@ -157,7 +168,10 @@ int resolver_lookup(ResolverContext *ctx, const char *name, int *depth, int *slo
             if (strcmp(scope->names[i], name) == 0) {
                 // Dynamic-scope names have no stable slot; the runtime
                 // finds them by name.
-                if (scope->is_dynamic) return 0;
+                if (scope->is_dynamic) {
+                    *in_dynamic = 1;
+                    return 0;
+                }
                 *depth = d;
                 *slot = i;
                 return 1;
@@ -169,6 +183,11 @@ int resolver_lookup(ResolverContext *ctx, const char *name, int *depth, int *slo
     }
 
     return 0;  // Not found
+}
+
+int resolver_lookup(ResolverContext *ctx, const char *name, int *depth, int *slot) {
+    int in_dynamic;
+    return resolver_lookup_ex(ctx, name, depth, slot, &in_dynamic);
 }
 
 /*
@@ -194,6 +213,77 @@ int resolver_get_annotations(ResolverContext *ctx, const char *name, Annotation 
     *annotations = NULL;
     *count = 0;
     return 0;  // Not found
+}
+
+/*
+ * Does executing `stmt` define a binding directly in the environment it
+ * runs in (as opposed to a scope of its own)? Blocks and loops with their
+ * own runtime environment answer no; statements that run their children in
+ * the current environment (if branches, switch cases, loop bodies that are
+ * not blocks) answer whatever their children answer.
+ */
+static int stmt_declares_in_place(Stmt *stmt) {
+    if (!stmt) return 0;
+    switch (stmt->type) {
+        case STMT_LET:
+        case STMT_CONST:
+        case STMT_DEFINE_OBJECT:
+        case STMT_ENUM:
+        case STMT_TYPE_ALIAS:
+        case STMT_IMPORT:
+        case STMT_EXPORT:
+        case STMT_IMPORT_FFI:
+        case STMT_EXTERN_FN:
+            return 1;
+        case STMT_IF:
+            return stmt_declares_in_place(stmt->as.if_stmt.then_branch) ||
+                   stmt_declares_in_place(stmt->as.if_stmt.else_branch);
+        case STMT_WHILE:
+            return stmt->as.while_stmt.body->type != STMT_BLOCK &&
+                   stmt_declares_in_place(stmt->as.while_stmt.body);
+        case STMT_LOOP:
+            return stmt->as.loop_stmt.body->type != STMT_BLOCK &&
+                   stmt_declares_in_place(stmt->as.loop_stmt.body);
+        case STMT_SWITCH:
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                if (stmt_declares_in_place(stmt->as.switch_stmt.case_bodies[i])) return 1;
+            }
+            return 0;
+        case STMT_TRY:
+            // try/finally bodies are blocks with their own scope; the catch
+            // parameter gets a dedicated environment at runtime.
+            return stmt_declares_in_place(stmt->as.try_stmt.try_block) ||
+                   stmt_declares_in_place(stmt->as.try_stmt.finally_block);
+        case STMT_BLOCK:
+        case STMT_FOR:
+        case STMT_FOR_IN:
+        default:
+            return 0;
+    }
+}
+
+static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt);
+
+/*
+ * Walk `stmt` in scan mode under a throwaway scope and report what it
+ * contains. The scan resolves nothing permanently: every node it touches is
+ * re-resolved by the caller afterwards.
+ */
+static void scan_stmt(ResolverContext *ctx, Stmt *stmt, int *captures, int *implicit_assigns) {
+    int saved_scan = ctx->scan_only;
+    int saved_captures = ctx->capture_count;
+    int saved_implicit = ctx->implicit_assign_count;
+    ctx->scan_only = 1;
+    ctx->capture_count = 0;
+    ctx->implicit_assign_count = 0;
+    resolver_enter_scope(ctx);
+    resolve_stmt_internal(ctx, stmt);
+    resolver_exit_scope(ctx);
+    *captures = ctx->capture_count;
+    *implicit_assigns = ctx->implicit_assign_count;
+    ctx->scan_only = saved_scan;
+    ctx->capture_count = saved_captures;
+    ctx->implicit_assign_count = saved_implicit;
 }
 
 /*
@@ -260,8 +350,8 @@ static void resolve_expr_internal(ResolverContext *ctx, Expr *expr) {
     switch (expr->type) {
         case EXPR_IDENT: {
             // Look up the variable and store resolution info
-            int depth, slot;
-            if (resolver_lookup(ctx, expr->as.ident.name, &depth, &slot)) {
+            int depth, slot, in_dynamic;
+            if (resolver_lookup_ex(ctx, expr->as.ident.name, &depth, &slot, &in_dynamic)) {
                 // Only use resolved lookup if we're inside a function scope.
                 // At depth 0 (global scope), builtins share the environment so slot
                 // indices don't match the resolver's expectations.
@@ -279,7 +369,8 @@ static void resolve_expr_internal(ResolverContext *ctx, Expr *expr) {
                 // Check if the variable is deprecated
                 Annotation **annotations;
                 int annotation_count;
-                if (resolver_get_annotations(ctx, expr->as.ident.name, &annotations, &annotation_count)) {
+                if (!ctx->scan_only &&
+                    resolver_get_annotations(ctx, expr->as.ident.name, &annotations, &annotation_count)) {
                     if (is_deprecated(annotations, annotation_count)) {
                         const char *msg = get_deprecation_message(annotations, annotation_count);
                         fprintf(stderr, "[line %d:%d] Warning: '%s' is deprecated: %s\n",
@@ -290,6 +381,9 @@ static void resolve_expr_internal(ResolverContext *ctx, Expr *expr) {
                 // Variable not found - could be a builtin or global
                 expr->as.ident.resolved.is_resolved = 0;
             }
+            // Names a pattern may bind are found by name on every access
+            expr->as.ident.resolved.ic_state =
+                in_dynamic ? HML_IC_STATE_MEGAMORPHIC : HML_IC_STATE_UNINITIALIZED;
             break;
         }
 
@@ -298,8 +392,8 @@ static void resolve_expr_internal(ResolverContext *ctx, Expr *expr) {
             resolve_expr_internal(ctx, expr->as.assign.value);
 
             // Then look up the variable being assigned
-            int depth, slot;
-            if (resolver_lookup(ctx, expr->as.assign.name, &depth, &slot)) {
+            int depth, slot, in_dynamic;
+            if (resolver_lookup_ex(ctx, expr->as.assign.name, &depth, &slot, &in_dynamic)) {
                 // Only use resolved assignment if inside a function scope
                 int defining_scope_depth = ctx->scope_depth - depth;
                 if (defining_scope_depth > 0) {
@@ -312,8 +406,12 @@ static void resolve_expr_internal(ResolverContext *ctx, Expr *expr) {
                 }
             } else {
                 // Variable not found - implicit declaration or builtin
+                // (a pattern binding is found by name, not created)
                 expr->as.assign.resolved.is_resolved = 0;
+                if (!in_dynamic) ctx->implicit_assign_count++;
             }
+            expr->as.assign.resolved.ic_state =
+                in_dynamic ? HML_IC_STATE_MEGAMORPHIC : HML_IC_STATE_UNINITIALIZED;
             break;
         }
 
@@ -360,6 +458,8 @@ static void resolve_expr_internal(ResolverContext *ctx, Expr *expr) {
             break;
 
         case EXPR_FUNCTION: {
+            ctx->capture_count++;
+
             // Enter a new scope for the function
             resolver_enter_scope(ctx);
 
@@ -528,23 +628,30 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
             break;
 
         case STMT_WHILE: {
-            // While loop creates ONE scope at runtime (iter_env for body).
-            // Condition is evaluated in parent scope, body in iter_env.
+            // A block body provides its own scope, so the runtime evaluates
+            // it directly in the enclosing environment. Only a braceless
+            // body gets a dedicated (reused, cleared) iteration environment.
             resolve_expr_internal(ctx, stmt->as.while_stmt.condition);
 
-            // Enter scope for body (matches iter_env at runtime)
-            resolver_enter_scope(ctx);
-            resolve_stmt_internal(ctx, stmt->as.while_stmt.body);
-            resolver_exit_scope(ctx);
+            if (stmt->as.while_stmt.body->type == STMT_BLOCK) {
+                resolve_stmt_internal(ctx, stmt->as.while_stmt.body);
+            } else {
+                resolver_enter_scope(ctx);
+                resolve_stmt_internal(ctx, stmt->as.while_stmt.body);
+                resolver_exit_scope(ctx);
+            }
             break;
         }
 
         case STMT_LOOP: {
-            // Loop statement creates ONE scope at runtime (iter_env for body).
-            // Enter scope for body (matches iter_env at runtime)
-            resolver_enter_scope(ctx);
-            resolve_stmt_internal(ctx, stmt->as.loop_stmt.body);
-            resolver_exit_scope(ctx);
+            // Same scope structure as while (see above).
+            if (stmt->as.loop_stmt.body->type == STMT_BLOCK) {
+                resolve_stmt_internal(ctx, stmt->as.loop_stmt.body);
+            } else {
+                resolver_enter_scope(ctx);
+                resolve_stmt_internal(ctx, stmt->as.loop_stmt.body);
+                resolver_exit_scope(ctx);
+            }
             break;
         }
 
@@ -567,19 +674,33 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
                 resolve_expr_internal(ctx, stmt->as.for_loop.increment);
             }
 
-            // Enter inner scope for body (matches iter_env at runtime).
             // The runtime creates a fresh iter_env each iteration with copies
-            // of loop variables for per-iteration closure capture.  We must
-            // mirror that by defining the loop variable in this inner scope so
-            // resolved depths match the runtime environment chain.
-            resolver_enter_scope(ctx);
-            if (stmt->as.for_loop.initializer &&
-                stmt->as.for_loop.initializer->type == STMT_LET) {
-                resolver_define(ctx,
-                    stmt->as.for_loop.initializer->as.let.name, NULL, 0);
+            // of loop variables for per-iteration closure capture, and the
+            // resolver mirrors that with an inner scope. When the body creates
+            // no closure and defers nothing, no one can observe a per-iteration
+            // copy, so both sides skip the inner scope and the body runs in
+            // loop_env directly (a non-block body is treated as capturing to
+            // keep its declarations out of loop_env).
+            int elide_iter_env = 0;
+            if (!ctx->scan_only && stmt->as.for_loop.body->type == STMT_BLOCK) {
+                int captures, implicit_assigns;
+                scan_stmt(ctx, stmt->as.for_loop.body, &captures, &implicit_assigns);
+                elide_iter_env = (captures == 0);
             }
-            resolve_stmt_internal(ctx, stmt->as.for_loop.body);
-            resolver_exit_scope(ctx);
+            stmt->as.for_loop.elide_iter_env = elide_iter_env;
+
+            if (elide_iter_env) {
+                resolve_stmt_internal(ctx, stmt->as.for_loop.body);
+            } else {
+                resolver_enter_scope(ctx);
+                if (stmt->as.for_loop.initializer &&
+                    stmt->as.for_loop.initializer->type == STMT_LET) {
+                    resolver_define(ctx,
+                        stmt->as.for_loop.initializer->as.let.name, NULL, 0);
+                }
+                resolve_stmt_internal(ctx, stmt->as.for_loop.body);
+                resolver_exit_scope(ctx);
+            }
 
             resolver_exit_scope(ctx);
             break;
@@ -622,11 +743,34 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
             // Create a new scope for blocks to enable proper lexical scoping.
             // This allows variables declared with 'let' inside a block to
             // shadow outer variables, matching JavaScript's let/const semantics.
-            resolver_enter_scope(ctx);
+            //
+            // A block that declares nothing in its own scope gets no runtime
+            // environment at all (elide_env): its statements run in the
+            // enclosing environment, which is observably identical except for
+            // assignments to undeclared names (those create a binding in the
+            // executing environment), so such blocks keep their scope.
+            int elide_env = 0;
+            if (!ctx->scan_only) {
+                elide_env = 1;
+                for (int i = 0; i < stmt->as.block.count; i++) {
+                    if (stmt_declares_in_place(stmt->as.block.statements[i])) {
+                        elide_env = 0;
+                        break;
+                    }
+                }
+                if (elide_env) {
+                    int captures, implicit_assigns;
+                    scan_stmt(ctx, stmt, &captures, &implicit_assigns);
+                    if (implicit_assigns > 0) elide_env = 0;
+                }
+            }
+            stmt->as.block.elide_env = elide_env;
+
+            if (!elide_env) resolver_enter_scope(ctx);
             for (int i = 0; i < stmt->as.block.count; i++) {
                 resolve_stmt_internal(ctx, stmt->as.block.statements[i]);
             }
-            resolver_exit_scope(ctx);
+            if (!elide_env) resolver_exit_scope(ctx);
             break;
         }
 
@@ -647,6 +791,7 @@ static void resolve_stmt_internal(ResolverContext *ctx, Stmt *stmt) {
         }
 
         case STMT_DEFER:
+            ctx->capture_count++;  // captures the executing environment
             resolve_expr_internal(ctx, stmt->as.defer_stmt.call);
             break;
 

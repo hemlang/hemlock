@@ -1,0 +1,16 @@
+0,1,2
+4
+body done
+defer 2
+defer 1
+defer 0
+inner/outer
+3
+inner0
+inner1
+outer
+0,10
+23
+5
+4
+f64

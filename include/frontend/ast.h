@@ -78,6 +78,18 @@ typedef struct {
     int is_resolved;  // 1 if resolved, 0 if needs runtime lookup (e.g., dynamic scope)
     int depth;        // Number of environment hops to reach the defining scope (0 = current)
     int slot;         // Index within that environment's values array
+    // Runtime inline cache for names the resolver leaves unresolved (globals,
+    // module-level bindings, builtins, dynamic-scope bindings): remembers where
+    // the name was last found so the next access validates one slot instead of
+    // hashing through the scope chain. Owned and interpreted by the
+    // interpreter's environment code; the frontend only zero-initializes it.
+    uint32_t ic_hash;   // hash of the name (0 = not computed yet)
+    void *ic_env;       // Environment* the name was last found in (identity only, never dereferenced blindly)
+    int ic_depth;       // parent hops from the executing environment to ic_env
+    int ic_slot;        // slot within ic_env, or -1 when ic_env holds an import alias
+    void *ic_import;    // EnvImport* when ic_slot == -1
+    int ic_state;       // HML_IC_STATE_UNINITIALIZED / MONOMORPHIC / MEGAMORPHIC
+    int ic_misses;
 } ResolvedVar;
 
 // Inline cache for property access - speeds up repeated property lookups
@@ -456,6 +468,11 @@ struct Stmt {
             Stmt *body;
             Annotation **annotations;   // loop hints (@unroll / @simd / ...)
             int annotation_count;
+            // Set by the resolver when the body creates no closures and no
+            // deferred calls, so nothing can observe a per-iteration copy of
+            // the loop variable: the body then runs directly in the loop's
+            // environment instead of a fresh one per iteration.
+            int elide_iter_env;
         } for_loop;
         struct {
             char *label;        // optional loop label (NULL if unlabeled)
@@ -475,6 +492,11 @@ struct Stmt {
         struct {
             Stmt **statements;
             int count;
+            // Set by the resolver when no statement in the block declares a
+            // binding in the block's own scope: the interpreter then runs the
+            // statements in the enclosing environment instead of allocating
+            // one per execution. The resolver's scope structure matches.
+            int elide_env;
         } block;
         struct {
             Expr *value;  // can be NULL for bare `return;`
