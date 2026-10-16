@@ -47,6 +47,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Runaway recursion through `try`/`catch` is a catchable error again, not
+  a segfault (interpreter).** The call-depth guard counted Hemlock frames
+  (8000 by default), but what runs out is the C stack, and a call made from
+  inside a `try` or a `catch` nests more interpreter frames than a plain one.
+  On Linux's 8 MB main-thread stack such recursion overflowed between 7,500
+  and 8,000 levels, just short of the count, and the process died with
+  SIGSEGV instead of raising "Maximum call stack depth exceeded". A game
+  server went down this way: an error handler that sent on the connection
+  whose send had just failed recursed from inside its own catch. Each call
+  now also checks the C stack actually left on its thread (looked up once
+  per thread with `pthread_getattr_np`, or `pthread_get_stackaddr_np` on
+  macOS) and raises the same error within `HML_STACK_GUARD_MARGIN` (256 KB,
+  at most a quarter of the stack) of the end. Where the platform cannot
+  say, the count alone applies, as before. New parity test
+  `builtins/call_depth_try`; the compiled backend already passed it.
+
 - **Type annotations `channel`, `task`, and `file` now work on both
   backends.** These documented builtin types were rejected as annotations:
   the interpreter failed with `Unknown type` at call time (killing a

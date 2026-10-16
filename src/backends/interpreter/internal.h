@@ -405,6 +405,10 @@ void call_stack_print(CallStack *stack);
 void call_stack_print_with_source(CallStack *stack, const char *source);  // Enhanced stack trace with source snippets
 void call_stack_free(CallStack *stack);
 
+// 1 when the calling thread is within HML_STACK_GUARD_MARGIN of its C stack limit
+// (runtime/stack_guard.c); checked beside max_stack_depth on every call
+int interp_stack_exhausted(void);
+
 // Current source file tracking (for stack traces)
 void set_current_source_file(const char *file);
 const char* get_current_source_file(void);
