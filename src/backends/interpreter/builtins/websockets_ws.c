@@ -37,7 +37,26 @@ typedef struct {
     int has_own_thread;
     int owns_memory;
     volatile int close_requested; /* server side: close() called, lws not told yet */
+    /* Server side only. The struct is shared by the lws session (service
+     * thread) and the Hemlock handle accept() returns; each holds one
+     * reference and the last one to let go frees it, so a handle that
+     * outlives the session never touches memory lws has released. */
+    _Atomic int refs;
+    int session_gone;             /* lws has destroyed the wsi */
 } ws_connection_t;
+
+static void ws_server_conn_unref(ws_connection_t *conn) {
+    if (atomic_fetch_sub(&conn->refs, 1) != 1) return;
+    ws_message_t *msg = conn->msg_queue_head;
+    while (msg) {
+        ws_message_t *next = msg->next;
+        if (msg->data) free(msg->data);
+        free(msg);
+        msg = next;
+    }
+    if (conn->send_buffer) free(conn->send_buffer);
+    free(conn);
+}
 
 typedef struct ws_server {
     struct lws_context *context;
@@ -106,12 +125,20 @@ static void ws_connection_close(ws_connection_t *conn) {
     /* A server-side connection belongs to the server's lws context, which only
      * its service thread may touch. Ask that thread to close it: the wake-up
      * arrives as LWS_CALLBACK_EVENT_WAIT_CANCELLED, which requests a writeable
-     * callback, and returning -1 from that sends the close frame. */
-    if (!conn->has_own_thread && conn->wsi && !conn->closed) {
-        conn->close_requested = 1;
-        if (conn->context) {
-            lws_cancel_service(conn->context);
+     * callback, and returning -1 from that sends the close frame. The struct
+     * itself is released through its reference count: lws may already have
+     * destroyed the session (peer disconnected), in which case this drop is
+     * the last one and frees it. */
+    if (!conn->has_own_thread) {
+        if (conn->wsi && !conn->closed) {
+            conn->close_requested = 1;
+            if (conn->context) {
+                lws_cancel_service(conn->context);
+            }
         }
+        conn->closed = 1;
+        ws_server_conn_unref(conn);
+        return;
     }
 
     conn->closed = 1;
@@ -179,10 +206,12 @@ static void ws_server_close_internal(ws_server_t *server) {
     }
 
     pthread_join(server->service_thread, NULL);
-    pthread_mutex_destroy(&server->pending_mutex);
+    // Destroying the context closes every live session, and those close
+    // callbacks take pending_mutex, so the mutex outlives the context.
     if (server->context) {
         lws_context_destroy(server->context);
     }
+    pthread_mutex_destroy(&server->pending_mutex);
     free(server);
 }
 
@@ -277,7 +306,11 @@ static int ws_callback(struct lws *wsi, enum lws_callback_reasons reason,
 static int ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
                               void *user, void *in, size_t len) {
     ws_server_t *server = (ws_server_t *)lws_context_user(lws_get_context(wsi));
-    ws_connection_t *conn = (ws_connection_t *)user;
+    // The per-session user data is a pointer slot (lws zeroes it before
+    // ESTABLISHED and frees it with the wsi); the connection itself is heap
+    // allocated and reference counted so the accept() handle can outlive the
+    // session.
+    ws_connection_t *conn = user ? *(ws_connection_t **)user : NULL;
 
     switch (reason) {
         case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
@@ -286,23 +319,33 @@ static int ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
             lws_callback_on_writable_all_protocol(lws_get_context(wsi), lws_get_protocol(wsi));
             break;
 
-        case LWS_CALLBACK_ESTABLISHED:
-            if (conn) {
-                conn->wsi = wsi;
-                conn->context = lws_get_context(wsi);
-                conn->shutdown = 0;
-                conn->has_own_thread = 0;
-                conn->owns_memory = 0;
-            }
+        case LWS_CALLBACK_ESTABLISHED: {
+            if (!user) break;
+            conn = calloc(1, sizeof(ws_connection_t));
+            if (!conn) return -1;  /* refuse the connection */
+            conn->wsi = wsi;
+            conn->context = lws_get_context(wsi);
+            conn->shutdown = 0;
+            conn->has_own_thread = 0;
+            conn->owns_memory = 1;
+            atomic_store(&conn->refs, 2);  /* the session + the pending slot / accept() handle */
+            *(ws_connection_t **)user = conn;
+            int parked = 0;
             if (server) {
                 pthread_mutex_lock(&server->pending_mutex);
                 if (!server->pending_wsi) {
                     server->pending_wsi = wsi;
                     server->pending_conn = conn;
+                    parked = 1;
                 }
                 pthread_mutex_unlock(&server->pending_mutex);
             }
+            if (!parked) {
+                /* nobody will ever accept() it: only the session holds it */
+                ws_server_conn_unref(conn);
+            }
             break;
+        }
 
         case LWS_CALLBACK_RECEIVE:
             if (conn) {
@@ -345,8 +388,26 @@ static int ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
             break;
 
         case LWS_CALLBACK_CLOSED:
-            if (conn) {
+        case LWS_CALLBACK_WSI_DESTROY:
+            /* Both fire for a dying session (and one of them when the server
+             * context is destroyed); release the session's reference once. */
+            if (conn && !conn->session_gone) {
+                conn->session_gone = 1;
                 conn->closed = 1;
+                conn->wsi = NULL;
+                *(ws_connection_t **)user = NULL;
+                int was_pending = 0;
+                if (server) {
+                    pthread_mutex_lock(&server->pending_mutex);
+                    if (server->pending_conn == conn) {
+                        server->pending_wsi = NULL;
+                        server->pending_conn = NULL;
+                        was_pending = 1;
+                    }
+                    pthread_mutex_unlock(&server->pending_mutex);
+                }
+                if (was_pending) ws_server_conn_unref(conn);  /* the accept() reference nobody took */
+                ws_server_conn_unref(conn);                   /* the session's reference */
             }
             break;
 
@@ -932,7 +993,7 @@ Value builtin_lws_ws_server_create(Value *args, int num_args, ExecutionContext *
     info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT | LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE;
 
     static const struct lws_protocols server_protocols[] = {
-        { "ws", ws_server_callback, sizeof(ws_connection_t), 4096, 0, NULL, 0 },
+        { "ws", ws_server_callback, sizeof(ws_connection_t *), 4096, 0, NULL, 0 },
         { NULL, NULL, 0, 0, 0, NULL, 0 }
     };
     info.protocols = server_protocols;
