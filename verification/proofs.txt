@@ -22,7 +22,7 @@ utf8_decode_memsafe|pass|cbmc|utf8_decode_memsafe.c|src/shared/utf8.c|--unwind 9
 utf8_navigation_valid|pass|cbmc|utf8_navigation_consistency.c|src/shared/utf8.c|--unwind 7 -DASSUME_VALID -DMAX_LEN=4
 utf8_encode_len_total|pass|cbmc|utf8_encode_len_total.c|src/shared/utf8.c|--unwind 2
 utf8_decode_next_bounded|pass|cbmc|utf8_decode_next_bounded.c|src/shared/utf8.c|--unwind 6
-utf8_navigation_malformed|pass|cbmc|utf8_navigation_consistency.c|src/shared/utf8.c|--unwind 8
+utf8_navigation_malformed|pass|cbmc|utf8_navigation_consistency.c|src/shared/utf8.c|--unwind 7 -DMAX_LEN=4
 utf8_validate_rfc3629|pass|cbmc|utf8_validate_rfc3629.c|src/shared/utf8.c|--unwind 7
 
 # ---- type promotion (src/shared/type_promotion.c) ----

@@ -15,8 +15,10 @@ answer rather than a crash.
 The CBMC proofs are exhaustive over their inputs: a `VERIFICATION SUCCESSFUL`
 for `rt_add` means there is no pair of integer types and no pair of values for
 which `hml_binary_op(ADD, ...)` disagrees with the spec, overflows, or invokes
-undefined behavior. The string harnesses are bounded (strings up to 4-6 bytes,
-which covers every UTF-8 sequence shape and every pair of adjacent sequences).
+undefined behavior. The string harnesses are bounded: arbitrary strings of up
+to 4 bytes for navigation and validation, 6 for memory safety. That covers
+every UTF-8 sequence shape, truncated or not, and every pair of adjacent
+sequences up to 4 bytes in total.
 The TLA+ model is exhaustive over 2-3 senders/receivers and capacities 0-2.
 
 ## Running
