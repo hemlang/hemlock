@@ -29,8 +29,9 @@ make verify                      # same as run.sh
 ```
 
 Every proof in `proofs.txt` has an expected verdict. `pass` proofs must
-verify; `fail` proofs are **known defects** (listed below) and must still
-produce a counterexample. The run fails on any mismatch, so a regression
+verify; `fail` proofs are known, accepted properties that do not hold (today
+only the lossy promotion pairs, finding 7) and must still produce a
+counterexample. The run fails on any mismatch, so a regression
 breaks it, and so does fixing a defect without flipping its line to `pass`.
 
 ### Tools
@@ -96,105 +97,115 @@ miscompiling it.
 
 ## Findings
 
-Each `fail` line in `proofs.txt` is one of these. The repro snippets were run
-on both backends at the commit these proofs were written against.
+Every finding below was fixed in the same change that added these proofs.
+Where the backends disagreed, the interpreter's behavior was taken as the
+reference. The old repros are now parity tests
+(`tests/parity/language/shift_mixed_promotion.hml`,
+`tests/parity/language/string_malformed_utf8.hml`), and the corresponding
+proofs flipped from `fail` to `pass`.
 
-### 1. String index assignment writes one uninitialized byte (both backends)
+### 1. String index assignment wrote one uninitialized byte (both backends)
 
-`s[i] = r` sizes the hole with `hml_utf8_encode_len(r)`, then writes it with
-`hml_utf8_encode(r)`. For `r > 0x10FFFF` these disagree (4 vs 3, since
-`encode` substitutes U+FFFD), so the 4th byte of fresh `malloc` memory stays
-in the string. Proof: `utf8_encode_len_total`.
+`s[i] = r` sized the hole with `hml_utf8_encode_len(r)` and wrote it with
+`hml_utf8_encode(r)`. For `r > 0x10FFFF` these disagreed (4 vs 3, since
+`encode` substitutes U+FFFD), so one byte of fresh `malloc` memory stayed in
+the string:
 
-- Interpreter: an integer RHS is never range-checked.
-  `let s = "abc"; s[1] = 0x7FFFFFFF;` gives bytes `[97, 239, 191, 189, 0, 99]`.
-- Compiled: integers are range-checked, but a rune decoded from malformed
-  input can be up to `0x1FFFFF`:
-  `s[1] = from_bytes([0xF7,0xBF,0xBF,0xBF])[0];` gives
-  `[97, 239, 191, 189, 121, 99]`. The `121` is heap garbage.
+- Interpreter, integer RHS never range-checked:
+  `s[1] = 0x7FFFFFFF` gave `[97, 239, 191, 189, 0, 99]`.
+- Compiled, a rune decoded from malformed input (up to `0x1FFFFF`):
+  `s[1] = from_bytes([0xF7,0xBF,0xBF,0xBF])[0]` gave
+  `[97, 239, 191, 189, 121, 99]`.
 
-Related parity split: reading that rune throws in the interpreter
-("Invalid Unicode codepoint") but succeeds in compiled code, and the integer
-assignment is accepted by the interpreter but rejected by compiled code.
+**Fix:**
+- `encode_len` agrees with `encode` for every `uint32_t`
+  (`utf8_encode_len_total`).
+- Decoders return only Unicode scalars, mapping out-of-range sequences to
+  U+FFFD (`utf8_decode_memsafe`). Previously the interpreter `exit(1)`ed on
+  reading such a rune ("Invalid Unicode codepoint"). That crash was not kept
+  as reference behavior.
+- The interpreter now range-checks integer RHS, throwing "out of range for
+  rune" like its own `rune(x)` and like compiled code.
 
-### 2. `>>` gives different answers on the two backends
+### 2. `>>` gave different answers on the two backends
 
-When the promoted type is unsigned and the left operand is a negative signed
-value of a narrower type, the compiled runtime shifts the sign-extended
-64-bit value and then truncates. It should shift the value converted to the
-promoted type, which is what the interpreter does. Proof: `rt_shr`.
+With an unsigned promoted type and a narrower negative signed left operand,
+the compiled runtime shifted the sign-extended 64-bit value. The interpreter
+shifts the converted value.
 
 ```
-                      interp     compiled
+                      interp     compiled (before)
 i8(-1)   >> u8(1)       127        255
 i8(-117) >> u32(10)     4194303    4294967295
 i16(-2)  >> u16(4)      4095       65535
 ```
 
-### 3. Negative shift amounts: interpreter returns 0, compiled throws
+**Fix:** the compiled generic path now shifts in the promoted type
+(`rt_shr`, `in_shr`).
 
-The interpreter converts the shift amount to the promoted type before the
-`r < 0` check, so with an unsigned left operand a negative amount becomes huge
-and the result is 0. Proof: `in_shl`, `in_shr`.
+### 3. Negative shift amounts: interpreter returned 0, compiled threw
 
-```
-let a: u32 = 1;  a >> -1   // interp: 0     compiled: "Shift amount must be non-negative"
-                 a << -1   // interp: 0     compiled: same error
-```
+The interpreter converts the shift amount to the promoted type before checking
+its sign, so `u32(1) >> -1` is `0` (amount `0xFFFFFFFF` ≥ width), while
+compiled code threw. **Fix:** compiled code now does the same; the rule is
+written into `int_spec.h` ("both operands are converted to R, including the
+shift amount, read as int64"). A `u64` amount ≥ 2⁶³ therefore throws on both
+backends (`rt_shl`, `in_shl`).
 
-The compiled runtime has the mirror-image corner case: a `u64` shift amount
-≥ 2⁶³ is read as negative and throws, where any amount ≥ the width should
-give 0 (`rt_shl`, `rt_shr`).
+### 4. Index-based and iterator-based string walking disagreed on malformed UTF-8
 
-### 4. Index-based and iterator-based string walking disagree on malformed UTF-8
-
-`hml_utf8_count_codepoints` / `hml_utf8_byte_offset` count non-continuation
-bytes. `hml_utf8_decode` iteration advances by the lead byte's nominal length.
-The comments in `utf8.c` claim these match "even for malformed input". They
-don't, and the backends pick different ones in different places, so the same
-string disagrees with itself and across backends:
+`.length` / `s[i]` counted non-continuation bytes. `chars()` (both backends)
+and compiled `for-in` advanced by the lead byte's nominal length. Compiled
+`for-in` also wrote its count into the string's shared `char_length` cache,
+so a later `s[1]` threw "out of bounds (length=1)" on a string whose
+`.length` was 2.
 
 ```
-from_bytes([0xC3, 0x41])   interp   compiled
+from_bytes([0xC3, 0x41])   interp   compiled   (before)
 .length                      2        2
 .chars().length              1        1
 for (c in s) iterations      2        1
-s[1]                         65       "String index 1 out of bounds (length=1)"
+s[1]                         65       out of bounds (length=1)
 ```
 
-Proof: `utf8_navigation_malformed`. The property holds for valid UTF-8
-(`utf8_navigation_valid`), so this only bites strings built from raw bytes.
+**Fix:** a codepoint is now uniformly "a non-continuation byte plus the
+continuation bytes after it". `hml_utf8_next_start` is the iteration step;
+`chars()`, `for-in`, `hml_string_char_count`, `hml_string_rune_at`, and the
+"old character" size in `s[i] = r` all use it, and the iterating decoders'
+`bytes_read` agrees with it (`utf8_navigation_malformed`). Index assignment
+previously also used the nominal length: on `C3 41`, `s[0] = 'x'` deleted
+the `A` that `s[1]` reads.
 
-### 5. `hml_utf8_validate` is not an RFC 3629 validator
+### 5. `hml_utf8_validate` was not an RFC 3629 validator
 
-It accepts surrogates (`ED A0 80`), overlong encodings (`C0 80`), and
-sequences above U+10FFFF (`F4 90 80 80`, `F5..F7` leads). Today it has no
-callers outside the interpreter wrapper, but its name invites them. Proof:
-`utf8_validate_rfc3629`. The decoders likewise return overlong and
-out-of-range values instead of U+FFFD, which is how finding 1's `0x1FFFFF`
-rune arises.
+It accepted surrogates (`ED A0 80`), overlong encodings (`C0 80`), and
+sequences above U+10FFFF (`F4 90 80 80`, `F5..F7` leads). **Fix:** it now
+implements Unicode Table 3-7 (`utf8_validate_rfc3629`). It is still unused
+outside the interpreter wrapper. The encoder still writes surrogate runes
+WTF-8 style, so such strings round-trip but do not validate
+(`utf8_roundtrip`).
 
-### 6. `hml_utf8_decode_next` can advance past the NUL terminator
+### 6. `hml_utf8_decode_next` could advance past the NUL terminator
 
-On a truncated sequence at the end of a string (e.g. `"\xE0"`), it advances
-by the nominal length (3) past the terminator. It has no callers today.
-Proof: `utf8_decode_next_bounded`.
+**Fix:** it advances by the same rule as finding 4, which stops at the
+terminator (`utf8_decode_next_bounded`).
 
 ### 7. Implicit promotion is lossy on 16 of 100 type pairs (documentation)
 
-`type_promotion_lossless` enumerates them: signed with same-or-wider unsigned
-(`-1 → UINT_MAX`), `i32`/`u32` with `f32` (24-bit mantissa), and `i64`/`u64`
-with both `f32` and `f64`. The last group contradicts the types doc, which
-says `i64/u64 + f32 → f64` "to preserve precision": f64 has 53 bits, so
-`2^53 + 1` does not survive. This is a documentation and philosophy issue
-("Lose precision in implicit conversions" is under What NOT to Do), not a
-crash. The proof pins down exactly where the lattice is lossy.
+`type_promotion_lossless_*` pins down exactly which pairs: signed with
+same-or-wider unsigned, `i32`/`u32` with `f32`, and `i64`/`u64` with any
+float. The types doc claimed `i64/u64 + f32 → f64` "preserves precision" and
+that "f32 is sufficient for i32". Its own example value, 2⁵³+1, is not
+representable in f64. **Fix (docs only):** `docs/language-guide/types.md` and
+`CLAUDE.md` now state the lossy pairs. The lattice itself is unchanged; the
+`fail` rows of those proofs are the spec of where it is lossy.
 
-### Incidental (found while reproducing, not proved)
+### 8. Interpreter runtime errors reported a stale line
 
-- The interpreter can report a runtime error at the wrong line: in a file
-  whose line 6 is `try { print(c << -3); } catch ...`, the caught message
-  and source snippet point at line 4, the previous error site.
+`runtime_error` used `ctx->current_line`, which only calls and property reads
+updated. An error from a plain statement such as `s[i] = x;` pointed at the
+last call made anywhere. **Fix:** `eval_stmt` sets the line on entry. Found
+while reproducing, not proved.
 
 ## Results
 

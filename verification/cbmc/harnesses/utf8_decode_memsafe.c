@@ -4,7 +4,8 @@
  *
  * The buffer is allocated with exactly length+1 bytes, so --pointer-check /
  * --bounds-check flag any out-of-allocation read. This is the property the
- * SECURITY comment in src/shared/utf8.c claims.
+ * SECURITY comment in src/shared/utf8.c claims. Also: decoders return only
+ * Unicode scalars (or U+FFFD), and every iteration step stays in bounds.
  */
 #include "nondet.h"
 #include "utf8.h"
@@ -23,9 +24,12 @@ void harness(void) {
 
     int bytes_read = 0;
     uint32_t a = hml_utf8_decode(s + pos, &bytes_read);
-    assert(bytes_read >= 1 && bytes_read <= 4);
+    assert(bytes_read >= 1);   /* lead byte plus any trailing continuation bytes */
     uint32_t b = hml_utf8_decode_at(s, pos);
-    assert(a <= 0x1FFFFF && b <= 0x1FFFFF);
+    assert(a <= 0x10FFFF && b <= 0x10FFFF);   /* only scalars or U+FFFD */
+    assert(pos + bytes_read <= len);           /* never steps past the NUL */
+    int next = hml_utf8_next_start(s, len, pos);
+    assert(next > pos && next <= len);
 
     (void)hml_utf8_count_codepoints(s, len);
     (void)hml_utf8_validate(s, len);

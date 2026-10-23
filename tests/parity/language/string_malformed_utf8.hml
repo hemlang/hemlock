@@ -1,0 +1,42 @@
+// Parity test: malformed UTF-8 is walked the same way by every string API.
+// A codepoint is a non-continuation byte plus the continuation bytes after
+// it; malformed or out-of-range sequences read as U+FFFD.
+// Found by verification/ (utf8_navigation_malformed, utf8_encode_len_total).
+import { from_bytes } from "@stdlib/strings";
+
+// === Truncated lead byte followed by ASCII ===
+let s = from_bytes([0xC3, 0x41]);
+print(s.length);            // 2
+print(s.chars().length);    // 2
+let n = 0;
+for (ch in s) { n++; }
+print(n);                   // 2
+print(i32(s[0]));           // 65533
+print(i32(s[1]));           // 65
+print(i32(s.char_at(1)));   // 65
+
+// === Leading continuation byte belongs to no codepoint ===
+let lead = from_bytes([0x80, 0x41]);
+print(lead.length);         // 1
+print(lead.chars().length); // 1
+let m = 0;
+for (ch in lead) { m++; }
+print(m);                   // 1
+print(i32(lead[0]));        // 65
+
+// === Out-of-range 4-byte sequence reads as U+FFFD ===
+let far = from_bytes([0xF7, 0xBF, 0xBF, 0xBF]);
+print(i32(far[0]));         // 65533
+print(far.length);          // 1
+
+// === Index assignment replaces exactly what s[i] reads ===
+let t = from_bytes([0xC3, 0x41]);
+t[0] = 'x';
+print(t.bytes());           // [120, 65]
+let u = "abc";
+u[1] = far[0];
+print(u.bytes());           // [97, 239, 191, 189, 99]
+let v = "abc";
+try { v[1] = 0x7FFFFFFF; } catch (err) { print("caught: out of range"); }
+try { v[1] = -1; } catch (err) { print("caught: out of range"); }
+print(v.bytes());           // [97, 98, 99]

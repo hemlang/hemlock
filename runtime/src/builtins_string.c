@@ -671,9 +671,11 @@ HmlValue hml_string_index(HmlValue str, HmlValue index) {
 // The functions below are thin wrappers or use the shared module directly.
 
 // Helper: get byte length of UTF-8 character at position
+// Bytes of the codepoint starting at `pos`: up to the next non-continuation
+// byte, so s[i] = r replaces exactly what s[i] reads, even in malformed input.
 static int utf8_char_len_at(const char *s, int pos, int len) {
     if (pos >= len) return 0;
-    return hml_utf8_char_byte_len((unsigned char)s[pos]);
+    return hml_utf8_next_start(s, len, pos) - pos;
 }
 
 void hml_string_index_assign(HmlValue str, HmlValue index, HmlValue val) {
@@ -801,11 +803,6 @@ void hml_string_index_assign_var(HmlValue *slot, HmlValue index, HmlValue val) {
     hml_string_index_assign(*slot, index, val);
 }
 
-// UTF-8 helper wrappers for legacy code
-// These use the shared UTF-8 module
-#define utf8_char_len(c)  hml_utf8_char_byte_len(c)
-#define utf8_decode_char(s, bytes_read)  hml_utf8_decode(s, bytes_read)
-
 // Count UTF-8 codepoints in a string
 HmlValue hml_string_char_count(HmlValue str) {
     if (str.type != HML_VAL_STRING || !str.as.as_string) {
@@ -813,22 +810,9 @@ HmlValue hml_string_char_count(HmlValue str) {
     }
     HmlString *s = str.as.as_string;
 
-    // Use cached char_length if available
-    if (s->char_length >= 0) {
-        return hml_val_i32(s->char_length);
-    }
-
-    // Count UTF-8 codepoints
-    int count = 0;
-    int byte_pos = 0;
-    while (byte_pos < s->length) {
-        byte_pos += utf8_char_len((unsigned char)s->data[byte_pos]);
-        count++;
-    }
-
-    // Cache the result
-    s->char_length = count;
-    return hml_val_i32(count);
+    // Same count as .length / s[i] (and the same cache): counting by lead
+    // byte length here disagreed on malformed input and poisoned the cache.
+    return hml_val_i32(hml_string_codepoint_length(s));
 }
 
 // Get rune at character index (UTF-8 aware)
@@ -839,27 +823,13 @@ HmlValue hml_string_rune_at(HmlValue str, HmlValue index) {
     HmlString *s = str.as.as_string;
     int32_t idx = hml_to_i32(index);
 
-    if (idx < 0) {
+    if (idx < 0 || idx >= hml_string_codepoint_length(s)) {
         return hml_val_null();
     }
 
-    // Navigate to the character index
-    int byte_pos = 0;
-    int char_idx = 0;
-    while (byte_pos < s->length && char_idx < idx) {
-        byte_pos += utf8_char_len((unsigned char)s->data[byte_pos]);
-        char_idx++;
-    }
-
-    // Check if we found the character
-    if (byte_pos >= s->length) {
-        return hml_val_null();
-    }
-
-    // Decode the UTF-8 codepoint at this position
-    int bytes_read;
-    uint32_t codepoint = utf8_decode_char(s->data + byte_pos, &bytes_read);
-    return hml_val_rune(codepoint);
+    // Same navigation as s[i] / char_at
+    int byte_pos = hml_utf8_byte_offset(s->data, s->length, idx);
+    return hml_val_rune(hml_utf8_decode_at(s->data, byte_pos));
 }
 
 // Convert string to array of runes (codepoints)
@@ -871,13 +841,11 @@ HmlValue hml_string_chars(HmlValue str) {
     HmlString *s = str.as.as_string;
     HmlValue arr = hml_val_array();
 
-    int byte_pos = 0;
+    // One rune per codepoint as .length counts them (see hml_utf8_next_start)
+    int byte_pos = hml_utf8_byte_offset(s->data, s->length, 0);
     while (byte_pos < s->length) {
-        int bytes_read;
-        uint32_t codepoint = utf8_decode_char(s->data + byte_pos, &bytes_read);
-        HmlValue rune = hml_val_rune(codepoint);
-        hml_array_push(arr, rune);
-        byte_pos += bytes_read;
+        hml_array_push(arr, hml_val_rune(hml_utf8_decode_at(s->data, byte_pos)));
+        byte_pos = hml_utf8_next_start(s->data, s->length, byte_pos);
     }
 
     return arr;

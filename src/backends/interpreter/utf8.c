@@ -19,6 +19,10 @@ int utf8_byte_offset(const char *data, int byte_length, int char_index) {
     return hml_utf8_byte_offset(data, byte_length, char_index);
 }
 
+int utf8_next_start(const char *data, int byte_length, int pos) {
+    return hml_utf8_next_start(data, byte_length, pos);
+}
+
 int utf8_char_byte_length(unsigned char first_byte) {
     return hml_utf8_char_byte_len(first_byte);
 }
@@ -33,6 +37,10 @@ uint32_t utf8_decode_next(const char **data_ptr) {
 
 int utf8_encode(uint32_t codepoint, char *buffer) {
     return hml_utf8_encode(codepoint, buffer);
+}
+
+int utf8_encode_len(uint32_t codepoint) {
+    return hml_utf8_encode_len(codepoint);
 }
 
 int utf8_validate(const char *data, int byte_length) {

@@ -736,21 +736,24 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 if (value.type == VAL_RUNE) {
                     rune_val = value.as.as_rune;
                 } else {
-                    rune_val = (uint32_t)value_to_int(value);
+                    int64_t int_val = value_to_int64(value);
+                    if (int_val < 0 || int_val > 0x10FFFF) {
+                        runtime_error(ctx, "Integer value %" PRId64 " out of range for rune [0, 0x10FFFF]",
+                                      int_val);
+                        VALUE_RELEASE(object);
+                        VALUE_RELEASE(index_val);
+                        VALUE_RELEASE(value);
+                        return val_null();
+                    }
+                    rune_val = (uint32_t)int_val;
                 }
 
-                // Calculate bytes needed for new rune
-                int new_len;
-                if (rune_val < 0x80) new_len = 1;
-                else if (rune_val < 0x800) new_len = 2;
-                else if (rune_val < 0x10000) new_len = 3;
-                else new_len = 4;
-
-                // Get byte length of existing character at this position
-                int old_len = utf8_char_byte_length((unsigned char)str->data[index]);
-                if (index + old_len > str->length) {
-                    old_len = str->length - index;
-                }
+                // Bytes needed for the new rune (agrees with utf8_encode for
+                // every input), and bytes of the codepoint being replaced: up
+                // to the next non-continuation byte, i.e. exactly what s[i]
+                // reads, even in malformed input.
+                int new_len = utf8_encode_len(rune_val);
+                int old_len = utf8_next_start(str->data, str->length, index) - index;
 
                 if (new_len == old_len) {
                     // Same size - just overwrite in place

@@ -9,9 +9,11 @@
  *   - %: raises iff the converted divisor is 0; truncated remainder;
  *     MIN % -1 == 0
  *   - & | ^: bitwise on the converted values
- *   - << >>: raise iff the shift amount is negative; amount >= bits gives 0
- *     (or -1 for >> of a negative signed value); >> is arithmetic for
- *     signed R and logical for unsigned R, on the converted left operand
+ *   - << >>: both operands are converted to R, including the shift amount
+ *     (read as int64, so a u64 amount >= 2^63 is negative); raise iff that
+ *     amount is negative; amount >= bits gives 0 (or -1 for >> of a negative
+ *     signed value); >> is arithmetic for signed R and logical for unsigned
+ *     R. This is the interpreter's behavior, which is the reference.
  *   - comparisons: on the converted values, signed or unsigned per R
  *
  * Types are HmlTypeKind (src/shared/type_promotion.h), which both backends
@@ -96,7 +98,8 @@ static SpecResult spec_eval(SpecOp op, SpecInt l, SpecInt r) {
     HmlTypeKind R = spec_rank(l.type) >= spec_rank(r.type) ? l.type : r.type;
     int bits = spec_bits(R), sgn = spec_signed(R);
     i128 a = spec_wrap(l.value, R), b = spec_wrap(r.value, R);
-    i128 shift = r.value, x = 0;
+    i128 x = 0;
+    i128 shift = (R == HML_TK_U64 && b > INT64_MAX) ? b - ((i128)1 << 64) : b;
 
     switch (op) {
         case SPEC_ADD: x = a + b; break;

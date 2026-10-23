@@ -1,15 +1,14 @@
 /*
- * PROPERTY: the two ways the runtime walks a string agree.
+ * PROOF: the two ways the runtime walks a string agree.
  *
- *   index-based:    .length / char_at / substr use hml_utf8_count_codepoints
- *                   and hml_utf8_byte_offset (count non-continuation bytes)
- *   iterator-based: chars() / for-in use hml_utf8_decode and advance by
- *                   bytes_read
+ *   index-based:    .length / s[i] / char_at / substr use
+ *                   hml_utf8_count_codepoints and hml_utf8_byte_offset
+ *   iterator-based: chars() / for-in start at hml_utf8_byte_offset(.., 0) and
+ *                   step with hml_utf8_next_start; hml_utf8_decode's
+ *                   bytes_read must give the same step
  *
- * The comments in src/shared/utf8.c claim these match "even for malformed
- * input". Two variants:
- *   -DASSUME_VALID   restrict to hml_utf8_validate()-accepted strings
- *   (default)        arbitrary bytes, i.e. what from_bytes() can produce
+ * on arbitrary bytes (what from_bytes() can produce), or with -DASSUME_VALID
+ * on hml_utf8_validate()-accepted strings only.
  */
 #include "nondet.h"
 #include "utf8.h"
@@ -28,7 +27,7 @@ void harness(void) {
 
     int count = hml_utf8_count_codepoints(s, len);
 
-    int pos = 0, steps = 0;
+    int pos = hml_utf8_byte_offset(s, len, 0), steps = 0;
     while (pos < len) {
         /* Iterator step i must land where the index API says codepoint i is,
          * and decode the same codepoint that char_at(i) would. */
@@ -36,7 +35,9 @@ void harness(void) {
         int bytes_read;
         uint32_t cp = hml_utf8_decode(s + pos, &bytes_read);
         assert(cp == hml_utf8_decode_at(s, pos));
-        pos += bytes_read;
+        int next = hml_utf8_next_start(s, len, pos);
+        assert(pos + bytes_read == next);
+        pos = next;
         steps++;
     }
     assert(steps == count);

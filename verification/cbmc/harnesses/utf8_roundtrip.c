@@ -5,7 +5,8 @@
  *   - hml_utf8_encode writes 1..4 bytes and agrees with hml_utf8_encode_len
  *   - every decoder (decode, decode_at, decode_next) recovers the codepoint
  *     and consumes exactly the encoded length
- *   - the encoding passes hml_utf8_validate and counts as one codepoint
+ *   - the encoding passes hml_utf8_validate (surrogates, which the encoder
+ *     emits WTF-8 style, are rejected) and counts as one codepoint
  *   - hml_utf8_char_byte_len on the lead byte predicts the length
  */
 #include "nondet.h"
@@ -32,7 +33,8 @@ void harness(void) {
     assert(hml_utf8_decode_next(&p) == cp);
     assert(p == buf + n);
 
-    assert(hml_utf8_validate(buf, n) == 1);
+    assert(hml_utf8_validate(buf, n) == (cp < 0xD800 || cp > 0xDFFF));
+    assert(hml_utf8_next_start(buf, n, 0) == n);
     assert(hml_utf8_count_codepoints(buf, n) == 1);
     assert(hml_utf8_byte_offset(buf, n, 0) == 0);
     assert(hml_utf8_byte_offset(buf, n, 1) == n);

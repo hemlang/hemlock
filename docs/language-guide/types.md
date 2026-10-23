@@ -608,12 +608,13 @@ let b: i64 = 200;
 let sum = a + b;     // sum is i64 (300)
 ```
 
-**Precision preservation:** When mixing 64-bit integers with f32, Hemlock promotes
-to f64 to avoid precision loss (f32 has only 24-bit mantissa, insufficient for i64/u64):
+**64-bit integers with f32 go to f64:** f32 has a 24-bit mantissa, so i64/u64
+with f32 promotes to f64 (53-bit mantissa) to lose *less* precision. It does not
+make the conversion exact; see the table below.
 ```hemlock
-let big: i64 = 9007199254740993;
-let small: f32 = 1.0;
-let result = big + small;  // result is f64, not f32!
+let big: i64 = 16777217;   // 2^24 + 1
+let small: f32 = 0.0;
+let result = big + small;  // f64 16777217.0 (as f32 it would be 16777216)
 ```
 
 **Examples:**
@@ -621,11 +622,24 @@ let result = big + small;  // result is f64, not f32!
 u8 + i32  → i32
 i32 + i64 → i64
 u32 + u64 → u64
-i32 + f32 → f32    // f32 sufficient for i32
-i64 + f32 → f64    // f64 needed to preserve i64 precision
+i32 + f32 → f32
+i64 + f32 → f64
 i64 + f64 → f64
 i8 + f64  → f64
 ```
+
+**Where promotion loses information:** the promoted type cannot represent every
+value of the operand in these cases (machine-checked over all 100 pairs of
+numeric types, see `verification/` proof `type_promotion_lossless_*`):
+
+| Operand | With | Promotes to | What is lost |
+|---------|------|-------------|--------------|
+| `i8`, `i16`, `i32`, `i64` | an unsigned type of the same or greater rank | that unsigned type | negative values wrap (`-1` → max) |
+| `i32`, `u32` | `f32` | `f32` | integers above 2²⁴ round |
+| `i64`, `u64` | `f32` or `f64` | `f64` | integers above 2⁵³ round |
+
+Every other pair is exact. Use an explicit conversion (`i64(x)`, `f64(x)`)
+when the default is not what you want.
 
 ### Explicit Type Conversion
 

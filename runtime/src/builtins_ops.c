@@ -478,30 +478,23 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             return make_int_result(result_type, l | r);
         case HML_OP_BIT_XOR:
             return make_int_result(result_type, l ^ r);
-        case HML_OP_LSHIFT: {
-            if (r < 0) hml_runtime_error_line("Shift amount must be non-negative");
-            int bw = (result_type == HML_VAL_I8 || result_type == HML_VAL_U8) ? 8 :
-                     (result_type == HML_VAL_I16 || result_type == HML_VAL_U16) ? 16 :
-                     (result_type == HML_VAL_I32 || result_type == HML_VAL_U32) ? 32 : 64;
-            return make_int_result(result_type, r >= bw ? 0 : (int64_t)((uint64_t)l << r));
-        }
+        case HML_OP_LSHIFT:
         case HML_OP_RSHIFT: {
-            if (r < 0) hml_runtime_error_line("Shift amount must be non-negative");
-            int bw = (result_type == HML_VAL_I8 || result_type == HML_VAL_U8) ? 8 :
-                     (result_type == HML_VAL_I16 || result_type == HML_VAL_U16) ? 16 :
-                     (result_type == HML_VAL_I32 || result_type == HML_VAL_U32) ? 32 : 64;
-            int is_signed = (result_type == HML_VAL_I8 || result_type == HML_VAL_I16 ||
-                            result_type == HML_VAL_I32 || result_type == HML_VAL_I64);
-            if (r >= bw) {
-                return make_int_result(result_type, is_signed && l < 0 ? -1 : 0);
+            // Both operands are shifted in the promoted type (mirrors the
+            // interpreter): the amount is the right operand converted to that
+            // type, so a negative amount is only negative for signed types
+            // (and for u64 amounts >= 2^63, which read as negative int64).
+            // Shifting the unconverted `l` would sign-extend a narrow negative
+            // left operand into an unsigned result: i8(-1) >> u8(1) gave 255.
+            int64_t amount = is_unsigned ? (int64_t)ur : sr;
+            if (amount < 0) hml_runtime_error_line("Shift amount must be non-negative");
+            if (op == HML_OP_LSHIFT) {
+                return make_int_result(result_type, amount >= bits ? 0 : (int64_t)(ul << amount));
             }
-            // Unsigned results shift logically: `l` is the int64_t view of the
-            // promoted value, so for u64 with the high bit set `l >> r` would
-            // sign-extend (arithmetic shift) instead of shifting in zeros.
-            if (!is_signed) {
-                return make_int_result(result_type, (int64_t)((uint64_t)l >> r));
+            if (is_unsigned) {
+                return make_int_result(result_type, amount >= bits ? 0 : (int64_t)(ul >> amount));
             }
-            return make_int_result(result_type, l >> r);
+            return make_int_result(result_type, amount >= bits ? (sl < 0 ? -1 : 0) : sl >> amount);
         }
         default:
             break;

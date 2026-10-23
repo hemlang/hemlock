@@ -15,11 +15,11 @@
 # ---- UTF-8 (src/shared/utf8.c) ----
 utf8_roundtrip|pass|cbmc|utf8_roundtrip.c|src/shared/utf8.c|--unwind 6
 utf8_decode_memsafe|pass|cbmc|utf8_decode_memsafe.c|src/shared/utf8.c|--unwind 9
-utf8_navigation_valid|pass|cbmc|utf8_navigation_consistency.c|src/shared/utf8.c|--unwind 8 -DASSUME_VALID
-utf8_encode_len_total|fail|cbmc|utf8_encode_len_total.c|src/shared/utf8.c|--unwind 2
-utf8_decode_next_bounded|fail|cbmc|utf8_decode_next_bounded.c|src/shared/utf8.c|--unwind 6
-utf8_navigation_malformed|fail|cbmc|utf8_navigation_consistency.c|src/shared/utf8.c|--unwind 8
-utf8_validate_rfc3629|fail|cbmc|utf8_validate_rfc3629.c|src/shared/utf8.c|--unwind 7
+utf8_navigation_valid|pass|cbmc|utf8_navigation_consistency.c|src/shared/utf8.c|--unwind 7 -DASSUME_VALID -DMAX_LEN=4
+utf8_encode_len_total|pass|cbmc|utf8_encode_len_total.c|src/shared/utf8.c|--unwind 2
+utf8_decode_next_bounded|pass|cbmc|utf8_decode_next_bounded.c|src/shared/utf8.c|--unwind 6
+utf8_navigation_malformed|pass|cbmc|utf8_navigation_consistency.c|src/shared/utf8.c|--unwind 8
+utf8_validate_rfc3629|pass|cbmc|utf8_validate_rfc3629.c|src/shared/utf8.c|--unwind 7
 
 # ---- type promotion (src/shared/type_promotion.c) ----
 type_promotion|pass|cbmc|type_promotion.c|src/shared/type_promotion.c|--unwind 2
@@ -51,8 +51,8 @@ rt_mod|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MOD @bitwuzla
 rt_and|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_AND @bitwuzla
 rt_or|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_OR @bitwuzla
 rt_xor|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_XOR @bitwuzla
-rt_shl|fail|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_SHL @bitwuzla
-rt_shr|fail|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_SHR @bitwuzla
+rt_shl|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_SHL @bitwuzla
+rt_shr|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_SHR @bitwuzla
 rt_eq|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_EQ @bitwuzla
 rt_ne|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_NE @bitwuzla
 rt_lt|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_LT @bitwuzla
@@ -80,8 +80,8 @@ in_mod|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MOD $UN
 in_and|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_AND $UN
 in_or|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_OR $UN
 in_xor|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_XOR $UN
-in_shl|fail|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_SHL $UN
-in_shr|fail|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_SHR $UN
+in_shl|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_SHL $UN
+in_shr|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_SHR $UN
 in_eq|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_EQ $UN
 in_ne|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_NE $UN
 in_lt|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_LT $UN

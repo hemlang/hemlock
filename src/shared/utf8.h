@@ -35,6 +35,19 @@ int hml_utf8_count_codepoints(const char *data, int byte_len);
 int hml_utf8_byte_offset(const char *data, int byte_len, int char_idx);
 
 /*
+ * Byte offset of the codepoint after the one starting at `pos`: the next
+ * non-continuation byte, or byte_len. This is the iteration step that agrees
+ * with hml_utf8_count_codepoints / hml_utf8_byte_offset on any input,
+ * including malformed bytes. Start iteration at hml_utf8_byte_offset(.., 0).
+ *
+ * @param data       UTF-8 encoded string
+ * @param byte_len   Length in bytes
+ * @param pos        Byte offset of the current codepoint
+ * @return Byte offset of the next codepoint (<= byte_len)
+ */
+int hml_utf8_next_start(const char *data, int byte_len, int pos);
+
+/*
  * Get the byte length of a UTF-8 character from its first byte.
  *
  * @param first_byte The first byte of a UTF-8 sequence
@@ -44,6 +57,7 @@ int hml_utf8_char_byte_len(unsigned char first_byte);
 
 /*
  * Decode UTF-8 codepoint at given byte position.
+ * Malformed or out-of-range (> U+10FFFF) sequences decode to U+FFFD.
  *
  * @param data     UTF-8 encoded string
  * @param byte_pos Byte position to decode from
@@ -52,7 +66,8 @@ int hml_utf8_char_byte_len(unsigned char first_byte);
 uint32_t hml_utf8_decode_at(const char *data, int byte_pos);
 
 /*
- * Decode next UTF-8 codepoint and advance pointer.
+ * Decode next UTF-8 codepoint and advance pointer past it and any
+ * continuation bytes that follow (never past the NUL terminator).
  *
  * @param data_ptr Pointer to string pointer (advanced on return)
  * @return Unicode codepoint value
@@ -64,7 +79,8 @@ uint32_t hml_utf8_decode_next(const char **data_ptr);
  * Useful when iterating through a string.
  *
  * @param data       Pointer to UTF-8 encoded data
- * @param bytes_read Output: number of bytes consumed
+ * @param bytes_read Output: bytes up to the next non-continuation byte
+ *                   (>= 1; consistent with hml_utf8_next_start)
  * @return Unicode codepoint value
  */
 uint32_t hml_utf8_decode(const char *data, int *bytes_read);
@@ -87,7 +103,8 @@ int hml_utf8_encode(uint32_t codepoint, char *buffer);
 int hml_utf8_encode_len(uint32_t codepoint);
 
 /*
- * Validate that a buffer contains valid UTF-8.
+ * Validate that a buffer contains well-formed UTF-8 (RFC 3629): rejects
+ * overlong encodings, surrogates and codepoints above U+10FFFF.
  *
  * @param data     Buffer to validate
  * @param byte_len Length in bytes
