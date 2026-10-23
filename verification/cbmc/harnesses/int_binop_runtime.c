@@ -4,6 +4,7 @@
  * every operand value and every integer operator, without UB.
  * Split the work with -DOP=SPEC_xxx and/or -DLT=/-DRT=HML_TK_xxx.
  */
+#define SPEC_SHAPE_RUNTIME   /* * and % in 64-bit, as builtins_ops.c does */
 #include "int_spec.h"
 #include "hemlock_runtime.h"
 

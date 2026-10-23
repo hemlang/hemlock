@@ -6,9 +6,10 @@
  *   - both operands are converted to R (C conversion: truncate, reinterpret)
  *   - + -: computed exactly (__int128); i32/i64 raise iff the exact
  *     result is out of range, every other type wraps mod 2^bits
- *   - *: same rule, stated at R's C width (see SPEC_MUL for why)
- *   - %: raises iff the converted divisor is 0; truncated remainder at R's
- *     width; MIN % -1 == 0
+ *   - *: same rule, computed exactly in the backend's arithmetic shape
+ *     (see spec_mul)
+ *   - %: raises iff the converted divisor is 0; truncated remainder;
+ *     MIN % -1 == 0
  *   - & | ^: bitwise on the converted values
  *   - << >>: both operands are converted to R, including the shift amount
  *     (read as int64, so a u64 amount >= 2^63 is negative); raise iff that
@@ -94,6 +95,66 @@ static HmlTypeKind spec_pick_type(int fixed) {
     return (HmlTypeKind)t;
 }
 
+/* Exact product / remainder of values already in R's range, computed in the
+ * backend's arithmetic shape (see SPEC_MUL in spec_eval). */
+static i128 spec_mul(HmlTypeKind R, i128 l, i128 r, int *raises) {
+    switch (R) {
+        case HML_TK_I32: { int32_t p; *raises = __builtin_mul_overflow((int32_t)l, (int32_t)r, &p); return p; }
+        case HML_TK_I64: { int64_t p; *raises = __builtin_mul_overflow((int64_t)l, (int64_t)r, &p); return p; }
+        case HML_TK_U64: return (i128)((uint64_t)l * (uint64_t)r);
+        default: break;
+    }
+#ifdef SPEC_SHAPE_RUNTIME
+    /* runtime: zero-extend the R-width bit pattern, multiply in uint64 */
+    switch (R) {
+        case HML_TK_I8:  case HML_TK_U8:  return (i128)((uint64_t)(uint8_t)l * (uint64_t)(uint8_t)r);
+        case HML_TK_I16: case HML_TK_U16: return (i128)((uint64_t)(uint16_t)l * (uint64_t)(uint16_t)r);
+        default:                          return (i128)((uint64_t)(uint32_t)l * (uint64_t)(uint32_t)r);
+    }
+#else
+    /* interpreter: C promotions of R-typed operands (u16/u32 multiply unsigned) */
+    switch (R) {
+        case HML_TK_I8:  return (int8_t)l * (int8_t)r;
+        case HML_TK_I16: return (int16_t)l * (int16_t)r;
+        case HML_TK_U8:  return (uint8_t)l * (uint8_t)r;
+        case HML_TK_U16: return (i128)((uint32_t)(uint16_t)l * (uint16_t)r);
+        default:         return (i128)((uint32_t)l * (uint32_t)r);
+    }
+#endif
+}
+
+/* b != 0, and b != -1 for signed R (handled by the caller). `native_i32` is
+ * the compiled runtime's i32 x i32 fast path, which works in int32. */
+static i128 spec_mod(HmlTypeKind R, int native_i32, i128 a, i128 b) {
+#ifdef SPEC_SHAPE_RUNTIME
+    if (!native_i32 || R != HML_TK_I32) {
+        /* runtime: extend the R-width value to 64 bits, divide there */
+        switch (R) {
+            case HML_TK_I8:  return (int64_t)(int8_t)a % (int64_t)(int8_t)b;
+            case HML_TK_I16: return (int64_t)(int16_t)a % (int64_t)(int16_t)b;
+            case HML_TK_I32: return (int64_t)(int32_t)a % (int64_t)(int32_t)b;
+            case HML_TK_I64: return (int64_t)a % (int64_t)b;
+            case HML_TK_U8:  return (i128)((uint64_t)(uint8_t)a % (uint64_t)(uint8_t)b);
+            case HML_TK_U16: return (i128)((uint64_t)(uint16_t)a % (uint64_t)(uint16_t)b);
+            case HML_TK_U32: return (i128)((uint64_t)(uint32_t)a % (uint64_t)(uint32_t)b);
+            default:         return (i128)((uint64_t)a % (uint64_t)b);
+        }
+    }
+#else
+    (void)native_i32;
+#endif
+    switch (R) {
+        case HML_TK_I8:  return (int8_t)a % (int8_t)b;
+        case HML_TK_I16: return (int16_t)a % (int16_t)b;
+        case HML_TK_I32: return (int32_t)a % (int32_t)b;
+        case HML_TK_I64: return (int64_t)a % (int64_t)b;
+        case HML_TK_U8:  return (uint8_t)a % (uint8_t)b;
+        case HML_TK_U16: return (uint16_t)a % (uint16_t)b;
+        case HML_TK_U32: return (uint32_t)a % (uint32_t)b;
+        default:         return (i128)((uint64_t)a % (uint64_t)b);
+    }
+}
+
 static SpecResult spec_eval(SpecOp op, SpecInt l, SpecInt r) {
     SpecResult out = { 0, 0, 0, { HML_TK_NULL, 0 } };
     HmlTypeKind R = spec_rank(l.type) >= spec_rank(r.type) ? l.type : r.type;
@@ -107,40 +168,28 @@ static SpecResult spec_eval(SpecOp op, SpecInt l, SpecInt r) {
         case SPEC_ADD: x = a + b; break;
         case SPEC_SUB: x = a - b; break;
         case SPEC_MUL:
-            /* Computed at R's own width (not as an exact __int128 product):
-             * proving two differently-shaped 64-bit multipliers equivalent
-             * is intractable for SAT/SMT, while same-width products let the
-             * solver share structure. Wrapping types multiply unsigned at
-             * R's width; i32/i64 overflow is __builtin_mul_overflow, which
-             * the proofs replace with an exact __int128 product and range
-             * check (stubs/overflow_builtins.h), so it is not trusted. */
-            /* Operands are converted by C cast of the mathematical value,
-             * which is the same truncation spec_wrap does (asserted below),
-             * but gives the solver the same terms the backends compute. */
-            switch (R) {
-                case HML_TK_I32: { int32_t p; mul_raises = __builtin_mul_overflow((int32_t)l.value, (int32_t)r.value, &p); x = p; break; }
-                case HML_TK_I64: { int64_t p; mul_raises = __builtin_mul_overflow((int64_t)l.value, (int64_t)r.value, &p); x = p; break; }
-                case HML_TK_U64: x = (i128)((uint64_t)l.value * (uint64_t)r.value); break;
-                default:         x = (i128)((uint32_t)l.value * (uint32_t)r.value); break;  /* <= 32 bits, wraps */
-            }
+        case SPEC_MOD:
+            /* Stated in the arithmetic shape the backend under proof uses
+             * (SPEC_SHAPE_RUNTIME: 64-bit, then truncate; otherwise C's
+             * native promotions at R's width, as the interpreter does). Both
+             * are exact: promoted operands always fit, so either computes the
+             * true product/remainder before wrapping. The shape matters only
+             * to the solver: relating a 64-bit multiplier or divider to a
+             * 32-bit one does not finish, even as an isolated lemma.
+             * Operands are converted by C cast of the mathematical value, the
+             * same truncation spec_wrap does (asserted). Checked i32/i64
+             * products use __builtin_mul_overflow, which the proofs replace
+             * with an exact __int128 product and range check
+             * (stubs/overflow_builtins.h), so it is not trusted. */
             __CPROVER_assert(spec_wrap(l.value, R) == a && spec_wrap(r.value, R) == b,
                              "spec: cast conversion equals spec_wrap");
-            break;
-        case SPEC_MOD:
-            /* Truncated remainder at R's width (same reasoning as SPEC_MUL);
-             * MIN % -1 == 0 is spelled out because it traps in C. */
-            if (b == 0) { out.raises = 1; break; }
-            if (sgn && b == -1) { x = 0; break; }
-            switch (R) {
-                case HML_TK_I8:  x = (int8_t)a % (int8_t)b; break;
-                case HML_TK_I16: x = (int16_t)a % (int16_t)b; break;
-                case HML_TK_I32: x = (int32_t)a % (int32_t)b; break;
-                case HML_TK_I64: x = (int64_t)a % (int64_t)b; break;
-                case HML_TK_U8:  x = (uint8_t)a % (uint8_t)b; break;
-                case HML_TK_U16: x = (uint16_t)a % (uint16_t)b; break;
-                case HML_TK_U32: x = (uint32_t)a % (uint32_t)b; break;
-                default:         x = (i128)((uint64_t)a % (uint64_t)b); break;
+            if (op == SPEC_MUL) {
+                x = spec_mul(R, l.value, r.value, &mul_raises);
+                break;
             }
+            if (b == 0) { out.raises = 1; break; }
+            if (sgn && b == -1) { x = 0; break; }   /* MIN % -1 traps in C */
+            x = spec_mod(R, l.type == HML_TK_I32 && r.type == HML_TK_I32, l.value, r.value);
             break;
         case SPEC_AND: x = a & b; break;
         case SPEC_OR:  x = a | b; break;

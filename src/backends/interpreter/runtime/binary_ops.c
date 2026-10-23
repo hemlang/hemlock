@@ -746,9 +746,11 @@ Value eval_binary_values(BinaryOp op, int line, Value left, Value right, Executi
                             goto binary_cleanup;
                         }
                         // Unsigned arithmetic wraps (well-defined C behavior)
+                        // u16 * u16 promotes to int and can exceed INT_MAX (UB
+                        // without -fwrapv, e.g. the WASM build): multiply unsigned
                         uint16_t result = (op == OP_ADD) ? (l + r) :
                                          (op == OP_SUB) ? (l - r) :
-                                         (op == OP_MUL) ? (l * r) :
+                                         (op == OP_MUL) ? ((uint32_t)l * r) :
                                          (op == OP_DIV) ? (l / r) : (l % r);
                         binary_result = val_u16(result);
                         goto binary_cleanup;

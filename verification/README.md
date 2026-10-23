@@ -89,14 +89,18 @@ verification/
   deadlocks, and replacing the `recv_gen` handoff check with "slot is empty"
   violates `SendContract`.
 
-- **`*` and `%` are stated at the promoted type's width.** For `+ -` the spec
-  computes the exact result in `__int128` and range-checks it. For `*` and
-  `%` that asks the solver to prove two differently-shaped multipliers or
-  dividers equivalent, which no solver here finishes. So `int_spec.h` states
-  them at the promoted type's own C width, with operands converted by C
-  cast (asserted equal to the `spec_wrap` conversion). The solver then sees
-  the same terms the backends compute. These proofs also run per type pair
-  (`@pairs` in `proofs.txt`), so each proof sees a single width.
+- **`*` and `%` are stated in each backend's arithmetic shape.** For `+ -`
+  the spec computes the exact result in `__int128` and range-checks it. For
+  `*` and `%` that asks the solver to prove two differently-shaped
+  multipliers or dividers equivalent, which no solver here finishes; it does
+  not even finish relating a 32-bit and a 64-bit divider as an isolated
+  lemma. So `int_spec.h` computes them exactly in the shape the backend
+  under proof uses: 64-bit then truncate for the compiled runtime
+  (`SPEC_SHAPE_RUNTIME`), C's native promotions for the interpreter. Both
+  are exact, because promoted operands always fit. Operands are converted by
+  C cast, asserted equal to the `spec_wrap` conversion. These proofs also
+  run per type pair (`@pairs` in `proofs.txt`), so each proof sees a single
+  width.
 - **`__builtin_{add,sub,mul}_overflow` are replaced, not trusted.**
   `cbmc/stubs/overflow_builtins.h` is force-included into every CBMC proof.
   It redefines them as exact `__int128` arithmetic plus a range check. This
@@ -235,6 +239,14 @@ representable in f64. **Fix (docs only):** `docs/language-guide/types.md` and
 updated. An error from a plain statement such as `s[i] = x;` pointed at the
 last call made anywhere. **Fix:** `eval_stmt` sets the line on entry. Found
 while reproducing, not proved.
+
+### 9. Interpreter `u16 * u16` was signed-overflow UB
+
+The interpreter multiplied `uint16_t` operands, which C promotes to `int`, so
+`65535 * 65535` overflowed `INT_MAX`. That is harmless under the native
+builds' `-fwrapv`, but undefined behavior in the WASM build, which lacks it.
+**Fix:** multiply as `uint32_t` (`in_mul_u16_u16`; parity test
+`tests/parity/language/unsigned_narrow_mul.hml`).
 
 ## Results
 
