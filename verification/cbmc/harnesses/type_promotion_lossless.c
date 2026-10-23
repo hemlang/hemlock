@@ -66,6 +66,9 @@ static int roundtrips(Num n, HmlTypeKind t) {
 void harness(void) {
     int ka = nondet_int(), kb = nondet_int();
     __CPROVER_assume(ka >= HML_TK_I8 && ka <= HML_TK_F64);
+#ifdef KA
+    __CPROVER_assume(ka == KA);   /* split the 100 pairs into 10 runs */
+#endif
     __CPROVER_assume(kb >= HML_TK_I8 && kb <= HML_TK_F64);
     HmlTypeKind a = (HmlTypeKind)ka, b = (HmlTypeKind)kb;
     HmlTypeKind t = hml_tk_promote(a, b);

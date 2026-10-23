@@ -23,13 +23,30 @@ utf8_validate_rfc3629|fail|cbmc|utf8_validate_rfc3629.c|src/shared/utf8.c|--unwi
 
 # ---- type promotion (src/shared/type_promotion.c) ----
 type_promotion|pass|cbmc|type_promotion.c|src/shared/type_promotion.c|--unwind 2
-type_promotion_lossless|fail|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2
+type_promotion_lossless_i8|fail|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_I8
+type_promotion_lossless_i16|fail|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_I16
+type_promotion_lossless_i32|fail|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_I32
+type_promotion_lossless_i64|fail|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_I64
+type_promotion_lossless_u8|pass|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_U8
+type_promotion_lossless_u16|pass|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_U16
+type_promotion_lossless_u32|fail|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_U32
+type_promotion_lossless_u64|fail|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_U64
+type_promotion_lossless_f32|pass|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_F32
+type_promotion_lossless_f64|pass|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_F64
 
 # ---- compiled-program runtime integer ops (runtime/src/builtins_ops.c) ----
 RT=runtime/src/builtins_ops.c runtime/src/value.c src/shared/type_promotion.c @stubs/runtime_errors.c
 rt_add|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_ADD @bitwuzla
 rt_sub|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_SUB @bitwuzla
-rt_mul|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL @bitwuzla
+# multiply is split by left operand type so the eight runs parallelize
+rt_mul_i8|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I8 @bitwuzla
+rt_mul_i16|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I16 @bitwuzla
+rt_mul_i32|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I32 @bitwuzla
+rt_mul_i64|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I64 @bitwuzla
+rt_mul_u8|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U8 @bitwuzla
+rt_mul_u16|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U16 @bitwuzla
+rt_mul_u32|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U32 @bitwuzla
+rt_mul_u64|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U64 @bitwuzla
 rt_mod|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MOD @bitwuzla
 rt_and|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_AND @bitwuzla
 rt_or|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_OR @bitwuzla
