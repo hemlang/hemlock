@@ -5,4 +5,4 @@ buf_write_u64_overflow: throws
 buf_read_bytes_overflow: throws
 inbounds=305419896
 json50_k49=49
-utf8_chars=2
+utf8_chars=3

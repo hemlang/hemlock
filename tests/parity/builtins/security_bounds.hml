@@ -37,6 +37,7 @@ let obj = ("{" + parts.join(",") + "}").deserialize();
 print("json50_k49=" + obj.k49);
 
 // Truncated/malformed UTF-8 (a lone 4-byte lead between two ASCII bytes) must
-// not crash; chars() must agree across backends.
+// not crash; chars() must agree across backends and with .length: the lone
+// lead reads as U+FFFD and does not swallow the following "A".
 let t = from_bytes([0x41, 0xF0, 0x41]);
 print("utf8_chars=" + t.chars().length);
