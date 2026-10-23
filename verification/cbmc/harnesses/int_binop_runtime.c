@@ -50,6 +50,12 @@ void harness(void) {
     SpecInt l = spec_nondet_int(spec_pick_type(LT));
     SpecInt r = spec_nondet_int(spec_pick_type(RT));
     SpecOp op = spec_pick_op();
+#ifdef ONE_SMALL_OPERAND
+    /* Bounded variant for 64-bit products (see README "What is bounded"):
+     * one operand within 16 bits, the other unrestricted. */
+    __CPROVER_assume((l.value >= -32768 && l.value < 32768) ||
+                     (r.value >= -32768 && r.value < 32768));
+#endif
     SpecResult want = spec_eval(op, l, r);
 
     hml_cbmc_error_allowed = want.raises;

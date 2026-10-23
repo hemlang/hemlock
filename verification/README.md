@@ -87,17 +87,23 @@ verification/
   deadlocks, and replacing the `recv_gen` handoff check with "slot is empty"
   violates `SendContract`.
 
-- **`*` and `%` trust the C primitive.** For `+ -` the spec computes the exact
-  result in `__int128` and range-checks it. Doing the same for `*` and `%`
-  asks the solver to prove two differently-shaped 64-bit multipliers or
-  dividers equivalent, which did not finish in 40+ CPU-minutes per proof on
-  either SAT or SMT. So `int_spec.h` states `*` and `%` at the promoted
-  type's own C width, taking `__builtin_mul_overflow` as the definition of
-  i32/i64 overflow. These proofs still check everything around the
-  primitive: promotion, operand conversion, dispatch, result type,
-  divide-by-zero and overflow raising, `MIN % -1`, and the absence of UB.
-  They also run per type pair (`@pairs` in `proofs.txt`), so each proof sees
-  a single width.
+- **`*` and `%` are stated at the promoted type's width.** For `+ -` the spec
+  computes the exact result in `__int128` and range-checks it. For `*` and
+  `%` that asks the solver to prove two differently-shaped multipliers or
+  dividers equivalent, which no solver here finishes. So `int_spec.h` states
+  them at the promoted type's own C width, with operands converted by C
+  cast (asserted equal to the `spec_wrap` conversion). The solver then sees
+  the same terms the backends compute. These proofs also run per type pair
+  (`@pairs` in `proofs.txt`), so each proof sees a single width.
+- **`__builtin_{add,sub,mul}_overflow` are replaced, not trusted.**
+  `cbmc/stubs/overflow_builtins.h` is force-included into every CBMC proof.
+  It redefines them as exact `__int128` arithmetic plus a range check. This
+  is also required for soundness: CBMC (6.4.1 and 6.8.0) encodes the
+  builtins' `{value, overflow}` result for Bitwuzla, which has no datatypes,
+  by concatenating the fields, then reads them back from the wrong bit
+  positions. Under `--bitwuzla` that both "refutes" true overflow facts
+  (`ov == (exact product out of range)`) and "proves" false ones. Any CBMC
+  proof using these builtins with `--bitwuzla` needs this header.
 - **The interpreter harness enters at `eval_binary_values`**, the part of
   `eval_binary_expr` after operand evaluation, extracted for this purpose.
   Putting an `Expr` in the program state trips a CBMC 6.4.1 bug: unions with
@@ -105,11 +111,16 @@ verification/
 
 ### What is not covered
 
-Everything not in the table: the GC-free object/array/refcount machinery,
-`select()` (not in the channel model), FFI, I/O, the parser and codegen, and
-float arithmetic beyond promotion. Proofs are about the C as written,
-compiled by CBMC's front end. They say nothing about GCC or Emscripten
-miscompiling it.
+- **Checked `i64 × i64` multiply** (`rt_mul_i64_i64`, `in_mul_i64_i64`,
+  marked `skip`). Full-width 64×64 multiplier equivalence did not finish on
+  Bitwuzla, CaDiCaL, or `--refine-arithmetic`, even with one operand bounded
+  to 8 bits. All other 63 multiply pairs are proved, including `i64` with
+  every narrower type and `u64 × u64`.
+- Everything not in the table: the object/array/refcount machinery,
+  `select()` (not in the channel model), FFI, I/O, the parser and codegen,
+  and float arithmetic beyond promotion.
+- Proofs are about the C as written, compiled by CBMC's front end. They say
+  nothing about GCC or Emscripten miscompiling it.
 
 ## Findings
 

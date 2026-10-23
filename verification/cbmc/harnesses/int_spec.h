@@ -111,16 +111,20 @@ static SpecResult spec_eval(SpecOp op, SpecInt l, SpecInt r) {
              * proving two differently-shaped 64-bit multipliers equivalent
              * is intractable for SAT/SMT, while same-width products let the
              * solver share structure. Wrapping types multiply unsigned at
-             * R's width; i32/i64 overflow is __builtin_mul_overflow's
-             * (exact-product) definition. This trusts the C multiplication
-             * primitive and checks everything around it: promotion,
-             * conversion, dispatch, result type, raising. */
+             * R's width; i32/i64 overflow is __builtin_mul_overflow, which
+             * the proofs replace with an exact __int128 product and range
+             * check (stubs/overflow_builtins.h), so it is not trusted. */
+            /* Operands are converted by C cast of the mathematical value,
+             * which is the same truncation spec_wrap does (asserted below),
+             * but gives the solver the same terms the backends compute. */
             switch (R) {
-                case HML_TK_I32: { int32_t p; mul_raises = __builtin_mul_overflow((int32_t)a, (int32_t)b, &p); x = p; break; }
-                case HML_TK_I64: { int64_t p; mul_raises = __builtin_mul_overflow((int64_t)a, (int64_t)b, &p); x = p; break; }
-                case HML_TK_U64: x = (i128)((uint64_t)a * (uint64_t)b); break;
-                default:         x = (i128)((uint32_t)a * (uint32_t)b); break;  /* <= 32 bits, wraps */
+                case HML_TK_I32: { int32_t p; mul_raises = __builtin_mul_overflow((int32_t)l.value, (int32_t)r.value, &p); x = p; break; }
+                case HML_TK_I64: { int64_t p; mul_raises = __builtin_mul_overflow((int64_t)l.value, (int64_t)r.value, &p); x = p; break; }
+                case HML_TK_U64: x = (i128)((uint64_t)l.value * (uint64_t)r.value); break;
+                default:         x = (i128)((uint32_t)l.value * (uint32_t)r.value); break;  /* <= 32 bits, wraps */
             }
+            __CPROVER_assert(spec_wrap(l.value, R) == a && spec_wrap(r.value, R) == b,
+                             "spec: cast conversion equals spec_wrap");
             break;
         case SPEC_MOD:
             /* Truncated remainder at R's width (same reasoning as SPEC_MUL);

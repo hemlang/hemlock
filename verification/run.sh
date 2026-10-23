@@ -34,7 +34,7 @@ CBMC_INCLUDES="-I$ROOT/include -I$ROOT/src -I$ROOT/src/frontend -I$ROOT/src/back
 CBMC_SOLVER="--sat-solver cadical"   # default for every proof; see @bitwuzla
 command -v bitwuzla >/dev/null 2>&1 && CBMC_SOLVER="--bitwuzla"
 
-declare -A VARS=()
+declare -A VARS=() SKIP=()
 PROOFS=()
 while IFS= read -r line; do
     [[ -z "$line" || "$line" == \#* ]] && continue
@@ -43,6 +43,11 @@ while IFS= read -r line; do
         continue
     fi
     for k in "${!VARS[@]}"; do line="${line//\$$k/${VARS[$k]}}"; done
+    # name|skip|reason: a known gap in coverage, reported on every run
+    if [[ "$line" =~ ^([^|]+)\|skip\|(.*)$ ]]; then
+        SKIP[${BASH_REMATCH[1]}]="${BASH_REMATCH[2]}"
+        continue
+    fi
     # @pairs: expand into one proof per (left, right) integer type pair, so
     # the promoted type is a constant and the solver sees one width at a time.
     if [[ " $line " == *" @pairs"* ]]; then
@@ -92,7 +97,8 @@ run_one() {
             local work; work="$(mktemp -d)"
             # shellcheck disable=SC2086
             {
-                goto-cc -o "$work/a.goto" "$HERE/cbmc/harnesses/$target" "${srcs[@]}" \
+                goto-cc -include "$HERE/cbmc/stubs/overflow_builtins.h" \
+                    -o "$work/a.goto" "$HERE/cbmc/harnesses/$target" "${srcs[@]}" \
                     $CBMC_INCLUDES -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE "${defs[@]}" \
                     --function harness &&
                 if [[ -n "$unreach" ]]; then
@@ -132,8 +138,12 @@ if ! command -v cbmc >/dev/null 2>&1; then echo "cbmc not found on PATH" >&2; ex
 RESULTS="$LOGDIR/results.txt"
 for p in "${PROOFS[@]}"; do
     name="${p%%|*}"
+    [[ -n "${SKIP[$name]+x}" ]] && continue
     selected "$name" "$@" && printf '%s\0' "$p"
 done | xargs -0 -P "$JOBS" -I{} bash -c 'run_one "$1"' _ {} | tee "$RESULTS"
+for name in "${!SKIP[@]}"; do
+    selected "$name" "$@" && printf 'SKIP     %-30s %s\n' "$name" "${SKIP[$name]}"
+done
 
 total=$(wc -l < "$RESULTS")
 bad=$(grep -c '^MISMATCH' "$RESULTS")

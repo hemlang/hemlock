@@ -2,12 +2,16 @@
 #
 # Columns (|-separated):
 #   name      unique proof id
-#   expect    pass | fail   (fail = known defect; see README.md "Findings")
+#   expect    pass | fail | skip
+#             fail = a property that knowingly does not hold (README "Findings");
+#             skip = a known coverage gap: `name|skip|reason`, printed on every run
 #   tool      cbmc | tlc
 #   target    cbmc: harness file in cbmc/harnesses; tlc: config in tla/
 #   sources   cbmc: space-separated sources (repo-relative); tlc: module
 #   flags     extra tool flags (cbmc: -D..., --unwind N, ...); the token
-#             @bitwuzla selects the Bitwuzla SMT backend for that proof
+#             @bitwuzla selects the Bitwuzla SMT backend for that proof;
+#             @pairs expands the line into one proof per integer type pair
+#             (name_<lt>_<rt>, e.g. rt_mul_i32_u8)
 #
 # A proof whose verdict differs from `expect` fails the run, so fixing a
 # known defect means flipping its line to `pass` in the same change.
@@ -40,6 +44,7 @@ rt_add|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_ADD @bitwuzla
 rt_sub|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_SUB @bitwuzla
 # * and % are split into all 64 type pairs (@pairs) so each proof sees one width
 rt_mul|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL @bitwuzla @pairs
+rt_mul_i64_i64|skip|checked 64x64 multiply: no solver finishes (README "What is not covered")
 rt_mod|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MOD @bitwuzla @pairs
 rt_and|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_AND @bitwuzla
 rt_or|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_OR @bitwuzla
@@ -62,6 +67,7 @@ UN=@unreachable=value_release|string_concat|string_new|string_free|value_to_stri
 in_add|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_ADD $UN
 in_sub|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_SUB $UN
 in_mul|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL $UN @bitwuzla @pairs
+in_mul_i64_i64|skip|checked 64x64 multiply: no solver finishes (README "What is not covered")
 in_mod|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MOD $UN @bitwuzla @pairs
 in_and|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_AND $UN
 in_or|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_OR $UN
