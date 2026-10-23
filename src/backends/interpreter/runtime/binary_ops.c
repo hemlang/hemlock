@@ -59,6 +59,16 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     if (ctx->exception_state.is_throwing) return val_null();
     Value right = eval_expr(expr->as.binary.right, env, ctx);
     if (ctx->exception_state.is_throwing) { VALUE_RELEASE(left); return val_null(); }
+    return eval_binary_values(expr->as.binary.op, expr->line, left, right, ctx);
+}
+
+/*
+ * Apply a (non-short-circuit) binary operator to two evaluated operands.
+ * Consumes both operand references. `line` is used for error messages.
+ * Split out of eval_binary_expr so the operator semantics can be checked
+ * without an AST (see verification/cbmc/harnesses/int_binop_interp.c).
+ */
+Value eval_binary_values(BinaryOp op, int line, Value left, Value right, ExecutionContext *ctx) {
     Value binary_result = val_null();  // Initialize to avoid undefined behavior
 
     // FAST PATH: i32 operations (most common case in benchmarks)
@@ -66,11 +76,11 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     if (left.type == VAL_I32 && right.type == VAL_I32) {
         int32_t l = left.as.as_i32;
         int32_t r = right.as.as_i32;
-        switch (expr->as.binary.op) {
+        switch (op) {
             case OP_ADD: {
                 int32_t result;
                 if (__builtin_add_overflow(l, r, &result)) {
-                    runtime_error_at(ctx, expr->line, "Integer overflow: i32 addition");
+                    runtime_error_at(ctx, line, "Integer overflow: i32 addition");
                     return val_null();
                 }
                 return val_i32(result);
@@ -78,7 +88,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             case OP_SUB: {
                 int32_t result;
                 if (__builtin_sub_overflow(l, r, &result)) {
-                    runtime_error_at(ctx, expr->line, "Integer overflow: i32 subtraction");
+                    runtime_error_at(ctx, line, "Integer overflow: i32 subtraction");
                     return val_null();
                 }
                 return val_i32(result);
@@ -86,16 +96,16 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             case OP_MUL: {
                 int32_t result;
                 if (__builtin_mul_overflow(l, r, &result)) {
-                    runtime_error_at(ctx, expr->line, "Integer overflow: i32 multiplication");
+                    runtime_error_at(ctx, line, "Integer overflow: i32 multiplication");
                     return val_null();
                 }
                 return val_i32(result);
             }
             case OP_DIV:
-                if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
+                if (r == 0) { runtime_error_at(ctx, line, "Division by zero"); return val_null(); }
                 return val_f64((double)l / (double)r);  // Division always returns float
             case OP_MOD:
-                if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
+                if (r == 0) { runtime_error_at(ctx, line, "Division by zero"); return val_null(); }
                 if (r == -1) { return val_i32(0); }  // Avoid INT32_MIN % -1 trap; remainder is 0
                 return val_i32(l % r);
             case OP_LESS: return val_bool(l < r);
@@ -108,10 +118,10 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             case OP_BIT_OR: return val_i32(l | r);
             case OP_BIT_XOR: return val_i32(l ^ r);
             case OP_BIT_LSHIFT:
-                if (r < 0) { runtime_error_at(ctx, expr->line, "Shift amount must be non-negative"); return val_null(); }
+                if (r < 0) { runtime_error_at(ctx, line, "Shift amount must be non-negative"); return val_null(); }
                 return val_i32(r >= 32 ? 0 : (int32_t)((uint32_t)l << r));
             case OP_BIT_RSHIFT:
-                if (r < 0) { runtime_error_at(ctx, expr->line, "Shift amount must be non-negative"); return val_null(); }
+                if (r < 0) { runtime_error_at(ctx, line, "Shift amount must be non-negative"); return val_null(); }
                 return val_i32(r >= 32 ? (l < 0 ? -1 : 0) : l >> r);
             default: break;  // Fall through to generic path
         }
@@ -121,11 +131,11 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     if (left.type == VAL_I64 && right.type == VAL_I64) {
         int64_t l = left.as.as_i64;
         int64_t r = right.as.as_i64;
-        switch (expr->as.binary.op) {
+        switch (op) {
             case OP_ADD: {
                 int64_t result;
                 if (__builtin_add_overflow(l, r, &result)) {
-                    runtime_error_at(ctx, expr->line, "Integer overflow: i64 addition");
+                    runtime_error_at(ctx, line, "Integer overflow: i64 addition");
                     return val_null();
                 }
                 return val_i64(result);
@@ -133,7 +143,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             case OP_SUB: {
                 int64_t result;
                 if (__builtin_sub_overflow(l, r, &result)) {
-                    runtime_error_at(ctx, expr->line, "Integer overflow: i64 subtraction");
+                    runtime_error_at(ctx, line, "Integer overflow: i64 subtraction");
                     return val_null();
                 }
                 return val_i64(result);
@@ -141,16 +151,16 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             case OP_MUL: {
                 int64_t result;
                 if (__builtin_mul_overflow(l, r, &result)) {
-                    runtime_error_at(ctx, expr->line, "Integer overflow: i64 multiplication");
+                    runtime_error_at(ctx, line, "Integer overflow: i64 multiplication");
                     return val_null();
                 }
                 return val_i64(result);
             }
             case OP_DIV:
-                if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
+                if (r == 0) { runtime_error_at(ctx, line, "Division by zero"); return val_null(); }
                 return val_f64((double)l / (double)r);  // Division always returns float
             case OP_MOD:
-                if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
+                if (r == 0) { runtime_error_at(ctx, line, "Division by zero"); return val_null(); }
                 if (r == -1) { return val_i64(0); }  // Avoid INT64_MIN % -1 trap; remainder is 0
                 return val_i64(l % r);
             case OP_LESS: return val_bool(l < r);
@@ -163,10 +173,10 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             case OP_BIT_OR: return val_i64(l | r);
             case OP_BIT_XOR: return val_i64(l ^ r);
             case OP_BIT_LSHIFT:
-                if (r < 0) { runtime_error_at(ctx, expr->line, "Shift amount must be non-negative"); return val_null(); }
+                if (r < 0) { runtime_error_at(ctx, line, "Shift amount must be non-negative"); return val_null(); }
                 return val_i64(r >= 64 ? 0 : (int64_t)((uint64_t)l << r));
             case OP_BIT_RSHIFT:
-                if (r < 0) { runtime_error_at(ctx, expr->line, "Shift amount must be non-negative"); return val_null(); }
+                if (r < 0) { runtime_error_at(ctx, line, "Shift amount must be non-negative"); return val_null(); }
                 return val_i64(r >= 64 ? (l < 0 ? -1 : 0) : l >> r);
             default: break;
         }
@@ -176,7 +186,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     if (left.type == VAL_F64 && right.type == VAL_F64) {
         double l = left.as.as_f64;
         double r = right.as.as_f64;
-        switch (expr->as.binary.op) {
+        switch (op) {
             case OP_ADD: return val_f64(l + r);
             case OP_SUB: return val_f64(l - r);
             case OP_MUL: return val_f64(l * r);
@@ -198,11 +208,11 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         (left.type == VAL_I64 && right.type == VAL_I32)) {
         int64_t l = (left.type == VAL_I64) ? left.as.as_i64 : (int64_t)left.as.as_i32;
         int64_t r = (right.type == VAL_I64) ? right.as.as_i64 : (int64_t)right.as.as_i32;
-        switch (expr->as.binary.op) {
+        switch (op) {
             case OP_ADD: {
                 int64_t result;
                 if (__builtin_add_overflow(l, r, &result)) {
-                    runtime_error_at(ctx, expr->line, "Integer overflow: i64 addition");
+                    runtime_error_at(ctx, line, "Integer overflow: i64 addition");
                     return val_null();
                 }
                 return val_i64(result);
@@ -210,7 +220,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             case OP_SUB: {
                 int64_t result;
                 if (__builtin_sub_overflow(l, r, &result)) {
-                    runtime_error_at(ctx, expr->line, "Integer overflow: i64 subtraction");
+                    runtime_error_at(ctx, line, "Integer overflow: i64 subtraction");
                     return val_null();
                 }
                 return val_i64(result);
@@ -218,16 +228,16 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             case OP_MUL: {
                 int64_t result;
                 if (__builtin_mul_overflow(l, r, &result)) {
-                    runtime_error_at(ctx, expr->line, "Integer overflow: i64 multiplication");
+                    runtime_error_at(ctx, line, "Integer overflow: i64 multiplication");
                     return val_null();
                 }
                 return val_i64(result);
             }
             case OP_DIV:
-                if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
+                if (r == 0) { runtime_error_at(ctx, line, "Division by zero"); return val_null(); }
                 return val_f64((double)l / (double)r);  // Always float division
             case OP_MOD:
-                if (r == 0) { runtime_error_at(ctx, expr->line, "Division by zero"); return val_null(); }
+                if (r == 0) { runtime_error_at(ctx, line, "Division by zero"); return val_null(); }
                 if (r == -1) { return val_i64(0); }  // Avoid INT64_MIN % -1 trap; remainder is 0
                 return val_i64(l % r);
             case OP_LESS: return val_bool(l < r);
@@ -240,24 +250,24 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             case OP_BIT_OR: return val_i64(l | r);
             case OP_BIT_XOR: return val_i64(l ^ r);
             case OP_BIT_LSHIFT:
-                if (r < 0) { runtime_error_at(ctx, expr->line, "Shift amount must be non-negative"); return val_null(); }
+                if (r < 0) { runtime_error_at(ctx, line, "Shift amount must be non-negative"); return val_null(); }
                 return val_i64(r >= 64 ? 0 : (int64_t)((uint64_t)l << r));
             case OP_BIT_RSHIFT:
-                if (r < 0) { runtime_error_at(ctx, expr->line, "Shift amount must be non-negative"); return val_null(); }
+                if (r < 0) { runtime_error_at(ctx, line, "Shift amount must be non-negative"); return val_null(); }
                 return val_i64(r >= 64 ? (l < 0 ? -1 : 0) : l >> r);
             default: break;
         }
     }
 
     // String concatenation
-    if (expr->as.binary.op == OP_ADD && left.type == VAL_STRING && right.type == VAL_STRING) {
+    if (op == OP_ADD && left.type == VAL_STRING && right.type == VAL_STRING) {
         String *result = string_concat(left.as.as_string, right.as.as_string);
         binary_result = (Value){ .type = VAL_STRING, .as.as_string = result };
         goto binary_cleanup;
     }
 
     // String + rune concatenation
-    if (expr->as.binary.op == OP_ADD && left.type == VAL_STRING && right.type == VAL_RUNE) {
+    if (op == OP_ADD && left.type == VAL_STRING && right.type == VAL_RUNE) {
         // Encode rune to UTF-8
         char rune_bytes[5];  // Max 4 bytes + null terminator
         int rune_len = utf8_encode(right.as.as_rune, rune_bytes);
@@ -272,7 +282,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     }
 
     // Rune + string concatenation
-    if (expr->as.binary.op == OP_ADD && left.type == VAL_RUNE && right.type == VAL_STRING) {
+    if (op == OP_ADD && left.type == VAL_RUNE && right.type == VAL_STRING) {
         // Encode rune to UTF-8
         char rune_bytes[5];
         int rune_len = utf8_encode(left.as.as_rune, rune_bytes);
@@ -287,7 +297,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     }
 
     // String + number concatenation (auto-convert number to string)
-    if (expr->as.binary.op == OP_ADD && left.type == VAL_STRING && (is_numeric(right) || right.type == VAL_BOOL)) {
+    if (op == OP_ADD && left.type == VAL_STRING && (is_numeric(right) || right.type == VAL_BOOL)) {
         char *right_str = value_to_string(right);
         String *right_string = string_new(right_str);
         free(right_str);
@@ -298,7 +308,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     }
 
     // Number + string concatenation (auto-convert number to string)
-    if (expr->as.binary.op == OP_ADD && (is_numeric(left) || left.type == VAL_BOOL) && right.type == VAL_STRING) {
+    if (op == OP_ADD && (is_numeric(left) || left.type == VAL_BOOL) && right.type == VAL_STRING) {
         char *left_str = value_to_string(left);
         String *left_string = string_new(left_str);
         free(left_str);
@@ -309,7 +319,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     }
 
     // String + object/array concatenation (auto-serialize to JSON)
-    if (expr->as.binary.op == OP_ADD && left.type == VAL_STRING && (right.type == VAL_OBJECT || right.type == VAL_ARRAY)) {
+    if (op == OP_ADD && left.type == VAL_STRING && (right.type == VAL_OBJECT || right.type == VAL_ARRAY)) {
         SerializeVisitedSet visited;
         serialize_visited_init(&visited);
         char *right_json = serialize_value(right, &visited, ctx);
@@ -327,7 +337,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     }
 
     // Object/array + string concatenation (auto-serialize to JSON)
-    if (expr->as.binary.op == OP_ADD && (left.type == VAL_OBJECT || left.type == VAL_ARRAY) && right.type == VAL_STRING) {
+    if (op == OP_ADD && (left.type == VAL_OBJECT || left.type == VAL_ARRAY) && right.type == VAL_STRING) {
         SerializeVisitedSet visited;
         serialize_visited_init(&visited);
         char *left_json = serialize_value(left, &visited, ctx);
@@ -345,7 +355,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     }
 
     // String + null concatenation (coerce null to "null")
-    if (expr->as.binary.op == OP_ADD && left.type == VAL_STRING && right.type == VAL_NULL) {
+    if (op == OP_ADD && left.type == VAL_STRING && right.type == VAL_NULL) {
         String *null_str = string_new("null");
         String *result = string_concat(left.as.as_string, null_str);
         string_free(null_str);
@@ -354,7 +364,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     }
 
     // Null + string concatenation (coerce null to "null")
-    if (expr->as.binary.op == OP_ADD && left.type == VAL_NULL && right.type == VAL_STRING) {
+    if (op == OP_ADD && left.type == VAL_NULL && right.type == VAL_STRING) {
         String *null_str = string_new("null");
         String *result = string_concat(null_str, right.as.as_string);
         string_free(null_str);
@@ -364,12 +374,12 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
     // Pointer arithmetic
     if (left.type == VAL_PTR && is_integer(right)) {
-        if (expr->as.binary.op == OP_ADD) {
+        if (op == OP_ADD) {
             void *ptr = left.as.as_ptr;
             int32_t offset = value_to_int(right);
             binary_result = val_ptr((char *)ptr + offset);
             goto binary_cleanup;
-        } else if (expr->as.binary.op == OP_SUB) {
+        } else if (op == OP_SUB) {
             void *ptr = left.as.as_ptr;
             int32_t offset = value_to_int(right);
             binary_result = val_ptr((char *)ptr - offset);
@@ -378,7 +388,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     }
 
     if (is_integer(left) && right.type == VAL_PTR) {
-        if (expr->as.binary.op == OP_ADD) {
+        if (op == OP_ADD) {
             int32_t offset = value_to_int(left);
             void *ptr = right.as.as_ptr;
             binary_result = val_ptr((char *)ptr + offset);
@@ -388,10 +398,10 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
     // Boolean comparisons
     if (left.type == VAL_BOOL && right.type == VAL_BOOL) {
-        if (expr->as.binary.op == OP_EQUAL) {
+        if (op == OP_EQUAL) {
             binary_result = val_bool(left.as.as_bool == right.as.as_bool);
             goto binary_cleanup;
-        } else if (expr->as.binary.op == OP_NOT_EQUAL) {
+        } else if (op == OP_NOT_EQUAL) {
             binary_result = val_bool(left.as.as_bool != right.as.as_bool);
             goto binary_cleanup;
         }
@@ -412,7 +422,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 cmp = 1;
             }
         }
-        switch (expr->as.binary.op) {
+        switch (op) {
             case OP_EQUAL:
                 binary_result = val_bool(cmp == 0);
                 goto binary_cleanup;
@@ -438,7 +448,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
     // Rune comparisons (including ordering comparisons)
     if (left.type == VAL_RUNE && right.type == VAL_RUNE) {
-        switch (expr->as.binary.op) {
+        switch (op) {
             case OP_EQUAL:
                 binary_result = val_bool(left.as.as_rune == right.as.as_rune);
                 goto binary_cleanup;
@@ -466,7 +476,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     if (left.type == VAL_PTR && right.type == VAL_PTR) {
         void *lp = left.as.as_ptr;
         void *rp = right.as.as_ptr;
-        switch (expr->as.binary.op) {
+        switch (op) {
             case OP_EQUAL:
                 binary_result = val_bool(lp == rp);
                 goto binary_cleanup;
@@ -494,13 +504,13 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
     if (left.type == VAL_NULL || right.type == VAL_NULL ||
         (left.type == VAL_PTR && left.as.as_ptr == NULL) ||
         (right.type == VAL_PTR && right.as.as_ptr == NULL)) {
-        if (expr->as.binary.op == OP_EQUAL) {
+        if (op == OP_EQUAL) {
             // Check if both are null (either VAL_NULL or VAL_PTR with NULL)
             int left_is_null = (left.type == VAL_NULL) || (left.type == VAL_PTR && left.as.as_ptr == NULL);
             int right_is_null = (right.type == VAL_NULL) || (right.type == VAL_PTR && right.as.as_ptr == NULL);
             binary_result = val_bool(left_is_null && right_is_null);
             goto binary_cleanup;
-        } else if (expr->as.binary.op == OP_NOT_EQUAL) {
+        } else if (op == OP_NOT_EQUAL) {
             // Check if both are null (either VAL_NULL or VAL_PTR with NULL)
             int left_is_null = (left.type == VAL_NULL) || (left.type == VAL_PTR && left.as.as_ptr == NULL);
             int right_is_null = (right.type == VAL_NULL) || (right.type == VAL_PTR && right.as.as_ptr == NULL);
@@ -511,10 +521,10 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
     // Object comparisons (reference equality)
     if (left.type == VAL_OBJECT && right.type == VAL_OBJECT) {
-        if (expr->as.binary.op == OP_EQUAL) {
+        if (op == OP_EQUAL) {
             binary_result = val_bool(left.as.as_object == right.as.as_object);
             goto binary_cleanup;
-        } else if (expr->as.binary.op == OP_NOT_EQUAL) {
+        } else if (op == OP_NOT_EQUAL) {
             binary_result = val_bool(left.as.as_object != right.as.as_object);
             goto binary_cleanup;
         }
@@ -522,7 +532,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
     // Cross-type equality comparisons (before numeric type check)
     // If types are different and not both numeric, == returns false, != returns true
-    if (expr->as.binary.op == OP_EQUAL || expr->as.binary.op == OP_NOT_EQUAL) {
+    if (op == OP_EQUAL || op == OP_NOT_EQUAL) {
         // Comparing a rune to a string is almost always a bug: string[i] returns
         // a rune, but `s[i] == "x"` silently evaluates to false because the
         // types differ. Match hemlockc's compile-time warning so the mistake
@@ -536,7 +546,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             const char *right_name = right.type == VAL_RUNE ? "rune" : "string";
             fprintf(stderr,
                     "%s:%d: warning: equality comparison between different types '%s' and '%s'\n",
-                    file ? file : "<unknown>", expr->line, left_name, right_name);
+                    file ? file : "<unknown>", line, left_name, right_name);
         }
 
         int left_is_numeric = is_numeric(left);
@@ -544,14 +554,14 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
 
         // If one is numeric and the other is not, types don't match
         if (left_is_numeric != right_is_numeric) {
-            binary_result = val_bool(expr->as.binary.op == OP_NOT_EQUAL);
+            binary_result = val_bool(op == OP_NOT_EQUAL);
             goto binary_cleanup;
         }
 
         // If both are non-numeric but types are different (handled above for strings/bools/runes)
         // this handles any remaining cases
         if (!left_is_numeric && !right_is_numeric && left.type != right.type) {
-            binary_result = val_bool(expr->as.binary.op == OP_NOT_EQUAL);
+            binary_result = val_bool(op == OP_NOT_EQUAL);
             goto binary_cleanup;
         }
     }
@@ -573,7 +583,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         double l = value_to_float(left);
         double r = value_to_float(right);
 
-        switch (expr->as.binary.op) {
+        switch (op) {
             case OP_ADD:
                 binary_result = (result_type == VAL_F32) ? val_f32((float)(l + r)) : val_f64(l + r);
                 goto binary_cleanup;
@@ -620,11 +630,11 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         }
     } else {
         // Division always uses float regardless of operand types
-        if (expr->as.binary.op == OP_DIV) {
+        if (op == OP_DIV) {
             double l = value_to_float(left);
             double r = value_to_float(right);
             if (r == 0.0) {
-                runtime_error_at(ctx, expr->line, "Division by zero");
+                runtime_error_at(ctx, line, "Division by zero");
                 goto binary_cleanup;
             }
             binary_result = val_f64(l / r);
@@ -632,7 +642,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
         }
 
         // Integer operation - handle each result type with overflow detection
-        switch (expr->as.binary.op) {
+        switch (op) {
             case OP_ADD:
             case OP_SUB:
             case OP_MUL:
@@ -642,49 +652,49 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     case VAL_I8: {
                         int8_t l = left.as.as_i8;
                         int8_t r = right.as.as_i8;
-                        if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
-                            runtime_error_at(ctx, expr->line, "Division by zero");
+                        if ((op == OP_DIV || op == OP_MOD) && r == 0) {
+                            runtime_error_at(ctx, line, "Division by zero");
                             goto binary_cleanup;
                         }
-                        int8_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
-                                       (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                       (expr->as.binary.op == OP_MUL) ? (l * r) :
-                                       (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
+                        int8_t result = (op == OP_ADD) ? (l + r) :
+                                       (op == OP_SUB) ? (l - r) :
+                                       (op == OP_MUL) ? (l * r) :
+                                       (op == OP_DIV) ? (l / r) : (l % r);
                         binary_result = val_i8(result);
                         goto binary_cleanup;
                     }
                     case VAL_I16: {
                         int16_t l = left.as.as_i16;
                         int16_t r = right.as.as_i16;
-                        if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
-                            runtime_error_at(ctx, expr->line, "Division by zero");
+                        if ((op == OP_DIV || op == OP_MOD) && r == 0) {
+                            runtime_error_at(ctx, line, "Division by zero");
                             goto binary_cleanup;
                         }
-                        int16_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
-                                        (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                        (expr->as.binary.op == OP_MUL) ? (l * r) :
-                                        (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
+                        int16_t result = (op == OP_ADD) ? (l + r) :
+                                        (op == OP_SUB) ? (l - r) :
+                                        (op == OP_MUL) ? (l * r) :
+                                        (op == OP_DIV) ? (l / r) : (l % r);
                         binary_result = val_i16(result);
                         goto binary_cleanup;
                     }
                     case VAL_I32: {
                         int32_t l = left.as.as_i32;
                         int32_t r = right.as.as_i32;
-                        if (expr->as.binary.op == OP_MOD && r == 0) {
-                            runtime_error_at(ctx, expr->line, "Division by zero");
+                        if (op == OP_MOD && r == 0) {
+                            runtime_error_at(ctx, line, "Division by zero");
                             goto binary_cleanup;
                         }
-                        if (expr->as.binary.op == OP_MOD) {
+                        if (op == OP_MOD) {
                             // Avoid INT32_MIN % -1 trap; remainder is 0
                             binary_result = (r == -1) ? val_i32(0) : val_i32(l % r);
                             goto binary_cleanup;
                         }
                         int32_t result;
-                        int overflow = (expr->as.binary.op == OP_ADD) ? __builtin_add_overflow(l, r, &result) :
-                                       (expr->as.binary.op == OP_SUB) ? __builtin_sub_overflow(l, r, &result) :
+                        int overflow = (op == OP_ADD) ? __builtin_add_overflow(l, r, &result) :
+                                       (op == OP_SUB) ? __builtin_sub_overflow(l, r, &result) :
                                        __builtin_mul_overflow(l, r, &result);
                         if (overflow) {
-                            runtime_error_at(ctx, expr->line, "Integer overflow: i32 arithmetic");
+                            runtime_error_at(ctx, line, "Integer overflow: i32 arithmetic");
                             goto binary_cleanup;
                         }
                         binary_result = val_i32(result);
@@ -693,21 +703,21 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     case VAL_I64: {
                         int64_t l = left.as.as_i64;
                         int64_t r = right.as.as_i64;
-                        if (expr->as.binary.op == OP_MOD && r == 0) {
-                            runtime_error_at(ctx, expr->line, "Division by zero");
+                        if (op == OP_MOD && r == 0) {
+                            runtime_error_at(ctx, line, "Division by zero");
                             goto binary_cleanup;
                         }
-                        if (expr->as.binary.op == OP_MOD) {
+                        if (op == OP_MOD) {
                             // Avoid INT64_MIN % -1 trap; remainder is 0
                             binary_result = (r == -1) ? val_i64(0) : val_i64(l % r);
                             goto binary_cleanup;
                         }
                         int64_t result;
-                        int overflow = (expr->as.binary.op == OP_ADD) ? __builtin_add_overflow(l, r, &result) :
-                                       (expr->as.binary.op == OP_SUB) ? __builtin_sub_overflow(l, r, &result) :
+                        int overflow = (op == OP_ADD) ? __builtin_add_overflow(l, r, &result) :
+                                       (op == OP_SUB) ? __builtin_sub_overflow(l, r, &result) :
                                        __builtin_mul_overflow(l, r, &result);
                         if (overflow) {
-                            runtime_error_at(ctx, expr->line, "Integer overflow: i64 arithmetic");
+                            runtime_error_at(ctx, line, "Integer overflow: i64 arithmetic");
                             goto binary_cleanup;
                         }
                         binary_result = val_i64(result);
@@ -716,60 +726,60 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     case VAL_U8: {
                         uint8_t l = left.as.as_u8;
                         uint8_t r = right.as.as_u8;
-                        if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
-                            runtime_error_at(ctx, expr->line, "Division by zero");
+                        if ((op == OP_DIV || op == OP_MOD) && r == 0) {
+                            runtime_error_at(ctx, line, "Division by zero");
                             goto binary_cleanup;
                         }
                         // Unsigned arithmetic wraps (well-defined C behavior)
-                        uint8_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
-                                        (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                        (expr->as.binary.op == OP_MUL) ? (l * r) :
-                                        (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
+                        uint8_t result = (op == OP_ADD) ? (l + r) :
+                                        (op == OP_SUB) ? (l - r) :
+                                        (op == OP_MUL) ? (l * r) :
+                                        (op == OP_DIV) ? (l / r) : (l % r);
                         binary_result = val_u8(result);
                         goto binary_cleanup;
                     }
                     case VAL_U16: {
                         uint16_t l = left.as.as_u16;
                         uint16_t r = right.as.as_u16;
-                        if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
-                            runtime_error_at(ctx, expr->line, "Division by zero");
+                        if ((op == OP_DIV || op == OP_MOD) && r == 0) {
+                            runtime_error_at(ctx, line, "Division by zero");
                             goto binary_cleanup;
                         }
                         // Unsigned arithmetic wraps (well-defined C behavior)
-                        uint16_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
-                                         (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                         (expr->as.binary.op == OP_MUL) ? (l * r) :
-                                         (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
+                        uint16_t result = (op == OP_ADD) ? (l + r) :
+                                         (op == OP_SUB) ? (l - r) :
+                                         (op == OP_MUL) ? (l * r) :
+                                         (op == OP_DIV) ? (l / r) : (l % r);
                         binary_result = val_u16(result);
                         goto binary_cleanup;
                     }
                     case VAL_U32: {
                         uint32_t l = left.as.as_u32;
                         uint32_t r = right.as.as_u32;
-                        if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
-                            runtime_error_at(ctx, expr->line, "Division by zero");
+                        if ((op == OP_DIV || op == OP_MOD) && r == 0) {
+                            runtime_error_at(ctx, line, "Division by zero");
                             goto binary_cleanup;
                         }
                         // Unsigned arithmetic wraps (well-defined C behavior)
-                        uint32_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
-                                         (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                         (expr->as.binary.op == OP_MUL) ? (l * r) :
-                                         (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
+                        uint32_t result = (op == OP_ADD) ? (l + r) :
+                                         (op == OP_SUB) ? (l - r) :
+                                         (op == OP_MUL) ? (l * r) :
+                                         (op == OP_DIV) ? (l / r) : (l % r);
                         binary_result = val_u32(result);
                         goto binary_cleanup;
                     }
                     case VAL_U64: {
                         uint64_t l = left.as.as_u64;
                         uint64_t r = right.as.as_u64;
-                        if ((expr->as.binary.op == OP_DIV || expr->as.binary.op == OP_MOD) && r == 0) {
-                            runtime_error_at(ctx, expr->line, "Division by zero");
+                        if ((op == OP_DIV || op == OP_MOD) && r == 0) {
+                            runtime_error_at(ctx, line, "Division by zero");
                             goto binary_cleanup;
                         }
                         // Unsigned arithmetic wraps (well-defined C behavior)
-                        uint64_t result = (expr->as.binary.op == OP_ADD) ? (l + r) :
-                                         (expr->as.binary.op == OP_SUB) ? (l - r) :
-                                         (expr->as.binary.op == OP_MUL) ? (l * r) :
-                                         (expr->as.binary.op == OP_DIV) ? (l / r) : (l % r);
+                        uint64_t result = (op == OP_ADD) ? (l + r) :
+                                         (op == OP_SUB) ? (l - r) :
+                                         (op == OP_MUL) ? (l * r) :
+                                         (op == OP_DIV) ? (l / r) : (l % r);
                         binary_result = val_u64(result);
                         goto binary_cleanup;
                     }
@@ -801,7 +811,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         case VAL_I64: l = left.as.as_i64; r = right.as.as_i64; break;
                         default: l = r = 0; break;
                     }
-                    switch (expr->as.binary.op) {
+                    switch (op) {
                         case OP_EQUAL:
                             binary_result = val_bool(l == r);
                             goto binary_cleanup;
@@ -831,7 +841,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         case VAL_U64: l = left.as.as_u64; r = right.as.as_u64; break;
                         default: l = r = 0; break;
                     }
-                    switch (expr->as.binary.op) {
+                    switch (op) {
                         case OP_EQUAL:
                             binary_result = val_bool(l == r);
                             goto binary_cleanup;
@@ -882,7 +892,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     }
 
                     int64_t result;
-                    switch (expr->as.binary.op) {
+                    switch (op) {
                         case OP_BIT_AND: result = l & r; break;
                         case OP_BIT_OR: result = l | r; break;
                         case OP_BIT_XOR: result = l ^ r; break;
@@ -929,7 +939,7 @@ Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     }
 
                     uint64_t result;
-                    switch (expr->as.binary.op) {
+                    switch (op) {
                         case OP_BIT_AND: result = l & r; break;
                         case OP_BIT_OR: result = l | r; break;
                         case OP_BIT_XOR: result = l ^ r; break;

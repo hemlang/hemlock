@@ -1,28 +1,21 @@
 /*
- * PROOF: the interpreter's eval_binary_expr (src/backends/interpreter/
- * runtime/binary_ops.c) implements int_spec.h for every pair of integer
+ * PROOF: the interpreter's binary operators (eval_binary_values in
+ * src/backends/interpreter/runtime/binary_ops.c) implement int_spec.h for every pair of integer
  * types, every operand value and every integer operator, without UB.
  *
  * Together with int_binop_runtime.c this is a parity proof: both backends
  * agree with one spec, hence with each other.
  *
- * eval_expr is stubbed to hand back the two operand values; runtime_error*
- * are stubbed to check the spec allows raising and set is_throwing, as the
- * real ones do.
+ * runtime_error* are stubbed to check the spec allows raising and set
+ * is_throwing, as the real ones do. (The harness calls eval_binary_values
+ * rather than eval_binary_expr: an Expr in the program state trips a CBMC
+ * 6.4.1 SMT2 encoding bug for unions with double members.)
  */
 #include "int_spec.h"
 #include "internal.h"
+#include "runtime/expressions_internal.h"
 
-Value eval_binary_expr(Expr *expr, Environment *env, ExecutionContext *ctx);
-
-static Value operand[2];
-static int next_operand;
 static int error_allowed;
-
-Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
-    (void)expr; (void)env; (void)ctx;
-    return operand[next_operand++];
-}
 
 static void raise_stub(ExecutionContext *ctx) {
     __CPROVER_assert(error_allowed, "runtime error raised only when the spec allows it");
@@ -74,18 +67,10 @@ void harness(void) {
     SpecOp op = spec_pick_op();
     SpecResult want = spec_eval(op, l, r);
 
-    operand[0] = to_interp(l);
-    operand[1] = to_interp(r);
-    next_operand = 0;
     error_allowed = want.raises;
 
     static ExecutionContext ctx;   /* zero-initialised: not throwing */
-    Expr expr;
-    expr.line = 1;
-    expr.as.binary.op = op_map[op];
-    expr.as.binary.left = expr.as.binary.right = NULL;
-
-    Value res = eval_binary_expr(&expr, NULL, &ctx);
+    Value res = eval_binary_values(op_map[op], 1, to_interp(l), to_interp(r), &ctx);
     if (ctx.exception_state.is_throwing) return;   /* raise already checked */
     __CPROVER_assert(!want.raises, "raises when the spec requires it");
 

@@ -4,10 +4,11 @@
  *
  *   - result type R = documented lattice (i8<u8<i16<u16<i32<u32<i64<u64)
  *   - both operands are converted to R (C conversion: truncate, reinterpret)
- *   - + - *: computed exactly (__int128); i32/i64 raise iff the exact
+ *   - + -: computed exactly (__int128); i32/i64 raise iff the exact
  *     result is out of range, every other type wraps mod 2^bits
- *   - %: raises iff the converted divisor is 0; truncated remainder;
- *     MIN % -1 == 0
+ *   - *: same rule, stated at R's C width (see SPEC_MUL for why)
+ *   - %: raises iff the converted divisor is 0; truncated remainder at R's
+ *     width; MIN % -1 == 0
  *   - & | ^: bitwise on the converted values
  *   - << >>: both operands are converted to R, including the shift amount
  *     (read as int64, so a u64 amount >= 2^63 is negative); raise iff that
@@ -99,23 +100,43 @@ static SpecResult spec_eval(SpecOp op, SpecInt l, SpecInt r) {
     int bits = spec_bits(R), sgn = spec_signed(R);
     i128 a = spec_wrap(l.value, R), b = spec_wrap(r.value, R);
     i128 x = 0;
+    int mul_raises = 0;
     i128 shift = (R == HML_TK_U64 && b > INT64_MAX) ? b - ((i128)1 << 64) : b;
 
     switch (op) {
         case SPEC_ADD: x = a + b; break;
         case SPEC_SUB: x = a - b; break;
         case SPEC_MUL:
-            /* u64 * u64 can reach 2^128: multiply unsigned (wraps mod 2^128,
-             * which preserves the low 64 bits); signed products fit in i128. */
-            x = sgn ? a * b : (i128)(spec_wrap((i128)((unsigned __int128)a * (unsigned __int128)b), R));
+            /* Computed at R's own width (not as an exact __int128 product):
+             * proving two differently-shaped 64-bit multipliers equivalent
+             * is intractable for SAT/SMT, while same-width products let the
+             * solver share structure. Wrapping types multiply unsigned at
+             * R's width; i32/i64 overflow is __builtin_mul_overflow's
+             * (exact-product) definition. This trusts the C multiplication
+             * primitive and checks everything around it: promotion,
+             * conversion, dispatch, result type, raising. */
+            switch (R) {
+                case HML_TK_I32: { int32_t p; mul_raises = __builtin_mul_overflow((int32_t)a, (int32_t)b, &p); x = p; break; }
+                case HML_TK_I64: { int64_t p; mul_raises = __builtin_mul_overflow((int64_t)a, (int64_t)b, &p); x = p; break; }
+                case HML_TK_U64: x = (i128)((uint64_t)a * (uint64_t)b); break;
+                default:         x = (i128)((uint32_t)a * (uint32_t)b); break;  /* <= 32 bits, wraps */
+            }
             break;
         case SPEC_MOD:
-            /* 64-bit division (a, b fit in R) keeps the SAT problem small;
-             * the -1 case is spelled out because INT64_MIN % -1 traps. */
-            if (b == 0) out.raises = 1;
-            else if (!sgn) x = (i128)((uint64_t)a % (uint64_t)b);
-            else if (b == -1) x = 0;
-            else x = (i128)((int64_t)a % (int64_t)b);
+            /* Truncated remainder at R's width (same reasoning as SPEC_MUL);
+             * MIN % -1 == 0 is spelled out because it traps in C. */
+            if (b == 0) { out.raises = 1; break; }
+            if (sgn && b == -1) { x = 0; break; }
+            switch (R) {
+                case HML_TK_I8:  x = (int8_t)a % (int8_t)b; break;
+                case HML_TK_I16: x = (int16_t)a % (int16_t)b; break;
+                case HML_TK_I32: x = (int32_t)a % (int32_t)b; break;
+                case HML_TK_I64: x = (int64_t)a % (int64_t)b; break;
+                case HML_TK_U8:  x = (uint8_t)a % (uint8_t)b; break;
+                case HML_TK_U16: x = (uint16_t)a % (uint16_t)b; break;
+                case HML_TK_U32: x = (uint32_t)a % (uint32_t)b; break;
+                default:         x = (i128)((uint64_t)a % (uint64_t)b); break;
+            }
             break;
         case SPEC_AND: x = a & b; break;
         case SPEC_OR:  x = a | b; break;
@@ -139,9 +160,10 @@ static SpecResult spec_eval(SpecOp op, SpecInt l, SpecInt r) {
                        op == SPEC_GT ? a > b  : a >= b;
             return out;
     }
-    if ((op == SPEC_ADD || op == SPEC_SUB || op == SPEC_MUL) &&
+    if ((op == SPEC_ADD || op == SPEC_SUB) &&
         (R == HML_TK_I32 || R == HML_TK_I64) && spec_wrap(x, R) != x)
         out.raises = 1;
+    if (op == SPEC_MUL) out.raises = mul_raises;
     out.result.type = R;
     out.result.value = spec_wrap(x, R);
     return out;

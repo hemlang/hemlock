@@ -43,6 +43,18 @@ while IFS= read -r line; do
         continue
     fi
     for k in "${!VARS[@]}"; do line="${line//\$$k/${VARS[$k]}}"; done
+    # @pairs: expand into one proof per (left, right) integer type pair, so
+    # the promoted type is a constant and the solver sees one width at a time.
+    if [[ " $line " == *" @pairs"* ]]; then
+        base="${line// @pairs/}"
+        for lt in I8 I16 I32 I64 U8 U16 U32 U64; do
+            for rt in I8 I16 I32 I64 U8 U16 U32 U64; do
+                lt_l=$(tr 'A-Z' 'a-z' <<< "$lt"); rt_l=$(tr 'A-Z' 'a-z' <<< "$rt")
+                PROOFS+=("${base%%|*}_${lt_l}_${rt_l}|${base#*|} -DLT=HML_TK_$lt -DRT=HML_TK_$rt")
+            done
+        done
+        continue
+    fi
     PROOFS+=("$line")
 done < "$MANIFEST"
 

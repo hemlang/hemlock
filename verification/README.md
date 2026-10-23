@@ -8,8 +8,8 @@ answer rather than a crash.
 |------|------|------|----------------|
 | UTF-8 | `src/shared/utf8.c` | CBMC | round-trip for every scalar value; decoders memory-safe on arbitrary bytes |
 | Type promotion | `src/shared/type_promotion.c` | CBMC | commutative, associative, monotone, matches the documented lattice |
-| Integer ops (compiled) | `runtime/src/builtins_ops.c` | CBMC | `+ - * % & \| ^ << >>`, comparisons, unary `- ~ ++ --` match an executable spec for **every** type pair and **every** value; no UB |
-| Integer ops (interpreter) | `src/backends/interpreter/runtime/binary_ops.c` | CBMC | same spec, so passing both = a parity proof |
+| Integer ops (compiled) | `runtime/src/builtins_ops.c` | CBMC | `+ - * % & \| ^ << >>`, comparisons, unary `- ~ ++ --` match an executable spec for **every** type pair and **every** value; no UB (`*` and `%`: see method notes) |
+| Integer ops (interpreter) | `src/backends/interpreter/runtime/binary_ops.c` (`eval_binary_values`) | CBMC | same spec, so passing both = a parity proof |
 | Channels | `src/shared/chan_core.c` | TLA+ / TLC | FIFO, no duplicate or lost items, send status tells the truth, no lost wakeups / deadlock |
 
 The CBMC proofs are exhaustive over their inputs: a `VERIFICATION SUCCESSFUL`
@@ -22,7 +22,7 @@ The TLA+ model is exhaustive over 2-3 senders/receivers and capacities 0-2.
 ## Running
 
 ```bash
-verification/run.sh              # everything (~1h on 4 cores, see below)
+verification/run.sh              # everything (RUNTIME on 4 cores)
 verification/run.sh utf8 chan    # subset, by name substring
 KEEP_LOGS=/tmp/v verification/run.sh rt_shr   # keep logs to read counterexamples
 make verify                      # same as run.sh
@@ -39,7 +39,7 @@ breaks it, and so does fixing a defect without flipping its line to `pass`.
 | Tool | Version used | Install |
 |------|--------------|---------|
 | [CBMC](https://github.com/diffblue/cbmc) | 6.4.1 | release `.deb` (`ubuntu-24.04-cbmc-6.4.1-Linux.deb`); the Ubuntu package is too old |
-| [Bitwuzla](https://github.com/bitwuzla/bitwuzla) | 0.8.2 | static release zip, `bitwuzla` on `PATH`; optional, ~20x faster than SAT on 64-bit multiply/divide |
+| [Bitwuzla](https://github.com/bitwuzla/bitwuzla) | 0.8.2 | static release zip, `bitwuzla` on `PATH`; used by `@bitwuzla` proofs (all integer ops). Without it they fall back to CaDiCaL, which does not finish `*`/`%` in practical time |
 | [TLA+ tools](https://github.com/tlaplus/tlaplus) | 1.8.0 | `tla2tools.jar` in `verification/.cache/` (or `TLA2TOOLS_JAR=`), Java 11+ |
 
 `.github/workflows/verify.yml` installs exactly these.
@@ -74,7 +74,7 @@ verification/
   `runtime_error*` (interpreter) are stubbed to assert that the spec says this
   operation raises; the harness asserts the converse after a normal return.
 - **Unreachable code is checked, not assumed.** The interpreter harness cuts
-  string/serialization paths of `eval_binary_expr` with `@unreachable`, which
+  string/serialization paths of `eval_binary_values` with `@unreachable`, which
   replaces them with `assert(false); assume(false)`, so reaching one is a
   failure.
 - **UB is checked without `-fwrapv`.** The native builds use `-fwrapv`, the
@@ -86,6 +86,22 @@ verification/
   mutation-tested: replacing the rendezvous `broadcast` with `signal`
   deadlocks, and replacing the `recv_gen` handoff check with "slot is empty"
   violates `SendContract`.
+
+- **`*` and `%` trust the C primitive.** For `+ -` the spec computes the exact
+  result in `__int128` and range-checks it. Doing the same for `*` and `%`
+  asks the solver to prove two differently-shaped 64-bit multipliers or
+  dividers equivalent, which did not finish in 40+ CPU-minutes per proof on
+  either SAT or SMT. So `int_spec.h` states `*` and `%` at the promoted
+  type's own C width, taking `__builtin_mul_overflow` as the definition of
+  i32/i64 overflow. These proofs still check everything around the
+  primitive: promotion, operand conversion, dispatch, result type,
+  divide-by-zero and overflow raising, `MIN % -1`, and the absence of UB.
+  They also run per type pair (`@pairs` in `proofs.txt`), so each proof sees
+  a single width.
+- **The interpreter harness enters at `eval_binary_values`**, the part of
+  `eval_binary_expr` after operand evaluation, extracted for this purpose.
+  Putting an `Expr` in the program state trips a CBMC 6.4.1 bug: unions with
+  a `double`-bearing member produce invalid SMT2.
 
 ### What is not covered
 

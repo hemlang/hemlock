@@ -38,16 +38,9 @@ type_promotion_lossless_f64|pass|cbmc|type_promotion_lossless.c|src/shared/type_
 RT=runtime/src/builtins_ops.c runtime/src/value.c src/shared/type_promotion.c @stubs/runtime_errors.c
 rt_add|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_ADD @bitwuzla
 rt_sub|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_SUB @bitwuzla
-# multiply is split by left operand type so the eight runs parallelize
-rt_mul_i8|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I8 @bitwuzla
-rt_mul_i16|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I16 @bitwuzla
-rt_mul_i32|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I32 @bitwuzla
-rt_mul_i64|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I64 @bitwuzla
-rt_mul_u8|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U8 @bitwuzla
-rt_mul_u16|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U16 @bitwuzla
-rt_mul_u32|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U32 @bitwuzla
-rt_mul_u64|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U64 @bitwuzla
-rt_mod|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MOD @bitwuzla
+# * and % are split into all 64 type pairs (@pairs) so each proof sees one width
+rt_mul|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL @bitwuzla @pairs
+rt_mod|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MOD @bitwuzla @pairs
 rt_and|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_AND @bitwuzla
 rt_or|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_OR @bitwuzla
 rt_xor|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_XOR @bitwuzla
@@ -63,20 +56,13 @@ rt_unary|pass|cbmc|int_unary_runtime.c|$RT|--unwind 2 @bitwuzla
 
 # ---- interpreter integer ops (src/backends/interpreter/runtime/binary_ops.c) ----
 # Same spec as rt_*: passing both is a parity proof. Non-integer paths of
-# eval_binary_expr are cut with @unreachable (checked, not assumed).
+# eval_binary_values are cut with @unreachable (checked, not assumed).
 IN=src/backends/interpreter/runtime/binary_ops.c src/backends/interpreter/types.c src/backends/interpreter/values.c src/shared/type_promotion.c
 UN=@unreachable=value_release|string_concat|string_new|string_free|value_to_string|serialize_value|serialize_visited_init|serialize_visited_free|utf8_encode|get_current_source_file
 in_add|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_ADD $UN
 in_sub|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_SUB $UN
-in_mul_i8|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I8 $UN
-in_mul_i16|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I16 $UN
-in_mul_i32|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I32 $UN
-in_mul_i64|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I64 $UN
-in_mul_u8|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U8 $UN
-in_mul_u16|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U16 $UN
-in_mul_u32|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U32 $UN
-in_mul_u64|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U64 $UN
-in_mod|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MOD $UN
+in_mul|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL $UN @bitwuzla @pairs
+in_mod|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MOD $UN @bitwuzla @pairs
 in_and|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_AND $UN
 in_or|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_OR $UN
 in_xor|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_XOR $UN
