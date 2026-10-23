@@ -1,0 +1,75 @@
+name: Formal Verification
+
+# CBMC proofs of the shared UTF-8 / type-promotion code and of both backends'
+# integer operators, plus TLC model checking of the channel core.
+# See verification/README.md. Each proof has an expected verdict in
+# verification/proofs.txt; the job fails on any mismatch.
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'src/shared/**'
+      - 'runtime/src/builtins_ops.c'
+      - 'runtime/src/value.c'
+      - 'runtime/include/**'
+      - 'src/backends/interpreter/runtime/binary_ops.c'
+      - 'src/backends/interpreter/types.c'
+      - 'src/backends/interpreter/values.c'
+      - 'verification/**'
+      - '.github/workflows/verify.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'src/shared/**'
+      - 'runtime/src/builtins_ops.c'
+      - 'runtime/src/value.c'
+      - 'runtime/include/**'
+      - 'src/backends/interpreter/runtime/binary_ops.c'
+      - 'src/backends/interpreter/types.c'
+      - 'src/backends/interpreter/values.c'
+      - 'verification/**'
+      - '.github/workflows/verify.yml'
+  workflow_dispatch:
+
+env:
+  CBMC_VERSION: 6.4.1
+  BITWUZLA_VERSION: 0.8.2
+  TLA_VERSION: 1.8.0
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install CBMC, Bitwuzla, TLA+ tools
+        run: |
+          curl -sSfL -o cbmc.deb \
+            "https://github.com/diffblue/cbmc/releases/download/cbmc-${CBMC_VERSION}/ubuntu-24.04-cbmc-${CBMC_VERSION}-Linux.deb"
+          sudo apt-get update
+          sudo apt-get install -y ./cbmc.deb
+          curl -sSfL -o bitwuzla.zip \
+            "https://github.com/bitwuzla/bitwuzla/releases/download/${BITWUZLA_VERSION}/Bitwuzla-Linux-x86_64-static.zip"
+          unzip -q bitwuzla.zip -d bitwuzla
+          sudo install -m 755 "$(find bitwuzla -name bitwuzla -type f | head -1)" /usr/local/bin/bitwuzla
+          mkdir -p verification/.cache
+          curl -sSfL -o verification/.cache/tla2tools.jar \
+            "https://github.com/tlaplus/tlaplus/releases/download/v${TLA_VERSION}/tla2tools.jar"
+          cbmc --version && bitwuzla --version
+
+      - name: Run proofs
+        run: KEEP_LOGS=verification-logs verification/run.sh
+
+      - name: Upload logs (counterexamples)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-logs
+          path: verification-logs/
