@@ -238,7 +238,11 @@ representable in f64. **Fix (docs only):** `docs/language-guide/types.md` and
 `runtime_error` used `ctx->current_line`, which only calls and property reads
 updated. An error from a plain statement such as `s[i] = x;` pointed at the
 last call made anywhere. **Fix:** `eval_stmt` sets the line on entry. Found
-while reproducing, not proved.
+while reproducing, not proved. A side effect: errors that used to carry no
+location now do. `tests/parity/builtins/call_depth.hml` printed the raw
+message and only matched compiled output because the line happened to be
+unset; it now compares the message text, as `call_depth_try.hml` already
+did.
 
 ### 9. Interpreter `u16 * u16` was signed-overflow UB
 
