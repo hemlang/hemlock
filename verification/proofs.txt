@@ -68,7 +68,14 @@ IN=src/backends/interpreter/runtime/binary_ops.c src/backends/interpreter/types.
 UN=@unreachable=value_release|string_concat|string_new|string_free|value_to_string|serialize_value|serialize_visited_init|serialize_visited_free|utf8_encode|get_current_source_file
 in_add|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_ADD $UN
 in_sub|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_SUB $UN
-in_mul|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL $UN
+in_mul_i8|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I8 $UN
+in_mul_i16|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I16 $UN
+in_mul_i32|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I32 $UN
+in_mul_i64|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_I64 $UN
+in_mul_u8|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U8 $UN
+in_mul_u16|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U16 $UN
+in_mul_u32|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U32 $UN
+in_mul_u64|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL -DLT=HML_TK_U64 $UN
 in_mod|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MOD $UN
 in_and|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_AND $UN
 in_or|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_OR $UN
