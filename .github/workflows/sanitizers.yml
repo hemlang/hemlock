@@ -34,7 +34,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential gcc make \
-            libwebsockets-dev libffi-dev zlib1g-dev libssl-dev util-linux
+            libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev util-linux
 
       - name: Build compiler + stdlib
         run: make clean && make compiler stdlib
@@ -54,7 +54,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential gcc make \
-            libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
+            libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev
       - name: Build compiler + stdlib
         run: make clean && make compiler stdlib
       - name: Stress (plain)

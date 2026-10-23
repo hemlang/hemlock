@@ -19,7 +19,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev cmake
 
     - name: Build and install USearch
       run: |
@@ -54,7 +54,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev cmake
 
     - name: Build and install USearch
       run: |
@@ -86,7 +86,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev cmake
 
     - name: Build and install USearch
       run: |
@@ -118,7 +118,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev cmake
 
     - name: Build and install USearch
       run: |
@@ -151,7 +151,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev cmake
 
     - name: Build and install USearch
       run: |
@@ -187,7 +187,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev cmake
 
     - name: Build and install USearch
       run: |
@@ -222,7 +222,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev cmake
 
     - name: Build and install USearch
       run: |
@@ -254,7 +254,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev cmake
 
     - name: Build and install USearch
       run: |
@@ -286,7 +286,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libffi-dev zlib1g-dev libssl-dev
+        sudo apt-get install -y build-essential gcc make libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev
 
     - name: Build interpreter
       run: make clean && make
@@ -312,7 +312,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libffi-dev zlib1g-dev libssl-dev
+        sudo apt-get install -y build-essential gcc make libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev
 
     - name: Build interpreter
       run: make clean && make
@@ -329,7 +329,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev cmake
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev cmake
 
     - name: Build and install USearch
       run: |
@@ -371,7 +371,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev valgrind cmake
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev valgrind cmake
 
     - name: Build and install USearch
       run: |
@@ -413,7 +413,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev
 
     - name: Build compiler
       run: make compiler
@@ -430,7 +430,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev clang-tools clang-tidy
+        sudo apt-get install -y build-essential gcc make libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev clang-tools clang-tidy
 
     - name: Run clang-tidy
       run: make clang-tidy

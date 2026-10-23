@@ -63,6 +63,10 @@
 // Buffer size for generated variable names
 #define HML_GENERATED_NAME_SIZE 64
 
+// Buffer size for libcrypto's static link dependencies as reported by
+// `pkg-config --static` (hemlockc's Linux static link line)
+#define HML_CRYPTO_STATIC_DEPS_SIZE 256
+
 // ========== NETWORK LIMITS ==========
 
 // Maximum hostname length for network connections
