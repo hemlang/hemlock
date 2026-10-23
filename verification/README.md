@@ -24,7 +24,7 @@ The TLA+ model is exhaustive over 2-3 senders/receivers and capacities 0-2.
 ## Running
 
 ```bash
-verification/run.sh              # everything (RUNTIME on 4 cores)
+verification/run.sh              # everything (~31 min on 4 cores)
 verification/run.sh utf8 chan    # subset, by name substring
 KEEP_LOGS=/tmp/v verification/run.sh rt_shr   # keep logs to read counterexamples
 make verify                      # same as run.sh
@@ -250,7 +250,22 @@ builds' `-fwrapv`, but undefined behavior in the WASM build, which lacks it.
 
 ## Results
 
-Run on 4 cores, CBMC 6.4.1 + Bitwuzla 0.8.2, TLC 1.8.0:
+Full run on 4 cores (CBMC 6.4.1, Bitwuzla 0.8.2, TLC 1.8.0): **305 proofs,
+305 matched their expected verdict**, plus 2 `skip` (checked `i64 × i64`
+multiply, see "What is not covered"). Wall time 31 min, CPU time 2h02m.
 
-Run `verification/run.sh` for the current table. Expected verdicts live in
-`proofs.txt`.
+| Area | Proofs | Verified | Expected `fail` | CPU time | Slowest |
+|------|-------:|---------:|----------------:|---------:|--------:|
+| UTF-8 | 7 | 7 | 0 | 6m18s | 271s |
+| Type promotion | 11 | 5 | 6 | 0m12s | 4s |
+| Other binary ops (compiled) | 13 | 13 | 0 | 1m32s | 10s |
+| `*` (compiled) | 63 | 63 | 0 | 39m28s | 741s |
+| `%` (compiled) | 64 | 64 | 0 | 5m02s | 6s |
+| Unary ops (compiled) | 1 | 1 | 0 | 0m07s | 7s |
+| Other binary ops (interpreter) | 13 | 13 | 0 | 10m08s | 91s |
+| `*` (interpreter) | 63 | 63 | 0 | 51m30s | 929s |
+| `%` (interpreter) | 64 | 64 | 0 | 7m43s | 9s |
+| Channels (TLA+) | 6 | 6 | 0 | 0m25s | 8s |
+
+The six expected failures are the lossy promotion rows of finding 7. They
+are the spec of where promotion is lossy, not defects.
