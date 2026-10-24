@@ -114,6 +114,7 @@ HmlValue hml_is_little_endian(void) {
 // an arbitrary heap read/write primitive.
 static inline uint8_t *byteorder_addr(HmlValue val, int offset, int access_size, const char *op) {
     if (val.type == HML_VAL_PTR) {
+        hml_sandbox_deny_unsafe_mem(op);
         if (!val.as.as_ptr) hml_runtime_error("%s cannot access null pointer", op);
         return (uint8_t *)val.as.as_ptr + offset;
     }

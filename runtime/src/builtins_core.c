@@ -111,6 +111,15 @@ void hml_sandbox_error(const char *operation) {
     exit(1);
 }
 
+// Refuse a raw-memory operation under HML_SANDBOX_RESTRICT_UNSAFE_MEM.
+// Without this gate a sandboxed program could read or write runtime memory
+// through a raw pointer and clear its own sandbox flags. Catchable, matching
+// the interpreter's sandbox_deny_unsafe_mem().
+void hml_sandbox_deny_unsafe_mem(const char *operation) {
+    if (!hml_sandbox_check(HML_SANDBOX_RESTRICT_UNSAFE_MEM)) return;
+    hml_runtime_error_loc("Sandbox violation: raw memory access (%s) is not allowed in sandbox mode", operation);
+}
+
 // ========== RUNTIME INITIALIZATION ==========
 
 // Pin /dev/null to fds 0/1/2 if any of them are closed at process start.

@@ -99,7 +99,8 @@ void hml_wasm_fs_sync(void);
 #define HML_SANDBOX_RESTRICT_FILE_WRITE  0x0008
 #define HML_SANDBOX_RESTRICT_FILE_READ   0x0010
 #define HML_SANDBOX_RESTRICT_SIGNALS     0x0020
-#define HML_SANDBOX_RESTRICT_ALL         0x003F
+#define HML_SANDBOX_RESTRICT_UNSAFE_MEM  0x0040
+#define HML_SANDBOX_RESTRICT_ALL         0x007F
 
 // Initialize sandbox mode (call after hml_runtime_init)
 void hml_sandbox_init(int flags, const char *root_path);
@@ -112,6 +113,10 @@ int hml_sandbox_path_allowed(const char *path, int is_write);
 
 // Throw sandbox violation error
 __attribute__((noreturn)) void hml_sandbox_error(const char *operation);
+
+// Throw a catchable violation if HML_SANDBOX_RESTRICT_UNSAFE_MEM is active;
+// otherwise return normally
+void hml_sandbox_deny_unsafe_mem(const char *operation);
 
 // ========== BINARY OPERATIONS ==========
 

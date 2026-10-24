@@ -113,7 +113,10 @@ Value builtin_callback_free(Value *args, int num_args, ExecutionContext *ctx) {
 
 // Helper: extract raw pointer from ptr or buffer value after validating optional buffer bounds.
 static void *extract_raw_ptr_checked(Value val, size_t access_size, const char *operation, ExecutionContext *ctx) {
-    if (val.type == VAL_PTR) return val.as.as_ptr;
+    if (val.type == VAL_PTR) {
+        if (sandbox_deny_unsafe_mem(ctx, operation)) return NULL;
+        return val.as.as_ptr;
+    }
     if (val.type == VAL_BUFFER && val.as.as_buffer) {
         Buffer *buf = val.as.as_buffer;
         if (atomic_load(&buf->freed)) {
@@ -236,6 +239,7 @@ Value builtin_ptr_write_i32(Value *args, int num_args, ExecutionContext *ctx) {
 
 // ptr_offset(ptr, offset, element_size) - Calculate pointer offset
 Value builtin_ptr_offset(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "ptr_offset()")) return val_null();
     if (num_args != 3) {
         runtime_error(ctx, "ptr_offset() expects 3 arguments (ptr, offset, element_size)");
         return val_null();
@@ -452,6 +456,8 @@ Value builtin_ptr_deref_f64(Value *args, int num_args, ExecutionContext *ctx) {
 
 // ptr_deref_ptr(ptr) - Dereference a pointer to read a pointer (pointer-to-pointer)
 Value builtin_ptr_deref_ptr(Value *args, int num_args, ExecutionContext *ctx) {
+    // Mints or exposes a raw address, even from a buffer
+    if (sandbox_deny_unsafe_mem(ctx, "ptr_deref_ptr()")) return val_null();
     if (num_args != 1) {
         runtime_error(ctx, "ptr_deref_ptr() expects 1 argument (ptr)");
         return val_null();
@@ -660,6 +666,8 @@ Value builtin_ptr_write_f64(Value *args, int num_args, ExecutionContext *ctx) {
 
 // ptr_write_ptr(ptr, value) - Write a pointer to a pointer location
 Value builtin_ptr_write_ptr(Value *args, int num_args, ExecutionContext *ctx) {
+    // Mints or exposes a raw address, even from a buffer
+    if (sandbox_deny_unsafe_mem(ctx, "ptr_write_ptr()")) return val_null();
     if (num_args != 2) {
         runtime_error(ctx, "ptr_write_ptr() expects 2 arguments (ptr, value)");
         return val_null();
@@ -684,6 +692,8 @@ Value builtin_ptr_write_ptr(Value *args, int num_args, ExecutionContext *ctx) {
 
 // ptr_read_ptr(ptr) - Read a pointer from a pointer
 Value builtin_ptr_read_ptr(Value *args, int num_args, ExecutionContext *ctx) {
+    // Mints or exposes a raw address, even from a buffer
+    if (sandbox_deny_unsafe_mem(ctx, "ptr_read_ptr()")) return val_null();
     if (num_args != 1) {
         runtime_error(ctx, "ptr_read_ptr() expects 1 argument (ptr)");
         return val_null();
@@ -923,6 +933,7 @@ Value builtin_ffi_sizeof(Value *args, int num_args, ExecutionContext *ctx) {
 
 // ptr_to_buffer(ptr, size) - Copy data from a pointer into a new buffer
 Value builtin_ptr_to_buffer(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "ptr_to_buffer()")) return val_null();
     if (num_args != 2) {
         runtime_error(ctx, "ptr_to_buffer() expects 2 arguments (ptr, size)");
         return val_null();
@@ -955,6 +966,8 @@ Value builtin_ptr_to_buffer(Value *args, int num_args, ExecutionContext *ctx) {
 
 // buffer_ptr(buffer) - Get the raw pointer from a buffer
 Value builtin_buffer_ptr(Value *args, int num_args, ExecutionContext *ctx) {
+    // Mints or exposes a raw address, even from a buffer
+    if (sandbox_deny_unsafe_mem(ctx, "buffer_ptr()")) return val_null();
     if (num_args != 1) {
         runtime_error(ctx, "buffer_ptr() expects 1 argument (buffer)");
         return val_null();

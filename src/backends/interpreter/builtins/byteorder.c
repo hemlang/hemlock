@@ -151,6 +151,7 @@ Value builtin_is_little_endian(Value *args, int num_args, ExecutionContext *ctx)
 static uint8_t *byteorder_addr(Value arg, int offset, int access_size,
                                const char *op, ExecutionContext *ctx) {
     if (arg.type == VAL_PTR) {
+        if (sandbox_deny_unsafe_mem(ctx, op)) return NULL;
         if (!arg.as.as_ptr) {
             runtime_error(ctx, "%s cannot access null pointer", op);
             return NULL;

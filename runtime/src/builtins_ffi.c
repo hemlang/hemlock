@@ -1428,6 +1428,7 @@ HmlValue hml_builtin_callback_free(HmlClosureEnv *env, HmlValue ptr) {
 // hml_extract_ptr_checked() used by the sibling builtins in builtins_memory.c).
 static inline void *hml_ffi_extract_ptr(HmlValue val, size_t access_size, const char *op) {
     if (val.type == HML_VAL_PTR) {
+        hml_sandbox_deny_unsafe_mem(op);
         if (!val.as.as_ptr) hml_runtime_error("%s cannot access null pointer", op);
         return val.as.as_ptr;
     }
@@ -1479,6 +1480,7 @@ HmlValue hml_builtin_ptr_write_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue va
 // Builtin: ptr_offset(ptr, offset, element_size) -> ptr
 HmlValue hml_builtin_ptr_offset(HmlClosureEnv *env, HmlValue ptr, HmlValue offset, HmlValue element_size) {
     (void)env;
+    hml_sandbox_deny_unsafe_mem("ptr_offset()");
 
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("ptr_offset() first argument must be a ptr");
@@ -1572,6 +1574,7 @@ HmlValue hml_builtin_ptr_read_u32(HmlClosureEnv *env, HmlValue ptr) {
 // ptr_read_ptr(ptr) -> ptr
 HmlValue hml_builtin_ptr_read_ptr(HmlClosureEnv *env, HmlValue ptr) {
     (void)env;
+    hml_sandbox_deny_unsafe_mem("ptr_read_ptr()");
     if (!hml_ffi_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_read_ptr() argument must be a ptr or buffer");
     }

@@ -21,6 +21,7 @@
 // ========== POINTER INDEX OPERATIONS ==========
 
 HmlValue hml_ptr_get(HmlValue ptr, HmlValue index) {
+    hml_sandbox_deny_unsafe_mem("pointer indexing");
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("Pointer index requires pointer");
     }
@@ -34,6 +35,7 @@ HmlValue hml_ptr_get(HmlValue ptr, HmlValue index) {
 }
 
 void hml_ptr_set(HmlValue ptr, HmlValue index, HmlValue val) {
+    hml_sandbox_deny_unsafe_mem("pointer indexing");
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("Pointer index assignment requires pointer");
     }
@@ -66,6 +68,7 @@ void hml_callback_free(HmlValue callback) {
 // ========== MEMORY OPERATIONS ==========
 
 HmlValue hml_alloc(int32_t size) {
+    hml_sandbox_deny_unsafe_mem("alloc()");
     if (size <= 0) {
         hml_runtime_error_loc("alloc() size must be positive");
     }
@@ -89,6 +92,7 @@ HmlValue hml_buffer_new(int32_t size) {
 
 void hml_free(HmlValue ptr_or_buffer) {
     if (ptr_or_buffer.type == HML_VAL_PTR) {
+        hml_sandbox_deny_unsafe_mem("free() of a ptr");
         if (ptr_or_buffer.as.as_ptr) {
             free(ptr_or_buffer.as.as_ptr);
         }
@@ -213,6 +217,7 @@ void hml_free_owned(HmlValue *v) {
 }
 
 HmlValue hml_realloc(HmlValue ptr, int32_t new_size) {
+    hml_sandbox_deny_unsafe_mem("realloc()");
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("realloc() requires pointer");
     }
@@ -231,6 +236,7 @@ void hml_memset(HmlValue ptr, uint8_t byte_val, int32_t size) {
         hml_runtime_error("memset() size cannot be negative");
     }
     if (ptr.type == HML_VAL_PTR) {
+        hml_sandbox_deny_unsafe_mem("memset() on a ptr");
         if (ptr.as.as_ptr == NULL) {
             hml_runtime_error("memset() cannot write to null pointer");
         }
@@ -259,6 +265,9 @@ void hml_memcpy(HmlValue dest, HmlValue src, int32_t size) {
     void *dest_ptr = NULL;
     void *src_ptr = NULL;
 
+    if (dest.type == HML_VAL_PTR || src.type == HML_VAL_PTR) {
+        hml_sandbox_deny_unsafe_mem("memcpy() on a ptr");
+    }
     if (dest.type == HML_VAL_PTR) {
         dest_ptr = dest.as.as_ptr;
     } else if (dest.type == HML_VAL_BUFFER) {
@@ -350,6 +359,7 @@ static HmlValueType hml_type_from_string(const char *name) {
 }
 
 HmlValue hml_talloc(HmlValue type_name, HmlValue count) {
+    hml_sandbox_deny_unsafe_mem("talloc()");
     // Type name must be a string
     if (type_name.type != HML_VAL_STRING || !type_name.as.as_string) {
         hml_runtime_error("talloc() first argument must be a type name string");
@@ -401,7 +411,10 @@ HmlValue hml_builtin_talloc(HmlClosureEnv *env, HmlValue type_name, HmlValue cou
 
 // Helper: extract raw pointer from ptr or buffer value after validating optional buffer bounds.
 static inline void *hml_extract_ptr_checked(HmlValue val, size_t access_size, const char *operation) {
-    if (val.type == HML_VAL_PTR) return val.as.as_ptr;
+    if (val.type == HML_VAL_PTR) {
+        hml_sandbox_deny_unsafe_mem(operation);
+        return val.as.as_ptr;
+    }
     if (val.type == HML_VAL_BUFFER && val.as.as_buffer) {
         HmlBuffer *buf = val.as.as_buffer;
         if (atomic_load(&buf->freed)) {
@@ -556,6 +569,7 @@ HmlValue hml_builtin_ptr_deref_f64(HmlClosureEnv *env, HmlValue ptr) {
 // Builtin: ptr_deref_ptr(ptr) -> ptr (pointer-to-pointer)
 HmlValue hml_builtin_ptr_deref_ptr(HmlClosureEnv *env, HmlValue ptr) {
     (void)env;
+    hml_sandbox_deny_unsafe_mem("ptr_deref_ptr()");
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_deref_ptr() argument must be a ptr or buffer");
     }
@@ -702,6 +716,7 @@ HmlValue hml_builtin_ptr_write_f64(HmlClosureEnv *env, HmlValue ptr, HmlValue va
 // Builtin: ptr_write_ptr(ptr, value)
 HmlValue hml_builtin_ptr_write_ptr(HmlClosureEnv *env, HmlValue ptr, HmlValue value) {
     (void)env;
+    hml_sandbox_deny_unsafe_mem("ptr_write_ptr()");
     if (!hml_is_ptr_like(ptr)) {
         hml_runtime_error("ptr_write_ptr() first argument must be a ptr or buffer");
     }
@@ -748,6 +763,7 @@ HmlValue hml_builtin_ffi_sizeof(HmlClosureEnv *env, HmlValue type_name) {
 // Builtin: ptr_to_buffer(ptr, size) -> buffer
 HmlValue hml_builtin_ptr_to_buffer(HmlClosureEnv *env, HmlValue ptr, HmlValue size) {
     (void)env;
+    hml_sandbox_deny_unsafe_mem("ptr_to_buffer()");
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("ptr_to_buffer() first argument must be a ptr");
     }
@@ -769,6 +785,7 @@ HmlValue hml_builtin_ptr_to_buffer(HmlClosureEnv *env, HmlValue ptr, HmlValue si
 // Builtin: buffer_ptr(buffer) -> ptr
 HmlValue hml_builtin_buffer_ptr(HmlClosureEnv *env, HmlValue buf) {
     (void)env;
+    hml_sandbox_deny_unsafe_mem("buffer_ptr()");
     if (buf.type != HML_VAL_BUFFER || !buf.as.as_buffer) {
         hml_runtime_error("buffer_ptr() argument must be a buffer");
     }

@@ -152,6 +152,7 @@ void hml_sandbox_init(int flags, const char *root_path);
 int hml_sandbox_check(int restriction_flag);
 int hml_sandbox_path_allowed(const char *path, int is_write);
 void hml_sandbox_error(const char *operation);
+void hml_sandbox_deny_unsafe_mem(const char *operation);
 
 // ========== BUILTIN WRAPPER MACRO ==========
 
