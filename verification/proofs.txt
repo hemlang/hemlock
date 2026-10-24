@@ -1,0 +1,90 @@
+# Hemlock formal verification proof manifest.
+#
+# Columns (|-separated):
+#   name      unique proof id
+#   expect    pass | fail | skip
+#             fail = a property that knowingly does not hold (README "Findings");
+#             skip = a known coverage gap: `name|skip|reason`, printed on every run
+#   tool      cbmc | tlc
+#   target    cbmc: harness file in cbmc/harnesses; tlc: config in tla/
+#   sources   cbmc: space-separated sources (repo-relative); tlc: module
+#   flags     extra tool flags (cbmc: -D..., --unwind N, ...); the token
+#             @bitwuzla selects the Bitwuzla SMT backend for that proof;
+#             @pairs expands the line into one proof per integer type pair
+#             (name_<lt>_<rt>, e.g. rt_mul_i32_u8)
+#
+# A proof whose verdict differs from `expect` fails the run, so fixing a
+# known defect means flipping its line to `pass` in the same change.
+
+# ---- UTF-8 (src/shared/utf8.c) ----
+utf8_roundtrip|pass|cbmc|utf8_roundtrip.c|src/shared/utf8.c|--unwind 6
+utf8_decode_memsafe|pass|cbmc|utf8_decode_memsafe.c|src/shared/utf8.c|--unwind 9
+utf8_navigation_valid|pass|cbmc|utf8_navigation_consistency.c|src/shared/utf8.c|--unwind 7 -DASSUME_VALID -DMAX_LEN=4
+utf8_encode_len_total|pass|cbmc|utf8_encode_len_total.c|src/shared/utf8.c|--unwind 2
+utf8_decode_next_bounded|pass|cbmc|utf8_decode_next_bounded.c|src/shared/utf8.c|--unwind 6
+utf8_navigation_malformed|pass|cbmc|utf8_navigation_consistency.c|src/shared/utf8.c|--unwind 7 -DMAX_LEN=4
+utf8_validate_rfc3629|pass|cbmc|utf8_validate_rfc3629.c|src/shared/utf8.c|--unwind 7
+
+# ---- type promotion (src/shared/type_promotion.c) ----
+type_promotion|pass|cbmc|type_promotion.c|src/shared/type_promotion.c|--unwind 2
+type_promotion_lossless_i8|fail|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_I8
+type_promotion_lossless_i16|fail|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_I16
+type_promotion_lossless_i32|fail|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_I32
+type_promotion_lossless_i64|fail|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_I64
+type_promotion_lossless_u8|pass|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_U8
+type_promotion_lossless_u16|pass|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_U16
+type_promotion_lossless_u32|fail|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_U32
+type_promotion_lossless_u64|fail|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_U64
+type_promotion_lossless_f32|pass|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_F32
+type_promotion_lossless_f64|pass|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_F64
+
+# ---- compiled-program runtime integer ops (runtime/src/builtins_ops.c) ----
+RT=runtime/src/builtins_ops.c runtime/src/value.c src/shared/type_promotion.c @stubs/runtime_errors.c
+rt_add|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_ADD @bitwuzla
+rt_sub|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_SUB @bitwuzla
+# * and % are split into all 64 type pairs (@pairs) so each proof sees one width
+rt_mul|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MUL @bitwuzla @pairs
+rt_mul_i64_i64|skip|checked 64x64 multiply: no solver finishes (README "What is not covered")
+rt_mod|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_MOD @bitwuzla @pairs
+rt_and|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_AND @bitwuzla
+rt_or|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_OR @bitwuzla
+rt_xor|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_XOR @bitwuzla
+rt_shl|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_SHL @bitwuzla
+rt_shr|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_SHR @bitwuzla
+rt_eq|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_EQ @bitwuzla
+rt_ne|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_NE @bitwuzla
+rt_lt|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_LT @bitwuzla
+rt_le|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_LE @bitwuzla
+rt_gt|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_GT @bitwuzla
+rt_ge|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_GE @bitwuzla
+rt_unary|pass|cbmc|int_unary_runtime.c|$RT|--unwind 2 @bitwuzla
+
+# ---- interpreter integer ops (src/backends/interpreter/runtime/binary_ops.c) ----
+# Same spec as rt_*: passing both is a parity proof. Non-integer paths of
+# eval_binary_values are cut with @unreachable (checked, not assumed).
+IN=src/backends/interpreter/runtime/binary_ops.c src/backends/interpreter/types.c src/backends/interpreter/values.c src/shared/type_promotion.c
+UN=@unreachable=value_release|string_concat|string_new|string_free|value_to_string|serialize_value|serialize_visited_init|serialize_visited_free|utf8_encode|get_current_source_file
+in_add|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_ADD $UN
+in_sub|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_SUB $UN
+in_mul|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MUL $UN @bitwuzla @pairs
+in_mul_i64_i64|skip|checked 64x64 multiply: no solver finishes (README "What is not covered")
+in_mod|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_MOD $UN @bitwuzla @pairs
+in_and|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_AND $UN
+in_or|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_OR $UN
+in_xor|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_XOR $UN
+in_shl|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_SHL $UN
+in_shr|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_SHR $UN
+in_eq|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_EQ $UN
+in_ne|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_NE $UN
+in_lt|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_LT $UN
+in_le|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_LE $UN
+in_gt|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_GT $UN
+in_ge|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_GE $UN
+
+# ---- channels (src/shared/chan_core.c), TLA+ model ----
+chan_rendezvous_progress|pass|tlc|RendezvousProgress.cfg|Channel.tla|
+chan_rendezvous_close|pass|tlc|RendezvousClose.cfg|Channel.tla|
+chan_rendezvous_safety|pass|tlc|RendezvousSafety.cfg|Channel.tla|
+chan_buffered_progress|pass|tlc|BufferedProgress.cfg|Channel.tla|
+chan_buffered_close|pass|tlc|BufferedClose.cfg|Channel.tla|
+chan_buffered_safety|pass|tlc|BufferedSafety.cfg|Channel.tla|

@@ -8,5 +8,8 @@ fn recurse(n: i32): i32 {
 try {
     recurse(0);
 } catch (e) {
-    print(e);
+    // The interpreter prefixes runtime errors with their source location
+    // (file:line plus a snippet); compiled code does not. Compare the message.
+    let at = e.find("Maximum call stack depth exceeded");
+    print(at >= 0 ? e.substr(at).split("\n")[0] : "unexpected: " + e);
 }

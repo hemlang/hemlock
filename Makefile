@@ -289,6 +289,12 @@ run: $(TARGET)
 test: $(TARGET) stdlib
 	@bash tests/run_tests.sh
 
+# Formal verification (CBMC + TLA+). Needs cbmc/bitwuzla/java, see
+# verification/README.md. Does not build anything; proofs read the sources.
+.PHONY: verify
+verify:
+	@verification/run.sh
+
 # Portable `timeout` for recipes: uses GNU timeout on Linux, gtimeout or a
 # perl fallback on macOS (which ships no `timeout`). See tests/lib/timeout.sh.
 HML_TIMEOUT = tests/lib/hml-timeout

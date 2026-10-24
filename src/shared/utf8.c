@@ -42,6 +42,14 @@ int hml_utf8_byte_offset(const char *data, int byte_len, int char_idx) {
     return pos;  // Reached end of string
 }
 
+int hml_utf8_next_start(const char *data, int byte_len, int pos) {
+    pos++;
+    while (pos < byte_len && ((unsigned char)data[pos] & 0xC0) == 0x80) {
+        pos++;
+    }
+    return pos;
+}
+
 /* ========== BYTE LENGTH ========== */
 
 int hml_utf8_char_byte_len(unsigned char first_byte) {
@@ -56,7 +64,8 @@ int hml_utf8_encode_len(uint32_t codepoint) {
     if (codepoint < 0x80) return 1;
     if (codepoint < 0x800) return 2;
     if (codepoint < 0x10000) return 3;
-    return 4;
+    if (codepoint <= 0x10FFFF) return 4;
+    return 3;  // hml_utf8_encode writes U+FFFD for out-of-range codepoints
 }
 
 /* ========== DECODING ========== */
@@ -72,6 +81,23 @@ int hml_utf8_encode_len(uint32_t codepoint) {
  * return U+FFFD.
  */
 #define HML_UTF8_IS_CONT(b) (((b) & 0xC0) == 0x80)
+
+/*
+ * A codepoint is a non-continuation byte plus every continuation byte after
+ * it (the same rule hml_utf8_count_codepoints and hml_utf8_byte_offset
+ * use), so iterating decoders advance to the next non-continuation byte.
+ * The NUL terminator is not a continuation byte, so this never passes it.
+ */
+static int hml_utf8_extent(const char *data) {
+    int n = 1;
+    while (HML_UTF8_IS_CONT((unsigned char)data[n])) n++;
+    return n;
+}
+
+/* 4-byte sequences can encode up to 0x1FFFFF; only scalars are returned. */
+static uint32_t hml_utf8_in_range(uint32_t cp) {
+    return cp <= 0x10FFFF ? cp : 0xFFFD;
+}
 
 uint32_t hml_utf8_decode_at(const char *data, int byte_pos) {
     unsigned char b1 = (unsigned char)data[byte_pos];
@@ -105,7 +131,8 @@ uint32_t hml_utf8_decode_at(const char *data, int byte_pos) {
         if (!HML_UTF8_IS_CONT(b3)) return 0xFFFD;
         unsigned char b4 = (unsigned char)data[byte_pos + 3];
         if (!HML_UTF8_IS_CONT(b4)) return 0xFFFD;
-        return ((b1 & 0x07) << 18) | ((b2 & 0x3F) << 12) | ((b3 & 0x3F) << 6) | (b4 & 0x3F);
+        return hml_utf8_in_range(((b1 & 0x07) << 18) | ((b2 & 0x3F) << 12) |
+                                 ((b3 & 0x3F) << 6) | (b4 & 0x3F));
     }
 
     // Invalid sequence, return replacement character
@@ -114,59 +141,13 @@ uint32_t hml_utf8_decode_at(const char *data, int byte_pos) {
 
 uint32_t hml_utf8_decode_next(const char **data_ptr) {
     const char *data = *data_ptr;
-    unsigned char b1 = (unsigned char)*data;
-    int len = hml_utf8_char_byte_len(b1);
-    // Advance by the lead byte's nominal length (1-4) so iteration matches
-    // hml_utf8_count_codepoints / hml_utf8_byte_offset navigation on both
-    // backends, even for malformed input. Continuation bytes are validated
-    // before being read, so a truncated tail returns U+FFFD instead of reading
-    // past the (always NUL-terminated) buffer.
-    *data_ptr += len;
-
-    if (len == 1) {
-        return (b1 < 0x80) ? b1 : 0xFFFD;  // invalid lead byte -> U+FFFD
-    } else if (len == 2) {
-        if (!HML_UTF8_IS_CONT((unsigned char)data[1])) return 0xFFFD;
-        return ((b1 & 0x1F) << 6) | (data[1] & 0x3F);
-    } else if (len == 3) {
-        if (!HML_UTF8_IS_CONT((unsigned char)data[1])) return 0xFFFD;
-        if (!HML_UTF8_IS_CONT((unsigned char)data[2])) return 0xFFFD;
-        return ((b1 & 0x0F) << 12) | ((data[1] & 0x3F) << 6) | (data[2] & 0x3F);
-    } else {
-        if (!HML_UTF8_IS_CONT((unsigned char)data[1])) return 0xFFFD;
-        if (!HML_UTF8_IS_CONT((unsigned char)data[2])) return 0xFFFD;
-        if (!HML_UTF8_IS_CONT((unsigned char)data[3])) return 0xFFFD;
-        return ((b1 & 0x07) << 18) | ((data[1] & 0x3F) << 12) |
-               ((data[2] & 0x3F) << 6) | (data[3] & 0x3F);
-    }
+    *data_ptr += hml_utf8_extent(data);
+    return hml_utf8_decode_at(data, 0);
 }
 
 uint32_t hml_utf8_decode(const char *data, int *bytes_read) {
-    unsigned char c = (unsigned char)data[0];
-    int len = hml_utf8_char_byte_len(c);
-    // Report the lead byte's nominal length (1-4, always >= 1 so callers make
-    // progress) so iteration matches hml_utf8_count_codepoints navigation on
-    // both backends, even for malformed input. Continuation bytes are validated
-    // before being read, so a truncated tail returns U+FFFD rather than reading
-    // past the (always NUL-terminated) buffer.
-    *bytes_read = len;
-
-    if (len == 1) {
-        return (c < 0x80) ? c : 0xFFFD;  // invalid lead byte -> U+FFFD
-    } else if (len == 2) {
-        if (!HML_UTF8_IS_CONT((unsigned char)data[1])) return 0xFFFD;
-        return ((c & 0x1F) << 6) | (data[1] & 0x3F);
-    } else if (len == 3) {
-        if (!HML_UTF8_IS_CONT((unsigned char)data[1])) return 0xFFFD;
-        if (!HML_UTF8_IS_CONT((unsigned char)data[2])) return 0xFFFD;
-        return ((c & 0x0F) << 12) | ((data[1] & 0x3F) << 6) | (data[2] & 0x3F);
-    } else {
-        if (!HML_UTF8_IS_CONT((unsigned char)data[1])) return 0xFFFD;
-        if (!HML_UTF8_IS_CONT((unsigned char)data[2])) return 0xFFFD;
-        if (!HML_UTF8_IS_CONT((unsigned char)data[3])) return 0xFFFD;
-        return ((c & 0x07) << 18) | ((data[1] & 0x3F) << 12) |
-               ((data[2] & 0x3F) << 6) | (data[3] & 0x3F);
-    }
+    *bytes_read = hml_utf8_extent(data);
+    return hml_utf8_decode_at(data, 0);
 }
 
 /* ========== ENCODING ========== */
@@ -206,33 +187,37 @@ int hml_utf8_encode(uint32_t codepoint, char *buffer) {
 /* ========== VALIDATION ========== */
 
 int hml_utf8_validate(const char *data, int byte_len) {
+    // Well-formed UTF-8 per RFC 3629 / Unicode Table 3-7: no overlong
+    // encodings, no surrogates (U+D800..DFFF), nothing above U+10FFFF.
     int pos = 0;
 
     while (pos < byte_len) {
         unsigned char b = (unsigned char)data[pos];
         int char_len;
+        unsigned char lo = 0x80, hi = 0xBF;  // allowed range of the 2nd byte
 
-        if ((b & 0x80) == 0) {
-            // 1-byte character (ASCII)
-            char_len = 1;
-        } else if ((b & 0xE0) == 0xC0) {
-            // 2-byte character
+        if (b < 0x80) {
+            pos++;
+            continue;
+        } else if (b >= 0xC2 && b <= 0xDF) {
             char_len = 2;
-        } else if ((b & 0xF0) == 0xE0) {
-            // 3-byte character
+        } else if (b >= 0xE0 && b <= 0xEF) {
             char_len = 3;
-        } else if ((b & 0xF8) == 0xF0) {
-            // 4-byte character
+            if (b == 0xE0) lo = 0xA0;        // overlong
+            if (b == 0xED) hi = 0x9F;        // surrogates
+        } else if (b >= 0xF0 && b <= 0xF4) {
             char_len = 4;
+            if (b == 0xF0) lo = 0x90;        // overlong
+            if (b == 0xF4) hi = 0x8F;        // > U+10FFFF
         } else {
-            return 0;  // Invalid start byte
+            return 0;  // C0, C1, F5..FF, or a stray continuation byte
         }
 
-        // Check continuation bytes
-        for (int i = 1; i < char_len; i++) {
-            if (pos + i >= byte_len) return 0;  // Truncated sequence
-            unsigned char cont = (unsigned char)data[pos + i];
-            if ((cont & 0xC0) != 0x80) return 0;  // Invalid continuation byte
+        if (pos + char_len > byte_len) return 0;  // Truncated sequence
+        unsigned char b2 = (unsigned char)data[pos + 1];
+        if (b2 < lo || b2 > hi) return 0;
+        for (int i = 2; i < char_len; i++) {
+            if (!HML_UTF8_IS_CONT((unsigned char)data[pos + i])) return 0;
         }
 
         pos += char_len;

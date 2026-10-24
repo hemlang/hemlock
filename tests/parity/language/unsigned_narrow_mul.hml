@@ -1,0 +1,13 @@
+// Parity test: u16 * u16 wraps in-type. The interpreter used to compute it
+// as int * int, which overflows INT_MAX for large operands (undefined
+// behavior without -fwrapv, e.g. in the WASM build). Found by verification/
+// (in_mul_u16_u16).
+let a: u16 = 65535;
+let b: u16 = 65535;
+print(a * b);           // 1 (4294836225 mod 65536)
+print(typeof(a * b));   // u16
+let c: u16 = 40000;
+let d: u16 = 3;
+print(c * d);           // 54464 (120000 mod 65536)
+let e: u8 = 255;
+print(e * e);           // 1

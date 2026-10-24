@@ -11,6 +11,7 @@ int utf8_count_codepoints(const char *data, int byte_length);
 // Find byte offset of the i-th codepoint (0-indexed)
 // Returns the byte position where the i-th codepoint starts
 int utf8_byte_offset(const char *data, int byte_length, int char_index);
+int utf8_next_start(const char *data, int byte_length, int pos);
 
 // Decode UTF-8 codepoint at given byte position
 // Returns the Unicode codepoint value
@@ -24,6 +25,7 @@ uint32_t utf8_decode_next(const char **data_ptr);
 // Encode a Unicode codepoint to UTF-8
 // Writes the UTF-8 bytes to buffer and returns number of bytes written (1-4)
 int utf8_encode(uint32_t codepoint, char *buffer);
+int utf8_encode_len(uint32_t codepoint);
 
 // Get the byte length of a UTF-8 character from its first byte
 int utf8_char_byte_length(unsigned char first_byte);

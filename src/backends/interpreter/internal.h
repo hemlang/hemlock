@@ -322,9 +322,11 @@ Value builtin_apply(Value *args, int num_args, ExecutionContext *ctx);
 
 int utf8_count_codepoints(const char *data, int byte_length);
 int utf8_byte_offset(const char *data, int byte_length, int char_index);
+int utf8_next_start(const char *data, int byte_length, int pos);
 uint32_t utf8_decode_at(const char *data, int byte_pos);
 uint32_t utf8_decode_next(const char **data_ptr);
 int utf8_encode(uint32_t codepoint, char *buffer);
+int utf8_encode_len(uint32_t codepoint);
 int utf8_char_byte_length(unsigned char first_byte);
 int utf8_validate(const char *data, int byte_length);
 int utf8_is_ascii(const char *data, int byte_length);

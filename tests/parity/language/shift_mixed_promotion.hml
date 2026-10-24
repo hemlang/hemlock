@@ -1,0 +1,31 @@
+// Parity test: shifts on mixed integer types are done in the promoted type.
+// Found by verification/ (rt_shr, in_shl, in_shr): the compiled runtime used
+// to shift the sign-extended raw value, and the backends disagreed on
+// negative shift amounts.
+
+// === Narrow negative signed left operand, unsigned promoted type ===
+let a: i8 = -1;
+let b: u8 = 1;
+print(a >> b);          // 127 (u8 0xFF >> 1)
+let c: i8 = -117;
+let d: u32 = 10;
+print(c >> d);          // 4194303 (u32 0xFFFFFF8B >> 10)
+let e: i16 = -2;
+let f: u16 = 4;
+print(e >> f);          // 4095
+print(a << b);          // 254
+print(typeof(a >> b));  // u8
+
+// === Shift amount is converted to the promoted type too ===
+let g: u32 = 1;
+let h = -1;             // i32 -1 -> u32 0xFFFFFFFF, >= width
+print(g >> h);          // 0
+print(g << h);          // 0
+let neg: i32 = -3;
+let big: u8 = 200;
+try { print(big << neg); } catch (err) { print("caught: negative shift"); }   // promoted i32
+let w: u64 = 1;
+let huge: u64 = 9223372036854775808;   // 2^63 reads as negative int64
+try { print(w >> huge); } catch (err) { print("caught: negative shift"); }
+let ok: u64 = 64;
+print(w << ok);         // 0

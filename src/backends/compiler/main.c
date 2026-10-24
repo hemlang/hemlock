@@ -559,6 +559,39 @@ static char* shell_quote(const char *s) {
 #endif
 }
 
+#if !defined(_WIN32) && !defined(__APPLE__)
+/*
+ * libcrypto's own link dependencies for a static link, from
+ * `pkg-config --static --libs-only-l libcrypto` minus -lcrypto/-lssl, as a
+ * " -lfoo -l:libbar.a" suffix (empty when pkg-config or the .pc file is
+ * missing). A static libcrypto.a does not carry them: Ubuntu 26.04's needs
+ * jitterentropy, zstd and zlib after it on the line, and older releases
+ * just -ldl. Only plain -l tokens are kept, since the result is embedded in
+ * a shell command.
+ */
+static void crypto_static_deps(char *out, size_t out_size) {
+    out[0] = '\0';
+    FILE *fp = popen("pkg-config --static --libs-only-l libcrypto 2>/dev/null", "r");
+    if (!fp) return;
+    char line[HML_CRYPTO_STATIC_DEPS_SIZE];
+    if (fgets(line, sizeof(line), fp)) {
+        size_t used = 0;
+        for (char *tok = strtok(line, " \t\n"); tok; tok = strtok(NULL, " \t\n")) {
+            if (strncmp(tok, "-l", 2) != 0 || tok[2] == '\0') continue;
+            if (strcmp(tok, "-lcrypto") == 0 || strcmp(tok, "-lssl") == 0) continue;
+            if (strspn(tok + 2, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                                "0123456789_.:+-") != strlen(tok + 2)) continue;
+            size_t len = strlen(tok);
+            if (used + len + 2 > out_size) break;
+            out[used++] = ' ';
+            memcpy(out + used, tok, len + 1);
+            used += len;
+        }
+    }
+    pclose(fp);
+}
+#endif
+
 // Invoke the C compiler
 static int compile_c(const Options *opts, const char *c_file) {
     // Build command
@@ -893,23 +926,28 @@ static int compile_c(const Options *opts, const char *c_file) {
         // Static: libffi, libz; Dynamic: glibc libs (lm, lpthread)
         // If websockets available, add it statically with its dynamic dependencies
         q_out = shell_quote(opts->output_file);
+        // libcrypto.a's own dependencies go after it (static archives
+        // resolve left to right), in the dynamic section: they are system
+        // libraries, and any that must be static are named -l:libfoo.a.
+        char crypto_deps[HML_CRYPTO_STATIC_DEPS_SIZE];
+        crypto_static_deps(crypto_deps, sizeof(crypto_deps));
         if (websockets_flag[0]) {
             // libwebsockets requires: libssl, libcrypto (static), libcap, libuv, libev (dynamic)
             n = q_out ? snprintf(cmd, sizeof(cmd),
                 "%s %s -rdynamic -o %s %s -I%s %s%s "
                 "-Wl,-Bstatic -lffi%s -lwebsockets -lssl -lcrypto "
-                "-Wl,-Bdynamic -lcap -luv -lev -lm -lpthread",
+                "-Wl,-Bdynamic%s -lcap -luv -lev -lm -lpthread",
                 opts->cc, opt_flag, q_out, q_c,
-                q_inc, q_runtime_lib, extra_lib_paths, zlib_flag)
+                q_inc, q_runtime_lib, extra_lib_paths, zlib_flag, crypto_deps)
                 : (int)sizeof(cmd);
         } else {
             // No websockets, just static link libffi, libz, libssl, libcrypto
             n = q_out ? snprintf(cmd, sizeof(cmd),
                 "%s %s -rdynamic -o %s %s -I%s %s%s "
                 "-Wl,-Bstatic -lffi%s -lssl -lcrypto "
-                "-Wl,-Bdynamic -lm -lpthread",
+                "-Wl,-Bdynamic%s -lm -lpthread",
                 opts->cc, opt_flag, q_out, q_c,
-                q_inc, q_runtime_lib, extra_lib_paths, zlib_flag)
+                q_inc, q_runtime_lib, extra_lib_paths, zlib_flag, crypto_deps)
                 : (int)sizeof(cmd);
         }
 #endif

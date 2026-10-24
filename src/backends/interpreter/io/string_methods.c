@@ -185,14 +185,14 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             }
 
             Array *arr = array_new();
-            int byte_pos = 0;
+            // One rune per codepoint as .length counts them, so chars() agrees
+            // with s[i] and for-in on malformed input too
+            int byte_pos = utf8_byte_offset(str->data, str->length, 0);
 
             while (byte_pos < str->length) {
                 uint32_t codepoint = utf8_decode_at(str->data, byte_pos);
                 array_push(arr, val_rune(codepoint));
-
-                // Move to next character
-                byte_pos += utf8_char_byte_length((unsigned char)str->data[byte_pos]);
+                byte_pos = utf8_next_start(str->data, str->length, byte_pos);
             }
 
             return val_array(arr);

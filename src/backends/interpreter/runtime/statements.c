@@ -4,6 +4,10 @@
 // ========== STATEMENT EVALUATION ==========
 
 void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
+    // runtime_error() reports ctx->current_line. Without this it was only
+    // updated by calls and property reads, so an error raised by a plain
+    // statement (e.g. `s[i] = x;`) pointed at the last call made anywhere.
+    if (stmt->line > 0) ctx->current_line = stmt->line;
     switch (stmt->type) {
         case STMT_LET: {
             Value value = eval_expr(stmt->as.let.value, env, ctx);

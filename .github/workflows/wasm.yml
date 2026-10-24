@@ -110,7 +110,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc make libffi-dev zlib1g-dev libssl-dev
+        sudo apt-get install -y build-essential gcc make libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev
 
     - name: Setup Emscripten
       uses: mymindstorm/setup-emsdk@v14
