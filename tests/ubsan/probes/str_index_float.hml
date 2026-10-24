@@ -1,2 +1,3 @@
+// @expect-compile-fail float index/count is a static type error; probes the interpreter's runtime check
 let s = "abc";
 try { print(s[1e20]); } catch (e) { print("caught"); }
