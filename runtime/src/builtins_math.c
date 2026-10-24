@@ -196,15 +196,19 @@ HmlValue hml_rand_range(HmlValue min_val, HmlValue max_val) {
     return hml_val_f64(lo + r * (hi - lo));
 }
 
-HmlValue hml_seed_val(HmlValue seed) {
-    srand((unsigned int)hml_to_i32(seed));
+// Seeds with the low 32 bits of an integer, as the interpreter does.
+// Floats, runes and other types are rejected (no implicit truncation).
+void hml_seed(HmlValue seed) {
+    if (!hml_is_integer_type(seed)) {
+        hml_runtime_error("seed() argument must be an integer, got %s", hml_typeof_str(seed));
+    }
+    srand((unsigned int)hml_to_i64(seed));
     g_rand_seeded = 1;
-    return hml_val_null();
 }
 
-void hml_seed(HmlValue seed) {
-    srand((unsigned int)hml_to_i32(seed));
-    g_rand_seeded = 1;
+HmlValue hml_seed_val(HmlValue seed) {
+    hml_seed(seed);
+    return hml_val_null();
 }
 
 // ========== BUILTIN WRAPPERS ==========
