@@ -401,6 +401,7 @@ Both backends share a common frontend (lexer, parser, AST). The interpreter does
 1. **Define constants in `include/hemlock_limits.h`** with `HML_` prefix
 2. **Avoid magic numbers** - use named constants
 3. **Include `hemlock_limits.h`** via `internal.h` to access constants
+4. **Internal allocations use `hml_xmalloc`/`hml_xcalloc`/`hml_xrealloc`/`hml_xstrdup`** (`include/hemlock_alloc.h`), which abort on failure. Only allocations made on behalf of user code (`alloc`, `realloc`, `buffer`, array growth) use plain `malloc` and report failure to the program, and must check the result
 
 ---
 

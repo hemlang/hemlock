@@ -6,6 +6,7 @@
  * - Enum type registry
  */
 
+#include "hemlock_alloc.h"
 #include "builtins_internal.h"
 #include <limits.h>
 
@@ -20,7 +21,7 @@ void hml_register_type(const char *name, HmlTypeField *fields, int num_fields) {
     // Initialize registry if needed
     if (g_type_registry == NULL) {
         g_type_capacity = 16;
-        g_type_registry = malloc(sizeof(HmlTypeDef) * g_type_capacity);
+        g_type_registry = hml_xmalloc(sizeof(HmlTypeDef) * g_type_capacity);
     }
 
     // Grow if needed
@@ -40,12 +41,12 @@ void hml_register_type(const char *name, HmlTypeField *fields, int num_fields) {
 
     // Add type definition
     HmlTypeDef *type = &g_type_registry[g_type_count++];
-    type->name = strdup(name);
+    type->name = hml_xstrdup(name);
     type->num_fields = num_fields;
-    type->fields = malloc(sizeof(HmlTypeField) * num_fields);
+    type->fields = hml_xmalloc(sizeof(HmlTypeField) * num_fields);
 
     for (int i = 0; i < num_fields; i++) {
-        type->fields[i].name = strdup(fields[i].name);
+        type->fields[i].name = hml_xstrdup(fields[i].name);
         type->fields[i].type_kind = fields[i].type_kind;
         type->fields[i].is_optional = fields[i].is_optional;
         type->fields[i].default_value = fields[i].default_value;
@@ -141,7 +142,7 @@ HmlValue hml_validate_object_type(HmlValue obj, const char *type_name) {
 
     // Set the object's type name
     if (o->type_name) free(o->type_name);
-    o->type_name = strdup(type_name);
+    o->type_name = hml_xstrdup(type_name);
 
     return obj;
 }
@@ -168,7 +169,7 @@ void hml_register_enum(const char *name, const int32_t *variant_values, int num_
         if (strcmp(g_enum_registry[i].name, name) == 0) {
             // Update existing
             free(g_enum_registry[i].variant_values);
-            g_enum_registry[i].variant_values = malloc(sizeof(int32_t) * num_variants);
+            g_enum_registry[i].variant_values = hml_xmalloc(sizeof(int32_t) * num_variants);
             memcpy(g_enum_registry[i].variant_values, variant_values, sizeof(int32_t) * num_variants);
             g_enum_registry[i].num_variants = num_variants;
             return;
@@ -176,8 +177,8 @@ void hml_register_enum(const char *name, const int32_t *variant_values, int num_
     }
 
     // Register new
-    g_enum_registry[g_enum_count].name = strdup(name);
-    g_enum_registry[g_enum_count].variant_values = malloc(sizeof(int32_t) * num_variants);
+    g_enum_registry[g_enum_count].name = hml_xstrdup(name);
+    g_enum_registry[g_enum_count].variant_values = hml_xmalloc(sizeof(int32_t) * num_variants);
     memcpy(g_enum_registry[g_enum_count].variant_values, variant_values, sizeof(int32_t) * num_variants);
     g_enum_registry[g_enum_count].num_variants = num_variants;
     g_enum_count++;

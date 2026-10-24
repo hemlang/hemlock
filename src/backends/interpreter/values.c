@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include "internal.h"
 #include <stdlib.h>
 #include <string.h>
@@ -1407,38 +1408,38 @@ char* value_to_string(Value val) {
     switch (val.type) {
         case VAL_I8:
             snprintf(buffer, sizeof(buffer), "%d", val.as.as_i8);
-            return strdup(buffer);
+            return hml_xstrdup(buffer);
         case VAL_I16:
             snprintf(buffer, sizeof(buffer), "%d", val.as.as_i16);
-            return strdup(buffer);
+            return hml_xstrdup(buffer);
         case VAL_I32:
             snprintf(buffer, sizeof(buffer), "%d", val.as.as_i32);
-            return strdup(buffer);
+            return hml_xstrdup(buffer);
         case VAL_I64:
             snprintf(buffer, sizeof(buffer), "%" PRId64, val.as.as_i64);
-            return strdup(buffer);
+            return hml_xstrdup(buffer);
         case VAL_U8:
             snprintf(buffer, sizeof(buffer), "%u", val.as.as_u8);
-            return strdup(buffer);
+            return hml_xstrdup(buffer);
         case VAL_U16:
             snprintf(buffer, sizeof(buffer), "%u", val.as.as_u16);
-            return strdup(buffer);
+            return hml_xstrdup(buffer);
         case VAL_U32:
             snprintf(buffer, sizeof(buffer), "%u", val.as.as_u32);
-            return strdup(buffer);
+            return hml_xstrdup(buffer);
         case VAL_U64:
             snprintf(buffer, sizeof(buffer), "%" PRIu64, val.as.as_u64);
-            return strdup(buffer);
+            return hml_xstrdup(buffer);
         case VAL_F32:
             format_float_for_string(buffer, sizeof(buffer), val.as.as_f32, 9);
-            return strdup(buffer);
+            return hml_xstrdup(buffer);
         case VAL_F64:
             format_float_for_string(buffer, sizeof(buffer), val.as.as_f64, 15);
-            return strdup(buffer);
+            return hml_xstrdup(buffer);
         case VAL_BOOL:
-            return strdup(val.as.as_bool ? "true" : "false");
+            return hml_xstrdup(val.as.as_bool ? "true" : "false");
         case VAL_STRING:
-            return strdup(val.as.as_string->data);
+            return hml_xstrdup(val.as.as_string->data);
         case VAL_RUNE: {
             // Convert rune to UTF-8 string
             uint32_t r = val.as.as_rune;
@@ -1460,28 +1461,28 @@ char* value_to_string(Value val) {
                 utf8[3] = 0x80 | (r & 0x3F);
             }
 
-            return strdup(utf8);
+            return hml_xstrdup(utf8);
         }
         case VAL_PTR:
             snprintf(buffer, sizeof(buffer), "%p", val.as.as_ptr);
-            return strdup(buffer);
+            return hml_xstrdup(buffer);
         case VAL_BUFFER:
             snprintf(buffer, sizeof(buffer), "<buffer %p length=%d capacity=%d>",
                    val.as.as_buffer->data,
                    val.as.as_buffer->length,
                    val.as.as_buffer->capacity);
-            return strdup(buffer);
+            return hml_xstrdup(buffer);
         case VAL_ARRAY: {
             // Simple array representation
             Array *arr = val.as.as_array;
             if (array_print_in_progress(arr)) {
-                return strdup("[...]");
+                return hml_xstrdup("[...]");
             }
             ArrayPrintFrame frame = { arr, g_array_print_frames };
             g_array_print_frames = &frame;
             size_t total_len = 2;  // [ and ]
-            char **parts = malloc(sizeof(char*) * (arr->length > 0 ? arr->length : 1));
-            size_t *part_lens = malloc(sizeof(size_t) * (arr->length > 0 ? arr->length : 1));
+            char **parts = hml_xmalloc(sizeof(char*) * (arr->length > 0 ? arr->length : 1));
+            size_t *part_lens = hml_xmalloc(sizeof(size_t) * (arr->length > 0 ? arr->length : 1));
             for (int i = 0; i < arr->length; i++) {
                 parts[i] = value_to_string(arr->elements[i]);
                 part_lens[i] = strlen(parts[i]);
@@ -1491,7 +1492,7 @@ char* value_to_string(Value val) {
             g_array_print_frames = frame.prev;
 
             // SECURITY: Use memcpy with explicit position tracking instead of strcat
-            char *result = malloc(total_len + 1);
+            char *result = hml_xmalloc(total_len + 1);
             size_t pos = 0;
             result[pos++] = '[';
             for (int i = 0; i < arr->length; i++) {
@@ -1512,71 +1513,71 @@ char* value_to_string(Value val) {
         case VAL_FILE: {
             FileHandle *file = val.as.as_file;
             if (file->closed) {
-                return strdup("<file (closed)>");
+                return hml_xstrdup("<file (closed)>");
             } else {
                 snprintf(buffer, sizeof(buffer), "<file '%s' mode='%s'>", file->path, file->mode);
-                return strdup(buffer);
+                return hml_xstrdup(buffer);
             }
         }
         case VAL_SOCKET: {
             SocketHandle *sock = val.as.as_socket;
             if (sock->closed) {
-                return strdup("<socket (closed)>");
+                return hml_xstrdup("<socket (closed)>");
             } else if (sock->address) {
                 snprintf(buffer, sizeof(buffer), "<socket %s:%d fd=%d%s>",
                        sock->address, sock->port, sock->fd,
                        sock->listening ? " listening" : "");
-                return strdup(buffer);
+                return hml_xstrdup(buffer);
             } else {
                 snprintf(buffer, sizeof(buffer), "<socket fd=%d>", sock->fd);
-                return strdup(buffer);
+                return hml_xstrdup(buffer);
             }
         }
         case VAL_WEBSOCKET: {
             WebSocketHandle *ws = val.as.as_websocket;
             if (ws->closed) {
-                return strdup("<websocket (closed)>");
+                return hml_xstrdup("<websocket (closed)>");
             } else if (ws->is_server) {
                 snprintf(buffer, sizeof(buffer), "<websocket-server %s:%d>",
                        ws->host ? ws->host : "0.0.0.0", ws->port);
-                return strdup(buffer);
+                return hml_xstrdup(buffer);
             } else {
                 snprintf(buffer, sizeof(buffer), "<websocket %s>",
                        ws->url ? ws->url : "?");
-                return strdup(buffer);
+                return hml_xstrdup(buffer);
             }
         }
         case VAL_OBJECT:
             if (val.as.as_object->type_name) {
                 snprintf(buffer, sizeof(buffer), "<object:%s>", val.as.as_object->type_name);
-                return strdup(buffer);
+                return hml_xstrdup(buffer);
             } else {
-                return strdup("<object>");
+                return hml_xstrdup("<object>");
             }
         case VAL_TYPE:
-            return strdup("<type>");
+            return hml_xstrdup("<type>");
         case VAL_BUILTIN_FN:
-            return strdup("<builtin function>");
+            return hml_xstrdup("<builtin function>");
         case VAL_FUNCTION:
-            return strdup("<function>");
+            return hml_xstrdup("<function>");
         case VAL_FFI_FUNCTION:
-            return strdup("<ffi function>");
+            return hml_xstrdup("<ffi function>");
         case VAL_TASK:
             snprintf(buffer, sizeof(buffer), "<task %d>", val.as.as_task->id);
-            return strdup(buffer);
+            return hml_xstrdup(buffer);
         case VAL_CHANNEL:
             snprintf(buffer, sizeof(buffer), "<channel capacity=%d count=%d%s>",
                    hml_chan_capacity(val.as.as_channel->chan),
                    hml_chan_count(val.as.as_channel->chan),
                    hml_chan_is_closed(val.as.as_channel->chan) ? " closed" : "");
-            return strdup(buffer);
+            return hml_xstrdup(buffer);
         case VAL_REF:
-            return strdup("<ref>");
+            return hml_xstrdup("<ref>");
         case VAL_NULL:
-            return strdup("null");
+            return hml_xstrdup("null");
     }
 
-    return strdup("<unknown>");
+    return hml_xstrdup("<unknown>");
 }
 
 // ========== VALUE CLEANUP ==========
@@ -1902,7 +1903,7 @@ Value value_deep_copy(Value val) {
                 Array *dst = array_new();
                 // Copy element type if present
                 if (src->element_type) {
-                    dst->element_type = malloc(sizeof(Type));
+                    dst->element_type = hml_xmalloc(sizeof(Type));
                     dst->element_type->kind = src->element_type->kind;
                     dst->element_type->type_name = src->element_type->type_name ? strdup(src->element_type->type_name) : NULL;
                     dst->element_type->element_type = NULL;  // Don't support nested typed arrays
@@ -1955,7 +1956,7 @@ Value value_deep_copy(Value val) {
                             exit(1);
                         }
                     }
-                    dst->fields[dst->num_fields].name = strdup(src->fields[i].name);
+                    dst->fields[dst->num_fields].name = hml_xstrdup(src->fields[i].name);
                     // value_deep_copy returns an owned reference; storing it
                     // transfers ownership to the field (released in
                     // object_free), so no extra retain here.
@@ -2036,17 +2037,17 @@ Value value_deep_copy(Value val) {
 // Reference operations (for pass-by-reference parameters)
 
 Reference* reference_new_variable(Environment *env, const char *name) {
-    Reference *ref = malloc(sizeof(Reference));
+    Reference *ref = hml_xmalloc(sizeof(Reference));
     ref->ref_type = REF_VARIABLE;
     ref->as.variable.env = env;
-    ref->as.variable.name = strdup(name);
+    ref->as.variable.name = hml_xstrdup(name);
     ref->ref_count = 1;
     env_retain(env);
     return ref;
 }
 
 Reference* reference_new_array_index(Array *array, int index) {
-    Reference *ref = malloc(sizeof(Reference));
+    Reference *ref = hml_xmalloc(sizeof(Reference));
     ref->ref_type = REF_ARRAY_INDEX;
     ref->as.array_index.array = array;
     ref->as.array_index.index = index;
@@ -2059,7 +2060,7 @@ Reference* reference_new_object_property(Object *object, const char *property) {
     Reference *ref = malloc(sizeof(Reference));
     ref->ref_type = REF_OBJECT_PROPERTY;
     ref->as.object_property.object = object;
-    ref->as.object_property.property = strdup(property);
+    ref->as.object_property.property = hml_xstrdup(property);
     ref->ref_count = 1;
     object_retain(object);  // Use atomic retain
     return ref;

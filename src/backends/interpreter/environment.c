@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include "internal.h"
 #include "hemlock_limits.h"
 #include <stdlib.h>
@@ -610,7 +611,7 @@ void env_define(Environment *env, const char *name, Value value, int is_const, E
     }
 
     int index = env->count;
-    env->names[index] = strdup(name);
+    env->names[index] = hml_xstrdup(name);
     if (!env->names[index]) {
         if (mutex) pthread_mutex_unlock(mutex);
         ctx->exception_state.exception_value = val_string("Memory allocation failed in env_define");
@@ -860,7 +861,7 @@ void env_set(Environment *env, const char *name, Value value, ExecutionContext *
     }
 
     int index = env->count;
-    env->names[index] = strdup(name);
+    env->names[index] = hml_xstrdup(name);
     if (!env->names[index]) {
         if (mutex) pthread_mutex_unlock(mutex);
         ctx->exception_state.exception_value = val_string("Memory allocation failed in env_set");

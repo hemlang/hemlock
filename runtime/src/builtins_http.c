@@ -13,6 +13,7 @@
 
 #ifndef __EMSCRIPTEN__
 
+#include "hemlock_alloc.h"
 #include "builtins_internal.h"
 #include "num_convert.h"
 
@@ -395,7 +396,7 @@ static int hml_http_callback(struct lws *wsi, enum lws_callback_reasons reason,
                     int loc_len = lws_hdr_copy(wsi, location, sizeof(location), WSI_TOKEN_HTTP_LOCATION);
                     if (loc_len > 0) {
                         location[loc_len] = '\0';
-                        resp->redirect_url = strdup(location);
+                        resp->redirect_url = hml_xstrdup(location);
                         resp->complete = 1;
                     }
                 }

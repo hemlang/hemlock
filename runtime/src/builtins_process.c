@@ -20,6 +20,7 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#include "hemlock_alloc.h"
 #include "builtins_internal.h"
 
 // ========== COMMAND EXECUTION ==========
@@ -419,7 +420,7 @@ HmlValue hml_exec_argv(HmlValue args_array, HmlValue opts) {
             hml_runtime_error("exec_argv() array elements must be strings");
         }
         HmlString *s = elem.as.as_string;
-        argv[i] = malloc(s->length + 1);
+        argv[i] = hml_xmalloc(s->length + 1);
         if (!argv[i]) {
             for (int64_t j = 0; j < i; j++) free(argv[j]);
             free(argv);
@@ -677,7 +678,7 @@ HmlValue hml_exec_with_args(HmlValue command, HmlValue args_array) {
     }
 
     // First element is the command
-    argv[0] = malloc(cmd_str->length + 1);
+    argv[0] = hml_xmalloc(cmd_str->length + 1);
     if (!argv[0]) {
         free(argv);
         hml_runtime_error("exec() memory allocation failed");
@@ -694,7 +695,7 @@ HmlValue hml_exec_with_args(HmlValue command, HmlValue args_array) {
             hml_runtime_error("exec() args array elements must be strings");
         }
         HmlString *s = elem.as.as_string;
-        argv[i + 1] = malloc(s->length + 1);
+        argv[i + 1] = hml_xmalloc(s->length + 1);
         if (!argv[i + 1]) {
             for (int64_t j = 0; j <= i; j++) free(argv[j]);
             free(argv);
@@ -1210,7 +1211,7 @@ HmlValue hml_posix_spawn(HmlValue argv_val, HmlValue opts_val) {
             hml_runtime_error("spawn() argv elements must be strings");
         }
         HmlString *s = elem.as.as_string;
-        cargv[i] = malloc(s->length + 1);
+        cargv[i] = hml_xmalloc(s->length + 1);
         if (!cargv[i]) {
             for (int64_t j = 0; j < i; j++) free(cargv[j]);
             free(cargv);
@@ -1248,7 +1249,7 @@ HmlValue hml_posix_spawn(HmlValue argv_val, HmlValue opts_val) {
                     hml_runtime_error("spawn() opts.env elements must be strings");
                 }
                 HmlString *s = ev.as.as_string;
-                cenv[i] = malloc(s->length + 1);
+                cenv[i] = hml_xmalloc(s->length + 1);
                 if (!cenv[i]) {
                     for (int64_t j = 0; j < i; j++) free(cenv[j]);
                     free(cenv);

@@ -9,6 +9,7 @@
  * - Directory operations (list_dir, mkdir, rmdir)
  */
 
+#include "hemlock_alloc.h"
 #include "builtins_internal.h"
 
 #ifdef __EMSCRIPTEN__
@@ -69,10 +70,10 @@ HmlValue hml_open(HmlValue path, HmlValue mode) {
         hml_throw(hml_val_string(err_buf));
     }
 
-    HmlFileHandle *fh = malloc(sizeof(HmlFileHandle));
+    HmlFileHandle *fh = hml_xmalloc(sizeof(HmlFileHandle));
     fh->fp = fp;
-    fh->path = strdup(path_str);
-    fh->mode = strdup(mode_str);
+    fh->path = hml_xstrdup(path_str);
+    fh->mode = hml_xstrdup(mode_str);
     fh->closed = 0;
 
     HmlValue result;
@@ -184,7 +185,7 @@ HmlValue hml_file_read(HmlValue file, HmlValue size) {
     if (read_size == 0) { return hml_val_string(""); }
     if (read_size < 0) { return hml_file_read_all(file); }
 
-    char *buffer = malloc(read_size + 1);
+    char *buffer = hml_xmalloc(read_size + 1);
     size_t bytes_read = fread(buffer, 1, read_size, (FILE*)fh->fp);
     buffer[bytes_read] = '\0';
 
@@ -370,8 +371,8 @@ HmlValue hml_file_read_bytes(HmlValue file, HmlValue size) {
 
     if (read_size <= 0) {
         // Return empty buffer
-        HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
-        buf->data = malloc(1);
+        HmlBuffer *buf = hml_xcalloc(1, sizeof(HmlBuffer));
+        buf->data = hml_xmalloc(1);
         buf->length = 0;
         buf->capacity = 0;
         buf->ref_count = 1;
@@ -394,7 +395,7 @@ HmlValue hml_file_read_bytes(HmlValue file, HmlValue size) {
         hml_throw(hml_val_string(_err_buf));
     }
 
-    HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
+    HmlBuffer *buf = hml_xcalloc(1, sizeof(HmlBuffer));
     buf->data = data;
     buf->length = (int)bytes_read;
     buf->capacity = read_size;
@@ -470,7 +471,7 @@ HmlValue hml_file_read_binary_all(HmlValue file) {
         }
     }
 
-    HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
+    HmlBuffer *buf = hml_xcalloc(1, sizeof(HmlBuffer));
     buf->data = data;
     buf->length = (int)total_read;
     buf->capacity = (int)(total_read > 0 ? total_read : 1);
@@ -502,8 +503,8 @@ HmlValue hml_file_read_binary(HmlValue file, HmlValue size) {
     }
 
     if (read_size == 0) {
-        HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
-        buf->data = malloc(1);
+        HmlBuffer *buf = hml_xcalloc(1, sizeof(HmlBuffer));
+        buf->data = hml_xmalloc(1);
         buf->length = 0;
         buf->capacity = 0;
         buf->ref_count = 1;
@@ -523,7 +524,7 @@ HmlValue hml_file_read_binary(HmlValue file, HmlValue size) {
         hml_throw(hml_val_string(_err_buf));
     }
 
-    HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
+    HmlBuffer *buf = hml_xcalloc(1, sizeof(HmlBuffer));
     buf->data = data;
     buf->length = (int)bytes_read;
     buf->capacity = read_size;

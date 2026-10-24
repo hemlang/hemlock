@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include "json_number.h"
 #include <math.h>
 #include "internal.h"
@@ -31,7 +32,7 @@ typedef struct {
 
 static inline void jbuf_init(JsonBuffer *buf, size_t initial_capacity) {
     buf->capacity = initial_capacity > 64 ? initial_capacity : 64;
-    buf->data = malloc(buf->capacity);
+    buf->data = hml_xmalloc(buf->capacity);
     buf->len = 0;
 }
 
@@ -295,7 +296,7 @@ alloc_fail:
 void serialize_visited_init(SerializeVisitedSet *set) {
     set->capacity = 16;
     set->count = 0;
-    set->visited = malloc(sizeof(Object*) * set->capacity);
+    set->visited = hml_xmalloc(sizeof(Object*) * set->capacity);
 }
 
 int serialize_visited_contains(SerializeVisitedSet *set, Object *obj) {
@@ -340,7 +341,7 @@ char* escape_json_string(const char *str) {
     }
 
     int len = strlen(str);
-    char *escaped = malloc(len + escape_count + 1);
+    char *escaped = hml_xmalloc(len + escape_count + 1);
     char *out = escaped;
 
     for (const char *p = str; *p; p++) {
@@ -439,7 +440,7 @@ Value json_parse_string(JSONParser *p, ExecutionContext *ctx) {
 
     if (!has_escapes) {
         // Fast path: no escapes, direct copy - use val_string_take to avoid double allocation
-        char *buf = malloc(raw_len + 1);
+        char *buf = hml_xmalloc(raw_len + 1);
         memcpy(buf, start, raw_len);
         buf[raw_len] = '\0';
         p->pos += raw_len + 1;  // +1 for closing quote
@@ -447,7 +448,7 @@ Value json_parse_string(JSONParser *p, ExecutionContext *ctx) {
     }
 
     // Slow path: handle escapes
-    char *buf = malloc(raw_len + 1);  // Can't be larger than raw
+    char *buf = hml_xmalloc(raw_len + 1);  // Can't be larger than raw
     char *out = buf;
     s = start;
 
@@ -562,7 +563,7 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     p->pos++;  // skip opening brace
 
     int capacity = 32;
-    FieldEntry *fields = malloc(sizeof(FieldEntry) * (size_t)capacity);
+    FieldEntry *fields = hml_xmalloc(sizeof(FieldEntry) * (size_t)capacity);
     int num_fields = 0;
 
     json_skip_whitespace(p);
@@ -570,7 +571,7 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     // Handle empty object
     if (p->input[p->pos] == '}') {
         p->pos++;
-        Object *obj = malloc(sizeof(Object));
+        Object *obj = hml_xmalloc(sizeof(Object));
         obj->fields = fields;
         obj->num_fields = 0;
         obj->capacity = capacity;
@@ -647,7 +648,7 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
             }
             fields = grown;
         }
-        fields[num_fields].name = strdup(name_val.as.as_string->data);
+        fields[num_fields].name = hml_xstrdup(name_val.as.as_string->data);
         value_release(name_val);  // Release the temporary string after copying
 
         json_skip_whitespace(p);
@@ -715,7 +716,7 @@ Value json_parse_object(JSONParser *p, ExecutionContext *ctx) {
     }
     p->pos++;  // skip closing brace
 
-    Object *obj = malloc(sizeof(Object));
+    Object *obj = hml_xmalloc(sizeof(Object));
     obj->fields = fields;
     obj->num_fields = num_fields;
     obj->capacity = capacity;

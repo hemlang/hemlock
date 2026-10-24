@@ -4,6 +4,7 @@
  * Provides CPU time profiling, memory tracking, and call graph generation.
  */
 
+#include "hemlock_alloc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,8 +48,8 @@ ProfilerState* profiler_new(ProfileMode mode) {
     // Initialize function stats
     state->function_capacity = 256;
     state->function_count = 0;
-    state->functions = calloc(state->function_capacity, sizeof(FunctionStats));
-    state->function_buckets = malloc(HML_PROFILER_HASH_SIZE * sizeof(int));
+    state->functions = hml_xcalloc(state->function_capacity, sizeof(FunctionStats));
+    state->function_buckets = hml_xmalloc(HML_PROFILER_HASH_SIZE * sizeof(int));
     for (int i = 0; i < HML_PROFILER_HASH_SIZE; i++) {
         state->function_buckets[i] = -1;
     }
@@ -56,8 +57,8 @@ ProfilerState* profiler_new(ProfileMode mode) {
     // Initialize allocation tracking
     state->alloc_site_capacity = 128;
     state->alloc_site_count = 0;
-    state->alloc_sites = calloc(state->alloc_site_capacity, sizeof(AllocSite));
-    state->alloc_buckets = malloc(HML_PROFILER_HASH_SIZE * sizeof(int));
+    state->alloc_sites = hml_xcalloc(state->alloc_site_capacity, sizeof(AllocSite));
+    state->alloc_buckets = hml_xmalloc(HML_PROFILER_HASH_SIZE * sizeof(int));
     for (int i = 0; i < HML_PROFILER_HASH_SIZE; i++) {
         state->alloc_buckets[i] = -1;
     }
@@ -65,23 +66,23 @@ ProfilerState* profiler_new(ProfileMode mode) {
     // Initialize call stack for flamegraph
     state->call_stack.capacity = 64;
     state->call_stack.depth = 0;
-    state->call_stack.stack_indices = malloc(state->call_stack.capacity * sizeof(int));
+    state->call_stack.stack_indices = hml_xmalloc(state->call_stack.capacity * sizeof(int));
 
     // Initialize timing stack
     state->timing_stack_capacity = 64;
     state->timing_stack_depth = 0;
-    state->timing_stack = malloc(state->timing_stack_capacity * sizeof(*state->timing_stack));
+    state->timing_stack = hml_xmalloc(state->timing_stack_capacity * sizeof(*state->timing_stack));
 
     // Initialize flamegraph samples
     state->flamegraph_sample_capacity = 256;
     state->flamegraph_sample_count = 0;
-    state->flamegraph_samples = malloc(state->flamegraph_sample_capacity * sizeof(char*));
-    state->flamegraph_counts = malloc(state->flamegraph_sample_capacity * sizeof(uint64_t));
+    state->flamegraph_samples = hml_xmalloc(state->flamegraph_sample_capacity * sizeof(char*));
+    state->flamegraph_counts = hml_xmalloc(state->flamegraph_sample_capacity * sizeof(uint64_t));
 
     // Initialize pointer size tracking
     state->ptr_size_capacity = 256;
     state->ptr_size_count = 0;
-    state->ptr_sizes = malloc(state->ptr_size_capacity * sizeof(*state->ptr_sizes));
+    state->ptr_sizes = hml_xmalloc(state->ptr_size_capacity * sizeof(*state->ptr_sizes));
 
     return state;
 }
@@ -460,7 +461,7 @@ void profiler_print_report(ProfilerState *state, FILE *output) {
     // Sort and print functions if any were tracked
     FunctionStats **sorted = NULL;
     if (state->function_count > 0) {
-        sorted = malloc(state->function_count * sizeof(FunctionStats*));
+        sorted = hml_xmalloc(state->function_count * sizeof(FunctionStats*));
         for (int i = 0; i < state->function_count; i++) {
             sorted[i] = &state->functions[i];
         }
@@ -525,7 +526,7 @@ void profiler_print_report(ProfilerState *state, FILE *output) {
     // Show memory stats if available
     if (state->mode == PROFILE_MODE_MEMORY && state->alloc_site_count > 0) {
         // Build list of sites to display (filter if leaks only)
-        AllocSite **sorted_sites = malloc(state->alloc_site_count * sizeof(AllocSite*));
+        AllocSite **sorted_sites = hml_xmalloc(state->alloc_site_count * sizeof(AllocSite*));
         int filtered_count = 0;
         for (int i = 0; i < state->alloc_site_count; i++) {
             if (state->show_leaks_only && state->alloc_sites[i].current_bytes == 0) {
@@ -679,7 +680,7 @@ void profiler_print_flamegraph(ProfilerState *state, FILE *output) {
     // A proper flamegraph would require stack sampling during execution.
 
     // Sort by self time
-    FunctionStats **sorted = malloc(state->function_count * sizeof(FunctionStats*));
+    FunctionStats **sorted = hml_xmalloc(state->function_count * sizeof(FunctionStats*));
     for (int i = 0; i < state->function_count; i++) {
         sorted[i] = &state->functions[i];
     }

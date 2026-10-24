@@ -7,6 +7,7 @@
  * Stub implementations are provided in wasm_shim.c.
  */
 
+#include "hemlock_alloc.h"
 #include "builtins_internal.h"
 
 // ========== CSPRNG (available on every build — not OpenSSL-gated) ==========
@@ -648,10 +649,10 @@ HmlValue hml_builtin_hash_md5(HmlClosureEnv *env, HmlValue input) {
 
 // Helper: Create an object with keypair fields
 static HmlValue create_keypair_object(void *pkey) {
-    HmlObject *obj = malloc(sizeof(HmlObject));
+    HmlObject *obj = hml_xmalloc(sizeof(HmlObject));
     obj->type_name = NULL;
     obj->capacity = 2;
-    obj->fields = malloc(sizeof(HmlFieldEntry) * 2);
+    obj->fields = hml_xmalloc(sizeof(HmlFieldEntry) * 2);
     obj->num_fields = 0;
     obj->ref_count = 1;
     atomic_store(&obj->freed, 0);
@@ -659,10 +660,10 @@ static HmlValue create_keypair_object(void *pkey) {
     obj->hash_capacity = 0;
     obj->is_pooled = 0;
 
-    obj->fields[0].name = strdup("private_key");
+    obj->fields[0].name = hml_xstrdup("private_key");
     obj->fields[0].value = hml_val_ptr(pkey);
     obj->num_fields++;
-    obj->fields[1].name = strdup("public_key");
+    obj->fields[1].name = hml_xstrdup("public_key");
     obj->fields[1].value = hml_val_ptr(pkey);
     obj->num_fields++;
 

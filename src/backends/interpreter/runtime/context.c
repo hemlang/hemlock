@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include "internal.h"
 #include "hemlock_compat.h"
 #include <unistd.h>
@@ -13,7 +14,7 @@ void set_current_source_file(const char *file) {
         current_source_file = NULL;
     }
     if (file) {
-        current_source_file = strdup(file);
+        current_source_file = hml_xstrdup(file);
     }
 }
 
@@ -27,7 +28,7 @@ void set_current_source_code(const char *source) {
         current_source_code = NULL;
     }
     if (source) {
-        current_source_code = strdup(source);
+        current_source_code = hml_xstrdup(source);
     }
 }
 
@@ -618,7 +619,7 @@ int sandbox_path_allowed(ExecutionContext *ctx, const char *path, int is_write) 
         // Resolve both paths to absolute form
         if (!realpath(path, resolved_path)) {
             // Path doesn't exist yet - try resolving parent directory
-            char *path_copy = strdup(path);
+            char *path_copy = hml_xstrdup(path);
             char *parent = path_copy;
             char *last_slash = strrchr(path_copy, '/');
             if (last_slash) {
@@ -654,6 +655,25 @@ int sandbox_path_allowed(ExecutionContext *ctx, const char *path, int is_write) 
     }
 
     return 1;  // Allowed
+}
+
+// Copy the parent's sandbox policy into a child context (spawned task).
+// exec_context_new() starts unrestricted, so without this every spawn()
+// would escape --sandbox. Fails closed: if the root path cannot be copied,
+// the child gets every restriction rather than none.
+void sandbox_inherit(ExecutionContext *child, const ExecutionContext *parent) {
+    if (!child || !parent) return;
+    child->sandbox_flags = parent->sandbox_flags;
+    if (child->sandbox_root) {
+        free(child->sandbox_root);
+        child->sandbox_root = NULL;
+    }
+    if (parent->sandbox_root) {
+        child->sandbox_root = strdup(parent->sandbox_root);
+        if (!child->sandbox_root) {
+            child->sandbox_flags = HML_SANDBOX_RESTRICT_ALL;
+        }
+    }
 }
 
 // Throw a sandbox violation error

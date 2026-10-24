@@ -9,6 +9,7 @@
 
 #ifndef __EMSCRIPTEN__
 
+#include "hemlock_alloc.h"
 #include "builtins_internal.h"
 #include "hemlock_limits.h"
 
@@ -65,7 +66,7 @@ HmlValue hml_socket_create(HmlValue domain, HmlValue sock_type, HmlValue protoco
     fcntl(fd, F_SETFD, FD_CLOEXEC);
 #endif
 
-    HmlSocket *sock = malloc(sizeof(HmlSocket));
+    HmlSocket *sock = hml_xmalloc(sizeof(HmlSocket));
     sock->fd = fd;
     sock->address = NULL;
     sock->port = 0;
@@ -141,7 +142,7 @@ void hml_socket_bind(HmlValue socket_val, HmlValue address, HmlValue port) {
     }
 
     if (sock->address) free(sock->address);
-    sock->address = strdup(addr_str);
+    sock->address = hml_xstrdup(addr_str);
     sock->port = p;
 }
 
@@ -210,7 +211,7 @@ HmlValue hml_socket_accept(HmlValue socket_val) {
     fcntl(client_fd, F_SETFD, FD_CLOEXEC);
 #endif
 
-    HmlSocket *client_sock = malloc(sizeof(HmlSocket));
+    HmlSocket *client_sock = hml_xmalloc(sizeof(HmlSocket));
     client_sock->fd = client_fd;
     client_sock->domain = sock->domain;
     client_sock->type = sock->type;
@@ -222,16 +223,16 @@ HmlValue hml_socket_accept(HmlValue socket_val) {
     if (sock->domain == AF_UNIX) {
         struct sockaddr_un *addr_un = (struct sockaddr_un *)&client_addr;
         if (client_len > offsetof(struct sockaddr_un, sun_path) && addr_un->sun_path[0] != '\0') {
-            client_sock->address = strdup(addr_un->sun_path);
+            client_sock->address = hml_xstrdup(addr_un->sun_path);
         } else {
-            client_sock->address = strdup("");
+            client_sock->address = hml_xstrdup("");
         }
         client_sock->port = 0;
     } else {
         char addr_str[INET_ADDRSTRLEN];
         struct sockaddr_in *addr4 = (struct sockaddr_in *)&client_addr;
         inet_ntop(AF_INET, &addr4->sin_addr, addr_str, sizeof(addr_str));
-        client_sock->address = strdup(addr_str);
+        client_sock->address = hml_xstrdup(addr_str);
         client_sock->port = ntohs(addr4->sin_port);
     }
 
@@ -290,7 +291,7 @@ void hml_socket_connect(HmlValue socket_val, HmlValue address, HmlValue port) {
     }
 
     if (sock->address) free(sock->address);
-    sock->address = strdup(addr_str);
+    sock->address = hml_xstrdup(addr_str);
     sock->port = p;
 }
 
@@ -349,7 +350,7 @@ HmlValue hml_socket_recv(HmlValue socket_val, HmlValue size) {
         return hml_val_buffer(0);
     }
 
-    void *buf = malloc(sz);
+    void *buf = hml_xmalloc(sz);
     ssize_t received;
     do {
         received = recv(sock->fd, buf, sz, 0);
@@ -364,7 +365,7 @@ HmlValue hml_socket_recv(HmlValue socket_val, HmlValue size) {
         hml_runtime_error("Failed to receive data: %s", hml_sock_strerror(hml_sock_errno()));
     }
 
-    HmlBuffer *hbuf = calloc(1, sizeof(HmlBuffer));
+    HmlBuffer *hbuf = hml_xcalloc(1, sizeof(HmlBuffer));
     hbuf->data = buf;
     hbuf->length = (int)received;
     hbuf->capacity = sz;
@@ -461,7 +462,7 @@ HmlValue hml_socket_recvfrom(HmlValue socket_val, HmlValue size) {
         hml_runtime_error("recvfrom() size must be positive");
     }
 
-    void *buf = malloc(sz);
+    void *buf = hml_xmalloc(sz);
     struct sockaddr_storage src_addr;
     socklen_t addr_len = sizeof(src_addr);
 
@@ -474,7 +475,7 @@ HmlValue hml_socket_recvfrom(HmlValue socket_val, HmlValue size) {
     }
 
     // Create buffer for data
-    HmlBuffer *hbuf = calloc(1, sizeof(HmlBuffer));
+    HmlBuffer *hbuf = hml_xcalloc(1, sizeof(HmlBuffer));
     hbuf->data = buf;
     hbuf->length = (int)received;
     hbuf->capacity = sz;

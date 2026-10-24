@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include "internal.h"
 #include "hemlock_compat.h"
 #include <stdarg.h>
@@ -56,7 +57,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
                             file->path, strerror(errno));
                 }
 
-                String *str = malloc(sizeof(String));
+                String *str = hml_xmalloc(sizeof(String));
                 str->data = buffer;
                 str->length = read_bytes;
                 str->char_length = -1;
@@ -106,7 +107,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
 
                 buffer[total_read] = '\0';
 
-                String *str = malloc(sizeof(String));
+                String *str = hml_xmalloc(sizeof(String));
                 str->data = buffer;
                 str->length = total_read;
                 str->char_length = -1;
@@ -139,7 +140,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
                         file->path, strerror(errno));
             }
 
-            String *str = malloc(sizeof(String));
+            String *str = hml_xmalloc(sizeof(String));
             str->data = buffer;
             str->length = read_bytes;
             str->char_length = -1;
@@ -164,8 +165,8 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
 
         int size = value_to_int(args[0]);
         if (size <= 0) {
-            Buffer *buf = calloc(1, sizeof(Buffer));
-            buf->data = malloc(1);
+            Buffer *buf = hml_xcalloc(1, sizeof(Buffer));
+            buf->data = hml_xmalloc(1);
             buf->length = 0;
             buf->capacity = 0;
             buf->ref_count = 1;  // Start with 1 - caller owns the first reference
@@ -185,7 +186,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
                     file->path, strerror(errno));
         }
 
-        Buffer *buf = calloc(1, sizeof(Buffer));
+        Buffer *buf = hml_xcalloc(1, sizeof(Buffer));
         buf->data = data;
         buf->length = read_bytes;
         buf->capacity = size;
@@ -257,7 +258,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
                 }
             }
 
-            Buffer *buf = calloc(1, sizeof(Buffer));
+            Buffer *buf = hml_xcalloc(1, sizeof(Buffer));
             buf->data = data;
             buf->length = total_read;
             buf->capacity = total_read > 0 ? total_read : 1;
@@ -271,8 +272,8 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
             }
             int size = value_to_int(args[0]);
             if (size <= 0) {
-                Buffer *buf = calloc(1, sizeof(Buffer));
-                buf->data = malloc(1);
+                Buffer *buf = hml_xcalloc(1, sizeof(Buffer));
+                buf->data = hml_xmalloc(1);
                 buf->length = 0;
                 buf->capacity = 0;
                 buf->ref_count = 1;
@@ -287,7 +288,7 @@ Value call_file_method(FileHandle *file, const char *method, Value *args, int nu
                 return throw_runtime_error(ctx, "Read error on file '%s': %s",
                         file->path, strerror(errno));
             }
-            Buffer *buf = calloc(1, sizeof(Buffer));
+            Buffer *buf = hml_xcalloc(1, sizeof(Buffer));
             buf->data = data;
             buf->length = read_bytes;
             buf->capacity = size;
@@ -447,7 +448,7 @@ Value builtin_read_line(Value *args, int num_args, ExecutionContext *ctx) {
         read--;
     }
 
-    String *str = malloc(sizeof(String));
+    String *str = hml_xmalloc(sizeof(String));
     str->data = line;
     str->length = read;
     str->capacity = len;
@@ -528,10 +529,10 @@ Value builtin_open(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    FileHandle *file = malloc(sizeof(FileHandle));
+    FileHandle *file = hml_xmalloc(sizeof(FileHandle));
     file->fp = fp;
-    file->path = strdup(path);
-    file->mode = strdup(mode);
+    file->path = hml_xstrdup(path);
+    file->mode = hml_xstrdup(mode);
     file->closed = 0;
 
     return val_file(file);

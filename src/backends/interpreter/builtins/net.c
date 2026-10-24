@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include "internal.h"
 #ifndef _WIN32
 #include <sys/socket.h>
@@ -385,7 +386,7 @@ static Value socket_method_connect(SocketHandle *sock, Value *args, int num_args
 
     // Store address and port
     if (sock->address) free(sock->address);
-    sock->address = strdup(address);
+    sock->address = hml_xstrdup(address);
     sock->port = port;
 
     return val_null();
@@ -646,7 +647,7 @@ static Value socket_method_recvfrom(SocketHandle *sock, Value *args, int num_arg
     }
 
     // Create buffer with received data
-    Buffer *buf = calloc(1, sizeof(Buffer));
+    Buffer *buf = hml_xcalloc(1, sizeof(Buffer));
     buf->data = data;
     buf->length = (int)received;
     buf->capacity = size;

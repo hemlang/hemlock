@@ -59,6 +59,7 @@
 
 #ifdef __EMSCRIPTEN__
 
+#include "hemlock_alloc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -206,7 +207,7 @@ static void wasm_clear_error(WasmContext *wc) {
 static void wasm_set_error(WasmContext *wc, const char *msg) {
     wasm_clear_error(wc);
     if (msg) {
-        wc->last_error = strdup(msg);
+        wc->last_error = hml_xstrdup(msg);
     }
 }
 

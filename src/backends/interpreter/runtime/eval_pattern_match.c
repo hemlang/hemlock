@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include "expressions_internal.h"
 
 // ========== PATTERN MATCHING ==========
@@ -171,7 +172,7 @@ int match_pattern(Pattern *pattern, Value value, Environment *env, ExecutionCont
                                 return 0;
                             }
                         }
-                        rest_obj->fields[rest_obj->num_fields].name = strdup(key);
+                        rest_obj->fields[rest_obj->num_fields].name = hml_xstrdup(key);
                         rest_obj->fields[rest_obj->num_fields].value = v;
                         rest_obj->num_fields++;
                     }

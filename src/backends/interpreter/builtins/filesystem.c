@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include "internal.h"
 
 Value builtin_exists(Value *args, int num_args, ExecutionContext *ctx) {
@@ -585,7 +586,7 @@ Value builtin_file_stat(Value *args, int num_args, ExecutionContext *ctx) {
     };
 
     for (int i = 0; i < 7; i++) {
-        stat_obj->fields[i].name = strdup(field_names[i]);
+        stat_obj->fields[i].name = hml_xstrdup(field_names[i]);
         stat_obj->fields[i].value = field_values[i];
         stat_obj->num_fields++;
     }
