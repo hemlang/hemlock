@@ -1,0 +1,9 @@
+let a = 2.0;
+let b = 1e3;
+let c = .5;
+let d = 2.50;
+let e = -0.0;
+fn scale(x: f64): f64 {
+	return x * 2.0;
+}
+let f = [1.0, 2.0];

@@ -13,6 +13,30 @@
 // Maximum number of function parameters (hard limit)
 #define HML_MAX_FUNCTION_PARAMS 64
 
+// gpu fn kernels: contextual keyword and the device buffer parameter type
+#define HML_GPU_KEYWORD "gpu"
+#define HML_GPU_BUFFER_TYPE "gpu_buffer"
+// Work-group local memory parameter type (gpu_local<T>)
+#define HML_GPU_LOCAL_TYPE "gpu_local"
+// Kernel descriptor: `kind` value and the field holding the CPU-emulation fn
+#define HML_GPU_KERNEL_KIND "gpu_kernel"
+#define HML_GPU_EMULATE_FIELD "emulate"
+// Work-item context parameter of the emulation fn; names with this prefix
+// are reserved inside kernels so they cannot collide with it
+#define HML_GPU_WI_PARAM "__hml_wi"
+#define HML_GPU_RESERVED_PREFIX "__hml_"
+// Device error reporting for compiled kernels: the error key is
+// (linear work-item id << HML_GPU_SITE_BITS) | site, so a kernel has at most
+// 2^HML_GPU_SITE_BITS - 1 checked operations; HML_GPU_ERR_SLOTS slots hold
+// the detail value (bad index, out-of-range value) of each new lowest key
+#define HML_GPU_SITE_BITS 16
+#define HML_GPU_ERR_SLOTS 64
+// Kernels that use barrier() order errors as the emulator runs them: work-
+// group by work-group, then local id (a failure stops its whole group at
+// the next barrier, so all failures in a group share a barrier round). Their
+// key is (group << LOCAL_BITS | local id) << SITE_BITS | site
+#define HML_GPU_KEY_LOCAL_BITS 12
+
 // Initial capacity for dynamic arrays (will grow as needed)
 #define HML_INITIAL_STATEMENTS_CAPACITY 256
 #define HML_INITIAL_ARRAY_LITERAL_CAPACITY 64

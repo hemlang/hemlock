@@ -1,0 +1,23 @@
+// Integer truthiness uses the full width of the value: an i64/u64 whose low
+// 32 bits are zero is still truthy (the interpreter used to truncate).
+let big: i64 = 4294967296;
+let min64: i64 = -9223372036854775807 - 1;
+let hi: u64 = 18446744069414584320;
+let zero: i64 = 0;
+
+print(big ? "truthy" : "falsy");
+print(min64 ? "truthy" : "falsy");
+print(hi ? "truthy" : "falsy");
+print(zero ? "truthy" : "falsy");
+if (big) { print("if big"); } else { print("else big"); }
+print(!big);
+print(!zero);
+print(big && true);
+print(zero || hi);
+let n: i64 = 8589934592;
+let count = 0;
+while (n) {
+    count++;
+    n = n - 4294967296;
+}
+print(count);

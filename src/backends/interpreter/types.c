@@ -1244,7 +1244,9 @@ int value_is_truthy(Value val) {
     if (val.type == VAL_BOOL) {
         return val.as.as_bool;
     } else if (is_integer(val)) {
-        return value_to_int(val) != 0;
+        // Full width: value_to_int() truncates to 32 bits, which made
+        // 4294967296 (and i64 MIN) falsy
+        return value_to_int64(val) != 0;
     } else if (is_float(val)) {
         return value_to_float(val) != 0.0;
     } else if (val.type == VAL_NULL) {

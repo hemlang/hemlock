@@ -1,0 +1,101 @@
+// Test @stdlib/gpu: device discovery, buffers, kernel launch, error paths
+import { gpu_available, gpu_devices, gpu_context, local_mem, DEVICE_ALL } from "@stdlib/gpu";
+
+assert(gpu_available(), "an OpenCL device should be available");
+let devs = gpu_devices();
+assert(devs.length > 0, "gpu_devices() should list at least one device");
+assert(devs[0].name.length > 0, "device should have a name");
+assert(devs[0].compute_units > 0, "device should report compute units");
+
+let ctx = gpu_context({ device_type: DEVICE_ALL });
+
+// saxpy: y = a*x + y
+let prog = ctx.program(`
+__kernel void saxpy(uint n, float a, __global const float *x, __global float *y) {
+    size_t i = get_global_id(0);
+    if (i < n) { y[i] = a * x[i] + y[i]; }
+}
+`);
+let k = prog.kernel("saxpy");
+
+let n = 1000;
+let xs = [];
+let ys = [];
+for (let i = 0; i < n; i++) { xs.push(i); ys.push(1); }
+let dx = ctx.from_array(xs, "f32");
+let dy = ctx.from_array(ys, "f32");
+
+ctx.launch(k, [1024], null, [u32(n), f32(2.0), dx, dy]);
+let out = ctx.to_array(dy, "f32", n);
+assert(out[0] == 1.0, "out[0] should be 1");
+assert(out[10] == 21.0, "out[10] should be 21");
+assert(out[999] == 1999.0, "out[999] should be 1999");
+print("saxpy ok");
+
+// f64 passed for a float parameter is a size mismatch with a hint
+let threw = false;
+try {
+    ctx.launch(k, [1024], null, [u32(n), 2.0, dx, dy]);
+} catch (e) {
+    threw = true;
+    assert(e.contains("size mismatch"), "should report size mismatch: " + e);
+    assert(e.contains("f32("), "should hint at f32(): " + e);
+}
+assert(threw, "f64 for a float arg should throw");
+print("arg size check ok");
+
+// Buffer round trip through a Hemlock buffer
+let hb = buffer(16);
+for (let i = 0; i < 16; i++) { hb[i] = i * 3; }
+let db = ctx.alloc(16);
+ctx.write(db, hb);
+let hb2 = buffer(16);
+ctx.read(db, hb2);
+assert(hb2[5] == 15, "buffer round trip");
+print("buffer round trip ok");
+
+// __local scratch + 2-D range: per-group sum
+let red = ctx.program(`
+__kernel void group_sum(__global const int *in, __global int *out, __local int *tmp) {
+    size_t l = get_local_id(0);
+    tmp[l] = in[get_global_id(0)];
+    barrier(CLK_LOCAL_MEM_FENCE);
+    if (l == 0) {
+        int s = 0;
+        for (size_t j = 0; j < get_local_size(0); j++) { s += tmp[j]; }
+        out[get_group_id(0)] = s;
+    }
+}
+`);
+let gk = red.kernel("group_sum");
+let ins = [];
+for (let i = 0; i < 64; i++) { ins.push(1); }
+let din = ctx.from_array(ins, "i32");
+let dout = ctx.alloc(4 * 4);
+ctx.launch(gk, [64], [16], [din, dout, local_mem(16 * 4)]);
+let sums = ctx.to_array(dout, "i32", 4);
+assert(sums[0] == 16 && sums[3] == 16, "group sums should be 16");
+print("local mem ok");
+
+// Build errors carry the compiler log
+threw = false;
+try {
+    ctx.program("__kernel void broken(__global int *x) { x[0] = undefined_thing; }");
+} catch (e) {
+    threw = true;
+    assert(e.contains("build failed"), "should report build failure: " + e);
+    assert(e.contains("undefined_thing"), "should include build log: " + e);
+}
+assert(threw, "bad source should throw");
+print("build error ok");
+
+// Double free of a device buffer is caught
+ctx.free(db);
+threw = false;
+try { ctx.free(db); } catch (e) { threw = true; }
+assert(threw, "double free should throw");
+
+ctx.free(dx); ctx.free(dy); ctx.free(din); ctx.free(dout);
+k.release(); gk.release(); prog.release(); red.release();
+ctx.release();
+print("done");

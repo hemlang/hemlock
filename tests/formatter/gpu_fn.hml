@@ -1,0 +1,10 @@
+gpu fn saxpy(n: u32, a: f32, x: gpu_buffer<f32>, y: gpu_buffer<f32>) {
+let i: u32 = global_id(0);
+if (i < n) { y[i] = a * x[i] + y[i]; }
+}
+export gpu fn fill(n: u32, v: i32, out: gpu_buffer<i32>): void {
+for (let i: u32 = global_id(0); i < n; i++) { out[i] = v; }
+}
+define Box<T> { v: T }
+fn unbox(b: Box<i32>): i32 { return b.v; }
+let gpu = 1;

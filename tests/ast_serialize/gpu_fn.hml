@@ -1,0 +1,23 @@
+// gpu fn survives .hmlc serialization: the kernel is stored and lowered
+// again on load. .hmlc cannot import, so a minimal work-item drives it.
+gpu fn saxpy(n: u32, a: f32, x: gpu_buffer<f32>, y: gpu_buffer<f32>) {
+    let i: u32 = global_id(0);
+    if (i < n) {
+        y[i] = a * x[i] + y[i];
+    }
+}
+
+let wi = {
+    gid: u32(0),
+    fn global_id(d) { return self.gid; },
+    fn load(b, i, t, name) { return f32(b[i]); },
+    fn store(b, i, v, t, name) { b[i] = f32(v); return b[i]; },
+};
+let xs = [1, 2, 3];
+let ys = [10, 10, 10];
+for (let g: u32 = 0; g < 4; g++) {
+    wi.gid = g;
+    saxpy.emulate(wi, u32(3), f32(2.0), xs, ys);
+}
+print(saxpy.kind + " " + saxpy.name + " " + saxpy.params.length);
+print(ys);

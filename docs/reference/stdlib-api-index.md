@@ -8,7 +8,7 @@ complete importable API surface, generated from `stdlib/*.hml` by
 are verbatim from source; `[native]` marks re-exported native builtins
 whose parameter list comes from the module's documentation.
 
-54 modules, 1070 exported symbols. Import with
+56 modules, 1092 exported symbols. Import with
 `import { name } from "@stdlib/<module>";` — see
 [Standard Library Overview](stdlib-overview.md) and `stdlib/docs/` for
 full documentation.
@@ -409,6 +409,38 @@ fn escape(text): string  // Escape special glob characters in a string
 fn has_magic(pattern): bool  // Check if a pattern contains any glob special characters
 fn filter(paths, pattern): array  // Filter a list of paths by a glob pattern
 fn translate(pattern): string  // Translate a glob pattern to a regular expression string
+```
+
+## @stdlib/gpu
+
+```
+let CL_SUCCESS = 0
+let CL_DEVICE_NOT_FOUND = -1
+let CL_BUILD_PROGRAM_FAILURE = -11
+let CL_INVALID_ARG_SIZE = -51
+let CL_PLATFORM_NOT_FOUND_KHR = -1001
+let DEVICE_DEFAULT = 1  // Device types (cl_device_type bitfield)
+let DEVICE_CPU = 2
+let DEVICE_GPU = 4
+let DEVICE_ACCELERATOR = 8
+let DEVICE_ALL
+let MEM_READ_WRITE = 1  // Memory flags (cl_mem_flags)
+let MEM_WRITE_ONLY = 2
+let MEM_READ_ONLY = 4
+fn cl_error_name(code: i32): string  // Name for an OpenCL error code (common ones; others print as the number)
+fn gpu_available(): bool  // True if at least one OpenCL platform with at least one device is present
+fn gpu_devices()  // Every OpenCL device on every platform, as descriptor objects
+fn local_mem(bytes: i32)  // Size-only marker for a __local kernel argument
+fn local_array(count: i32)  // Work-group local memory of `count` elements for a gpu fn gpu_local<T>
+fn gpu_context(opts?: null)  // Create a context with one device and one in-order command queue.
+```
+
+## @stdlib/gpu_emu
+
+```
+fn is_kernel(k): bool  // True if `k` is a gpu fn kernel descriptor
+fn local_array(count: i32)  // Work-group local memory of `count` elements for a gpu_local<T> parameter
+fn emulate(kernel, global: array, local, args: array)  // Run `kernel` over an N-D range on the CPU.
 ```
 
 ## @stdlib/hash

@@ -1,0 +1,127 @@
+// Test @stdlib/gpu_emu: CPU emulation of gpu fn kernels
+import { emulate, is_kernel } from "@stdlib/gpu_emu";
+
+gpu fn saxpy(n: u32, a: f32, x: gpu_buffer<f32>, y: gpu_buffer<f32>) {
+    let i: u32 = global_id(0);
+    if (i < n) {
+        y[i] = a * x[i] + y[i];
+    }
+}
+
+assert(is_kernel(saxpy), "saxpy should be a kernel descriptor");
+assert(!is_kernel({ kind: "nope" }), "plain object is not a kernel");
+
+// 1-D, global larger than n (guarded tail)
+let xs = [];
+let ys = [];
+for (let i = 0; i < 10; i++) { xs.push(i); ys.push(1); }
+emulate(saxpy, [16], null, [u32(10), f32(2.0), xs, ys]);
+assert(ys[0] == 1 && ys[9] == 19, "saxpy results");
+assert(typeof(ys[3]) == "f32", "stores convert to the buffer element type");
+print("saxpy: " + ys.join(","));
+
+// 2-D with work-groups: record every id intrinsic
+gpu fn ids(w: u32, gid0: gpu_buffer<u32>, gid1: gpu_buffer<u32>, lid0: gpu_buffer<u32>,
+           grp1: gpu_buffer<u32>, meta: gpu_buffer<u32>) {
+    let x: u32 = global_id(0);
+    let y: u32 = global_id(1);
+    let k: u32 = y * w + x;
+    gid0[k] = x;
+    gid1[k] = y;
+    lid0[k] = local_id(0);
+    grp1[k] = group_id(1);
+    if (k == 0) {
+        meta[0] = global_size(0);
+        meta[1] = global_size(1);
+        meta[2] = local_size(0);
+        meta[3] = num_groups(0);
+        meta[4] = work_dim();
+        meta[5] = global_size(2);
+        meta[6] = global_id(2);
+    }
+}
+let n2 = 4 * 6;
+let g0 = []; let g1 = []; let l0 = []; let gr1 = []; let meta = [0, 0, 0, 0, 0, 0, 0];
+for (let i = 0; i < n2; i++) { g0.push(0); g1.push(0); l0.push(0); gr1.push(0); }
+emulate(ids, [4, 6], [2, 3], [u32(4), g0, g1, l0, gr1, meta]);
+assert(g0[5] == 1 && g1[5] == 1, "global ids at k=5 are (1, 1)");
+assert(l0[3] == 1 && l0[2] == 0, "local id 0 wraps every 2");
+assert(gr1[23] == 1 && gr1[8] == 0, "group id 1 changes every 3 rows");
+print("meta: " + meta.join(","));
+
+// 3-D: count work-items with a scalar loop over a reduction buffer
+gpu fn count3(total: gpu_buffer<i32>) {
+    let x: u32 = global_id(0) + global_id(1) + global_id(2);
+    if (x >= 0) {
+        total[0] += 1;
+    }
+}
+let tot = [0];
+emulate(count3, [2, 3, 4], null, [tot]);
+assert(tot[0] == 24, "3-D range runs 24 work-items");
+print("3d items: " + tot[0]);
+
+// Control flow + math intrinsics; f32 stays f32
+gpu fn mathk(n: u32, vals: gpu_buffer<f32>, out: gpu_buffer<f32>, ints: gpu_buffer<i32>) {
+    let i: u32 = global_id(0);
+    if (i >= n) { return; }
+    let v: f32 = vals[i];
+    let acc: f32 = 0;
+    for (let k: i32 = 0; k < 3; k++) {
+        if (k == 1) { continue; }
+        acc += sqrt(v) + floor(v) + abs(v - 10);
+    }
+    out[i] = max(acc, min(v, f32(1)));
+    let s: i32 = 0;
+    switch (i32(i) % 3) {
+        case 0: s = 100; break;
+        case 1: s = 200;
+        default: s += 1;
+    }
+    ints[i] = s;
+    let w: i32 = 0;
+    while (true) { w++; if (w > 4) { break; } }
+    ints[i] += w;
+}
+let mx = [4, 9, 16];
+let mout = [0, 0, 0];
+let mints = [0, 0, 0];
+emulate(mathk, [3], null, [u32(3), mx, mout, mints]);
+print("math: " + mout.join(",") + " / " + mints.join(","));
+assert(typeof(mout[0]) == "f32", "math on f32 stays f32");
+
+// ---- error paths ----
+fn expect_error(f, needle: string) {
+    let msg = "";
+    try { f(); } catch (e) { msg = "" + e; }
+    assert(msg.contains(needle), "expected error containing '" + needle + "', got: " + msg);
+    print("error ok: " + needle);
+}
+
+// f64 literal for an f32 parameter: same rule as real devices
+expect_error(fn() { emulate(saxpy, [4], null, [u32(4), 2.0, xs, ys]); }, "use f32(x)");
+expect_error(fn() { emulate(saxpy, [4], null, [4, f32(2.0), xs, ys]); }, "expects u32, got i32");
+expect_error(fn() { emulate(saxpy, [4], null, [u32(4), f32(2.0), xs]); }, "takes 4 arguments, got 3");
+expect_error(fn() { emulate(saxpy, [4], null, [u32(4), f32(2.0), xs, 7]); }, "expects an array");
+expect_error(fn() { emulate(saxpy, [4], [3], [u32(4), f32(2.0), xs, ys]); }, "not a multiple");
+expect_error(fn() { emulate(saxpy, [0], null, [u32(4), f32(2.0), xs, ys]); }, "positive integers");
+expect_error(fn() { emulate({ kind: "x" }, [1], null, []); }, "needs a gpu fn kernel");
+
+// Out-of-bounds access reports the buffer and the work-item
+gpu fn oob(buf: gpu_buffer<i32>) {
+    buf[global_id(0)] = 1;
+}
+let small = [0, 0, 0];
+expect_error(fn() { emulate(oob, [5], null, [small]); }, "work-item (3, 0, 0): buf[3] is out of bounds (length 3)");
+assert(small.length == 3, "a failed launch never grows a buffer");
+
+// Integer overflow follows Hemlock semantics and stops the launch
+gpu fn overflow(nums: gpu_buffer<i32>) {
+    let v: i32 = nums[global_id(0)];
+    nums[global_id(0)] = v + 1;
+}
+expect_error(fn() { emulate(overflow, [2], null, [[1, 2147483647]]); }, "Integer overflow");
+
+// Calling a kernel directly is not possible: it is a descriptor, not a function
+assert(typeof(saxpy) == "object", "gpu fn binds a descriptor");
+print("done");

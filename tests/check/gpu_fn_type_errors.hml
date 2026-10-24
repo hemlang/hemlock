@@ -1,0 +1,23 @@
+// @expect-compile-fail
+// Kernels are statically typed so they can compile to device code: these
+// are rejected by the frontend on every backend.
+gpu fn bool_math(x: bool) { let y: i32 = x + 1; }
+gpu fn ternary_mix(x: i32) { let y: i32 = x > 0 ? 1 : 2.0; }
+gpu fn float_bits(x: f32) { let y: f32 = x & 1; }
+gpu fn nested_assign(x: i32) { let y: i32 = (x = 2); }
+gpu fn nested_store(b: gpu_buffer<i32>) { let y: i32 = (b[0] = 2) + 1; }
+gpu fn nested_inc(x: i32) { let y: i32 = x++ + 1; }
+gpu fn const_assign(x: i32) { const c: i32 = 1; c = 2; }
+gpu fn redeclare(x: i32) { let a: i32 = 1; let a: i32 = 2; }
+gpu fn undefined(x: i32) { y = 1; }
+gpu fn bool_to_int(x: i32) { let b: bool = true; let y: i32 = b; }
+gpu fn store_bool(b: gpu_buffer<f32>) { b[0] = true; }
+gpu fn float_index(b: gpu_buffer<f32>) { b[1.5] = 1; }
+gpu fn minmax_mix(x: f32) { let y: f32 = min(x, 1); }
+gpu fn float_switch(x: f32) { switch (x) { case 1: break; } }
+gpu fn var_case(x: i32) { switch (x) { case x: break; } }
+gpu fn no_init(x: i32) { let y: i32; }
+gpu fn bad_label(x: i32) { outer: while (true) { break nope; } }
+gpu fn barrier_value(x: i32) { let y: i32 = barrier(); }
+gpu fn local_store_bool(t: gpu_local<i32>) { t[0] = true; }
+let fine = 1;

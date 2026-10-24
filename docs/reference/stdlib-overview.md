@@ -1,6 +1,6 @@
 # Standard Library Overview
 
-Hemlock ships with 53 standard library modules covering systems programming, I/O, networking, data formats, concurrency, and more. All modules are imported with the `@stdlib/` prefix.
+Hemlock ships with 56 standard library modules covering systems programming, I/O, networking, data formats, concurrency, and more. All modules are imported with the `@stdlib/` prefix.
 
 ```hemlock
 import { sin, cos, PI } from "@stdlib/math";
@@ -34,6 +34,8 @@ import { ThreadPool } from "@stdlib/async";
 | [`decimal`](../../stdlib/docs/decimal.md) | `@stdlib/decimal` | to_fixed, to_hex, parse_int, parse_float, StringBuilder |
 | [`matrix`](../../stdlib/docs/matrix.md) | `@stdlib/matrix` | Dense matrix operations (multiply, transpose, determinant, inverse) |
 | [`vector`](../../stdlib/docs/vector.md) | `@stdlib/vector` | Vector similarity search using USearch ANN |
+| [`gpu`](../../stdlib/docs/gpu.md) | `@stdlib/gpu` | GPU compute via OpenCL (devices, buffers, kernel launch) |
+| [`gpu_emu`](../../stdlib/docs/gpu_emu.md) | `@stdlib/gpu_emu` | Run `gpu fn` kernels on the CPU (reference semantics, no GPU needed) |
 
 ### Memory & Low-Level
 

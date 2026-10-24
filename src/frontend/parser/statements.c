@@ -894,9 +894,15 @@ static Stmt* export_statement(Parser *p) {
         return stmt_export_declaration(define_stmt);
     }
 
-    // Named function: export fn name(...) or export async fn name(...)
+    // Named function: export fn name(...), export async fn name(...),
+    // or export gpu fn name(...)
     int is_async = 0;
-    if (match(p, TOK_ASYNC)) {
+    int is_gpu = 0;
+    if (check_contextual(p, HML_GPU_KEYWORD) && p->next.type == TOK_FN) {
+        advance(p);  // consume contextual 'gpu'; 'fn' is matched below
+        is_gpu = 1;
+    }
+    if (!is_gpu && match(p, TOK_ASYNC)) {
         is_async = 1;
         consume(p, TOK_FN, "Expect 'fn' after 'async'");
     } else if (match(p, TOK_FN)) {
@@ -1040,6 +1046,10 @@ static Stmt* export_statement(Parser *p) {
     // Create function expression
     Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
     fn_expr->line = fn_start_line;
+    if (is_gpu) {
+        validate_gpu_kernel(p, name, fn_expr, fn_start_line);
+        fn_expr = expr_gpu_kernel_descriptor(name, fn_expr);
+    }
 
     // Create let statement
     Stmt *decl = stmt_let_typed(name, NULL, fn_expr);
@@ -1717,8 +1727,15 @@ static Stmt* statement_inner(Parser *p) {
 
     // Named function: fn name(...) { ... } or async fn name(...) { ... }
     // Desugar to: let name = fn(...) { ... }; or let name = async fn(...) { ... };
+    // gpu fn name(...) { ... } desugars to let name = <kernel descriptor>
+    // (see gpu_kernel.c).
     int is_async = 0;
-    if (match(p, TOK_ASYNC)) {
+    int is_gpu = 0;
+    if (check_contextual(p, HML_GPU_KEYWORD) && p->next.type == TOK_FN) {
+        advance(p);  // consume contextual 'gpu'; 'fn' is matched below
+        is_gpu = 1;
+    }
+    if (!is_gpu && match(p, TOK_ASYNC)) {
         is_async = 1;
         consume(p, TOK_FN, "Expect 'fn' after 'async'");
     } else if (match(p, TOK_FN)) {
@@ -1874,6 +1891,10 @@ static Stmt* statement_inner(Parser *p) {
         // Create function expression (with is_async flag)
         Expr *fn_expr = expr_function(is_async, param_names, param_types, param_defaults, param_is_ref, param_is_const, num_params, rest_param, rest_param_type, return_type, body);
         fn_expr->line = stmt_start_line;
+        if (is_gpu) {
+            validate_gpu_kernel(p, name, fn_expr, stmt_start_line);
+            fn_expr = expr_gpu_kernel_descriptor(name, fn_expr);
+        }
 
         // Desugar to let statement
         Stmt *stmt = stmt_let_typed(name, NULL, fn_expr);

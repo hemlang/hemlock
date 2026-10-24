@@ -227,6 +227,9 @@ Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr *
     expr->as.function.return_type = return_type;
     expr->as.function.body = body;
     expr->as.function.param_hashes = NULL;  // Lazily computed on first closure creation
+    expr->as.function.is_gpu = 0;
+    expr->as.function.gpu_kernel = NULL;
+    expr->as.function.gpu_name = NULL;
     return expr;
 }
 
@@ -1358,6 +1361,10 @@ void expr_free(Expr *expr) {
             }
             // Free body
             stmt_free(expr->as.function.body);
+            if (expr->as.function.gpu_kernel) {
+                expr_free(expr->as.function.gpu_kernel);
+            }
+            free(expr->as.function.gpu_name);
             break;
         case EXPR_ARRAY_LITERAL:
             // Free array elements

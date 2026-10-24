@@ -1,4 +1,5 @@
 #include "formatter_internal.h"
+#include "hemlock_limits.h"
 
 // ========== STATEMENT FORMATTING ==========
 
@@ -7,8 +8,16 @@ void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
 
     switch (stmt->type) {
         case STMT_LET:
+            // gpu fn name(...) { ... }: the binding holds a kernel descriptor
+            if (gpu_kernel_of(stmt->as.let.value)) {
+                fmt_annotations(ctx, stmt->as.let.annotations, stmt->as.let.annotation_count);
+                fmt_indent(ctx);
+                Expr *kernel = gpu_kernel_of(stmt->as.let.value);
+                fmt_fn_params(ctx, kernel, stmt->as.let.name, HML_GPU_KEYWORD " fn ");
+                buf_append(&ctx->buf, " ");
+                fmt_stmt(ctx, kernel->as.function.body);
             // Check if this is a named function declaration (fn name(...) { ... })
-            if (stmt->as.let.value && stmt->as.let.value->type == EXPR_FUNCTION) {
+            } else if (stmt->as.let.value && stmt->as.let.value->type == EXPR_FUNCTION) {
                 // Output annotations before the function
                 fmt_annotations(ctx, stmt->as.let.annotations, stmt->as.let.annotation_count);
                 fmt_indent(ctx);
@@ -166,6 +175,11 @@ void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                 if (stmt->as.for_loop.initializer->type == STMT_LET) {
                     buf_append(&ctx->buf, "let ");
                     buf_append(&ctx->buf, stmt->as.for_loop.initializer->as.let.name);
+                    Type *init_type = stmt->as.for_loop.initializer->as.let.type_annotation;
+                    if (init_type && init_type->kind != TYPE_INFER) {
+                        buf_append(&ctx->buf, ": ");
+                        fmt_type(ctx, init_type);
+                    }
                     if (stmt->as.for_loop.initializer->as.let.value) {
                         buf_append(&ctx->buf, " = ");
                         fmt_expr(ctx, stmt->as.for_loop.initializer->as.let.value);
@@ -530,7 +544,13 @@ void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                 ctx->indent = 0;
                 // Handle function declarations specially
                 Stmt *decl = stmt->as.export_stmt.declaration;
-                if (decl->type == STMT_LET && decl->as.let.value &&
+                if (decl->type == STMT_LET && gpu_kernel_of(decl->as.let.value)) {
+                    // export gpu fn name(...) { }
+                    Expr *kernel = gpu_kernel_of(decl->as.let.value);
+                    fmt_fn_params(ctx, kernel, decl->as.let.name, HML_GPU_KEYWORD " fn ");
+                    buf_append(&ctx->buf, " ");
+                    fmt_stmt(ctx, kernel->as.function.body);
+                } else if (decl->type == STMT_LET && decl->as.let.value &&
                     decl->as.let.value->type == EXPR_FUNCTION) {
                     // export fn name(...) { }
                     Expr *fn = decl->as.let.value;
