@@ -853,6 +853,7 @@ HmlValue hml_parse_string_to_type(HmlValue val, HmlValueType target_type) {
 
             // Try to parse as number
             char *endptr;
+            errno = 0;
 
             // Check for float (contains '.' or 'e'/'E')
             int has_decimal = 0;
@@ -873,6 +874,25 @@ HmlValue hml_parse_string_to_type(HmlValue val, HmlValueType target_type) {
                 int_val = strtoll(cstr, &endptr, 0);  // base 0 supports hex, octal
                 if (endptr == cstr || *endptr != '\0') {
                     hml_runtime_error("Cannot parse '%s' as integer", cstr);
+                }
+                if (errno == ERANGE) {
+                    // Does not fit in i64; strtoll clamped it. Never use the
+                    // clamped value: parse as a float for float targets, as
+                    // unsigned for u64, and reject it for everything else.
+                    if (target_type == HML_VAL_F32 || target_type == HML_VAL_F64) {
+                        float_val = strtod(cstr, NULL);
+                        is_float = 1;
+                    } else if (target_type == HML_VAL_U64 && int_val == INT64_MAX) {
+                        errno = 0;
+                        uint64_t u = strtoull(cstr, NULL, 0);
+                        if (errno == ERANGE) {
+                            hml_runtime_error("Value %s out of range for u64", cstr);
+                        }
+                        free(cstr);
+                        return hml_val_u64(u);
+                    } else {
+                        hml_runtime_error("Value %s out of range for %s", cstr, hml_type_name(target_type));
+                    }
                 }
             }
             free(cstr);

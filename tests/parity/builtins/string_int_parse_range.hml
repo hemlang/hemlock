@@ -1,0 +1,40 @@
+// Parity test: parsing integer strings that do not fit in i64, and seed()
+// argument validation. strtoll() clamps on overflow; the clamped value used
+// to leak out as a result (i64("99999999999999999999") == INT64_MAX,
+// u64("18446744073709551615") == INT64_MAX). Now out-of-range strings raise
+// like i32() already did, u64 accepts its full range, and float targets
+// parse the value as a float. seed() rejects non-integers on both backends.
+import { seed } from "@stdlib/math";
+
+fn attempt(label, f) {
+    try { print(label + ": " + f()); } catch (e) { print(label + ": error"); }
+}
+
+// === i64 ===
+attempt("i64 max", fn() { return i64("9223372036854775807"); });
+attempt("i64 min", fn() { return i64("-9223372036854775808"); });
+attempt("i64 max+1", fn() { return i64("9223372036854775808"); });       // error
+attempt("i64 min-1", fn() { return i64("-9223372036854775809"); });      // error
+attempt("i64 hex", fn() { return i64("0xFFFFFFFFFFFFFFFF"); });          // error
+
+// === u64: full range ===
+attempt("u64 max", fn() { return u64("18446744073709551615"); });
+attempt("u64 hex max", fn() { return u64("0xFFFFFFFFFFFFFFFF"); });
+attempt("u64 2^63", fn() { return u64("9223372036854775808"); });
+attempt("u64 2^64", fn() { return u64("18446744073709551616"); });       // error
+attempt("u64 -1", fn() { return u64("-1"); });                           // error
+attempt("u64 -1.5", fn() { return u64("-1.5"); });                       // error
+
+// === Narrow targets and floats ===
+attempt("i8 huge", fn() { return i8("99999999999999999999"); });         // error
+attempt("i32 huge", fn() { return i32("99999999999999999999"); });       // error
+attempt("f64 huge", fn() { return f64("99999999999999999999"); });       // 1e+20
+
+// === seed ===
+let half = 3.5;
+let r = 'A';
+let big: i64 = 5000000000;
+attempt("seed(3.5)", fn() { seed(half); return "ok"; });                 // error
+attempt("seed(rune)", fn() { seed(r); return "ok"; });                   // error
+attempt("seed(i64)", fn() { seed(big); return "ok"; });
+attempt("seed(42)", fn() { seed(42); return "ok"; });

@@ -2069,6 +2069,29 @@ Value parse_string_to_type(Value value, Type *target_type, Environment *env, Exe
                     free(cstr);
                     return val_null();
                 }
+                if (errno == ERANGE) {
+                    // Does not fit in i64; strtoll clamped it. Never use the
+                    // clamped value: parse as a float for float targets, as
+                    // unsigned for u64, and reject it for everything else.
+                    if (target_kind == TYPE_F32 || target_kind == TYPE_F64) {
+                        float_val = strtod(cstr, NULL);
+                        is_float = 1;
+                    } else if (target_kind == TYPE_U64 && int_val == INT64_MAX) {
+                        errno = 0;
+                        uint64_t u = strtoull(cstr, NULL, 0);
+                        if (errno == ERANGE) {
+                            runtime_error(ctx, "Value %s out of range for u64", cstr);
+                            free(cstr);
+                            return val_null();
+                        }
+                        free(cstr);
+                        return val_u64(u);
+                    } else {
+                        runtime_error(ctx, "Value %s out of range for %s", cstr, type_kind_to_string(target_kind));
+                        free(cstr);
+                        return val_null();
+                    }
+                }
             }
             free(cstr);
         } else {
@@ -2148,13 +2171,7 @@ Value parse_string_to_type(Value value, Type *target_type, Environment *env, Exe
                 return val_u32((uint32_t)int_val);
 
             case TYPE_U64:
-                if (is_float) {
-                    if (float_val < 0.0 || float_val > (double)HML_U64_MAX) {
-                        fprintf(stderr, "Runtime error: Value %g out of range for u64\n", float_val);
-                        exit(1);
-                    }
-                    return val_u64((uint64_t)float_val);
-                }
+                if (is_float) int_val = (int64_t)float_val;
                 if (int_val < 0) {
                     runtime_error(ctx, "Value %" PRId64 " out of range for u64", int_val);
                     return val_null();

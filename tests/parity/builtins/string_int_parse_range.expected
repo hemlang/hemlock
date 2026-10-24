@@ -1,0 +1,18 @@
+i64 max: 9223372036854775807
+i64 min: -9223372036854775808
+i64 max+1: error
+i64 min-1: error
+i64 hex: error
+u64 max: 18446744073709551615
+u64 hex max: 18446744073709551615
+u64 2^63: 9223372036854775808
+u64 2^64: error
+u64 -1: error
+u64 -1.5: error
+i8 huge: error
+i32 huge: error
+f64 huge: 1e+20
+seed(3.5): error
+seed(rune): error
+seed(i64): ok
+seed(42): ok
