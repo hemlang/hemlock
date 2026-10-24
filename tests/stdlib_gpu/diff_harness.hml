@@ -40,6 +40,11 @@ fn norm(msg): string {
 		m = m.replace(t + " subtraction", t + " arithmetic");
 		m = m.replace(t + " multiplication", t + " arithmetic");
 	}
+	// For float -> u64 range errors hemlockc shows the truncated integer and
+	// the interpreter the float ("-1" vs "-1.5"): compare without the value
+	if (m.starts_with("Value ") && m.contains(" out of range for u64")) {
+		m = "Value out of range for u64";
+	}
 	return m;
 }
 
