@@ -5,6 +5,33 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.0] - 2026-10-24
+
+### Added
+
+- **`@stdlib/gpu`** — GPU compute via OpenCL (through FFI). `gpu fn` kernels are parsed and validated, compiled to OpenCL C, and launched on a device with `ctx.launch`. Supports `barrier()` and work-group local memory (`gpu_local<T>`).
+- **`@stdlib/gpu_emu`** — a CPU emulator for `gpu fn` kernels via frontend lowering, so GPU code runs and is tested without an OpenCL device (diff-tested against the compiled path, tolerating known `hemlockc` wording/division differences).
+- **Formal verification of the runtime core** (CBMC + TLA+) — bounded proofs of the arithmetic, overflow and UTF-8 core of the runtime, recorded as a full-run result set (305/305). Writing the proofs surfaced and fixed real runtime bugs.
+- **Linux/ARM64 (aarch64) is now a first-class target** — a CI sanity job builds and runs the full suite on `ubuntu-24.04-arm` on every push, and tagged releases ship a `hemlock-linux-arm64.tar.gz` artifact (the one-line installer already resolves `aarch64`).
+
+### Changed
+
+- **Sandbox hardening.** Spawned tasks now inherit the spawner's sandbox — previously a spawned task could escape it, a sandbox bypass — and raw pointers are gated in sandbox mode.
+- **Integer-string parsing rejects out-of-range values** instead of silently clamping, and `seed()` validates its argument.
+- **Checked allocation wrappers** replace unchecked internal allocation sites across the runtime.
+
+### Fixed
+
+- **Undefined behavior found by a UBSan audit of both backends**, including interpreter `u16 * u16`; `*` and `%` behavior is now stated per backend and guarded by a compiled-backend UBSan sweep.
+- **Runtime bugs found by formal verification.**
+- **`@stdlib/websocket`** — server-side connections are reference-counted, fixing a connection-lifetime bug.
+- **Interpreter** — the C stack is checked alongside the call-depth count, so deep native recursion is caught instead of crashing.
+- **`hemlockc`** links `libcrypto.a`'s own static dependencies, fixing static linking on Ubuntu 26.04.
+
+### Performance
+
+- **Interpreter fast paths** for variable access, scopes and calls; refcount gating and scalar-value helpers are inlined in the runtime.
+
 ## [2.12.0] - 2026-10-15
 
 ### Added

@@ -93,7 +93,8 @@ import { sin, cos } from "@stdlib/math";
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| **2.12.0** | 2026-10-15 | `@stdlib/json_schema` JSON Schema Draft 7 validation; channels share one queueing core, blocking `select()`, one spawn path; `channel`/`task`/`file` type annotations; `hemlockc` typed-parameter conversion |
+| **2.13.0** | 2026-10-24 | GPU compute via `@stdlib/gpu` (OpenCL `gpu fn` kernels, `barrier()`/`gpu_local<T>`) + CPU emulator `@stdlib/gpu_emu`; formal verification of the runtime core (CBMC + TLA+); sandbox hardening (spawned tasks inherit sandbox, raw pointers gated); Linux/ARM64 CI + release artifact |
+| **2.12.0** | 2026-10-15 || **2.12.0** | 2026-10-15 | `@stdlib/json_schema` JSON Schema Draft 7 validation; channels share one queueing core, blocking `select()`, one spawn path; `channel`/`task`/`file` type annotations; `hemlockc` typed-parameter conversion |
 | **2.11.0** | 2026-10-06 | Exact, strict JSON (de)serialization; substantially more precise borrow checker; `main_loop()`/`main_loop_stop()` in `@stdlib/time` for a proper wasm frame loop |
 | **2.10.3** | 2026-08-08 | A program that `spawn()`s a `WebSocketServer` now exits (close paths call `lws_cancel_service()`) |
 | **2.10.2** | 2026-08-08 | RNG seeded at startup (every process previously got the same `rand()`/`randint()` sequence); Windows static libwebsockets link only requests archives that exist |
