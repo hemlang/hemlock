@@ -482,6 +482,9 @@ int sandbox_is_restricted(ExecutionContext *ctx, int restriction_flag);
 // Returns 1 if allowed, 0 if blocked
 int sandbox_path_allowed(ExecutionContext *ctx, const char *path, int is_write);
 
+// Copy sandbox flags/root from a parent context into a child (spawned task)
+void sandbox_inherit(ExecutionContext *child, const ExecutionContext *parent);
+
 // Throw a sandbox violation error
 void sandbox_error(ExecutionContext *ctx, const char *operation);
 

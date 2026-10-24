@@ -656,6 +656,25 @@ int sandbox_path_allowed(ExecutionContext *ctx, const char *path, int is_write) 
     return 1;  // Allowed
 }
 
+// Copy the parent's sandbox policy into a child context (spawned task).
+// exec_context_new() starts unrestricted, so without this every spawn()
+// would escape --sandbox. Fails closed: if the root path cannot be copied,
+// the child gets every restriction rather than none.
+void sandbox_inherit(ExecutionContext *child, const ExecutionContext *parent) {
+    if (!child || !parent) return;
+    child->sandbox_flags = parent->sandbox_flags;
+    if (child->sandbox_root) {
+        free(child->sandbox_root);
+        child->sandbox_root = NULL;
+    }
+    if (parent->sandbox_root) {
+        child->sandbox_root = strdup(parent->sandbox_root);
+        if (!child->sandbox_root) {
+            child->sandbox_flags = HML_SANDBOX_RESTRICT_ALL;
+        }
+    }
+}
+
 // Throw a sandbox violation error
 void sandbox_error(ExecutionContext *ctx, const char *operation) {
     char buffer[256];

@@ -131,6 +131,7 @@ static Value spawn_task(const char *who, Function *fn, Value *args, int num_args
 
     Task *task = task_new(atomic_fetch_add(&next_task_id, 1), fn, task_args, num_args, fn->closure_env);
     task->detached = opts->detached;
+    sandbox_inherit(task->ctx, ctx);  // tasks run under the spawner's sandbox
     if (opts->name) {
         task->name = strdup(opts->name);
     }
