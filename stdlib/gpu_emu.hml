@@ -166,6 +166,7 @@ fn check_args(kernel, args: array) {
 //   global: [x] / [x, y] / [x, y, z] work-items
 //   local:  work-group size of the same rank (each must divide global),
 //           or null for a single work-group spanning the whole range
+//           (kernels using work-group intrinsics must pass one, as on a device)
 //   args:   kernel arguments in order; arrays for gpu_buffer parameters
 export fn emulate(kernel, global: array, local, args: array) {
 	if (!is_kernel(kernel)) {
@@ -179,6 +180,9 @@ export fn emulate(kernel, global: array, local, args: array) {
 		}
 	}
 	check_args(kernel, args);
+	if (local == null && kernel.device != null && kernel.device.uses_groups) {
+		throw "gpu fn '" + kernel.name + "' uses local_id/group_id/local_size/num_groups: pass an explicit local size";
+	}
 
 	let wi = work_item(kernel.name, global.length);
 	for (let d = 0; d < global.length; d++) {

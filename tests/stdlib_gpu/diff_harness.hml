@@ -1,0 +1,182 @@
+// Harness for the emulator-vs-device differential tests in this directory.
+//
+// run_case() launches one kernel op on both @stdlib/gpu_emu and the device.
+// If either side fails, both must name the same work-item with the same
+// message; that work-item's inputs are then replaced with 1 and the case is
+// rerun, until a run completes and every output element can be compared.
+import { emulate } from "@stdlib/gpu_emu";
+
+let failures = [];
+let counts = { cases: 0, errors: 0, elements: 0 };
+
+fn to_type(v, t: string) {
+	return match (t) {
+		"i8" => i8(v), "i16" => i16(v), "i32" => i32(v), "i64" => i64(v),
+		"u8" => u8(v), "u16" => u16(v), "u32" => u32(v), "u64" => u64(v),
+		"f32" => f32(v), "f64" => f64(v),
+		_ => v
+	};
+}
+
+// The comparable part of an error: no work-item prefix, no line marker,
+// no source excerpt
+fn norm(msg): string {
+	let m = msg;
+	let i = m.find("): ");
+	if (i >= 0) { m = m.substr(i + 3); }
+	if (m.starts_with("[")) {
+		let j = m.find("] ");
+		if (j >= 0) { m = m.substr(j + 2); }
+	}
+	let nl = m.find("\n");
+	if (nl >= 0) { m = m.substr(0, nl); }
+	let ln = m.rfind(" (line ");
+	if (ln >= 0) { m = m.substr(0, ln); }
+	// Overflow wording varies by path, not by meaning: hemlockc says
+	// "i64 arithmetic" for every i64 overflow, and the interpreter says
+	// "i32 arithmetic" for mixed-type i32 operations (both pre-existing)
+	for (t in ["i32", "i64"]) {
+		m = m.replace(t + " addition", t + " arithmetic");
+		m = m.replace(t + " subtraction", t + " arithmetic");
+		m = m.replace(t + " multiplication", t + " arithmetic");
+	}
+	return m;
+}
+
+fn work_item(msg): i32 {
+	let i = msg.find("work-item (");
+	if (i < 0) { return -1; }
+	let rest = msg.substr(i + 11);
+	return i32(rest.substr(0, rest.find(",")));
+}
+
+fn same(x, y, tol: f64): bool {
+	if (x == y) { return true; }
+	if (x != x && y != y) { return true; }   // both NaN
+	if (tol > 0.0) {
+		let ax = f64(x);
+		let ay = f64(y);
+		let diff = ax - ay;
+		if (diff < 0.0) { diff = -diff; }
+		let scale = ax < 0.0 ? -ax : ax;
+		let sy = ay < 0.0 ? -ay : ay;
+		if (sy > scale) { scale = sy; }
+		return diff <= tol * scale;
+	}
+	return false;
+}
+
+fn fail(label: string, what: string) {
+	failures.push(label + ": " + what);
+}
+
+// global/local default to a 1-D range over the inputs; `safe` gives the
+// replacement inputs for a failing work-item (default: 1 for each input)
+export fn run_case(ctx, k, label: string, op: i32, ins: array, in_types: array, out_types: array, tol: f64,
+		global?: null, local?: null, safe?: null) {
+	counts.cases += 1;
+	let n = 1;
+	for (arr in ins) {
+		if (typeid(arr) == TYPEID_ARRAY) { n = arr.length; break; }
+	}
+	if (global == null) { global = [n]; }
+	let out_len = 1;
+	for (g in global) { out_len = out_len * g; }
+	// array inputs are buffers; anything else is a scalar argument
+	let cur = [];
+	for (arr in ins) {
+		if (typeid(arr) == TYPEID_ARRAY) { cur.push(arr.slice(0, arr.length)); } else { cur.push(arr); }
+	}
+	let rounds = 0;
+	let last_failed = -1;
+	loop {
+		let e_outs = [];
+		let zeros = [];
+		for (let j = 0; j < out_len; j++) { zeros.push(0); }
+		for (t in out_types) { e_outs.push(zeros.slice(0, out_len)); }
+		let e_args = [op];
+		for (arr in cur) { e_args.push(arr); }
+		for (arr in e_outs) { e_args.push(arr); }
+		let e_err = null;
+		try { emulate(k, global, local, e_args); } catch (e) { e_err = "" + e; }
+
+		let d_bufs = [];
+		let d_args = [op];
+		for (let j = 0; j < cur.length; j++) {
+			if (typeid(cur[j]) != TYPEID_ARRAY) {
+				d_args.push(cur[j]);
+				continue;
+			}
+			let d = ctx.from_array(cur[j], in_types[j]);
+			d_bufs.push(d);
+			d_args.push(d);
+		}
+		let d_outs = [];
+		for (t in out_types) {
+			let d = ctx.from_array(zeros, t);
+			d_outs.push(d);
+			d_bufs.push(d);
+			d_args.push(d);
+		}
+		let d_err = null;
+		try { ctx.launch(k, global, local, d_args); } catch (e) { d_err = "" + e; }
+		let results = [];
+		for (let j = 0; j < out_types.length; j++) {
+			results.push(ctx.to_array(d_outs[j], out_types[j], out_len));
+		}
+		for (d in d_bufs) { ctx.free(d); }
+
+		if (e_err != null || d_err != null) {
+			if (e_err == null || d_err == null || norm(e_err) != norm(d_err)
+				|| work_item(e_err) != work_item(d_err)) {
+				fail(label, "error mismatch\n    emulator: " + e_err + "\n    device:   " + d_err);
+				return null;
+			}
+			counts.errors += 1;
+			let w = work_item(d_err);
+			// The same work-item failing again after its inputs were replaced
+			// means it fails for every input (e.g. a constant bad index): the
+			// errors matched, but no clean run is possible
+			if (w <= last_failed) { return null; }
+			last_failed = w;
+			for (let j = 0; j < cur.length; j++) {
+				if (typeid(cur[j]) != TYPEID_ARRAY) { continue; }
+				let v = 1;
+				if (safe != null) { v = safe[j]; }
+				cur[j][w] = to_type(v, in_types[j]);
+			}
+			rounds += 1;
+			if (rounds > n) {
+				fail(label, "more errors than work-items");
+				return null;
+			}
+			continue;
+		}
+
+		for (let o = 0; o < out_types.length; o++) {
+			for (let j = 0; j < out_len; j++) {
+				counts.elements += 1;
+				if (!same(e_outs[o][j], results[o][j], tol)) {
+					let inputs = "";
+					for (arr in cur) {
+						if (typeid(arr) != TYPEID_ARRAY) { inputs = inputs + " " + arr; }
+						else if (j < arr.length) { inputs = inputs + " " + arr[j]; }
+					}
+					fail(label, "output " + o + " item " + j + " (inputs" + inputs + "): emulator "
+						+ e_outs[o][j] + " vs device " + results[o][j]);
+					return null;
+				}
+			}
+		}
+		return null;
+	}
+}
+
+export fn report() {
+	print("cases: " + counts.cases + ", errors matched: " + counts.errors + ", elements compared: " + counts.elements);
+	if (failures.length > 0) {
+		for (f in failures) { print("FAIL " + f); }
+		throw "" + failures.length + " differential case(s) failed";
+	}
+	print("emulator and device agree");
+}

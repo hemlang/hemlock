@@ -27,7 +27,7 @@
  * formatter, the serializer, and (later) device code generation.
  */
 
-#include "internal.h"
+#include "gpu_internal.h"
 #include <stdarg.h>
 
 // Device intrinsics a kernel may call, with their arity. Thread-index
@@ -123,22 +123,21 @@ static int is_reserved_name(const char *name) {
     return strncmp(name, HML_GPU_RESERVED_PREFIX, strlen(HML_GPU_RESERVED_PREFIX)) == 0;
 }
 
+// Exported for gpu_codegen.c
+int gpu_is_scalar_type(Type *t) { return is_scalar_type(t); }
+int gpu_is_buffer_type(Type *t) { return is_gpu_buffer_type(t); }
+Type *gpu_buffer_param(Expr *fn, const char *name) { return buffer_param(fn, name); }
+const char *gpu_scalar_kind_name(TypeKind k) { return scalar_kind_name(k); }
+int gpu_intrinsic_arity(const char *name) { return intrinsic_arity(name); }
+int gpu_is_conversion_intrinsic(const char *name) { return is_conversion_intrinsic(name); }
+
 // ========== VALIDATION ==========
 
-typedef struct {
-    Parser *p;
-    const char *kernel_name;
-    Expr *fn;
-    int failed;
-    // Position of the innermost statement being checked: the fallback for
-    // expressions the parser leaves without a line (some literals).
-    int stmt_line;
-    int stmt_column;
-} KernelCheck;
 
-static void kernel_error(KernelCheck *kc, int line, int column, const char *fmt, ...) {
+void kernel_error(KernelCheck *kc, int line, int column, const char *fmt, ...) {
     if (kc->failed) return;
     kc->failed = 1;
+    if (!kc->p) return;  // regenerating a validated kernel: nothing to report
     if (line <= 0) {
         line = kc->stmt_line;
         column = kc->stmt_column;
@@ -422,6 +421,14 @@ int validate_gpu_kernel(Parser *p, const char *name, Expr *fn, int line) {
     if (!kc.failed) {
         check_stmt(&kc, fn->as.function.body);
     }
+    if (!kc.failed) {
+        // Static typing (operand types, conversions, scopes) lives in the
+        // code generator; run it here so type errors are parse errors
+        GpuDeviceCode dc;
+        if (gpu_codegen(&kc, name, fn, &dc)) {
+            gpu_device_code_free(&dc);
+        }
+    }
     return !kc.failed;
 }
 
@@ -633,7 +640,44 @@ static Expr *field_obj(int num, const char **names, Expr **values) {
     return expr_object_literal(fnames, fvalues, num);
 }
 
-// { kind, name, params: [{ name, type, buffer }...], emulate }
+// { source, entry, sites: [{ msg, detail, buf, line }...], uses_f64,
+//   f64_reason, uses_groups, site_bits, err_slots }: the kernel compiled to OpenCL C for
+// @stdlib/gpu, or null if it does not type-check (already reported).
+static Expr *device_code_object(const char *name, Expr *kernel) {
+    KernelCheck kc = { NULL, name, kernel, 0, kernel->line, 1 };
+    GpuDeviceCode dc;
+    if (!gpu_codegen(&kc, name, kernel, &dc)) {
+        return expr_null();
+    }
+    Expr **sites = dc.num_sites > 0 ? malloc(sizeof(Expr*) * dc.num_sites) : NULL;
+    for (int i = 0; i < dc.num_sites; i++) {
+        const char *skeys[] = { "msg", "detail", "buf", "line" };
+        Expr *svals[] = {
+            expr_string(dc.sites[i].msg),
+            expr_string(dc.sites[i].detail),
+            dc.sites[i].buf ? expr_string(dc.sites[i].buf) : expr_null(),
+            expr_number_int(dc.sites[i].line),
+        };
+        sites[i] = field_obj(4, skeys, svals);
+    }
+    const char *keys[] = { "source", "entry", "sites", "uses_f64", "f64_reason", "uses_groups",
+                           "site_bits", "err_slots" };
+    Expr *vals[] = {
+        expr_string(dc.source),
+        expr_string(dc.entry),
+        expr_array_literal(sites, dc.num_sites),
+        expr_bool(dc.uses_f64),
+        dc.f64_reason ? expr_string(dc.f64_reason) : expr_null(),
+        expr_bool(dc.uses_groups),
+        expr_number_int(HML_GPU_SITE_BITS),
+        expr_number_int(HML_GPU_ERR_SLOTS),
+    };
+    Expr *obj = field_obj(8, keys, vals);
+    gpu_device_code_free(&dc);
+    return obj;
+}
+
+// { kind, name, params: [{ name, type, buffer }...], device, emulate }
 // Takes ownership of `kernel`.
 Expr *expr_gpu_kernel_descriptor(const char *name, Expr *kernel) {
     int nk = kernel->as.function.num_params;
@@ -652,16 +696,17 @@ Expr *expr_gpu_kernel_descriptor(const char *name, Expr *kernel) {
         params[i] = field_obj(3, keys, vals);
     }
 
-    const char *keys[] = { "kind", "name", "params", HML_GPU_EMULATE_FIELD };
+    const char *keys[] = { "kind", "name", "params", "device", HML_GPU_EMULATE_FIELD };
     Expr *vals[] = {
         expr_string(HML_GPU_KERNEL_KIND),
         expr_string(name),
         expr_array_literal(params, nk),
+        device_code_object(name, kernel),
         NULL,
     };
-    vals[3] = expr_gpu_emulate_fn(name, kernel);
-    Expr *desc = field_obj(4, keys, vals);
-    desc->line = vals[3]->line;
+    vals[4] = expr_gpu_emulate_fn(name, kernel);
+    Expr *desc = field_obj(5, keys, vals);
+    desc->line = vals[4]->line;
     return desc;
 }
 

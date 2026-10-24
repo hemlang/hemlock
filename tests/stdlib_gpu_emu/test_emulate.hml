@@ -71,7 +71,7 @@ gpu fn mathk(n: u32, vals: gpu_buffer<f32>, out: gpu_buffer<f32>, ints: gpu_buff
         if (k == 1) { continue; }
         acc += sqrt(v) + floor(v) + abs(v - 10);
     }
-    out[i] = max(acc, min(v, 1));
+    out[i] = max(acc, min(v, f32(1)));
     let s: i32 = 0;
     switch (i32(i) % 3) {
         case 0: s = 100; break;

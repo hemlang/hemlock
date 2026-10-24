@@ -1,0 +1,146 @@
+// Differential test: control flow, scoping, switch semantics, grids and
+// errors inside loops must behave the same compiled for the device as
+// under @stdlib/gpu_emu.
+import { gpu_context, DEVICE_ALL } from "@stdlib/gpu";
+import { run_case, report } from "./diff_harness.hml";
+
+let ctx = gpu_context({ device_type: DEVICE_ALL });
+
+gpu fn cf_loops(op: i32, xs: gpu_buffer<i32>, out: gpu_buffer<i32>, w: gpu_buffer<u8>) {
+    let i: u32 = global_id(0);
+    let x: i32 = xs[i];
+    let acc: i32 = 0;
+    outer: for (let a: i32 = 0; a < 6; a++) {
+        for (let b: i32 = 0; b < 6; b++) {
+            if (b == a) { continue outer; }
+            if (a + b > x) { break outer; }
+            acc += a * 10 + b;
+        }
+    }
+    let k: i32 = 0;
+    while (k < x) {
+        k += 3;
+        if (k == 9) { continue; }
+        acc -= 1;
+    }
+    loop {
+        if (acc % 7 == 0 || acc < -50) { break; }
+        acc -= 1;
+    }
+    let s: i32 = x;
+    {
+        let s: i32 = 100;
+        acc += s;
+    }
+    acc += s;
+    let sign: i32 = x < 0 ? -1 : (x == 0 ? 0 : 1);
+    if (sign < 0) {
+        acc *= 2;
+    } else if (sign == 0) {
+        acc += 1000;
+    } else {
+        acc -= 3;
+    }
+    if (op == 1 && x > 10) { return; }
+    out[i] = acc;
+    let b8: u8 = u8(250);
+    for (let j: i32 = 0; j < x; j++) { b8++; }
+    let d: i32 = 5;
+    d--;
+    --d;
+    w[i] = b8 + u8(d);
+}
+let small = [-5, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 20];
+run_case(ctx, cf_loops, "cf_loops", 0, [small], ["i32"], ["i32", "u8"], 0.0);
+run_case(ctx, cf_loops, "cf_loops early return", 1, [small], ["i32"], ["i32", "u8"], 0.0);
+
+gpu fn cf_switch(op: i32, xs: gpu_buffer<i32>, us: gpu_buffer<u32>, out: gpu_buffer<i32>) {
+    let i: u32 = global_id(0);
+    let r: i32 = 0;
+    // Hemlock compares switch cases by value: an unsigned never matches -1.
+    // (No input is u32 max: hemlockc's own switch matches it against -1, a
+    // pre-existing compiler parity bug, so the emulator would disagree there.)
+    switch (us[i]) {
+        case -1: r = 1; break;
+        case 4294967295: r = 2; break;
+        case 0: r = 3;
+        case 1: r += 10; break;
+        default: r = 99;
+    }
+    let small: i8 = i8(xs[i] % 100);
+    switch (small) {
+        case 200: r += 1000; break;
+        case -5: r += 500; break;
+        default: r += 7;
+    }
+    for (let k: i32 = 0; k < 3; k++) {
+        switch (k) {
+            case 1: continue;
+            default: r += k; break;
+        }
+        r += 100;
+    }
+    out[i] = r;
+}
+run_case(ctx, cf_switch, "cf_switch", 0,
+    [[0, -5, 5, 95, -95, 200, -105, 7], [u32(0), u32(1), u32(2), u32(5), u32(7), u32(0), u32(1), u32(3)]],
+    ["i32", "u32"], ["i32"], 0.0);
+
+gpu fn cf_grid(op: i32, w: gpu_buffer<u32>, ids: gpu_buffer<u32>) {
+    let x: u32 = global_id(0);
+    let y: u32 = global_id(1);
+    let z: u32 = global_id(2);
+    let k: u32 = (z * global_size(1) + y) * global_size(0) + x;
+    ids[k] = local_id(0) + 10 * group_id(1) + 100 * local_size(0) + 1000 * num_groups(2)
+        + 10000 * work_dim() + 100000 * global_id(5) + 200000 * global_size(7);
+}
+run_case(ctx, cf_grid, "cf_grid 3d", 0, [[u32(4)]], ["u32"], ["u32"], 0.0, [4, 6, 2], [2, 3, 1]);
+run_case(ctx, cf_grid, "cf_grid 2d", 0, [[u32(4)]], ["u32"], ["u32"], 0.0, [8, 3], [4, 1]);
+
+// Errors raised in loop conditions, loop increments, conversions, and the
+// order of index / value / store checks
+gpu fn cf_errors(op: i32, xs: gpu_buffer<i32>, out: gpu_buffer<u8>) {
+    let i: u32 = global_id(0);
+    let x: i32 = xs[i];
+    switch (op) {
+        case 0:
+            while (x * 1000 < 2000000000) { x += 100000000; }
+            out[i] = u8(x % 256);
+            break;
+        case 1:
+            for (let k: i32 = x; k < 10; k = k * 3 + 1) { out[i] = u8(k + 128); }
+            break;
+        case 2: out[i + 100] = u8(x); break;
+        case 3: out[i] = x; break;
+        case 4:
+            let t: u8 = x;
+            out[i] = t;
+            break;
+        case 5: out[i] = u8(xs[i + u32(1000)]); break;
+        case 6: out[i] = u8(abs(x) % 200); break;
+        case 7: out[i] = u8(-x); break;
+    }
+}
+let evals = [0, 1, 5, 255, 256, -1, 2000000, 2147483, 100000000, -100000000, 2147483647, -2147483648, 7, 300];
+run_case(ctx, cf_errors, "cf_errors loop condition", 0, [evals], ["i32"], ["u8"], 0.0, null, null, [2000000]);
+run_case(ctx, cf_errors, "cf_errors loop increment", 1, [evals], ["i32"], ["u8"], 0.0, null, null, [10]);
+for (op in [2, 3, 4, 5, 6, 7]) {
+    run_case(ctx, cf_errors, "cf_errors op " + op, op, [evals], ["i32"], ["u8"], 0.0, null, null, [1]);
+}
+
+// bool parameters travel as uchar; f32 accumulation must not be fused
+gpu fn cf_misc(op: i32, flag: bool, scale: f32, xs: gpu_buffer<f32>, out: gpu_buffer<f32>) {
+    let i: u32 = global_id(0);
+    let acc: f32 = 0.0;
+    for (let k: i32 = 0; k < 8; k++) {
+        acc = acc * scale + xs[i] * f32(0.1);
+    }
+    if (flag) { acc = -acc; }
+    out[i] = acc / scale;
+}
+let fx = [f32(0.1), f32(1.5), f32(-3.25), f32(1e-3), f32(123.456), f32(7.0), f32(1e20), f32(-2.5e-7)];
+run_case(ctx, cf_misc, "cf_misc flag", 0, [true, f32(1.1), fx], ["bool", "f32", "f32"], ["f32"], 0.0, [8]);
+run_case(ctx, cf_misc, "cf_misc no flag", 0, [false, f32(0.75), fx], ["bool", "f32", "f32"], ["f32"], 0.0, [8]);
+
+ctx.release();
+report();

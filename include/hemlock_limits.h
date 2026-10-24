@@ -23,6 +23,12 @@
 // are reserved inside kernels so they cannot collide with it
 #define HML_GPU_WI_PARAM "__hml_wi"
 #define HML_GPU_RESERVED_PREFIX "__hml_"
+// Device error reporting for compiled kernels: the error key is
+// (linear work-item id << HML_GPU_SITE_BITS) | site, so a kernel has at most
+// 2^HML_GPU_SITE_BITS - 1 checked operations; HML_GPU_ERR_SLOTS slots hold
+// the detail value (bad index, out-of-range value) of each new lowest key
+#define HML_GPU_SITE_BITS 16
+#define HML_GPU_ERR_SLOTS 64
 
 // Initial capacity for dynamic arrays (will grow as needed)
 #define HML_INITIAL_STATEMENTS_CAPACITY 256

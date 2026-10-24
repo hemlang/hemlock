@@ -239,15 +239,17 @@ let dx = ctx.from_array(xs, "f32");
 ctx.launch(k, [n], null, [u32(n), f32(2.0), dx]);  // arg types must match exactly
 ctx.free(dx); ctx.release();
 
-// Hemlock kernels: typed subset validated by the frontend. The name binds a
-// kernel descriptor (not callable). Run on the CPU with @stdlib/gpu_emu
-// (both backends); device codegen is not implemented yet.
+// Hemlock kernels: statically typed subset checked by the frontend, which
+// also compiles them to OpenCL C. The name binds a kernel descriptor (not
+// callable). Same results on a device and in the CPU emulator.
 gpu fn scale(n: u32, a: f32, x: gpu_buffer<f32>) {
     let i: u32 = global_id(0);
     if (i < n) { x[i] = a * x[i]; }
 }
+ctx.launch(scale, [n], null, [u32(n), f32(2.0), dx]);    // device buffer
 import { emulate } from "@stdlib/gpu_emu";
-emulate(scale, [n], null, [u32(n), f32(2.0), xs]);  // xs: array, updated in place
+emulate(scale, [n], null, [u32(n), f32(2.0), xs]);       // xs: array, in place
+// Float literals are f64 (and int / int is f64): x * 2.0 needs device fp64
 ```
 
 ### I/O

@@ -36,7 +36,7 @@ print(ys);   // [12, 14, 16, 18]
 Runs `kernel` over an N-D range and returns `null`. Buffers are modified in place.
 
 - `global`: `[x]`, `[x, y]` or `[x, y, z]`, with positive integer work-item counts
-- `local`: a work-group size of the same rank, where each entry must divide the matching `global` entry. Pass `null` for one work-group spanning the whole range
+- `local`: a work-group size of the same rank, where each entry must divide the matching `global` entry. Pass `null` for one work-group spanning the whole range. Kernels that use `local_id`, `group_id`, `local_size` or `num_groups` must pass an explicit size, as they must on a device
 - `args`: the kernel arguments in order. Pass a Hemlock array for each `gpu_buffer<T>` parameter, and a scalar of **exactly** the declared type for each scalar parameter
 
 ### `is_kernel(value): bool`
@@ -44,7 +44,10 @@ Runs `kernel` over an N-D range and returns `null`. Buffers are modified in plac
 
 ## Semantics
 
-The emulator defines the reference semantics for `gpu fn` kernels:
+The emulator defines the reference semantics for `gpu fn` kernels. Kernels
+compiled for a device through `@stdlib/gpu` match it, including which work-item
+an error is reported for (see [gpu.md](gpu.md#semantics-and-errors) for the
+small remaining differences):
 
 | Aspect | Behavior |
 |---|---|
@@ -71,7 +74,7 @@ barrier, and kernels have no `__local` memory yet.
 
 ## Testing Kernels Against a Device
 
-`tests/stdlib_gpu/test_emulator_matches_device.hml` runs one computation as a
-`gpu fn` under the emulator and as OpenCL C through `@stdlib/gpu`, then checks
-that the results are equal. Until `gpu fn` compiles to device code, that is
-the pattern for validating a kernel on real hardware.
+The same descriptor runs under `emulate()` and under `@stdlib/gpu`'s
+`ctx.launch`, so a kernel can be checked on real hardware by running both and
+comparing. `tests/stdlib_gpu/diff_harness.hml` does that, including matching
+the errors, and the differential tests next to it use it.

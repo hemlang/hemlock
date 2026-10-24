@@ -33,6 +33,7 @@
 // ctx.free(d); k.release(); prog.release(); ctx.release();
 
 import "libOpenCL.so.1";
+import { divi, floor, log10, pow } from "@stdlib/math";
 
 // ============================================================================
 // OpenCL Constants
@@ -68,6 +69,9 @@ let CL_DEVICE_NAME = 0x102B;
 let CL_DEVICE_VENDOR = 0x102C;
 let CL_DEVICE_VERSION = 0x102F;
 let CL_DEVICE_DOUBLE_FP_CONFIG = 0x1032;
+let CL_DEVICE_SINGLE_FP_CONFIG = 0x101B;
+let CL_DEVICE_EXTENSIONS = 0x1030;
+let CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT = 128;
 let CL_PROGRAM_BUILD_LOG = 0x1183;
 let CL_TRUE = 1;
 
@@ -75,6 +79,8 @@ let MAX_PLATFORMS = 16;
 let MAX_DEVICES = 64;
 let MAX_WORK_DIMS = 3;
 let INFO_BUF_SIZE = 1024;
+let EXT_BUF_SIZE = 8192;
+let U64_ALL_ONES = 18446744073709551615;
 
 // ============================================================================
 // OpenCL FFI Bindings (OpenCL 1.2 API surface)
@@ -170,6 +176,15 @@ fn device_string(device: ptr, param: i32): string {
 	return s;
 }
 
+fn device_extensions(device: ptr): string {
+	let buf = alloc(EXT_BUF_SIZE);
+	memset(buf, 0, EXT_BUF_SIZE);
+	clGetDeviceInfo(device, CL_DEVICE_EXTENSIONS, EXT_BUF_SIZE - 1, buf, null);
+	let s = __cstr_to_string(buf);
+	free(buf);
+	return s;
+}
+
 fn device_u64(device: ptr, param: i32): u64 {
 	let buf = alloc(8);
 	ptr_write_u64(buf, 0);
@@ -253,6 +268,10 @@ fn describe_device(platform: ptr, device: ptr) {
 		global_mem: device_u64(device, CL_DEVICE_GLOBAL_MEM_SIZE),
 		local_mem: device_u64(device, CL_DEVICE_LOCAL_MEM_SIZE),
 		has_f64: device_u64(device, CL_DEVICE_DOUBLE_FP_CONFIG) != 0,
+		// gpu fn kernels report errors with 64-bit atomics
+		has_int64_atomics: device_extensions(device).contains("cl_khr_int64_base_atomics"),
+		fp32_correct_div_sqrt:
+			(device_u64(device, CL_DEVICE_SINGLE_FP_CONFIG) & u64(CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT)) != 0,
 		_platform: platform,
 		_device: device,
 	};
@@ -356,6 +375,256 @@ fn pack_sizes(sizes, what: string) {
 }
 
 // ============================================================================
+// gpu fn kernels
+// ============================================================================
+
+fn is_gpu_fn(k): bool {
+	return typeid(k) == TYPEID_OBJECT && k.has("kind") && k.kind == "gpu_kernel" && k.has("device");
+}
+
+fn check_work_sizes(name: string, sizes, what: string) {
+	if (typeid(sizes) != TYPEID_ARRAY || sizes.length < 1 || sizes.length > MAX_WORK_DIMS) {
+		throw "gpu fn '" + name + "': " + what + " must be an array of 1 to " + MAX_WORK_DIMS + " sizes";
+	}
+	for (s in sizes) {
+		let t = typeid(s);
+		if (t < TYPEID_I8 || t > TYPEID_U64 || s < 1) {
+			throw "gpu fn '" + name + "': " + what + " entries must be positive integers, got " + s;
+		}
+	}
+}
+
+// Same argument rules as @stdlib/gpu_emu, with device buffers for gpu_buffer<T>
+fn check_gpu_fn_args(k, args: array) {
+	let who = "gpu fn '" + k.name + "'";
+	if (args.length != k.params.length) {
+		throw who + " takes " + k.params.length + " arguments, got " + args.length;
+	}
+	for (let i = 0; i < k.params.length; i++) {
+		let p = k.params[i];
+		let v = args[i];
+		let what = who + " arg " + i + " (" + p.name + ")";
+		if (p.buffer) {
+			if (typeid(v) != TYPEID_OBJECT || !v.has("_mem")) {
+				throw what + " expects a device buffer for gpu_buffer<" + p.type + ">, got " + typeof(v);
+			}
+			if (v._freed) { throw what + ": device buffer was already freed"; }
+			if (v.has("elem") && v.elem != p.type) {
+				throw what + " expects gpu_buffer<" + p.type + ">, got a buffer of " + v.elem;
+			}
+		} else if (typeof(v) != p.type) {
+			let hint = "";
+			if (typeof(v) == "f64" && p.type == "f32") { hint = " (float literals are f64; use f32(x))"; }
+			throw what + " expects " + p.type + ", got " + typeof(v) + hint;
+		}
+	}
+}
+
+// Build (once per context) the program for a gpu fn
+fn gpu_fn_kernel(ctx, k) {
+	let dc = k.device;
+	if (ctx._gpu_fns.has(dc.entry)) {
+		let built = ctx._gpu_fns[dc.entry];
+		if (built.source == dc.source) { return built.kernel; }
+	}
+	let options = "";
+	if (ctx.device.fp32_correct_div_sqrt) { options = "-cl-fp32-correctly-rounded-divide-sqrt"; }
+	let prog = ctx.program(dc.source, options);
+	let kern = prog.kernel(dc.entry);
+	if (ctx._gpu_fns.has(dc.entry)) {
+		let old = ctx._gpu_fns[dc.entry];
+		clReleaseKernel(old.kernel);
+		clReleaseProgram(old.program);
+	}
+	ctx._gpu_fns[dc.entry] = { source: dc.source, program: prog._program, kernel: kern._kernel };
+	return kern._kernel;
+}
+
+fn set_raw_arg(kernel: ptr, kname: string, index: i32, size: i32, writer) {
+	let slot = alloc(8);
+	writer(slot);
+	let rc = clSetKernelArg(kernel, index, size, slot);
+	free(slot);
+	check(rc, "setting kernel '" + kname + "' arg " + index);
+}
+
+// C's "%g" (6 significant digits), which the interpreter uses when an
+// error message shows a float value
+fn format_g(x: f64): string {
+	if (x != x) { return "nan"; }
+	if (x == 1.0 / 0.0) { return "inf"; }
+	if (x == -1.0 / 0.0) { return "-inf"; }
+	if (x == 0.0) {
+		if (1.0 / x < 0.0) { return "-0"; }
+		return "0";
+	}
+	let sign = "";
+	let a = x;
+	if (x < 0.0) { sign = "-"; a = -x; }
+	let e = i32(floor(log10(a)));
+	let digits = i64(floor(a / pow(10.0, f64(e - 5)) + 0.5));
+	if (digits >= 1000000) {
+		e += 1;
+		digits = i64(floor(a / pow(10.0, f64(e - 5)) + 0.5));
+	}
+	if (digits < 100000) {
+		e -= 1;
+		digits = i64(floor(a / pow(10.0, f64(e - 5)) + 0.5));
+	}
+	let ds = "" + digits;
+	if (e < -4 || e >= 6) {
+		let frac = ds.substr(1).trim_end();
+		while (frac.ends_with("0")) { frac = frac.substr(0, frac.length - 1); }
+		let mant = ds.substr(0, 1);
+		if (frac.length > 0) { mant = mant + "." + frac; }
+		let es = "" + (e < 0 ? -e : e);
+		if (es.length < 2) { es = "0" + es; }
+		return sign + mant + "e" + (e < 0 ? "-" : "+") + es;
+	}
+	let text = "";
+	if (e >= 0) {
+		text = ds.substr(0, e + 1) + "." + ds.substr(e + 1);
+	} else {
+		text = "0." + "0".repeat(-e - 1) + ds;
+	}
+	while (text.ends_with("0")) { text = text.substr(0, text.length - 1); }
+	if (text.ends_with(".")) { text = text.substr(0, text.length - 1); }
+	return sign + text;
+}
+
+fn reinterpret_u64(bits, as: string) {
+	let p = alloc(8);
+	ptr_write_u64(p, bits);
+	let v = null;
+	if (as == "i64") { v = ptr_deref_i64(p); }
+	if (as == "f64") { v = ptr_deref_f64(p); }
+	if (as == "f32") { v = ptr_deref_f32(p); }  // low 32 bits, little-endian
+	if (as == "u64") { v = bits; }
+	free(p);
+	return v;
+}
+
+// Turn the device error record into the emulator-style message and throw
+fn raise_gpu_fn_error(k, global: array, args: array, rec: array) {
+	let dc = k.device;
+	let key = rec[0];
+	let site_mask = (u64(1) << u64(dc.site_bits)) - u64(1);
+	let site = i32(key & site_mask);
+	let lin = key >> u64(dc.site_bits);
+	let detail = null;
+	let used = i32(rec[1]);
+	if (used > dc.err_slots) { used = dc.err_slots; }
+	for (let i = 0; i < used; i++) {
+		if (rec[2 + 2 * i] == key) { detail = rec[3 + 2 * i]; }
+	}
+	let s = dc.sites[site];
+	let msg = s.msg;
+	if (msg.contains("%v")) {
+		let shown = "?";
+		if (detail != null) {
+			let v = reinterpret_u64(detail, s.detail);
+			if (s.detail == "f32" || s.detail == "f64") {
+				shown = format_g(f64(v));
+			} else {
+				shown = "" + v;
+			}
+		}
+		msg = msg.replace("%v", shown);
+	}
+	if (msg.contains("%n")) {
+		let len = "?";
+		for (let i = 0; i < k.params.length; i++) {
+			if (k.params[i].name == s.buf) {
+				len = "" + divi(args[i].size, elem_size(k.params[i].type));
+			}
+		}
+		msg = msg.replace("%n", len);
+	}
+	let gx = u64(global[0]);
+	let gy = u64(1);
+	if (global.length > 1) { gy = u64(global[1]); }
+	let x = lin % gx;
+	let y = u64(divi(lin, gx)) % gy;
+	let z = u64(divi(lin, gx * gy));
+	throw "gpu fn '" + k.name + "' work-item (" + x + ", " + y + ", " + z + "): " + msg + " (line " + s.line + ")";
+}
+
+// Launch a gpu fn kernel on the context's device and wait for it.
+// Errors inside the kernel (overflow, bad index, failed conversion, ...)
+// are rethrown with the first failing work-item, like @stdlib/gpu_emu.
+fn launch_gpu_fn(ctx, k, global: array, local, args: array) {
+	let dc = k.device;
+	let who = "gpu fn '" + k.name + "'";
+	if (dc == null) { throw who + " has no device code"; }
+	check_work_sizes(k.name, global, "global size");
+	if (local != null) {
+		check_work_sizes(k.name, local, "local size");
+		if (local.length != global.length) {
+			throw who + ": local size rank (" + local.length + ") must match global (" + global.length + ")";
+		}
+		for (let d = 0; d < global.length; d++) {
+			if (global[d] % local[d] != 0) {
+				throw who + ": global size " + global[d] + " is not a multiple of local size " + local[d] + " in dimension " + d;
+			}
+		}
+	} else if (dc.uses_groups) {
+		throw who + " uses local_id/group_id/local_size/num_groups: pass an explicit local size";
+	}
+	if (dc.uses_f64 && !ctx.device.has_f64) {
+		throw who + " needs f64 (" + dc.f64_reason + "), but device '" + ctx.device.name + "' has no fp64 support";
+	}
+	if (!ctx.device.has_int64_atomics) {
+		throw who + ": device '" + ctx.device.name + "' lacks cl_khr_int64_base_atomics, needed for kernel error reporting";
+	}
+	check_gpu_fn_args(k, args);
+
+	let kern = gpu_fn_kernel(ctx, k);
+	let index = 0;
+	for (let i = 0; i < k.params.length; i++) {
+		let p = k.params[i];
+		let v = args[i];
+		if (p.buffer) {
+			set_raw_arg(kern, k.name, index, 8, fn(slot) { ptr_write_ptr(slot, v._mem); });
+			let count = u64(divi(v.size, elem_size(p.type)));
+			set_raw_arg(kern, k.name, index + 1, 8, fn(slot) { ptr_write_u64(slot, count); });
+			index += 2;
+		} else if (p.type == "bool") {
+			let byte = u8(0);
+			if (v) { byte = u8(1); }
+			set_raw_arg(kern, k.name, index, 1, fn(slot) { ptr_write_u8(slot, byte); });
+			index += 1;
+		} else {
+			set_arg(kern, k.name, index, v);
+			index += 1;
+		}
+	}
+
+	// Error record: [lowest key, slots used, (key, detail) * err_slots]
+	let rec_len = 2 + 2 * dc.err_slots;
+	let init = [U64_ALL_ONES];
+	for (let i = 1; i < rec_len; i++) { init.push(u64(0)); }
+	let err = ctx.from_array(init, "u64");
+	set_raw_arg(kern, k.name, index, 8, fn(slot) { ptr_write_ptr(slot, err._mem); });
+
+	let gp = pack_sizes(global, "global size");
+	let lp = pack_sizes(local, "local size");
+	let rc = clEnqueueNDRangeKernel(ctx._queue, kern, global.length, null, gp, lp, 0, null, null);
+	free(gp);
+	if (lp != null) { free(lp); }
+	if (rc != CL_SUCCESS) {
+		ctx.free(err);
+		check(rc, "launching " + who);
+	}
+	check(clFinish(ctx._queue), "clFinish");
+	let rec = ctx.to_array(err, "u64", rec_len);
+	ctx.free(err);
+	if (rec[0] != U64_ALL_ONES) {
+		raise_gpu_fn_error(k, global, args, rec);
+	}
+	return null;
+}
+
+// ============================================================================
 // Public API
 // ============================================================================
 
@@ -430,6 +699,7 @@ export fn gpu_context(opts?: null) {
 		_context: context,
 		_queue: queue,
 		_released: false,
+		_gpu_fns: {},
 
 		// Build a program from OpenCL C source. Throws with the build log on error.
 		fn program(source: string, options?: "") {
@@ -545,6 +815,7 @@ export fn gpu_context(opts?: null) {
 			let d = self.alloc(bytes);
 			self.write(d, host, bytes);
 			free(host);
+			d.elem = elem;
 			return d;
 		},
 
@@ -568,6 +839,9 @@ export fn gpu_context(opts?: null) {
 		//   local:  work-group size of the same rank, or null to let the driver pick
 		//   args:   kernel arguments in order (scalars, device buffers, local_mem())
 		fn launch(kernel, global: array, local, args: array) {
+			if (is_gpu_fn(kernel)) {
+				return launch_gpu_fn(self, kernel, global, local, args);
+			}
 			if (kernel._released) { throw "gpu: launch of released kernel '" + kernel.name + "'"; }
 			for (let i = 0; i < args.length; i++) {
 				set_arg(kernel._kernel, kernel.name, i, args[i]);
@@ -590,6 +864,11 @@ export fn gpu_context(opts?: null) {
 
 		fn release() {
 			if (self._released) { return null; }
+			for (key in self._gpu_fns.keys()) {
+				let built = self._gpu_fns[key];
+				clReleaseKernel(built.kernel);
+				clReleaseProgram(built.program);
+			}
 			clReleaseCommandQueue(self._queue);
 			clReleaseContext(self._context);
 			self._released = true;
