@@ -458,7 +458,14 @@ static void serialize_expr(SerializeContext *ctx, Expr *expr) {
             break;
 
         case EXPR_FUNCTION:
-            write_u8(ctx, expr->as.function.is_async ? 1 : 0);
+            // Flags byte: bit 0 async, bit 1 gpu. A gpu fn stub serializes its
+            // name and the kernel; the stub is rebuilt on load.
+            write_u8(ctx, (expr->as.function.is_async ? 1 : 0) |
+                          (expr->as.function.is_gpu ? 2 : 0));
+            if (expr->as.function.is_gpu) {
+                write_string_id(ctx, expr->as.function.gpu_name);
+                expr = expr->as.function.gpu_kernel;
+            }
             write_u32(ctx, (uint32_t)expr->as.function.num_params);
             for (int i = 0; i < expr->as.function.num_params; i++) {
                 write_string_id(ctx, expr->as.function.param_names[i]);
@@ -787,7 +794,9 @@ static Expr* deserialize_expr_inner(DeserializeContext *ctx) {
             break;
 
         case EXPR_FUNCTION: {
-            expr->as.function.is_async = read_u8(ctx);
+            uint8_t fn_flags = read_u8(ctx);
+            expr->as.function.is_async = fn_flags & 1;
+            char *gpu_name = (fn_flags & 2) ? read_string_id(ctx) : NULL;
             expr->as.function.num_params = (int)read_count(ctx);
             if (expr->as.function.num_params > 0) {
                 expr->as.function.param_names = malloc(expr->as.function.num_params * sizeof(char*));
@@ -817,6 +826,10 @@ static Expr* deserialize_expr_inner(DeserializeContext *ctx) {
             }
             expr->as.function.return_type = deserialize_type(ctx);
             expr->as.function.body = deserialize_stmt(ctx);
+            if (gpu_name) {
+                expr = expr_gpu_kernel_stub(gpu_name, expr);
+                free(gpu_name);
+            }
             break;
         }
 

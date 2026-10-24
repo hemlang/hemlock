@@ -13,6 +13,10 @@
 // Maximum number of function parameters (hard limit)
 #define HML_MAX_FUNCTION_PARAMS 64
 
+// gpu fn kernels: contextual keyword and the device buffer parameter type
+#define HML_GPU_KEYWORD "gpu"
+#define HML_GPU_BUFFER_TYPE "gpu_buffer"
+
 // Initial capacity for dynamic arrays (will grow as needed)
 #define HML_INITIAL_STATEMENTS_CAPACITY 256
 #define HML_INITIAL_ARRAY_LITERAL_CAPACITY 64

@@ -230,6 +230,23 @@ ch.send(value); let val = ch.recv(); ch.close();
 
 **Memory ownership:** Tasks share pointers but copy primitives. Use `join()` before `free()` when sharing `ptr`.
 
+### GPU (preview)
+```hemlock
+import { gpu_context } from "@stdlib/gpu";   // OpenCL via FFI
+let ctx = gpu_context();
+let k = ctx.program(opencl_c_source).kernel("saxpy");
+let dx = ctx.from_array(xs, "f32");
+ctx.launch(k, [n], null, [u32(n), f32(2.0), dx]);  // arg types must match exactly
+ctx.free(dx); ctx.release();
+
+// Hemlock kernels: typed subset, validated by the frontend; device codegen
+// not implemented yet, so the host binding throws when called
+gpu fn scale(n: u32, a: f32, x: gpu_buffer<f32>) {
+    let i: u32 = global_id(0);
+    if (i < n) { x[i] = a * x[i]; }
+}
+```
+
 ### I/O
 ```hemlock
 import { open } from "@stdlib/fs";
@@ -264,7 +281,7 @@ Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
 ---
 
-## Standard Library (54 modules)
+## Standard Library (55 modules)
 
 Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 
@@ -292,6 +309,7 @@ Side-effect imports (no bindings, module top-level runs): `import "./suite.hml";
 | `fmt` | String formatting utilities |
 | `fs` | open, open_fd, fileno, read_file, write_file, list_dir, exists |
 | `glob` | File pattern matching |
+| `gpu` | GPU compute via OpenCL: devices, buffers, kernel launch |
 | `hash` | sha1, sha256, sha512, md5, djb2, crc32, adler32 |
 | `http` | http_get, http_post, http_request |
 | `ipc` | Inter-process communication |

@@ -1,0 +1,6 @@
+on device0
+function
+true
+gpu fn 'saxpy' is a device kernel and cannot be called from host code
+gpu fn 'fill' is a device kernel and cannot be called from host code
+gpu fn 'clamp_all' is a device kernel and cannot be called from host code

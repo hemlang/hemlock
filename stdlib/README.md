@@ -66,6 +66,7 @@ The module list below is intentionally generated from the checked-in stdlib inve
 | `fmt` | `@stdlib/fmt` | [docs/fmt.md](docs/fmt.md) |
 | `fs` | `@stdlib/fs` | [docs/fs.md](docs/fs.md) |
 | `glob` | `@stdlib/glob` | [docs/glob.md](docs/glob.md) |
+| `gpu` | `@stdlib/gpu` | [docs/gpu.md](docs/gpu.md) |
 | `hash` | `@stdlib/hash` | [docs/hash.md](docs/hash.md) |
 | `http` | `@stdlib/http` | [docs/http.md](docs/http.md) |
 | `ipc` | `@stdlib/ipc` | [docs/ipc.md](docs/ipc.md) |

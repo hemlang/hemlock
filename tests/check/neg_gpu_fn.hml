@@ -1,0 +1,9 @@
+// A valid gpu fn produces no diagnostics; `gpu` stays usable as a name.
+let gpu = 0;
+gpu fn scale(n: u32, a: f32, xs: gpu_buffer<f32>) {
+    let i: u32 = global_id(0);
+    if (i < n) {
+        xs[i] = a * xs[i];
+    }
+}
+print(gpu);

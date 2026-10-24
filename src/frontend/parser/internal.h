@@ -59,4 +59,10 @@ Type* parse_type(Parser *p);
 Stmt* statement(Parser *p);
 Stmt* block_statement(Parser *p);
 
+// ========== GPU KERNELS (from gpu_kernel.c) ==========
+
+// Check a parsed `gpu fn` against the kernel subset; reports the first
+// violation as a parse error. Returns 1 if the kernel is valid.
+int validate_gpu_kernel(Parser *p, const char *name, Expr *fn, int line);
+
 #endif // HEMLOCK_PARSER_INTERNAL_H

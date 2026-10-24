@@ -469,6 +469,14 @@ void fmt_type(FmtCtx *ctx, Type *type) {
             if (type->type_name) {
                 buf_append(&ctx->buf, type->type_name);
             }
+            if (type->num_type_args > 0) {
+                buf_append(&ctx->buf, "<");
+                for (int i = 0; i < type->num_type_args; i++) {
+                    if (i > 0) buf_append(&ctx->buf, ", ");
+                    fmt_type(ctx, type->type_args[i]);
+                }
+                buf_append(&ctx->buf, ">");
+            }
             break;
         case TYPE_GENERIC_OBJECT: buf_append(&ctx->buf, "object"); break;
         case TYPE_ENUM:

@@ -1,0 +1,599 @@
+// @stdlib/gpu - GPU compute via OpenCL (FFI)
+//
+// Explicit, manual GPU programming:
+// - Device discovery (gpu_available, gpu_devices)
+// - Contexts with one device and one in-order command queue
+// - Programs built from OpenCL C source, kernels looked up by name
+// - Device buffers with explicit alloc / write / read / free
+// - Kernel launch with arguments marshalled by their Hemlock runtime type
+//
+// Nothing is implicit: no unified memory, no automatic transfers, no
+// automatic release. Every device allocation must be freed with
+// ctx.free(), and ctx.release() tears down the context.
+//
+// Kernel arguments are sized from the value's runtime type, so the type
+// you pass must match the kernel's parameter type exactly. A float literal
+// is f64 in Hemlock: pass f32(2.0) for an OpenCL `float` parameter.
+//
+// System Requirements:
+// - An OpenCL ICD loader (libOpenCL.so.1) and at least one driver (ICD)
+// - On Debian/Ubuntu: sudo apt-get install ocl-icd-libopencl1
+//   plus a driver, e.g. pocl-opencl-icd (CPU), or your GPU vendor's ICD
+//
+// Usage:
+// import { gpu_context } from "@stdlib/gpu";
+//
+// let ctx = gpu_context();
+// let prog = ctx.program("__kernel void twice(__global float *x) {"
+//     + " size_t i = get_global_id(0); x[i] = x[i] * 2.0f; }");
+// let k = prog.kernel("twice");
+// let d = ctx.from_array([1.0, 2.0, 3.0], "f32");
+// ctx.launch(k, [3], null, [d]);
+// print(ctx.to_array(d, "f32", 3));   // [2, 4, 6]
+// ctx.free(d); k.release(); prog.release(); ctx.release();
+
+import "libOpenCL.so.1";
+
+// ============================================================================
+// OpenCL Constants
+// ============================================================================
+
+export let CL_SUCCESS = 0;
+export let CL_DEVICE_NOT_FOUND = -1;
+export let CL_BUILD_PROGRAM_FAILURE = -11;
+export let CL_INVALID_ARG_SIZE = -51;
+export let CL_PLATFORM_NOT_FOUND_KHR = -1001;
+
+// Device types (cl_device_type bitfield)
+export let DEVICE_DEFAULT = 1;
+export let DEVICE_CPU = 2;
+export let DEVICE_GPU = 4;
+export let DEVICE_ACCELERATOR = 8;
+export let DEVICE_ALL = 0xFFFFFFFF;
+
+// Memory flags (cl_mem_flags)
+export let MEM_READ_WRITE = 1;
+export let MEM_WRITE_ONLY = 2;
+export let MEM_READ_ONLY = 4;
+
+let CL_PLATFORM_VERSION = 0x0901;
+let CL_PLATFORM_NAME = 0x0902;
+let CL_PLATFORM_VENDOR = 0x0903;
+let CL_DEVICE_TYPE = 0x1000;
+let CL_DEVICE_MAX_COMPUTE_UNITS = 0x1002;
+let CL_DEVICE_MAX_WORK_GROUP_SIZE = 0x1004;
+let CL_DEVICE_GLOBAL_MEM_SIZE = 0x101F;
+let CL_DEVICE_LOCAL_MEM_SIZE = 0x1023;
+let CL_DEVICE_NAME = 0x102B;
+let CL_DEVICE_VENDOR = 0x102C;
+let CL_DEVICE_VERSION = 0x102F;
+let CL_DEVICE_DOUBLE_FP_CONFIG = 0x1032;
+let CL_PROGRAM_BUILD_LOG = 0x1183;
+let CL_TRUE = 1;
+
+let MAX_PLATFORMS = 16;
+let MAX_DEVICES = 64;
+let MAX_WORK_DIMS = 3;
+let INFO_BUF_SIZE = 1024;
+
+// ============================================================================
+// OpenCL FFI Bindings (OpenCL 1.2 API surface)
+// ============================================================================
+
+extern fn clGetPlatformIDs(num_entries: u32, platforms: ptr, num_platforms: ptr): i32;
+extern fn clGetPlatformInfo(platform: ptr, param: u32, size: u64, value: ptr, size_ret: ptr): i32;
+extern fn clGetDeviceIDs(platform: ptr, device_type: u64, num_entries: u32, devices: ptr, num_devices: ptr): i32;
+extern fn clGetDeviceInfo(device: ptr, param: u32, size: u64, value: ptr, size_ret: ptr): i32;
+extern fn clCreateContext(props: ptr, num_devices: u32, devices: ptr, notify: ptr, user_data: ptr, errcode: ptr): ptr;
+extern fn clReleaseContext(context: ptr): i32;
+extern fn clCreateCommandQueue(context: ptr, device: ptr, props: u64, errcode: ptr): ptr;
+extern fn clReleaseCommandQueue(queue: ptr): i32;
+extern fn clCreateProgramWithSource(context: ptr, count: u32, strings: ptr, lengths: ptr, errcode: ptr): ptr;
+extern fn clBuildProgram(program: ptr, num_devices: u32, devices: ptr, options: ptr, notify: ptr, user_data: ptr): i32;
+extern fn clGetProgramBuildInfo(program: ptr, device: ptr, param: u32, size: u64, value: ptr, size_ret: ptr): i32;
+extern fn clReleaseProgram(program: ptr): i32;
+extern fn clCreateKernel(program: ptr, name: ptr, errcode: ptr): ptr;
+extern fn clSetKernelArg(kernel: ptr, index: u32, size: u64, value: ptr): i32;
+extern fn clReleaseKernel(kernel: ptr): i32;
+extern fn clCreateBuffer(context: ptr, flags: u64, size: u64, host_ptr: ptr, errcode: ptr): ptr;
+extern fn clReleaseMemObject(mem: ptr): i32;
+extern fn clEnqueueWriteBuffer(queue: ptr, mem: ptr, blocking: u32, offset: u64, size: u64, src: ptr, num_events: u32, wait_list: ptr, event: ptr): i32;
+extern fn clEnqueueReadBuffer(queue: ptr, mem: ptr, blocking: u32, offset: u64, size: u64, dst: ptr, num_events: u32, wait_list: ptr, event: ptr): i32;
+extern fn clEnqueueNDRangeKernel(queue: ptr, kernel: ptr, work_dim: u32, global_offset: ptr, global_size: ptr, local_size: ptr, num_events: u32, wait_list: ptr, event: ptr): i32;
+extern fn clFinish(queue: ptr): i32;
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+// Name for an OpenCL error code (common ones; others print as the number)
+export fn cl_error_name(code: i32): string {
+	return match (code) {
+		0 => "CL_SUCCESS",
+		-1 => "CL_DEVICE_NOT_FOUND",
+		-2 => "CL_DEVICE_NOT_AVAILABLE",
+		-4 => "CL_MEM_OBJECT_ALLOCATION_FAILURE",
+		-5 => "CL_OUT_OF_RESOURCES",
+		-6 => "CL_OUT_OF_HOST_MEMORY",
+		-11 => "CL_BUILD_PROGRAM_FAILURE",
+		-30 => "CL_INVALID_VALUE",
+		-33 => "CL_INVALID_DEVICE",
+		-34 => "CL_INVALID_CONTEXT",
+		-36 => "CL_INVALID_COMMAND_QUEUE",
+		-38 => "CL_INVALID_MEM_OBJECT",
+		-44 => "CL_INVALID_PROGRAM",
+		-45 => "CL_INVALID_PROGRAM_EXECUTABLE",
+		-46 => "CL_INVALID_KERNEL_NAME",
+		-48 => "CL_INVALID_KERNEL",
+		-49 => "CL_INVALID_ARG_INDEX",
+		-50 => "CL_INVALID_ARG_VALUE",
+		-51 => "CL_INVALID_ARG_SIZE",
+		-52 => "CL_INVALID_KERNEL_ARGS",
+		-53 => "CL_INVALID_WORK_DIMENSION",
+		-54 => "CL_INVALID_WORK_GROUP_SIZE",
+		-55 => "CL_INVALID_WORK_ITEM_SIZE",
+		-61 => "CL_INVALID_BUFFER_SIZE",
+		-63 => "CL_INVALID_GLOBAL_WORK_SIZE",
+		-1001 => "CL_PLATFORM_NOT_FOUND_KHR",
+		n => "CL error " + n
+	};
+}
+
+fn check(code: i32, what: string) {
+	if (code != CL_SUCCESS) {
+		throw "gpu: " + what + " failed: " + cl_error_name(code);
+	}
+}
+
+// Read an i32 errcode out-parameter, free it, and throw if it is an error
+fn check_errcode(errp: ptr, what: string) {
+	let code = ptr_deref_i32(errp);
+	free(errp);
+	check(code, what);
+}
+
+fn platform_string(platform: ptr, param: i32): string {
+	let buf = alloc(INFO_BUF_SIZE);
+	memset(buf, 0, INFO_BUF_SIZE);
+	clGetPlatformInfo(platform, param, INFO_BUF_SIZE - 1, buf, null);
+	let s = __cstr_to_string(buf);
+	free(buf);
+	return s;
+}
+
+fn device_string(device: ptr, param: i32): string {
+	let buf = alloc(INFO_BUF_SIZE);
+	memset(buf, 0, INFO_BUF_SIZE);
+	clGetDeviceInfo(device, param, INFO_BUF_SIZE - 1, buf, null);
+	let s = __cstr_to_string(buf);
+	free(buf);
+	return s;
+}
+
+fn device_u64(device: ptr, param: i32): u64 {
+	let buf = alloc(8);
+	ptr_write_u64(buf, 0);
+	clGetDeviceInfo(device, param, 8, buf, null);
+	let v = ptr_deref_u64(buf);
+	free(buf);
+	return v;
+}
+
+fn device_u32(device: ptr, param: i32): u32 {
+	let buf = alloc(4);
+	ptr_write_u32(buf, 0);
+	clGetDeviceInfo(device, param, 4, buf, null);
+	let v = ptr_deref_u32(buf);
+	free(buf);
+	return v;
+}
+
+fn device_type_name(t: u64): string {
+	if ((t & DEVICE_GPU) != 0) { return "gpu"; }
+	if ((t & DEVICE_CPU) != 0) { return "cpu"; }
+	if ((t & DEVICE_ACCELERATOR) != 0) { return "accelerator"; }
+	return "other";
+}
+
+// Platform handles as an array of ptr. Returns [] when no driver is installed.
+fn platform_handles(): array {
+	let count_p = alloc(4);
+	ptr_write_u32(count_p, 0);
+	let rc = clGetPlatformIDs(0, null, count_p);
+	let n = ptr_deref_u32(count_p);
+	free(count_p);
+	if (rc == CL_PLATFORM_NOT_FOUND_KHR || n == 0) {
+		return [];
+	}
+	check(rc, "clGetPlatformIDs");
+	if (n > MAX_PLATFORMS) { n = MAX_PLATFORMS; }
+
+	let list = alloc(n * 8);
+	check(clGetPlatformIDs(n, list, null), "clGetPlatformIDs");
+	let out = [];
+	for (let i = 0; i < n; i++) {
+		out.push(ptr_deref_ptr(ptr_offset(list, i, 8)));
+	}
+	free(list);
+	return out;
+}
+
+// Device handles of a given type on one platform. Returns [] if none match.
+fn device_handles(platform: ptr, device_type: u64): array {
+	let count_p = alloc(4);
+	ptr_write_u32(count_p, 0);
+	let rc = clGetDeviceIDs(platform, device_type, 0, null, count_p);
+	let n = ptr_deref_u32(count_p);
+	free(count_p);
+	if (rc == CL_DEVICE_NOT_FOUND || n == 0) {
+		return [];
+	}
+	check(rc, "clGetDeviceIDs");
+	if (n > MAX_DEVICES) { n = MAX_DEVICES; }
+
+	let list = alloc(n * 8);
+	check(clGetDeviceIDs(platform, device_type, n, list, null), "clGetDeviceIDs");
+	let out = [];
+	for (let i = 0; i < n; i++) {
+		out.push(ptr_deref_ptr(ptr_offset(list, i, 8)));
+	}
+	free(list);
+	return out;
+}
+
+fn describe_device(platform: ptr, device: ptr) {
+	return {
+		name: device_string(device, CL_DEVICE_NAME).trim(),
+		vendor: device_string(device, CL_DEVICE_VENDOR).trim(),
+		version: device_string(device, CL_DEVICE_VERSION).trim(),
+		platform: platform_string(platform, CL_PLATFORM_NAME).trim(),
+		type: device_type_name(device_u64(device, CL_DEVICE_TYPE)),
+		compute_units: device_u32(device, CL_DEVICE_MAX_COMPUTE_UNITS),
+		max_work_group_size: device_u64(device, CL_DEVICE_MAX_WORK_GROUP_SIZE),
+		global_mem: device_u64(device, CL_DEVICE_GLOBAL_MEM_SIZE),
+		local_mem: device_u64(device, CL_DEVICE_LOCAL_MEM_SIZE),
+		has_f64: device_u64(device, CL_DEVICE_DOUBLE_FP_CONFIG) != 0,
+		_platform: platform,
+		_device: device,
+	};
+}
+
+// Bytes per element for the element types the array helpers understand
+fn elem_size(elem: string): i32 {
+	return match (elem) {
+		"i8" | "u8" => 1,
+		"i16" | "u16" => 2,
+		"i32" | "u32" | "f32" => 4,
+		"i64" | "u64" | "f64" => 8,
+		_ => 0
+	};
+}
+
+fn write_elem(p: ptr, elem: string, v) {
+	match (elem) {
+		"i8" => ptr_write_i8(p, v),
+		"u8" => ptr_write_u8(p, v),
+		"i16" => ptr_write_i16(p, v),
+		"u16" => ptr_write_u16(p, v),
+		"i32" => ptr_write_i32(p, v),
+		"u32" => ptr_write_u32(p, v),
+		"i64" => ptr_write_i64(p, v),
+		"u64" => ptr_write_u64(p, v),
+		"f32" => ptr_write_f32(p, v),
+		"f64" => ptr_write_f64(p, v),
+		_ => null
+	};
+}
+
+fn read_elem(p: ptr, elem: string) {
+	return match (elem) {
+		"i8" => ptr_deref_i8(p),
+		"u8" => ptr_deref_u8(p),
+		"i16" => ptr_deref_i16(p),
+		"u16" => ptr_deref_u16(p),
+		"i32" => ptr_deref_i32(p),
+		"u32" => ptr_deref_u32(p),
+		"i64" => ptr_deref_i64(p),
+		"u64" => ptr_deref_u64(p),
+		"f32" => ptr_deref_f32(p),
+		"f64" => ptr_deref_f64(p),
+		_ => null
+	};
+}
+
+// Set one kernel argument, sized by the value's runtime type.
+fn set_arg(kernel: ptr, kname: string, index: i32, v) {
+	let what = "kernel '" + kname + "' arg " + index;
+
+	// Device buffer: pass its cl_mem handle
+	if (typeid(v) == TYPEID_OBJECT && v.has("_mem")) {
+		if (v._freed) { throw "gpu: " + what + ": device buffer was already freed"; }
+		let slot = alloc(8);
+		ptr_write_ptr(slot, v._mem);
+		let rc = clSetKernelArg(kernel, index, 8, slot);
+		free(slot);
+		check(rc, "setting " + what);
+		return null;
+	}
+
+	// __local scratch: size only, no value
+	if (typeid(v) == TYPEID_OBJECT && v.has("_local_bytes")) {
+		check(clSetKernelArg(kernel, index, v._local_bytes, null), "setting " + what + " (local)");
+		return null;
+	}
+
+	let t = typeof(v);
+	let size = elem_size(t);
+	if (size == 0) {
+		throw "gpu: " + what + ": cannot pass a " + t
+			+ " (use a numeric scalar, a device buffer, or local_mem(bytes))";
+	}
+	let slot = alloc(8);
+	write_elem(slot, t, v);
+	let rc = clSetKernelArg(kernel, index, size, slot);
+	free(slot);
+	if (rc == CL_INVALID_ARG_SIZE) {
+		let hint = "";
+		if (t == "f64") { hint = " (float literals are f64; use f32(x) for a `float` parameter)"; }
+		if (t == "i32") { hint = " (use i64(x)/u64(x) for a `long`/`size_t`-sized parameter)"; }
+		throw "gpu: " + what + ": size mismatch, passed " + t + " (" + size + " bytes)" + hint;
+	}
+	check(rc, "setting " + what);
+	return null;
+}
+
+// Pack up to 3 work sizes into a size_t[] (caller frees). null stays null.
+fn pack_sizes(sizes, what: string) {
+	if (sizes == null) { return null; }
+	if (typeid(sizes) != TYPEID_ARRAY || sizes.length < 1 || sizes.length > MAX_WORK_DIMS) {
+		throw "gpu: " + what + " must be an array of 1 to " + MAX_WORK_DIMS + " sizes";
+	}
+	let p = alloc(sizes.length * 8);
+	for (let i = 0; i < sizes.length; i++) {
+		ptr_write_u64(ptr_offset(p, i, 8), sizes[i]);
+	}
+	return p;
+}
+
+// ============================================================================
+// Public API
+// ============================================================================
+
+// True if at least one OpenCL platform with at least one device is present
+export fn gpu_available(): bool {
+	for (p in platform_handles()) {
+		if (device_handles(p, DEVICE_ALL).length > 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// Every OpenCL device on every platform, as descriptor objects
+export fn gpu_devices() {
+	let out = [];
+	for (p in platform_handles()) {
+		for (d in device_handles(p, DEVICE_ALL)) {
+			out.push(describe_device(p, d));
+		}
+	}
+	return out;
+}
+
+// Size-only marker for a __local kernel argument
+export fn local_mem(bytes: i32) {
+	return { _local_bytes: bytes };
+}
+
+// Create a context with one device and one in-order command queue.
+//   opts.device:      a descriptor from gpu_devices() (default: first GPU,
+//                     falling back to the first device of any type)
+//   opts.device_type: DEVICE_GPU / DEVICE_CPU / ... (used when no device given)
+export fn gpu_context(opts?: null) {
+	let dev = null;
+	if (opts != null && opts.has("device")) {
+		dev = opts.device;
+	} else {
+		let want = DEVICE_GPU;
+		if (opts != null && opts.has("device_type")) { want = opts.device_type; }
+		for (p in platform_handles()) {
+			let ds = device_handles(p, want);
+			if (ds.length > 0) { dev = describe_device(p, ds[0]); break; }
+		}
+		if (dev == null && want == DEVICE_GPU) {
+			let all = gpu_devices();
+			if (all.length > 0) { dev = all[0]; }
+		}
+	}
+	if (dev == null) {
+		throw "gpu: no OpenCL device found (is an ICD driver installed?)";
+	}
+
+	let ctx_devs = alloc(8);
+	ptr_write_ptr(ctx_devs, dev._device);
+	let ctx_err = alloc(4);
+	let context = clCreateContext(null, 1, ctx_devs, null, null, ctx_err);
+	free(ctx_devs);
+	check_errcode(ctx_err, "clCreateContext");
+
+	ctx_err = alloc(4);
+	let queue = clCreateCommandQueue(context, dev._device, 0, ctx_err);
+	let qcode = ptr_deref_i32(ctx_err);
+	free(ctx_err);
+	if (qcode != CL_SUCCESS) {
+		clReleaseContext(context);
+		check(qcode, "clCreateCommandQueue");
+	}
+
+	return {
+		device: dev,
+		_context: context,
+		_queue: queue,
+		_released: false,
+
+		// Build a program from OpenCL C source. Throws with the build log on error.
+		fn program(source: string, options?: "") {
+			let src_c = __string_to_cstr(source);
+			let strings = alloc(8);
+			ptr_write_ptr(strings, src_c);
+			let perr = alloc(4);
+			let prog = clCreateProgramWithSource(self._context, 1, strings, null, perr);
+			free(strings);
+			free(src_c);
+			check_errcode(perr, "clCreateProgramWithSource");
+
+			let dev_list = alloc(8);
+			ptr_write_ptr(dev_list, self.device._device);
+			let opts_c = __string_to_cstr(options);
+			let rc = clBuildProgram(prog, 1, dev_list, opts_c, null, null);
+			free(opts_c);
+			free(dev_list);
+			if (rc != CL_SUCCESS) {
+				let log_size_p = alloc(8);
+				ptr_write_u64(log_size_p, 0);
+				clGetProgramBuildInfo(prog, self.device._device, CL_PROGRAM_BUILD_LOG, 0, null, log_size_p);
+				let log_size = ptr_deref_u64(log_size_p);
+				free(log_size_p);
+				let log = "";
+				if (log_size > 1) {
+					let log_buf = alloc(log_size + 1);
+					memset(log_buf, 0, log_size + 1);
+					clGetProgramBuildInfo(prog, self.device._device, CL_PROGRAM_BUILD_LOG, log_size, log_buf, null);
+					log = __cstr_to_string(log_buf).trim();
+					free(log_buf);
+				}
+				clReleaseProgram(prog);
+				throw "gpu: program build failed: " + cl_error_name(rc) + "\n" + log;
+			}
+
+			return {
+				_program: prog,
+				_released: false,
+
+				// Look up a __kernel function by name
+				fn kernel(name: string) {
+					let name_c = __string_to_cstr(name);
+					let kerr = alloc(4);
+					let k = clCreateKernel(self._program, name_c, kerr);
+					free(name_c);
+					check_errcode(kerr, "clCreateKernel('" + name + "')");
+					return {
+						name: name,
+						_kernel: k,
+						_released: false,
+						fn release() {
+							if (!self._released) { clReleaseKernel(self._kernel); self._released = true; }
+						},
+					};
+				},
+
+				fn release() {
+					if (!self._released) { clReleaseProgram(self._program); self._released = true; }
+				},
+			};
+		},
+
+		// Allocate an uninitialized device buffer of `bytes` bytes
+		fn alloc(bytes: i32, flags?: 1) {
+			let aerr = alloc(4);
+			let mem = clCreateBuffer(self._context, flags, bytes, null, aerr);
+			check_errcode(aerr, "clCreateBuffer(" + bytes + " bytes)");
+			return { _mem: mem, size: bytes, _freed: false };
+		},
+
+		fn free(dbuf) {
+			if (dbuf._freed) { throw "gpu: double free of device buffer"; }
+			check(clReleaseMemObject(dbuf._mem), "clReleaseMemObject");
+			dbuf._freed = true;
+		},
+
+		// Blocking host -> device copy. src is a buffer (bytes defaults to
+		// its length) or a ptr (bytes required).
+		fn write(dbuf, src, bytes?: -1) {
+			let p = src;
+			if (typeid(src) == TYPEID_BUFFER) {
+				p = buffer_ptr(src);
+				if (bytes < 0) { bytes = src.length; }
+			}
+			if (bytes < 0) { throw "gpu: write from a ptr needs an explicit byte count"; }
+			if (bytes > dbuf.size) { throw "gpu: write of " + bytes + " bytes overflows a " + dbuf.size + "-byte device buffer"; }
+			check(clEnqueueWriteBuffer(self._queue, dbuf._mem, CL_TRUE, 0, bytes, p, 0, null, null), "clEnqueueWriteBuffer");
+		},
+
+		// Blocking device -> host copy. dst is a buffer or a ptr, as for write.
+		fn read(dbuf, dst, bytes?: -1) {
+			let p = dst;
+			if (typeid(dst) == TYPEID_BUFFER) {
+				p = buffer_ptr(dst);
+				if (bytes < 0) { bytes = dst.length; }
+			}
+			if (bytes < 0) { throw "gpu: read into a ptr needs an explicit byte count"; }
+			if (bytes > dbuf.size) { throw "gpu: read of " + bytes + " bytes overruns a " + dbuf.size + "-byte device buffer"; }
+			check(clEnqueueReadBuffer(self._queue, dbuf._mem, CL_TRUE, 0, bytes, p, 0, null, null), "clEnqueueReadBuffer");
+		},
+
+		// Allocate a device buffer and upload an array as `elem` values
+		// ("i8".."u64", "f32", "f64").
+		fn from_array(arr: array, elem: string) {
+			let es = elem_size(elem);
+			if (es == 0) { throw "gpu: unknown element type '" + elem + "'"; }
+			let bytes = arr.length * es;
+			let host = alloc(bytes);
+			for (let i = 0; i < arr.length; i++) {
+				write_elem(ptr_offset(host, i, es), elem, arr[i]);
+			}
+			let d = self.alloc(bytes);
+			self.write(d, host, bytes);
+			free(host);
+			return d;
+		},
+
+		// Download `count` values of type `elem` into a new array
+		fn to_array(dbuf, elem: string, count: i32): array {
+			let es = elem_size(elem);
+			if (es == 0) { throw "gpu: unknown element type '" + elem + "'"; }
+			let bytes = count * es;
+			let host = alloc(bytes);
+			self.read(dbuf, host, bytes);
+			let out = [];
+			for (let i = 0; i < count; i++) {
+				out.push(read_elem(ptr_offset(host, i, es), elem));
+			}
+			free(host);
+			return out;
+		},
+
+		// Set arguments and enqueue a kernel over an N-D range, then wait for it.
+		//   global: [x] / [x, y] / [x, y, z] work-items
+		//   local:  work-group size of the same rank, or null to let the driver pick
+		//   args:   kernel arguments in order (scalars, device buffers, local_mem())
+		fn launch(kernel, global: array, local, args: array) {
+			if (kernel._released) { throw "gpu: launch of released kernel '" + kernel.name + "'"; }
+			for (let i = 0; i < args.length; i++) {
+				set_arg(kernel._kernel, kernel.name, i, args[i]);
+			}
+			if (local != null && local.length != global.length) {
+				throw "gpu: local size rank (" + local.length + ") must match global (" + global.length + ")";
+			}
+			let gp = pack_sizes(global, "global size");
+			let lp = pack_sizes(local, "local size");
+			let rc = clEnqueueNDRangeKernel(self._queue, kernel._kernel, global.length, null, gp, lp, 0, null, null);
+			free(gp);
+			if (lp != null) { free(lp); }
+			check(rc, "launching kernel '" + kernel.name + "'");
+			check(clFinish(self._queue), "clFinish");
+		},
+
+		fn finish() {
+			check(clFinish(self._queue), "clFinish");
+		},
+
+		fn release() {
+			if (self._released) { return null; }
+			clReleaseCommandQueue(self._queue);
+			clReleaseContext(self._context);
+			self._released = true;
+			return null;
+		},
+	};
+}

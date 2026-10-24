@@ -1,4 +1,5 @@
 #include "formatter_internal.h"
+#include "hemlock_limits.h"
 
 // ========== STATEMENT FORMATTING ==========
 
@@ -14,6 +15,10 @@ void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                 fmt_indent(ctx);
                 Expr *fn = stmt->as.let.value;
                 const char *prefix = fn->as.function.is_async ? "async fn " : "fn ";
+                if (fn->as.function.is_gpu) {
+                    fn = fn->as.function.gpu_kernel;
+                    prefix = HML_GPU_KEYWORD " fn ";
+                }
                 fmt_fn_params(ctx, fn, stmt->as.let.name, prefix);
                 buf_append(&ctx->buf, " ");
                 fmt_stmt(ctx, fn->as.function.body);
@@ -166,6 +171,11 @@ void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                 if (stmt->as.for_loop.initializer->type == STMT_LET) {
                     buf_append(&ctx->buf, "let ");
                     buf_append(&ctx->buf, stmt->as.for_loop.initializer->as.let.name);
+                    Type *init_type = stmt->as.for_loop.initializer->as.let.type_annotation;
+                    if (init_type && init_type->kind != TYPE_INFER) {
+                        buf_append(&ctx->buf, ": ");
+                        fmt_type(ctx, init_type);
+                    }
                     if (stmt->as.for_loop.initializer->as.let.value) {
                         buf_append(&ctx->buf, " = ");
                         fmt_expr(ctx, stmt->as.for_loop.initializer->as.let.value);
@@ -535,6 +545,10 @@ void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                     // export fn name(...) { }
                     Expr *fn = decl->as.let.value;
                     const char *prefix = fn->as.function.is_async ? "async fn " : "fn ";
+                    if (fn->as.function.is_gpu) {
+                        fn = fn->as.function.gpu_kernel;
+                        prefix = HML_GPU_KEYWORD " fn ";
+                    }
                     fmt_fn_params(ctx, fn, decl->as.let.name, prefix);
                     buf_append(&ctx->buf, " ");
                     fmt_stmt(ctx, fn->as.function.body);

@@ -1,0 +1,39 @@
+// gpu fn: kernel declarations parse and validate identically on both
+// backends; the host-side binding is a stub that throws when called.
+
+// `gpu` is a contextual keyword: it still works as an identifier
+let gpu = "device0";
+fn gpu_label(): string { return "on " + gpu; }
+print(gpu_label());
+
+gpu fn saxpy(n: u32, a: f32, x: gpu_buffer<f32>, y: gpu_buffer<f32>) {
+    let i: u32 = global_id(0);
+    if (i < n) {
+        y[i] = a * x[i] + y[i];
+    }
+}
+
+gpu fn fill(n: u32, value: i32, out: gpu_buffer<i32>): void {
+    for (let i: u32 = global_id(0); i < n; i += global_size(0)) {
+        out[i] = value;
+    }
+}
+
+gpu fn clamp_all(n: u32, lo: f64, hi: f64, xs: gpu_buffer<f64>) {
+    let i: u32 = global_id(0);
+    if (i >= n) { return; }
+    let v: f64 = xs[i];
+    xs[i] = v < lo ? lo : (v > hi ? hi : v);
+}
+
+print(typeof(saxpy));
+print(typeid(fill) == TYPEID_FUNCTION);
+
+let kernels = [saxpy, fill, clamp_all];
+for (k in kernels) {
+    try {
+        k(1, 2, 3);
+    } catch (e) {
+        print(e);
+    }
+}

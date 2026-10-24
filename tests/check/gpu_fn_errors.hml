@@ -1,0 +1,12 @@
+// @expect-compile-fail
+// gpu fn kernels are checked against the kernel subset in the frontend.
+// Each kernel reports its first violation; checking continues afterwards.
+gpu fn untyped(x) { }
+gpu fn bad_param(s: string) { }
+gpu fn returns(x: i32): i32 { return x; }
+gpu fn infer_local(x: i32) { let y = x + 1; }
+gpu fn strings(x: i32) { print("hi"); }
+gpu fn recursive(x: i32) { recursive(x); }
+gpu fn props(x: gpu_buffer<i32>) { let n: i32 = x.length; }
+gpu fn throws(x: i32) { throw 1; }
+let fine = 1;

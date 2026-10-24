@@ -144,6 +144,21 @@ for test_file in $TEST_FILES; do
             continue
         fi
 
+    # Skip GPU tests unless an OpenCL driver exposes at least one device
+    elif [[ "$category" == "stdlib_gpu" ]]; then
+        if ! "$PROJECT_ROOT/hemlock" -e 'import { gpu_available } from "@stdlib/gpu"; if (!gpu_available()) { panic("no device"); }' >/dev/null 2>&1; then
+            if [ "$category" != "$CURRENT_CATEGORY" ]; then
+                if [ -n "$CURRENT_CATEGORY" ]; then
+                    echo ""
+                fi
+                echo -e "${BLUE}[$category]${NC}"
+                echo -e "${YELLOW}⊘${NC} Skipping $category tests (no OpenCL device)"
+                echo "  See stdlib/docs/gpu.md (pocl-opencl-icd provides a CPU device)"
+                CURRENT_CATEGORY="$category"
+            fi
+            continue
+        fi
+
     # Skip vector tests if libusearch_c isn't installed
     elif [[ "$category" == "stdlib_vector" ]]; then
         if ! "$PROJECT_ROOT/hemlock" -e 'import "libusearch_c.so";' 2>/dev/null; then

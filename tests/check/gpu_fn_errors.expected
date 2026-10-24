@@ -1,0 +1,9 @@
+gpu_fn_errors.hml:4:1: error: gpu fn 'untyped': parameter 'x' needs a type annotation (kernels are fully typed) [parse]
+gpu_fn_errors.hml:5:1: error: gpu fn 'bad_param': parameter 's' must be a numeric/bool scalar or gpu_buffer<T> of a numeric T [parse]
+gpu_fn_errors.hml:6:1: error: gpu fn 'returns': kernels must return void (write results to a gpu_buffer) [parse]
+gpu_fn_errors.hml:7:30: error: gpu fn 'infer_local': local 'y' needs a type annotation (kernels are fully typed) [parse]
+gpu_fn_errors.hml:8:26: error: gpu fn 'strings': strings are not allowed in kernels [parse]
+gpu_fn_errors.hml:9:37: error: gpu fn 'recursive': recursion is not allowed in kernels [parse]
+gpu_fn_errors.hml:10:50: error: gpu fn 'props': property access is not allowed in kernels [parse]
+gpu_fn_errors.hml:11:25: error: gpu fn 'throws': exceptions are not allowed in kernels [parse]
+8 errors, 0 warnings (1 file checked)
