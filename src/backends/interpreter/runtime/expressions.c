@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include "internal.h"
 #include "expressions_internal.h"
 
@@ -388,7 +389,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             // Create a shallow copy of the function with the new closure
                             Function *bound_fn = fn_pool_alloc();
                             if (!bound_fn) {
-                                bound_fn = malloc(sizeof(Function));
+                                bound_fn = hml_xmalloc(sizeof(Function));
                                 bound_fn->is_pooled = 0;
                             }
                             bound_fn->is_async = orig_fn->is_async;
@@ -638,7 +639,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     return val_null();
                 }
                 obj->num_fields = new_num_fields;
-                obj->fields[obj->num_fields - 1].name = strdup(key);
+                obj->fields[obj->num_fields - 1].name = hml_xstrdup(key);
                 obj->fields[obj->num_fields - 1].value = value;
                 VALUE_RETAIN(value);
                 VALUE_RELEASE(object);
@@ -675,7 +676,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         return val_null();
                     }
                     obj->num_fields = new_num_fields;
-                    obj->fields[obj->num_fields - 1].name = strdup(key_buf);
+                    obj->fields[obj->num_fields - 1].name = hml_xstrdup(key_buf);
                     obj->fields[obj->num_fields - 1].value = value;
                     VALUE_RETAIN(value);
                     VALUE_RELEASE(object);
@@ -848,7 +849,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // The function pool provides O(1) struct allocation for the common case.
             Function *fn = fn_pool_alloc();
             if (!fn) {
-                fn = malloc(sizeof(Function));
+                fn = hml_xmalloc(sizeof(Function));
                 fn->is_pooled = 0;
             }
 
@@ -865,7 +866,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             // First closure from this AST node pays the cost; subsequent ones reuse.
             if (expr->as.function.num_params > 0) {
                 if (!expr->as.function.param_hashes) {
-                    expr->as.function.param_hashes = malloc(sizeof(uint32_t) * expr->as.function.num_params);
+                    expr->as.function.param_hashes = hml_xmalloc(sizeof(uint32_t) * expr->as.function.num_params);
                     for (int i = 0; i < expr->as.function.num_params; i++) {
                         expr->as.function.param_hashes[i] = hash_string(expr->as.function.param_names[i]);
                     }
@@ -978,7 +979,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                     return val_null();
                                 }
                             }
-                            obj->fields[obj->num_fields].name = strdup(spread_obj->fields[j].name);
+                            obj->fields[obj->num_fields].name = hml_xstrdup(spread_obj->fields[j].name);
                             obj->fields[obj->num_fields].value = spread_obj->fields[j].value;
                             VALUE_RETAIN(obj->fields[obj->num_fields].value);
                             obj->num_fields++;
@@ -1030,7 +1031,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                 return val_null();
                             }
                         }
-                        obj->fields[obj->num_fields].name = strdup(expr->as.object_literal.field_names[i]);
+                        obj->fields[obj->num_fields].name = hml_xstrdup(expr->as.object_literal.field_names[i]);
                         obj->fields[obj->num_fields].value = field_val;
                         obj->num_fields++;
                     }
@@ -1157,7 +1158,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
             }
 
             int new_field_index = obj->num_fields;
-            obj->fields[new_field_index].name = strdup(property);
+            obj->fields[new_field_index].name = hml_xstrdup(property);
             // Store value (object now owns it)
             obj->fields[new_field_index].value = value;
             obj->num_fields++;
@@ -1820,7 +1821,7 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 int num_args = expr->as.optional_chain.num_args;
                 Value *args = NULL;
                 if (num_args > 0) {
-                    args = malloc(sizeof(Value) * num_args);
+                    args = hml_xmalloc(sizeof(Value) * num_args);
                     for (int i = 0; i < num_args; i++) {
                         args[i] = eval_expr(expr->as.optional_chain.args[i], env, ctx);
                     }

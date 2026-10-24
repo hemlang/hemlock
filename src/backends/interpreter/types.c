@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include "internal.h"
 #include "type_promotion.h"
 #include <stdlib.h>
@@ -148,7 +149,7 @@ static void object_types_hash_rebuild(void) {
 void init_object_types(void) {
     if (object_types.types == NULL) {
         object_types.capacity = 16;
-        object_types.types = malloc(sizeof(ObjectType*) * object_types.capacity);
+        object_types.types = hml_xmalloc(sizeof(ObjectType*) * object_types.capacity);
         object_types.count = 0;
         object_types.hash_table = NULL;
         object_types.hash_capacity = 0;
@@ -315,7 +316,7 @@ static void enum_types_hash_rebuild(void) {
 void init_enum_types(void) {
     if (enum_types.types == NULL) {
         enum_types.capacity = 16;
-        enum_types.types = malloc(sizeof(EnumType*) * enum_types.capacity);
+        enum_types.types = hml_xmalloc(sizeof(EnumType*) * enum_types.capacity);
         enum_types.count = 0;
         enum_types.hash_table = NULL;
         enum_types.hash_capacity = 0;
@@ -459,7 +460,7 @@ static void type_aliases_hash_rebuild(void) {
 void init_type_aliases(void) {
     if (type_aliases.aliases == NULL) {
         type_aliases.capacity = 16;
-        type_aliases.aliases = malloc(sizeof(TypeAlias*) * type_aliases.capacity);
+        type_aliases.aliases = hml_xmalloc(sizeof(TypeAlias*) * type_aliases.capacity);
         type_aliases.count = 0;
         type_aliases.hash_table = NULL;
         type_aliases.hash_capacity = 0;
@@ -587,7 +588,7 @@ static Type* substitute_type_params(Type *type, char **type_params, Type **type_
             if (type_params[i] && strcmp(type->type_name, type_params[i]) == 0) {
                 // Found matching type parameter - return a copy of the type argument
                 // Use calloc to zero-initialize all fields
-                Type *result = calloc(1, sizeof(Type));
+                Type *result = hml_xcalloc(1, sizeof(Type));
                 result->kind = type_args[i]->kind;
                 result->type_name = type_args[i]->type_name ? strdup(type_args[i]->type_name) : NULL;
                 result->element_type = type_args[i]->element_type ?
@@ -595,7 +596,7 @@ static Type* substitute_type_params(Type *type, char **type_params, Type **type_
                 result->nullable = type_args[i]->nullable;
                 // Copy type_args if present
                 if (type_args[i]->num_type_args > 0) {
-                    result->type_args = malloc(sizeof(Type*) * type_args[i]->num_type_args);
+                    result->type_args = hml_xmalloc(sizeof(Type*) * type_args[i]->num_type_args);
                     result->num_type_args = type_args[i]->num_type_args;
                     for (int j = 0; j < result->num_type_args; j++) {
                         result->type_args[j] = substitute_type_params(type_args[i]->type_args[j],
@@ -612,7 +613,7 @@ static Type* substitute_type_params(Type *type, char **type_params, Type **type_
         Type *new_element = substitute_type_params(type->element_type, type_params, type_args, num_params);
         if (new_element != type->element_type) {
             // Use calloc to zero-initialize all fields
-            Type *result = calloc(1, sizeof(Type));
+            Type *result = hml_xcalloc(1, sizeof(Type));
             result->kind = TYPE_ARRAY;
             result->element_type = new_element;
             result->nullable = type->nullable;
@@ -622,7 +623,7 @@ static Type* substitute_type_params(Type *type, char **type_params, Type **type_
 
     // For custom object types with type arguments, substitute recursively
     if (type->kind == TYPE_CUSTOM_OBJECT && type->num_type_args > 0) {
-        Type **new_args = malloc(sizeof(Type*) * type->num_type_args);
+        Type **new_args = hml_xmalloc(sizeof(Type*) * type->num_type_args);
         int any_changed = 0;
         for (int i = 0; i < type->num_type_args; i++) {
             new_args[i] = substitute_type_params(type->type_args[i], type_params, type_args, num_params);
@@ -632,7 +633,7 @@ static Type* substitute_type_params(Type *type, char **type_params, Type **type_
         }
         if (any_changed) {
             // Use calloc to zero-initialize all fields
-            Type *result = calloc(1, sizeof(Type));
+            Type *result = hml_xcalloc(1, sizeof(Type));
             result->kind = TYPE_CUSTOM_OBJECT;
             result->type_name = type->type_name ? strdup(type->type_name) : NULL;
             result->nullable = type->nullable;
@@ -1130,7 +1131,7 @@ static Value check_object_type_generic(Value value, ObjectType *object_type,
 
     // Set the type name on the object (include type args for display)
     if (obj->type_name) free(obj->type_name);
-    obj->type_name = strdup(object_type->name);
+    obj->type_name = hml_xstrdup(object_type->name);
 
     return value;
 }
@@ -1665,7 +1666,7 @@ Value convert_to_type(Value value, Type *target_type, Environment *env, Executio
         } else {
             // Set the element type constraint on the array
             // Clone the type to avoid lifetime issues
-            arr->element_type = malloc(sizeof(Type));
+            arr->element_type = hml_xmalloc(sizeof(Type));
             arr->element_type->kind = target_type->element_type->kind;
             arr->element_type->type_name = target_type->element_type->type_name ? strdup(target_type->element_type->type_name) : NULL;
             arr->element_type->element_type = NULL;  // Don't support nested typed arrays yet
@@ -2034,7 +2035,7 @@ Value parse_string_to_type(Value value, Type *target_type, Environment *env, Exe
 
         if (str && str->length > 0) {
             // Create null-terminated copy for parsing
-            char *cstr = malloc(str->length + 1);
+            char *cstr = hml_xmalloc(str->length + 1);
             memcpy(cstr, str->data, str->length);
             cstr[str->length] = '\0';
 

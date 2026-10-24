@@ -8,12 +8,13 @@
  * - Call stack tracking
  */
 
+#include "hemlock_alloc.h"
 #include "builtins_internal.h"
 
 // ========== EXCEPTION HANDLING ==========
 
 HmlExceptionContext* hml_exception_push(void) {
-    HmlExceptionContext *ctx = malloc(sizeof(HmlExceptionContext));
+    HmlExceptionContext *ctx = hml_xmalloc(sizeof(HmlExceptionContext));
     ctx->is_active = 1;
     ctx->exception_value = hml_val_null();
     ctx->prev = g_exception_stack;
@@ -230,7 +231,7 @@ HmlValue hml_builtin_task_debug_info(HmlClosureEnv *env, HmlValue task) {
 // ========== DEFER SUPPORT ==========
 
 void hml_defer_push(HmlDeferFn fn, void *arg) {
-    DeferEntry *entry = malloc(sizeof(DeferEntry));
+    DeferEntry *entry = hml_xmalloc(sizeof(DeferEntry));
     entry->fn = fn;
     entry->arg = arg;
     entry->next = g_defer_stack;
@@ -275,7 +276,7 @@ static void hml_defer_call_wrapper(void *arg) {
 }
 
 void hml_defer_push_call(HmlValue fn) {
-    HmlValue *fn_copy = malloc(sizeof(HmlValue));
+    HmlValue *fn_copy = hml_xmalloc(sizeof(HmlValue));
     *fn_copy = fn;
     hml_retain(fn_copy);
     hml_defer_push(hml_defer_call_wrapper, fn_copy);
@@ -303,11 +304,11 @@ static void hml_defer_call_with_args_wrapper(void *arg) {
 }
 
 void hml_defer_push_call_with_args(HmlValue fn, HmlValue *args, int num_args) {
-    HmlDeferCallWithArgs *call = malloc(sizeof(HmlDeferCallWithArgs));
+    HmlDeferCallWithArgs *call = hml_xmalloc(sizeof(HmlDeferCallWithArgs));
     call->fn = fn;
     hml_retain(&call->fn);
     call->num_args = num_args;
-    call->args = malloc(sizeof(HmlValue) * num_args);
+    call->args = hml_xmalloc(sizeof(HmlValue) * num_args);
     for (int i = 0; i < num_args; i++) {
         call->args[i] = args[i];
         hml_retain(&call->args[i]);
@@ -510,7 +511,7 @@ HmlValue hml_call_function_named(HmlValue fn, HmlValue *args, const char **arg_n
 
     // Allocate reordered args array
     HmlValue reordered[8];  // Stack allocation for up to 8 params
-    HmlValue *reordered_args = (func->num_params <= 8) ? reordered : malloc(sizeof(HmlValue) * func->num_params);
+    HmlValue *reordered_args = (func->num_params <= 8) ? reordered : hml_xmalloc(sizeof(HmlValue) * func->num_params);
 
     // Initialize to null
     for (int i = 0; i < func->num_params; i++) {
@@ -519,7 +520,7 @@ HmlValue hml_call_function_named(HmlValue fn, HmlValue *args, const char **arg_n
 
     // Track which args have been used
     int used[8] = {0};  // Assumes max 8 args for simplicity
-    int *arg_used = (num_args <= 8) ? used : calloc(num_args, sizeof(int));
+    int *arg_used = (num_args <= 8) ? used : hml_xcalloc(num_args, sizeof(int));
 
     // First pass: place named arguments
     for (int i = 0; i < num_args; i++) {

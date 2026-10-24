@@ -1,4 +1,5 @@
 #define _XOPEN_SOURCE 500
+#include "hemlock_alloc.h"
 #include "modules.h"
 #include "hemlock_compat.h"
 #include <stdlib.h>
@@ -23,7 +24,7 @@
 void module_cache_map_init(ModuleCacheMap *map) {
     map->size = MODULE_CACHE_INITIAL_SIZE;
     map->count = 0;
-    map->entries = calloc(map->size, sizeof(ModuleCacheEntry));
+    map->entries = hml_xcalloc(map->size, sizeof(ModuleCacheEntry));
 }
 
 static void module_cache_map_resize(ModuleCacheMap *map) {
@@ -31,7 +32,7 @@ static void module_cache_map_resize(ModuleCacheMap *map) {
     ModuleCacheEntry *old_entries = map->entries;
 
     map->size *= 2;
-    map->entries = calloc(map->size, sizeof(ModuleCacheEntry));
+    map->entries = hml_xcalloc(map->size, sizeof(ModuleCacheEntry));
     map->count = 0;
 
     for (int i = 0; i < old_size; i++) {
@@ -206,7 +207,7 @@ static char* find_stdlib_path(void) {
 #endif
 
     if (found_exe) {
-        char *exe_copy = strdup(exe_path);
+        char *exe_copy = hml_xstrdup(exe_path);
         char *dir = dirname(exe_copy);
 
         snprintf(resolved, PATH_MAX, "%s/stdlib", dir);
@@ -241,7 +242,7 @@ static char* find_stdlib_path(void) {
     }
 
     if (access("/usr/local/lib/hemlock/stdlib", F_OK) == 0) {
-        return strdup("/usr/local/lib/hemlock/stdlib");
+        return hml_xstrdup("/usr/local/lib/hemlock/stdlib");
     }
 
     return NULL;
@@ -257,7 +258,7 @@ static char* find_hem_modules(const char *start_path) {
     while (1) {
         int ret = snprintf(hem_modules_path, PATH_MAX, "%s/hem_modules", search_path);
         if (ret > 0 && ret < PATH_MAX && access(hem_modules_path, F_OK) == 0) {
-            return strdup(hem_modules_path);
+            return hml_xstrdup(hem_modules_path);
         }
 
         // Walk up by truncating at last '/'
@@ -449,25 +450,25 @@ char* resolve_module_path(ModuleResolution *resolver, const char *importer_path,
                 snprintf(try_path, PATH_MAX, "%s/%s/%s/%s.hml", hem_modules, owner, repo, subpath);
                 if (access(try_path, F_OK) == 0) {
                     free(hem_modules);
-                    return strdup(try_path);
+                    return hml_xstrdup(try_path);
                 }
 
                 snprintf(try_path, PATH_MAX, "%s/%s/%s/%s/index.hml", hem_modules, owner, repo, subpath);
                 if (access(try_path, F_OK) == 0) {
                     free(hem_modules);
-                    return strdup(try_path);
+                    return hml_xstrdup(try_path);
                 }
 
                 snprintf(try_path, PATH_MAX, "%s/%s/%s/src/%s.hml", hem_modules, owner, repo, subpath);
                 if (access(try_path, F_OK) == 0) {
                     free(hem_modules);
-                    return strdup(try_path);
+                    return hml_xstrdup(try_path);
                 }
 
                 snprintf(try_path, PATH_MAX, "%s/%s/%s/src/%s/index.hml", hem_modules, owner, repo, subpath);
                 if (access(try_path, F_OK) == 0) {
                     free(hem_modules);
-                    return strdup(try_path);
+                    return hml_xstrdup(try_path);
                 }
             } else {
                 char pkg_json_path[PATH_MAX];
@@ -515,13 +516,13 @@ char* resolve_module_path(ModuleResolution *resolver, const char *importer_path,
 
                 if (access(try_path, F_OK) == 0) {
                     free(hem_modules);
-                    return strdup(try_path);
+                    return hml_xstrdup(try_path);
                 }
 
                 snprintf(try_path, PATH_MAX, "%s/%s/%s/src/index.hml", hem_modules, owner, repo);
                 if (access(try_path, F_OK) == 0) {
                     free(hem_modules);
-                    return strdup(try_path);
+                    return hml_xstrdup(try_path);
                 }
             }
 
@@ -551,7 +552,7 @@ char* resolve_module_path(ModuleResolution *resolver, const char *importer_path,
 
     char *absolute = realpath(resolved, NULL);
     if (!absolute) {
-        absolute = strdup(resolved);
+        absolute = hml_xstrdup(resolved);
     }
 
     if (absolute && resolver->dependency_hook && importer_path) {

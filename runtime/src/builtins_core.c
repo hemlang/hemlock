@@ -12,6 +12,7 @@
  * Uses shared UTF-8 module for encoding.
  */
 
+#include "hemlock_alloc.h"
 #include "builtins_internal.h"
 #include "num_convert.h"
 #include "utf8.h"
@@ -40,7 +41,7 @@ void hml_sandbox_init(int flags, const char *root_path) {
         g_sandbox_root = NULL;
     }
     if (root_path) {
-        g_sandbox_root = strdup(root_path);
+        g_sandbox_root = hml_xstrdup(root_path);
     }
 }
 
@@ -69,7 +70,7 @@ int hml_sandbox_path_allowed(const char *path, int is_write) {
         // Resolve both paths to absolute form
         if (!realpath(path, resolved_path)) {
             // Path doesn't exist yet - try resolving parent directory
-            char *path_copy = strdup(path);
+            char *path_copy = hml_xstrdup(path);
             char *last_slash = strrchr(path_copy, '/');
             if (last_slash) {
                 *last_slash = '\0';
@@ -837,7 +838,7 @@ HmlValue hml_parse_string_to_type(HmlValue val, HmlValueType target_type) {
 
         if (str && str->length > 0) {
             // Create null-terminated copy for parsing
-            char *cstr = malloc(str->length + 1);
+            char *cstr = hml_xmalloc(str->length + 1);
             memcpy(cstr, str->data, str->length);
             cstr[str->length] = '\0';
 

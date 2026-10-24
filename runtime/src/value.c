@@ -5,6 +5,7 @@
  * type checking, and basic value operations.
  */
 
+#include "hemlock_alloc.h"
 #include "../include/hemlock_runtime.h"
 #include "num_convert.h"
 #include "chan_core.h"
@@ -327,7 +328,7 @@ HmlValue hml_val_array(void) {
     HmlValue v;
     v.type = HML_VAL_ARRAY;
 
-    HmlArray *a = malloc(sizeof(HmlArray));
+    HmlArray *a = hml_xmalloc(sizeof(HmlArray));
     a->elements = NULL;
     a->length = 0;
     a->capacity = 0;
@@ -347,7 +348,7 @@ HmlValue hml_val_object(void) {
     HmlObject *o = obj_pool_alloc();
     if (!o) {
         // Pool exhausted — fallback to malloc
-        o = malloc(sizeof(HmlObject));
+        o = hml_xmalloc(sizeof(HmlObject));
         o->type_name = NULL;
         o->fields = NULL;
         o->num_fields = 0;
@@ -424,7 +425,7 @@ HmlValue hml_val_function_with_params(void *fn_ptr, int num_params, int num_requ
 
     // Copy parameter names
     if (param_names && num_params > 0) {
-        f->param_names = malloc(sizeof(char*) * num_params);
+        f->param_names = hml_xmalloc(sizeof(char*) * num_params);
         for (int i = 0; i < num_params; i++) {
             f->param_names[i] = param_names[i] ? strdup(param_names[i]) : NULL;
         }
@@ -514,7 +515,7 @@ HmlValue hml_function_bind_self(HmlValue fn, HmlValue self_obj) {
     }
     f->name = orig->name ? strdup(orig->name) : NULL;
     if (orig->param_names && orig->num_params > 0) {
-        f->param_names = malloc(sizeof(char*) * orig->num_params);
+        f->param_names = hml_xmalloc(sizeof(char*) * orig->num_params);
         for (int i = 0; i < orig->num_params; i++) {
             f->param_names[i] = orig->param_names[i] ? strdup(orig->param_names[i]) : NULL;
         }
@@ -554,7 +555,7 @@ void hml_function_set_param_names(HmlValue fn, const char **param_names, int num
             free(f->param_names);
         }
         // Copy new param_names
-        f->param_names = malloc(sizeof(char*) * num_params);
+        f->param_names = hml_xmalloc(sizeof(char*) * num_params);
         for (int i = 0; i < num_params; i++) {
             f->param_names[i] = param_names[i] ? strdup(param_names[i]) : NULL;
         }
@@ -858,7 +859,7 @@ static int cleanup_visited_contains(HmlCleanupVisited *v, void *ptr) {
 static void cleanup_visited_add(HmlCleanupVisited *v, void *ptr) {
     if (v->count >= v->capacity) {
         int new_cap = v->capacity == 0 ? 32 : v->capacity * 2;
-        v->items = realloc(v->items, new_cap * sizeof(void *));
+        v->items = hml_xrealloc(v->items, new_cap * sizeof(void *));
         v->capacity = new_cap;
     }
     v->items[v->count++] = ptr;
@@ -960,7 +961,7 @@ HmlValue hml_value_deep_copy(HmlValue val) {
             if (val.as.as_string) {
                 HmlString *src = val.as.as_string;
                 // Create a new string with copied data using SSO if possible
-                HmlString *dst = malloc(sizeof(HmlString));
+                HmlString *dst = hml_xmalloc(sizeof(HmlString));
                 dst->length = src->length;
                 dst->char_length = src->char_length;
                 dst->ref_count = 1;
@@ -973,7 +974,7 @@ HmlValue hml_value_deep_copy(HmlValue val) {
                     dst->is_sso = 1;
                 } else {
                     dst->capacity = src->length + 1;
-                    dst->data = malloc(dst->capacity);
+                    dst->data = hml_xmalloc(dst->capacity);
                     memcpy(dst->data, src->data, src->length + 1);
                     dst->is_sso = 0;
                 }
@@ -1026,7 +1027,7 @@ HmlValue hml_value_deep_copy(HmlValue val) {
 
                 // Copy type name if present
                 if (src->type_name) {
-                    dst->type_name = strdup(src->type_name);
+                    dst->type_name = hml_xstrdup(src->type_name);
                 }
 
                 // Deep copy each field
@@ -1377,8 +1378,8 @@ const char* hml_typeof_str(HmlValue val) {
 // ========== CLOSURE ENVIRONMENT ==========
 
 HmlClosureEnv* hml_closure_env_new(int num_vars) {
-    HmlClosureEnv *env = malloc(sizeof(HmlClosureEnv));
-    env->captured = calloc(num_vars, sizeof(HmlValue));
+    HmlClosureEnv *env = hml_xmalloc(sizeof(HmlClosureEnv));
+    env->captured = hml_xcalloc(num_vars, sizeof(HmlValue));
     env->num_captured = num_vars;
     env->parent = NULL;
     atomic_store(&env->ref_count, 1);

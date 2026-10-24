@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include "internal.h"
 
 #if !defined(__EMSCRIPTEN__) && !defined(HEMLOCK_NO_FFI)
@@ -327,8 +328,8 @@ static FFILibrary* ffi_load_library(const char *path, ExecutionContext *ctx) {
         return NULL;
     }
 
-    FFILibrary *lib = malloc(sizeof(FFILibrary));
-    lib->path = strdup(path);
+    FFILibrary *lib = hml_xmalloc(sizeof(FFILibrary));
+    lib->path = hml_xstrdup(path);
     lib->handle = handle;
 
     // Add to library list
@@ -479,15 +480,15 @@ FFIStructType* ffi_register_struct(const char *name, char **field_names,
     }
 
     // Create the struct type
-    FFIStructType *st = malloc(sizeof(FFIStructType));
-    st->name = strdup(name);
+    FFIStructType *st = hml_xmalloc(sizeof(FFIStructType));
+    st->name = hml_xstrdup(name);
     st->num_fields = num_fields;
-    st->fields = malloc(sizeof(FFIStructField) * num_fields);
-    st->ffi_field_types = malloc(sizeof(ffi_type*) * (num_fields + 1));  // NULL-terminated
+    st->fields = hml_xmalloc(sizeof(FFIStructField) * num_fields);
+    st->ffi_field_types = hml_xmalloc(sizeof(ffi_type*) * (num_fields + 1));  // NULL-terminated
 
     // Build field descriptors and libffi type array
     for (int i = 0; i < num_fields; i++) {
-        st->fields[i].name = strdup(field_names[i]);
+        st->fields[i].name = hml_xstrdup(field_names[i]);
         st->fields[i].hemlock_type = field_types[i]->kind;
 
         if (field_types[i]->kind == TYPE_CUSTOM_OBJECT) {
@@ -504,7 +505,7 @@ FFIStructType* ffi_register_struct(const char *name, char **field_names,
     st->ffi_field_types[num_fields] = NULL;  // NULL-terminate
 
     // Create the libffi struct type
-    st->ffi_type = malloc(sizeof(ffi_type));
+    st->ffi_type = hml_xmalloc(sizeof(ffi_type));
     st->ffi_type->size = 0;  // Let libffi compute
     st->ffi_type->alignment = 0;  // Let libffi compute
     st->ffi_type->type = FFI_TYPE_STRUCT;
@@ -552,7 +553,7 @@ static void* ffi_object_to_struct(Value obj, FFIStructType *struct_type, Executi
     }
 
     Object *o = obj.as.as_object;
-    void *struct_mem = calloc(1, struct_type->size);
+    void *struct_mem = hml_xcalloc(1, struct_type->size);
 
     for (int i = 0; i < struct_type->num_fields; i++) {
         FFIStructField *field = &struct_type->fields[i];
@@ -647,7 +648,7 @@ static void* ffi_object_to_struct(Value obj, FFIStructType *struct_type, Executi
 
 // Marshal C struct memory to a Hemlock object
 static Value ffi_struct_to_object(void *struct_ptr, FFIStructType *struct_type) {
-    Object *obj = object_new(strdup(struct_type->name), struct_type->num_fields);
+    Object *obj = object_new(hml_xstrdup(struct_type->name), struct_type->num_fields);
 
     for (int i = 0; i < struct_type->num_fields; i++) {
         FFIStructField *field = &struct_type->fields[i];
@@ -716,7 +717,7 @@ static Value ffi_struct_to_object(void *struct_ptr, FFIStructType *struct_type) 
         }
 
         // Add field to object
-        obj->fields[obj->num_fields].name = strdup(field->name);
+        obj->fields[obj->num_fields].name = hml_xstrdup(field->name);
         obj->fields[obj->num_fields].value = field_val;
         obj->num_fields++;
     }
@@ -894,7 +895,7 @@ static void* hemlock_to_c_value(Value val, Type *type, ExecutionContext *ctx) {
         exit(1);
     }
 
-    void *storage = malloc(size);
+    void *storage = hml_xmalloc(size);
     hemlock_to_c_value_fast(val, type, storage);
     return storage;
 }
@@ -964,21 +965,21 @@ static FFIFunction* ffi_declare_function(
 ) {
     // Create FFI function with lazy symbol resolution
     // Symbol will be resolved on first call, not at declaration time
-    FFIFunction *func = malloc(sizeof(FFIFunction));
-    func->name = strdup(name);
+    FFIFunction *func = hml_xmalloc(sizeof(FFIFunction));
+    func->name = hml_xstrdup(name);
     func->func_ptr = NULL;  // Lazy resolution - will be set on first call
     func->lib_handle = lib->handle;  // Store for lazy resolution
-    func->lib_path = strdup(lib->path);  // Store for error messages
+    func->lib_path = hml_xstrdup(lib->path);  // Store for error messages
     func->hemlock_params = param_types;
     func->num_params = num_params;
     func->hemlock_return = return_type;
 
     // Allocate and store ffi_cif
-    ffi_cif *cif = malloc(sizeof(ffi_cif));
+    ffi_cif *cif = hml_xmalloc(sizeof(ffi_cif));
     func->cif = cif;
 
     // Convert types to libffi
-    ffi_type **arg_types = malloc(sizeof(ffi_type*) * num_params);
+    ffi_type **arg_types = hml_xmalloc(sizeof(ffi_type*) * num_params);
     for (int i = 0; i < num_params; i++) {
         arg_types[i] = hemlock_type_to_ffi_type(param_types[i]);
     }
@@ -1093,9 +1094,9 @@ Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionC
             bulk_storage = stack_bulk_storage;
             struct_storage = stack_struct_storage;
         } else {
-            arg_values = malloc(sizeof(void*) * num_args);
-            bulk_storage = malloc(sizeof(uint64_t) * num_args);
-            struct_storage = malloc(sizeof(void*) * num_args);
+            arg_values = hml_xmalloc(sizeof(void*) * num_args);
+            bulk_storage = hml_xmalloc(sizeof(uint64_t) * num_args);
+            struct_storage = hml_xmalloc(sizeof(void*) * num_args);
         }
 
         for (int i = 0; i < num_args; i++) {
@@ -1148,7 +1149,7 @@ Value ffi_call_function(FFIFunction *func, Value *args, int num_args, ExecutionC
         ffi_type *ret_type = (ffi_type*)func->return_type;
         if (ret_type->type == FFI_TYPE_STRUCT) {
             // Struct returns need heap allocation (variable size)
-            return_storage = malloc(ret_type->size);
+            return_storage = hml_xmalloc(ret_type->size);
             free_return = 1;
         } else {
             // Primitive returns use stack
@@ -1343,14 +1344,14 @@ FFICallback* ffi_create_callback(Function *fn, Type **param_types, int num_param
     cb->id = atomic_fetch_add(&g_next_callback_id, 1);  // Thread-safe ID assignment
 
     // Copy parameter types
-    cb->hemlock_params = malloc(sizeof(Type*) * num_params);
+    cb->hemlock_params = hml_xmalloc(sizeof(Type*) * num_params);
     for (int i = 0; i < num_params; i++) {
         cb->hemlock_params[i] = param_types[i];
     }
     cb->hemlock_return = return_type;
 
     // Build libffi type arrays
-    ffi_type **arg_types = malloc(sizeof(ffi_type*) * num_params);
+    ffi_type **arg_types = hml_xmalloc(sizeof(ffi_type*) * num_params);
     for (int i = 0; i < num_params; i++) {
         arg_types[i] = hemlock_type_to_ffi_type(param_types[i]);
     }
@@ -1360,7 +1361,7 @@ FFICallback* ffi_create_callback(Function *fn, Type **param_types, int num_param
     cb->return_type = ret_type;
 
     // Allocate and prepare the CIF (Call Interface)
-    ffi_cif *cif = malloc(sizeof(ffi_cif));
+    ffi_cif *cif = hml_xmalloc(sizeof(ffi_cif));
     cb->cif = cif;
 
     ffi_status status = ffi_prep_cif(cif, FFI_DEFAULT_ABI, num_params, ret_type, arg_types);
@@ -1530,7 +1531,7 @@ int ffi_free_callback_by_ptr(void *code_ptr) {
 
 // Type helper: Create a Type from a string name
 Type* type_from_string(const char *name) {
-    Type *type = malloc(sizeof(Type));
+    Type *type = hml_xmalloc(sizeof(Type));
     type->type_name = NULL;
     type->element_type = NULL;
     type->nullable = 0;
@@ -1583,7 +1584,7 @@ Type* type_from_string(const char *name) {
         FFIStructType *st = ffi_lookup_struct(name);
         if (st) {
             type->kind = TYPE_CUSTOM_OBJECT;
-            type->type_name = strdup(name);
+            type->type_name = hml_xstrdup(name);
         } else {
             // Unknown type - default to void
             type->kind = TYPE_VOID;

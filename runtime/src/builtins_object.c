@@ -7,6 +7,7 @@
  * - Hash table operations
  */
 
+#include "hemlock_alloc.h"
 #include "builtins_internal.h"
 
 // ========== OBJECT OPERATIONS ==========
@@ -28,7 +29,7 @@ static void object_hash_rebuild(HmlObject *obj) {
 
     // Create hash table with 2x capacity for good load factor
     int new_capacity = obj->num_fields < 4 ? 8 : obj->num_fields * 2;
-    obj->hash_table = malloc(sizeof(int) * new_capacity);
+    obj->hash_table = hml_xmalloc(sizeof(int) * new_capacity);
     obj->hash_capacity = new_capacity;
 
     // Initialize all slots to -1 (empty)
@@ -199,7 +200,7 @@ void hml_object_set_field(HmlValue obj, const char *field, HmlValue val) {
         o->capacity = new_cap;
     }
 
-    o->fields[o->num_fields].name = strdup(field);
+    o->fields[o->num_fields].name = hml_xstrdup(field);
     o->fields[o->num_fields].value = val;
     hml_retain(&o->fields[o->num_fields].value);
     o->num_fields++;

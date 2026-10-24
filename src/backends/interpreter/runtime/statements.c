@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include "internal.h"
 #include <stdatomic.h>
 
@@ -535,7 +536,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             ctx->loop_state.is_breaking = 1;
             // Store target label if present
             if (stmt->as.break_stmt.label) {
-                ctx->loop_state.target_label = strdup(stmt->as.break_stmt.label);
+                ctx->loop_state.target_label = hml_xstrdup(stmt->as.break_stmt.label);
             } else {
                 ctx->loop_state.target_label = NULL;
             }
@@ -545,7 +546,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             ctx->loop_state.is_continuing = 1;
             // Store target label if present
             if (stmt->as.continue_stmt.label) {
-                ctx->loop_state.target_label = strdup(stmt->as.continue_stmt.label);
+                ctx->loop_state.target_label = hml_xstrdup(stmt->as.continue_stmt.label);
             } else {
                 ctx->loop_state.target_label = NULL;
             }
@@ -589,29 +590,29 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
         case STMT_DEFINE_OBJECT: {
             // Create object type definition
-            ObjectType *type = malloc(sizeof(ObjectType));
-            type->name = strdup(stmt->as.define_object.name);
+            ObjectType *type = hml_xmalloc(sizeof(ObjectType));
+            type->name = hml_xstrdup(stmt->as.define_object.name);
             type->num_fields = stmt->as.define_object.num_fields;
 
             // Copy type parameters (for generic types like define Stack<T>)
             type->num_type_params = stmt->as.define_object.num_type_params;
             if (type->num_type_params > 0) {
-                type->type_params = malloc(sizeof(char*) * type->num_type_params);
+                type->type_params = hml_xmalloc(sizeof(char*) * type->num_type_params);
                 for (int i = 0; i < type->num_type_params; i++) {
-                    type->type_params[i] = strdup(stmt->as.define_object.type_params[i]);
+                    type->type_params[i] = hml_xstrdup(stmt->as.define_object.type_params[i]);
                 }
             } else {
                 type->type_params = NULL;
             }
 
             // Copy field information
-            type->field_names = malloc(sizeof(char*) * type->num_fields);
-            type->field_types = malloc(sizeof(Type*) * type->num_fields);
-            type->field_optional = malloc(sizeof(int) * type->num_fields);
-            type->field_defaults = malloc(sizeof(Expr*) * type->num_fields);
+            type->field_names = hml_xmalloc(sizeof(char*) * type->num_fields);
+            type->field_types = hml_xmalloc(sizeof(Type*) * type->num_fields);
+            type->field_optional = hml_xmalloc(sizeof(int) * type->num_fields);
+            type->field_defaults = hml_xmalloc(sizeof(Expr*) * type->num_fields);
 
             for (int i = 0; i < type->num_fields; i++) {
-                type->field_names[i] = strdup(stmt->as.define_object.field_names[i]);
+                type->field_names[i] = hml_xstrdup(stmt->as.define_object.field_names[i]);
                 type->field_types[i] = stmt->as.define_object.field_types[i];
                 type->field_optional[i] = stmt->as.define_object.field_optional[i];
                 type->field_defaults[i] = stmt->as.define_object.field_defaults[i];
@@ -620,13 +621,13 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             // Copy method signature information
             type->num_methods = stmt->as.define_object.num_methods;
             if (type->num_methods > 0) {
-                type->method_names = malloc(sizeof(char*) * type->num_methods);
-                type->method_types = malloc(sizeof(Type*) * type->num_methods);
-                type->method_optional = malloc(sizeof(int) * type->num_methods);
-                type->method_defaults = malloc(sizeof(Expr*) * type->num_methods);
+                type->method_names = hml_xmalloc(sizeof(char*) * type->num_methods);
+                type->method_types = hml_xmalloc(sizeof(Type*) * type->num_methods);
+                type->method_optional = hml_xmalloc(sizeof(int) * type->num_methods);
+                type->method_defaults = hml_xmalloc(sizeof(Expr*) * type->num_methods);
 
                 for (int i = 0; i < type->num_methods; i++) {
-                    type->method_names[i] = strdup(stmt->as.define_object.method_names[i]);
+                    type->method_names[i] = hml_xstrdup(stmt->as.define_object.method_names[i]);
                     type->method_types[i] = stmt->as.define_object.method_types[i];
                     type->method_optional[i] = stmt->as.define_object.method_optional[i];
                     type->method_defaults[i] = stmt->as.define_object.method_defaults[i];
@@ -667,20 +668,20 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
         case STMT_ENUM: {
             // Create enum type definition
-            EnumType *type = malloc(sizeof(EnumType));
-            type->name = strdup(stmt->as.enum_decl.name);
+            EnumType *type = hml_xmalloc(sizeof(EnumType));
+            type->name = hml_xstrdup(stmt->as.enum_decl.name);
             type->num_variants = stmt->as.enum_decl.num_variants;
 
             // Copy variant names
-            type->variant_names = malloc(sizeof(char*) * type->num_variants);
-            type->variant_values = malloc(sizeof(int32_t) * type->num_variants);
+            type->variant_names = hml_xmalloc(sizeof(char*) * type->num_variants);
+            type->variant_values = hml_xmalloc(sizeof(int32_t) * type->num_variants);
 
             // Evaluate variant values (auto-increment or explicit)
             int32_t auto_value = 0;
             int had_error = 0;
             int variants_initialized = 0;  // Track how many variants were actually initialized
             for (int i = 0; i < type->num_variants; i++) {
-                type->variant_names[i] = strdup(stmt->as.enum_decl.variant_names[i]);
+                type->variant_names[i] = hml_xstrdup(stmt->as.enum_decl.variant_names[i]);
                 variants_initialized = i + 1;  // This variant name is now initialized
 
                 if (stmt->as.enum_decl.variant_values[i] != NULL) {
@@ -724,11 +725,11 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             register_enum_type(type);
 
             // Create a namespace object with the enum variants
-            Object *obj = malloc(sizeof(Object));
-            obj->type_name = strdup(type->name);
+            Object *obj = hml_xmalloc(sizeof(Object));
+            obj->type_name = hml_xstrdup(type->name);
             obj->num_fields = type->num_variants;
             obj->capacity = type->num_variants;
-            obj->fields = malloc(sizeof(FieldEntry) * type->num_variants);
+            obj->fields = hml_xmalloc(sizeof(FieldEntry) * type->num_variants);
             obj->ref_count = 1;
             atomic_store(&obj->freed, 0);  // Not freed
             obj->hash_table = NULL;  // No hash table - use linear search fallback
@@ -736,7 +737,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
             obj->is_pooled = 0;  // Heap-allocated, not from the object pool
 
             for (int i = 0; i < type->num_variants; i++) {
-                obj->fields[i].name = strdup(type->variant_names[i]);
+                obj->fields[i].name = hml_xstrdup(type->variant_names[i]);
                 obj->fields[i].value = val_i32(type->variant_values[i]);
             }
 
@@ -946,15 +947,15 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
 
         case STMT_TYPE_ALIAS: {
             // Create type alias definition
-            TypeAlias *alias = malloc(sizeof(TypeAlias));
-            alias->name = strdup(stmt->as.type_alias.name);
+            TypeAlias *alias = hml_xmalloc(sizeof(TypeAlias));
+            alias->name = hml_xstrdup(stmt->as.type_alias.name);
             alias->num_type_params = stmt->as.type_alias.num_type_params;
 
             // Copy type parameters
             if (alias->num_type_params > 0) {
-                alias->type_params = malloc(sizeof(char*) * alias->num_type_params);
+                alias->type_params = hml_xmalloc(sizeof(char*) * alias->num_type_params);
                 for (int i = 0; i < alias->num_type_params; i++) {
-                    alias->type_params[i] = strdup(stmt->as.type_alias.type_params[i]);
+                    alias->type_params[i] = hml_xstrdup(stmt->as.type_alias.type_params[i]);
                 }
             } else {
                 alias->type_params = NULL;

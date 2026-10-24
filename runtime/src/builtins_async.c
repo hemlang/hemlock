@@ -12,6 +12,7 @@
 #if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
 
 #define _GNU_SOURCE
+#include "hemlock_alloc.h"
 #include "builtins_internal.h"
 #include "chan_core.h"
 #include <pthread.h>
@@ -205,7 +206,7 @@ static HmlTask *task_alloc(HmlValue fn, HmlValue *args, int num_args, const char
 
     task->num_args = num_args;
     if (num_args > 0) {
-        task->args = malloc(sizeof(HmlValue) * num_args);
+        task->args = hml_xmalloc(sizeof(HmlValue) * num_args);
         for (int i = 0; i < num_args; i++) {
             task->args[i] = hml_value_deep_copy(args[i]);
         }

@@ -11,6 +11,7 @@
  * so it is compiled unconditionally.
  */
 
+#include "hemlock_alloc.h"
 #include "builtins_internal.h"
 
 #ifndef __EMSCRIPTEN__
@@ -85,7 +86,7 @@ static ffi_cif* cif_cache_get(HmlFFIType return_type, int num_args, HmlFFIType *
     }
 
     // Create new entry
-    entry = malloc(sizeof(CifCacheEntry));
+    entry = hml_xmalloc(sizeof(CifCacheEntry));
     entry->hash = hash;
     entry->num_args = num_args;
     entry->return_type = return_type;
@@ -400,8 +401,8 @@ HmlValue hml_ffi_call(void *func_ptr, HmlValue *args, int num_args, HmlFFIType *
             bulk_storage = stack_storage;
         } else {
             // Heap allocation for large arg counts (rare case)
-            arg_values = malloc(num_args * sizeof(void*));
-            bulk_storage = malloc(num_args * sizeof(uint64_t));
+            arg_values = hml_xmalloc(num_args * sizeof(void*));
+            bulk_storage = hml_xmalloc(num_args * sizeof(uint64_t));
         }
 
         // Convert all arguments into bulk storage
@@ -602,7 +603,7 @@ void* hml_ffi_object_to_struct(HmlValue obj, HmlFFIStructType *struct_type) {
     }
 
     HmlObject *o = obj.as.as_object;
-    void *struct_mem = calloc(1, struct_type->size);
+    void *struct_mem = hml_xcalloc(1, struct_type->size);
 
     for (int i = 0; i < struct_type->num_fields; i++) {
         HmlFFIStructField *field = &struct_type->fields[i];
@@ -879,7 +880,7 @@ HmlValue hml_ffi_call_with_structs(void *func_ptr, HmlValue *args, int num_args,
     void *result_ptr;
     int free_result = 0;
     if (return_struct) {
-        result_ptr = calloc(1, return_struct->size);
+        result_ptr = hml_xcalloc(1, return_struct->size);
         free_result = 1;
     } else {
         result_ptr = &stack_result;

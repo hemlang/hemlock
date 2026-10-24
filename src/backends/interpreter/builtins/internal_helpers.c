@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include "internal.h"
 
 Value builtin_read_u32(Value *args, int num_args, ExecutionContext *ctx) {
@@ -199,7 +200,7 @@ Value builtin_apply(Value *args, int num_args, ExecutionContext *ctx) {
     // Build argument array from the array elements
     Value *call_args = NULL;
     if (call_num_args > 0) {
-        call_args = malloc(sizeof(Value) * call_num_args);
+        call_args = hml_xmalloc(sizeof(Value) * call_num_args);
         for (int i = 0; i < call_num_args; i++) {
             call_args[i] = arr->elements[i];
         }

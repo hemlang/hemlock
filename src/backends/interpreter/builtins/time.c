@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include "internal.h"
 
 #ifdef __EMSCRIPTEN__
@@ -290,7 +291,7 @@ static void set_object_field(Object *obj, const char *name, Value value) {
             return;  // Keep original data on allocation failure
         }
     }
-    obj->fields[obj->num_fields].name = strdup(name);
+    obj->fields[obj->num_fields].name = hml_xstrdup(name);
     obj->fields[obj->num_fields].value = value;
     obj->num_fields++;
 }

@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include "internal.h"
 #include "hemlock_compat.h"
 #include <unistd.h>
@@ -13,7 +14,7 @@ void set_current_source_file(const char *file) {
         current_source_file = NULL;
     }
     if (file) {
-        current_source_file = strdup(file);
+        current_source_file = hml_xstrdup(file);
     }
 }
 
@@ -27,7 +28,7 @@ void set_current_source_code(const char *source) {
         current_source_code = NULL;
     }
     if (source) {
-        current_source_code = strdup(source);
+        current_source_code = hml_xstrdup(source);
     }
 }
 
@@ -618,7 +619,7 @@ int sandbox_path_allowed(ExecutionContext *ctx, const char *path, int is_write) 
         // Resolve both paths to absolute form
         if (!realpath(path, resolved_path)) {
             // Path doesn't exist yet - try resolving parent directory
-            char *path_copy = strdup(path);
+            char *path_copy = hml_xstrdup(path);
             char *parent = path_copy;
             char *last_slash = strrchr(path_copy, '/');
             if (last_slash) {

@@ -19,6 +19,7 @@
 // Arguments are deep-copied into the task so tasks never share mutable
 // state by accident; channels and task handles are shared by reference.
 #define _GNU_SOURCE
+#include "hemlock_alloc.h"
 #include "internal.h"
 #include <stdatomic.h>
 
@@ -133,7 +134,7 @@ static Value spawn_task(const char *who, Function *fn, Value *args, int num_args
     task->detached = opts->detached;
     sandbox_inherit(task->ctx, ctx);  // tasks run under the spawner's sandbox
     if (opts->name) {
-        task->name = strdup(opts->name);
+        task->name = hml_xstrdup(opts->name);
     }
     task->thread = malloc(sizeof(pthread_t));
     if (!task->thread) {

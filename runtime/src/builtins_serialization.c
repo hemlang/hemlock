@@ -12,6 +12,7 @@
  * - Direct array/object building during parsing
  */
 
+#include "hemlock_alloc.h"
 #include "builtins_internal.h"
 #include "json_number.h"
 #include <stdatomic.h>
@@ -68,7 +69,7 @@ typedef struct {
 
 static inline void hjbuf_init(HmlJsonBuffer *buf, size_t initial_capacity) {
     buf->capacity = initial_capacity > 64 ? initial_capacity : 64;
-    buf->data = malloc(buf->capacity);
+    buf->data = hml_xmalloc(buf->capacity);
     buf->len = 0;
 }
 
@@ -502,7 +503,7 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
 
     // Pre-allocate unified fields array for direct building (O(n) instead of O(n²))
     int capacity = 8;
-    HmlFieldEntry *fields = malloc(sizeof(HmlFieldEntry) * capacity);
+    HmlFieldEntry *fields = hml_xmalloc(sizeof(HmlFieldEntry) * capacity);
     int num_fields = 0;
 
     json_skip_whitespace(p);
@@ -510,7 +511,7 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
     if (p->input[p->pos] == '}') {
         p->pos++;
         // Build empty object directly
-        HmlObject *obj = malloc(sizeof(HmlObject));
+        HmlObject *obj = hml_xmalloc(sizeof(HmlObject));
         obj->type_name = NULL;
         obj->fields = fields;
         obj->num_fields = 0;
@@ -565,7 +566,7 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
         }
 
         // Direct assignment - no duplicate check needed for JSON parsing
-        fields[num_fields].name = strdup(name_val.as.as_string->data);
+        fields[num_fields].name = hml_xstrdup(name_val.as.as_string->data);
         hml_release(&name_val);
 
         json_skip_whitespace(p);
@@ -623,7 +624,7 @@ static HmlValue json_parse_object(HmlJSONParser *p) {
     p->pos++;
 
     // Build object directly with pre-populated fields array
-    HmlObject *obj = malloc(sizeof(HmlObject));
+    HmlObject *obj = hml_xmalloc(sizeof(HmlObject));
     obj->type_name = NULL;
     obj->fields = fields;
     obj->num_fields = num_fields;
@@ -655,7 +656,7 @@ static HmlValue json_parse_array(HmlJSONParser *p) {
 
     // Pre-allocate array for direct building (avoids retain/release overhead)
     int capacity = 8;
-    HmlValue *elements = malloc(sizeof(HmlValue) * capacity);
+    HmlValue *elements = hml_xmalloc(sizeof(HmlValue) * capacity);
     int length = 0;
 
     json_skip_whitespace(p);
@@ -663,7 +664,7 @@ static HmlValue json_parse_array(HmlJSONParser *p) {
     if (p->input[p->pos] == ']') {
         p->pos++;
         // Build empty array directly
-        HmlArray *arr = malloc(sizeof(HmlArray));
+        HmlArray *arr = hml_xmalloc(sizeof(HmlArray));
         arr->elements = elements;
         arr->length = 0;
         arr->capacity = capacity;
@@ -739,7 +740,7 @@ static HmlValue json_parse_array(HmlJSONParser *p) {
     p->pos++;
 
     // Build array directly with pre-populated elements
-    HmlArray *arr = malloc(sizeof(HmlArray));
+    HmlArray *arr = hml_xmalloc(sizeof(HmlArray));
     arr->elements = elements;
     arr->length = length;
     arr->capacity = capacity;

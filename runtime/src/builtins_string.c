@@ -13,6 +13,7 @@
  * Uses shared UTF-8 module for encoding/decoding.
  */
 
+#include "hemlock_alloc.h"
 #include "builtins_internal.h"
 #include "utf8.h"
 
@@ -194,7 +195,7 @@ HmlValue hml_string_split(HmlValue str, HmlValue delimiter) {
     if (d->length == 0) {
         // Split into individual characters
         for (int i = 0; i < s->length; i++) {
-            char *c = malloc(2);
+            char *c = hml_xmalloc(2);
             c[0] = s->data[i];
             c[1] = '\0';
             HmlValue part_val = hml_val_string_owned(c, 1, 2);
@@ -211,7 +212,7 @@ HmlValue hml_string_split(HmlValue str, HmlValue delimiter) {
     for (int i = 0; i <= s->length - d->length; i++) {
         if (memcmp(s->data + i, d->data, d->length) == 0) {
             int len = i - start;
-            char *part = malloc(len + 1);
+            char *part = hml_xmalloc(len + 1);
             memcpy(part, s->data + start, len);
             part[len] = '\0';
             HmlValue part_val = hml_val_string_owned(part, len, len + 1);
@@ -224,7 +225,7 @@ HmlValue hml_string_split(HmlValue str, HmlValue delimiter) {
 
     // Add remaining part
     int len = s->length - start;
-    char *part = malloc(len + 1);
+    char *part = hml_xmalloc(len + 1);
     memcpy(part, s->data + start, len);
     part[len] = '\0';
     HmlValue part_val = hml_val_string_owned(part, len, len + 1);
@@ -255,7 +256,7 @@ HmlValue hml_string_trim(HmlValue str) {
     int len = end - start + 1;
     if (len <= 0) return hml_val_string("");
 
-    char *result = malloc(len + 1);
+    char *result = hml_xmalloc(len + 1);
     memcpy(result, s->data + start, len);
     result[len] = '\0';
     return hml_val_string_owned(result, len, len + 1);
@@ -276,7 +277,7 @@ HmlValue hml_string_trim_start(HmlValue str) {
     int len = s->length - start;
     if (len <= 0) return hml_val_string("");
 
-    char *result = malloc(len + 1);
+    char *result = hml_xmalloc(len + 1);
     memcpy(result, s->data + start, len);
     result[len] = '\0';
     return hml_val_string_owned(result, len, len + 1);
@@ -297,7 +298,7 @@ HmlValue hml_string_trim_end(HmlValue str) {
     int len = end + 1;
     if (len <= 0) return hml_val_string("");
 
-    char *result = malloc(len + 1);
+    char *result = hml_xmalloc(len + 1);
     memcpy(result, s->data, len);
     result[len] = '\0';
     return hml_val_string_owned(result, len, len + 1);
@@ -308,7 +309,7 @@ HmlValue hml_string_to_upper(HmlValue str) {
         return hml_val_string("");
     }
     HmlString *s = str.as.as_string;
-    char *result = malloc(s->length + 1);
+    char *result = hml_xmalloc(s->length + 1);
     for (int i = 0; i < s->length; i++) {
         char c = s->data[i];
         if (c >= 'a' && c <= 'z') {
@@ -326,7 +327,7 @@ HmlValue hml_string_to_lower(HmlValue str) {
         return hml_val_string("");
     }
     HmlString *s = str.as.as_string;
-    char *result = malloc(s->length + 1);
+    char *result = hml_xmalloc(s->length + 1);
     for (int i = 0; i < s->length; i++) {
         char c = s->data[i];
         if (c >= 'A' && c <= 'Z') {
@@ -885,8 +886,8 @@ HmlValue hml_string_to_bytes(HmlValue str) {
     }
 
     HmlString *s = str.as.as_string;
-    HmlBuffer *buf = calloc(1, sizeof(HmlBuffer));
-    buf->data = malloc(s->length);
+    HmlBuffer *buf = hml_xcalloc(1, sizeof(HmlBuffer));
+    buf->data = hml_xmalloc(s->length);
     memcpy(buf->data, s->data, s->length);
     buf->length = s->length;
     buf->capacity = s->length;

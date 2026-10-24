@@ -1,5 +1,6 @@
 // Function/method call evaluation (extracted from expressions.c)
 
+#include "hemlock_alloc.h"
 #include "expressions_internal.h"
 
 // Forward declaration for recursive evaluation
@@ -74,7 +75,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     Value method_stack_args[8];
                     Value *args = NULL;
                     if (expr->as.call.num_args > 0) {
-                        args = (expr->as.call.num_args <= 8) ? method_stack_args : malloc(sizeof(Value) * expr->as.call.num_args);
+                        args = (expr->as.call.num_args <= 8) ? method_stack_args : hml_xmalloc(sizeof(Value) * expr->as.call.num_args);
                         for (int i = 0; i < expr->as.call.num_args; i++) {
                             args[i] = eval_expr(expr->as.call.args[i], env, ctx);
                         }
@@ -100,7 +101,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     Value method_stack_args[8];
                     Value *args = NULL;
                     if (expr->as.call.num_args > 0) {
-                        args = (expr->as.call.num_args <= 8) ? method_stack_args : malloc(sizeof(Value) * expr->as.call.num_args);
+                        args = (expr->as.call.num_args <= 8) ? method_stack_args : hml_xmalloc(sizeof(Value) * expr->as.call.num_args);
                         for (int i = 0; i < expr->as.call.num_args; i++) {
                             args[i] = eval_expr(expr->as.call.args[i], env, ctx);
                         }
@@ -126,7 +127,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     Value method_stack_args[8];
                     Value *args = NULL;
                     if (expr->as.call.num_args > 0) {
-                        args = (expr->as.call.num_args <= 8) ? method_stack_args : malloc(sizeof(Value) * expr->as.call.num_args);
+                        args = (expr->as.call.num_args <= 8) ? method_stack_args : hml_xmalloc(sizeof(Value) * expr->as.call.num_args);
                         for (int i = 0; i < expr->as.call.num_args; i++) {
                             args[i] = eval_expr(expr->as.call.args[i], env, ctx);
                         }
@@ -152,7 +153,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     Value method_stack_args[8];
                     Value *args = NULL;
                     if (expr->as.call.num_args > 0) {
-                        args = (expr->as.call.num_args <= 8) ? method_stack_args : malloc(sizeof(Value) * expr->as.call.num_args);
+                        args = (expr->as.call.num_args <= 8) ? method_stack_args : hml_xmalloc(sizeof(Value) * expr->as.call.num_args);
                         for (int i = 0; i < expr->as.call.num_args; i++) {
                             args[i] = eval_expr(expr->as.call.args[i], env, ctx);
                         }
@@ -177,7 +178,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     if (strcmp(method, "to_string") == 0) {
                         Buffer *buf = method_self.as.as_buffer;
                         // Convert buffer to string (interpret as UTF-8)
-                        char *str_data = malloc(buf->length + 1);
+                        char *str_data = hml_xmalloc(buf->length + 1);
                         memcpy(str_data, buf->data, buf->length);
                         str_data[buf->length] = '\0';
                         Value result = val_string(str_data);
@@ -211,7 +212,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
 
                         // Create zero-copy view
-                        Buffer *view = malloc(sizeof(Buffer));
+                        Buffer *view = hml_xmalloc(sizeof(Buffer));
                         view->data = (uint8_t *)buf->data + start;
                         view->length = end - start;
                         view->capacity = end - start;
@@ -418,8 +419,8 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                                 return val_null();
                             }
                             // Create new buffer with copied data
-                            Buffer *new_buf = malloc(sizeof(Buffer));
-                            new_buf->data = malloc(len > 0 ? len : 1);
+                            Buffer *new_buf = hml_xmalloc(sizeof(Buffer));
+                            new_buf->data = hml_xmalloc(len > 0 ? len : 1);
                             new_buf->length = len;
                             new_buf->capacity = len;
                             new_buf->ref_count = 1;
@@ -551,7 +552,7 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     Value method_stack_args[8];
                     Value *args = NULL;
                     if (expr->as.call.num_args > 0) {
-                        args = (expr->as.call.num_args <= 8) ? method_stack_args : malloc(sizeof(Value) * expr->as.call.num_args);
+                        args = (expr->as.call.num_args <= 8) ? method_stack_args : hml_xmalloc(sizeof(Value) * expr->as.call.num_args);
                         for (int i = 0; i < expr->as.call.num_args; i++) {
                             args[i] = eval_expr(expr->as.call.args[i], env, ctx);
                         }

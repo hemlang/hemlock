@@ -15,6 +15,7 @@
 
 #ifdef __EMSCRIPTEN__
 
+#include "hemlock_alloc.h"
 #include "../include/hemlock_runtime.h"
 #include <emscripten.h>
 #include <stdio.h>
@@ -637,7 +638,7 @@ static void md5_compute(const uint8_t *data, size_t len, uint8_t hash[16]) {
 
     // Prepare padded message
     size_t new_len = ((len + 8) / 64 + 1) * 64;
-    uint8_t *msg = calloc(new_len, 1);
+    uint8_t *msg = hml_xcalloc(new_len, 1);
     memcpy(msg, data, len);
     msg[len] = 0x80;
 
@@ -680,7 +681,7 @@ static void md5_compute(const uint8_t *data, size_t len, uint8_t hash[16]) {
 
 static HmlValue bytes_to_hex(const uint8_t *bytes, size_t len) {
     static const char hex_chars[] = "0123456789abcdef";
-    char *hex = malloc(len * 2 + 1);
+    char *hex = hml_xmalloc(len * 2 + 1);
     for (size_t i = 0; i < len; i++) {
         hex[i * 2]     = hex_chars[(bytes[i] >> 4) & 0x0F];
         hex[i * 2 + 1] = hex_chars[bytes[i] & 0x0F];

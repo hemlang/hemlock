@@ -1,3 +1,4 @@
+#include "hemlock_alloc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -72,7 +73,7 @@ static void run_source(const char *source, int argc, char **argv, int stack_dept
     if (sandbox_flags != 0) {
         ctx->sandbox_flags = sandbox_flags;
         if (sandbox_root) {
-            ctx->sandbox_root = strdup(sandbox_root);
+            ctx->sandbox_root = hml_xstrdup(sandbox_root);
         }
     }
 
@@ -373,7 +374,7 @@ static void run_file(const char *path, int argc, char **argv, int stack_depth, i
         if (sandbox_flags != 0) {
             ctx->sandbox_flags = sandbox_flags;
             if (sandbox_root) {
-                ctx->sandbox_root = strdup(sandbox_root);
+                ctx->sandbox_root = hml_xstrdup(sandbox_root);
             }
         }
 
@@ -442,7 +443,7 @@ static int compile_file(const char *input_path, const char *output_path, int deb
     if (output_path == NULL) {
         // Default: replace .hml with .hmlc or append .hmlc
         size_t len = strlen(input_path);
-        final_output = malloc(len + 6);  // Room for ".hmlc" (5) + null (1)
+        final_output = hml_xmalloc(len + 6);  // Room for ".hmlc" (5) + null (1)
         memcpy(final_output, input_path, len + 1);
 
         // Check for .hml extension
@@ -452,7 +453,7 @@ static int compile_file(const char *input_path, const char *output_path, int deb
             memcpy(final_output + len, ".hmlc", 6);
         }
     } else {
-        final_output = strdup(output_path);
+        final_output = hml_xstrdup(output_path);
     }
 
     // Serialize
@@ -602,7 +603,7 @@ static int bundle_file(const char *input_path, const char *output_path, int verb
     char *final_output = NULL;
     if (output_path == NULL) {
         size_t len = strlen(input_path);
-        final_output = malloc(len + 6);  // Room for ".hmlb\0" or ".hmlc\0"
+        final_output = hml_xmalloc(len + 6);  // Room for ".hmlb\0" or ".hmlc\0"
         memcpy(final_output, input_path, len + 1);
 
         const char *ext = compressed ? ".hmlb" : ".hmlc";
@@ -612,7 +613,7 @@ static int bundle_file(const char *input_path, const char *output_path, int verb
             memcpy(final_output + len, ext, 6);
         }
     } else {
-        final_output = strdup(output_path);
+        final_output = hml_xstrdup(output_path);
     }
 
     // Write output
@@ -693,7 +694,7 @@ static int package_file(const char *input_path, const char *output_path, int ver
     if (compress) {
         // Compress with zlib
         uLongf compressed_size = compressBound(serialized_size);
-        uint8_t *compressed = malloc(compressed_size);
+        uint8_t *compressed = hml_xmalloc(compressed_size);
 
         int ret = compress2(compressed, &compressed_size, serialized, serialized_size, Z_BEST_COMPRESSION);
         if (ret != Z_OK) {
@@ -725,7 +726,7 @@ static int package_file(const char *input_path, const char *output_path, int ver
 
     if (compress) {
         hmlb_size = 10 + payload_data_size;  // header + compressed data
-        hmlb_payload = malloc(hmlb_size);
+        hmlb_payload = hml_xmalloc(hmlb_size);
         uint16_t version = 1;
 
         memcpy(hmlb_payload, &payload_magic, 4);
@@ -778,7 +779,7 @@ static int package_file(const char *input_path, const char *output_path, int ver
     long exe_size = ftell(exe_file);
     fseek(exe_file, 0, SEEK_SET);
 
-    uint8_t *exe_data = malloc(exe_size);
+    uint8_t *exe_data = hml_xmalloc(exe_size);
     if (fread(exe_data, 1, exe_size, exe_file) != (size_t)exe_size) {
         fprintf(stderr, "Failed to read executable\n");
         free(exe_data);
@@ -793,14 +794,14 @@ static int package_file(const char *input_path, const char *output_path, int ver
     char *final_output = NULL;
     if (output_path == NULL) {
         size_t input_len = strlen(input_path);
-        final_output = malloc(input_len + 6);  // Room for ".hmlp\0"
+        final_output = hml_xmalloc(input_len + 6);  // Room for ".hmlp\0"
         memcpy(final_output, input_path, input_len + 1);
 
         if (input_len > 4 && strcmp(input_path + input_len - 4, ".hml") == 0) {
             final_output[input_len - 4] = '\0';  // Strip .hml extension
         }
     } else {
-        final_output = strdup(output_path);
+        final_output = hml_xstrdup(output_path);
     }
 
     // Write packaged executable: [exe][hmlb_payload][payload_size:u64][HMLP:u32]
@@ -875,7 +876,7 @@ static void run_compiled_file(const char *path, int argc, char **argv, int stack
     if (sandbox_flags != 0) {
         ctx->sandbox_flags = sandbox_flags;
         if (sandbox_root) {
-            ctx->sandbox_root = strdup(sandbox_root);
+            ctx->sandbox_root = hml_xstrdup(sandbox_root);
         }
     }
 
@@ -1677,7 +1678,7 @@ static int run_check(int argc, char **argv) {
         .borrow_strict = 0,
         .deny_warnings = 0,
     };
-    const char **files = malloc(sizeof(char*) * (size_t)(argc > 2 ? argc : 2));
+    const char **files = hml_xmalloc(sizeof(char*) * (size_t)(argc > 2 ? argc : 2));
     int num_files = 0;
 
     for (int i = 2; i < argc; i++) {
@@ -2032,7 +2033,7 @@ int main(int argc, char **argv) {
             if (sandbox_flags != 0) {
                 ctx->sandbox_flags = sandbox_flags;
                 if (sandbox_root) {
-                    ctx->sandbox_root = strdup(sandbox_root);
+                    ctx->sandbox_root = hml_xstrdup(sandbox_root);
                 }
             }
 

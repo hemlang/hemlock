@@ -5,6 +5,7 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#include "hemlock_alloc.h"
 #include "internal.h"
 
 Value builtin_getenv(Value *args, int num_args, ExecutionContext *ctx) {
@@ -576,7 +577,7 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
         }
 
         // First element is the command
-        argv[0] = malloc(command->length + 1);
+        argv[0] = hml_xmalloc(command->length + 1);
         if (!argv[0]) {
             free(argv);
             runtime_error(ctx, "exec() memory allocation failed");
@@ -594,7 +595,7 @@ Value builtin_exec(Value *args, int num_args, ExecutionContext *ctx) {
                 return val_null();
             }
             String *s = arr->elements[i].as.as_string;
-            argv[i + 1] = malloc(s->length + 1);
+            argv[i + 1] = hml_xmalloc(s->length + 1);
             if (!argv[i + 1]) {
                 for (int j = 0; j <= i; j++) free(argv[j]);
                 free(argv);
@@ -1028,7 +1029,7 @@ Value builtin_exec_argv(Value *args, int num_args, ExecutionContext *ctx) {
             return val_null();
         }
         String *s = arr->elements[i].as.as_string;
-        argv[i] = malloc(s->length + 1);
+        argv[i] = hml_xmalloc(s->length + 1);
         if (!argv[i]) {
             for (int j = 0; j < i; j++) free(argv[j]);
             free(argv);
@@ -1773,7 +1774,7 @@ Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx) {
             return val_null();
         }
         String *s = arr->elements[i].as.as_string;
-        cargv[i] = malloc(s->length + 1);
+        cargv[i] = hml_xmalloc(s->length + 1);
         if (!cargv[i]) {
             for (int j = 0; j < i; j++) free(cargv[j]);
             free(cargv);
@@ -1814,7 +1815,7 @@ Value builtin_posix_spawn(Value *args, int num_args, ExecutionContext *ctx) {
                 return val_null();
             }
             String *s = envarr->elements[i].as.as_string;
-            cenv[i] = malloc(s->length + 1);
+            cenv[i] = hml_xmalloc(s->length + 1);
             if (!cenv[i]) {
                 for (int j = 0; j < i; j++) free(cenv[j]);
                 free(cenv);
@@ -2017,10 +2018,10 @@ Value builtin_pipe(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "pipe() memory allocation failed");
         return val_null();
     }
-    result->fields[0].name = strdup("read_fd");
+    result->fields[0].name = hml_xstrdup("read_fd");
     result->fields[0].value = val_i32(fds[0]);
     result->num_fields++;
-    result->fields[1].name = strdup("write_fd");
+    result->fields[1].name = hml_xstrdup("write_fd");
     result->fields[1].value = val_i32(fds[1]);
     result->num_fields++;
 

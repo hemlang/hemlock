@@ -10,6 +10,7 @@
  * - Typed arrays: validate and set element type constraints
  */
 
+#include "hemlock_alloc.h"
 #include "builtins_internal.h"
 #include <stdatomic.h>
 
@@ -287,11 +288,11 @@ HmlValue hml_array_slice(HmlValue arr, HmlValue start, HmlValue end) {
     if (s > e) s = e;
 
     int new_len = e - s;
-    HmlArray *result = malloc(sizeof(HmlArray));
+    HmlArray *result = hml_xmalloc(sizeof(HmlArray));
     result->ref_count = 1;
     result->length = new_len;
     result->capacity = (new_len > 0) ? new_len : 1;
-    result->elements = malloc(result->capacity * sizeof(HmlValue));
+    result->elements = hml_xmalloc(result->capacity * sizeof(HmlValue));
     result->element_type = HML_VAL_NULL;
     atomic_store(&result->freed, 0);  // Not freed
 
