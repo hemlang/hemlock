@@ -1,0 +1,1 @@
+try { print(i32(1e10)); } catch (e) { print("caught"); }

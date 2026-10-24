@@ -1,0 +1,4 @@
+import { randint } from "@stdlib/random";
+let lo: i32 = -2147483647 - 1;
+let hi: i32 = 2147483647;
+try { let r = randint(lo, hi); print(typeof(r)); } catch (e) { print("caught"); }

@@ -7,7 +7,8 @@
 #             skip = a known coverage gap: `name|skip|reason`, printed on every run
 #   tool      cbmc | tlc
 #   target    cbmc: harness file in cbmc/harnesses; tlc: config in tla/
-#   sources   cbmc: space-separated sources (repo-relative); tlc: module
+#   sources   cbmc: space-separated sources (repo-relative), or - for none;
+#             tlc: module
 #   flags     extra tool flags (cbmc: -D..., --unwind N, ...); the token
 #             @bitwuzla selects the Bitwuzla SMT backend for that proof;
 #             @pairs expands the line into one proof per integer type pair
@@ -37,6 +38,10 @@ type_promotion_lossless_u32|fail|cbmc|type_promotion_lossless.c|src/shared/type_
 type_promotion_lossless_u64|fail|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_U64
 type_promotion_lossless_f32|pass|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_F32
 type_promotion_lossless_f64|pass|cbmc|type_promotion_lossless.c|src/shared/type_promotion.c|--unwind 2 -DKA=HML_TK_F64
+
+# ---- float-to-integer conversion helpers (src/shared/num_convert.h) ----
+num_convert|pass|cbmc|num_convert.c|-|--unwind 1
+num_convert_no_ub|pass|cbmc|num_convert.c|-|--unwind 1 --conversion-check -DSKIP_INT64_MIN
 
 # ---- compiled-program runtime integer ops (runtime/src/builtins_ops.c) ----
 RT=runtime/src/builtins_ops.c runtime/src/value.c src/shared/type_promotion.c @stubs/runtime_errors.c

@@ -1,0 +1,3 @@
+let a = [1, 2, 3];
+try { print(a.slice(1, 2147483647)); } catch (e) { print("caught"); }
+try { print(a.slice(-2147483647 - 1, 2)); } catch (e) { print("caught"); }

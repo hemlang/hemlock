@@ -5,6 +5,7 @@
  */
 
 #include "builtins_internal.h"
+#include "num_convert.h"
 
 // Random seed state (shared with other modules)
 int g_rand_seeded = 0;
@@ -62,19 +63,35 @@ HmlValue hml_trunc(HmlValue x) {
 }
 
 HmlValue hml_floori(HmlValue x) {
-    return hml_val_i64((int64_t)floor(hml_to_f64(x)));
+    int64_t result;
+    if (!hml_f64_to_i64(floor(hml_to_f64(x)), &result)) {
+        hml_runtime_error("Float value out of range for integer conversion to i64");
+    }
+    return hml_val_i64(result);
 }
 
 HmlValue hml_ceili(HmlValue x) {
-    return hml_val_i64((int64_t)ceil(hml_to_f64(x)));
+    int64_t result;
+    if (!hml_f64_to_i64(ceil(hml_to_f64(x)), &result)) {
+        hml_runtime_error("Float value out of range for integer conversion to i64");
+    }
+    return hml_val_i64(result);
 }
 
 HmlValue hml_roundi(HmlValue x) {
-    return hml_val_i64((int64_t)round(hml_to_f64(x)));
+    int64_t result;
+    if (!hml_f64_to_i64(round(hml_to_f64(x)), &result)) {
+        hml_runtime_error("Float value out of range for integer conversion to i64");
+    }
+    return hml_val_i64(result);
 }
 
 HmlValue hml_trunci(HmlValue x) {
-    return hml_val_i64((int64_t)trunc(hml_to_f64(x)));
+    int64_t result;
+    if (!hml_f64_to_i64(trunc(hml_to_f64(x)), &result)) {
+        hml_runtime_error("Float value out of range for integer conversion to i64");
+    }
+    return hml_val_i64(result);
 }
 
 // ========== DIVISION FUNCTIONS ==========
@@ -87,10 +104,27 @@ HmlValue hml_div(HmlValue a, HmlValue b) {
 }
 
 HmlValue hml_divi(HmlValue a, HmlValue b) {
+    // Integer operands divide exactly: the float path loses precision above
+    // 2^53 (divi(2^53 + 1, 1) was 2^53). u64 values above INT64_MAX cannot be
+    // an i64 result anyway and take the checked float path.
+    if (hml_is_integer(a) && a.type != HML_VAL_RUNE &&
+        hml_is_integer(b) && b.type != HML_VAL_RUNE &&
+        !(a.type == HML_VAL_U64 && a.as.as_u64 > (uint64_t)INT64_MAX) &&
+        !(b.type == HML_VAL_U64 && b.as.as_u64 > (uint64_t)INT64_MAX)) {
+        int64_t ai = hml_to_i64(a);
+        int64_t bi = hml_to_i64(b);
+        if (bi == 0) hml_runtime_error("Division by zero");
+        if (ai == INT64_MIN && bi == -1) hml_runtime_error("Integer overflow: i64 division");
+        return hml_val_i64(ai / bi);
+    }
     double ad = hml_to_f64(a);
     double bd = hml_to_f64(b);
     if (bd == 0.0) hml_runtime_error("Division by zero");
-    return hml_val_i64((int64_t)trunc(ad / bd));
+    int64_t result;
+    if (!hml_f64_to_i64(trunc(ad / bd), &result)) {
+        hml_runtime_error("Float value out of range for integer conversion to i64");
+    }
+    return hml_val_i64(result);
 }
 
 // ========== MISC MATH FUNCTIONS ==========

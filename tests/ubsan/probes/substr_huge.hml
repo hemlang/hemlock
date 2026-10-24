@@ -1,0 +1,4 @@
+let s = "hello";
+try { print(s.substr(2147483647, 5)); } catch (e) { print("caught"); }
+try { print(s.substr(1, 2147483647)); } catch (e) { print("caught"); }
+try { print(s.slice(-2147483647 - 1, 3)); } catch (e) { print("caught"); }

@@ -2,6 +2,7 @@
 // Provides HTTP client functionality using libwebsockets
 
 #include "websockets_internal.h"
+#include "num_convert.h"
 #include <stdatomic.h>
 
 #ifndef HAVE_LIBWEBSOCKETS
@@ -975,7 +976,7 @@ Value builtin_lws_http_get_timeout(Value *args, int num_args, ExecutionContext *
     } else if (args[1].type == VAL_I64) {
         timeout_ms = (int)args[1].as.as_i64;
     } else if (args[1].type == VAL_F64) {
-        timeout_ms = (int)args[1].as.as_f64;
+        timeout_ms = hml_f64_to_i32_sat(args[1].as.as_f64);
     } else {
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("__lws_http_get_timeout() expects numeric timeout_ms");
@@ -1122,7 +1123,7 @@ Value builtin_lws_http_post_timeout(Value *args, int num_args, ExecutionContext 
     } else if (args[3].type == VAL_I64) {
         timeout_ms = (int)args[3].as.as_i64;
     } else if (args[3].type == VAL_F64) {
-        timeout_ms = (int)args[3].as.as_f64;
+        timeout_ms = hml_f64_to_i32_sat(args[3].as.as_f64);
     } else {
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("__lws_http_post_timeout() expects numeric timeout_ms");
@@ -1288,7 +1289,7 @@ Value builtin_lws_http_request_timeout(Value *args, int num_args, ExecutionConte
     } else if (args[4].type == VAL_I64) {
         timeout_ms = (int)args[4].as.as_i64;
     } else if (args[4].type == VAL_F64) {
-        timeout_ms = (int)args[4].as.as_f64;
+        timeout_ms = hml_f64_to_i32_sat(args[4].as.as_f64);
     } else {
         ctx->exception_state.is_throwing = 1;
         ctx->exception_state.exception_value = val_string("__lws_http_request_timeout() expects numeric timeout_ms");

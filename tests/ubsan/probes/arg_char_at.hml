@@ -1,0 +1,2 @@
+// @expect-compile-fail float index/count is a static type error; probes the interpreter's runtime check
+try { print("abc".char_at(-1e20)); } catch (e) { print("caught"); }

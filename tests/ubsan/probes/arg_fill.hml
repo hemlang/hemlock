@@ -1,0 +1,1 @@
+let a = [1, 2, 3]; try { a.fill(0, 1e20, 2e20); print(a); } catch (e) { print("caught"); }

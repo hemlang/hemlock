@@ -1,0 +1,2 @@
+try { print(i32("99999999999")); } catch (e) { print("caught"); }
+try { print(i64("99999999999999999999999")); } catch (e) { print("caught"); }

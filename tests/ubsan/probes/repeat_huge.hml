@@ -1,0 +1,1 @@
+try { print("ab".repeat(2000000000).length); } catch (e) { print("caught"); }

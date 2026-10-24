@@ -750,7 +750,7 @@ Value eval_binary_values(BinaryOp op, int line, Value left, Value right, Executi
                         // without -fwrapv, e.g. the WASM build): multiply unsigned
                         uint16_t result = (op == OP_ADD) ? (l + r) :
                                          (op == OP_SUB) ? (l - r) :
-                                         (op == OP_MUL) ? ((uint32_t)l * r) :
+                                         (op == OP_MUL) ? (uint16_t)((uint32_t)l * r) :
                                          (op == OP_DIV) ? (l / r) : (l % r);
                         binary_result = val_u16(result);
                         goto binary_cleanup;

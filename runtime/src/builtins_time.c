@@ -5,6 +5,8 @@
  */
 
 #include "builtins_internal.h"
+#include "hemlock_limits.h"
+#include <limits.h>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -41,8 +43,12 @@ HmlValue hml_clock(void) {
 
 void hml_sleep(HmlValue seconds) {
     double secs = hml_to_f64(seconds);
+    // Mirrors the interpreter; also keeps every cast below in range
+    if (!(secs >= 0)) hml_runtime_error("sleep() argument must be non-negative");
+    if (secs > HML_MAX_WAIT_SECONDS) secs = HML_MAX_WAIT_SECONDS;
 #ifdef __EMSCRIPTEN__
-    emscripten_sleep((unsigned int)(secs * 1000));
+    double ms = secs * HML_MILLISECONDS_PER_SECOND;
+    emscripten_sleep(ms >= (double)UINT_MAX ? UINT_MAX : (unsigned int)ms);
 #elif defined(__APPLE__)
     // nanosleep() and mach_wait_until() on macOS are both subject to
     // aggressive timer coalescing once the kernel classifies a thread

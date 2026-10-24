@@ -14,6 +14,7 @@
 #ifndef __EMSCRIPTEN__
 
 #include "builtins_internal.h"
+#include "num_convert.h"
 
 // ========== HTTP/WEBSOCKET SUPPORT ==========
 // Requires libwebsockets
@@ -904,7 +905,7 @@ static int hml_extract_timeout_ms(HmlValue timeout_val) {
     } else if (timeout_val.type == HML_VAL_I64) {
         timeout_ms = (int)timeout_val.as.as_i64;
     } else if (timeout_val.type == HML_VAL_F64) {
-        timeout_ms = (int)timeout_val.as.as_f64;
+        timeout_ms = hml_f64_to_i32_sat(timeout_val.as.as_f64);
     } else {
         timeout_ms = HML_LWS_HTTP_DEFAULT_TIMEOUT_MS;
     }

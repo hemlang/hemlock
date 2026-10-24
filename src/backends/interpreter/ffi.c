@@ -659,31 +659,31 @@ static Value ffi_struct_to_object(void *struct_ptr, FFIStructType *struct_type) 
                 field_val = val_i8(*(int8_t*)field_ptr);
                 break;
             case TYPE_I16:
-                field_val = val_i16(*(int16_t*)field_ptr);
+                { int16_t loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = val_i16(loaded); }
                 break;
             case TYPE_I32:
-                field_val = val_i32(*(int32_t*)field_ptr);
+                { int32_t loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = val_i32(loaded); }
                 break;
             case TYPE_I64:
-                field_val = val_i64(*(int64_t*)field_ptr);
+                { int64_t loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = val_i64(loaded); }
                 break;
             case TYPE_U8:
                 field_val = val_u8(*(uint8_t*)field_ptr);
                 break;
             case TYPE_U16:
-                field_val = val_u16(*(uint16_t*)field_ptr);
+                { uint16_t loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = val_u16(loaded); }
                 break;
             case TYPE_U32:
-                field_val = val_u32(*(uint32_t*)field_ptr);
+                { uint32_t loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = val_u32(loaded); }
                 break;
             case TYPE_U64:
-                field_val = val_u64(*(uint64_t*)field_ptr);
+                { uint64_t loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = val_u64(loaded); }
                 break;
             case TYPE_F32:
-                field_val = val_f32(*(float*)field_ptr);
+                { float loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = val_f32(loaded); }
                 break;
             case TYPE_F64:
-                field_val = val_f64(*(double*)field_ptr);
+                { double loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = val_f64(loaded); }
                 break;
             case TYPE_PTR:
                 field_val = val_ptr(*(void**)field_ptr);

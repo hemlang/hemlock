@@ -6,6 +6,7 @@
  */
 
 #include "../include/hemlock_runtime.h"
+#include "num_convert.h"
 #include "chan_core.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -1212,9 +1213,15 @@ int32_t hml_to_i32_slow(HmlValue val) {
         case HML_VAL_U64:
             return (int32_t)val.as.as_u64;
         case HML_VAL_F32:
-            return (int32_t)val.as.as_f32;
-        case HML_VAL_F64:
-            return (int32_t)val.as.as_f64;
+        case HML_VAL_F64: {
+            // Out-of-range or NaN float-to-int casts are UB in C
+            int32_t i;
+            double d = val.type == HML_VAL_F32 ? (double)val.as.as_f32 : val.as.as_f64;
+            if (!hml_f64_to_i32(d, &i)) {
+                hml_runtime_error("Float value out of range for integer conversion to i32");
+            }
+            return i;
+        }
         case HML_VAL_BOOL:
             return val.as.as_bool ? 1 : 0;
         case HML_VAL_RUNE:
@@ -1243,9 +1250,15 @@ int64_t hml_to_i64_slow(HmlValue val) {
         case HML_VAL_U64:
             return (int64_t)val.as.as_u64;
         case HML_VAL_F32:
-            return (int64_t)val.as.as_f32;
-        case HML_VAL_F64:
-            return (int64_t)val.as.as_f64;
+        case HML_VAL_F64: {
+            // Out-of-range or NaN float-to-int casts are UB in C
+            int64_t i;
+            double d = val.type == HML_VAL_F32 ? (double)val.as.as_f32 : val.as.as_f64;
+            if (!hml_f64_to_i64(d, &i)) {
+                hml_runtime_error("Float value out of range for integer conversion to i64");
+            }
+            return i;
+        }
         case HML_VAL_BOOL:
             return val.as.as_bool ? 1 : 0;
         case HML_VAL_RUNE:

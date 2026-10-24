@@ -1,0 +1,3 @@
+import { bswap32, bswap64 } from "@stdlib/bytes";
+let a: u32 = 4294967295; let b: u64 = 18446744073709551615;
+print(bswap32(a)); print(bswap64(b));

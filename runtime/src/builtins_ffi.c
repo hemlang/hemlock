@@ -623,31 +623,31 @@ void* hml_ffi_object_to_struct(HmlValue obj, HmlFFIStructType *struct_type) {
                 *(int8_t*)field_ptr = (int8_t)hml_to_i32(field_val);
                 break;
             case HML_FFI_I16:
-                *(int16_t*)field_ptr = (int16_t)hml_to_i32(field_val);
+                { int16_t stored = (int16_t)hml_to_i32(field_val); memcpy(field_ptr, &stored, sizeof(stored)); }
                 break;
             case HML_FFI_I32:
-                *(int32_t*)field_ptr = hml_to_i32(field_val);
+                { int32_t stored = hml_to_i32(field_val); memcpy(field_ptr, &stored, sizeof(stored)); }
                 break;
             case HML_FFI_I64:
-                *(int64_t*)field_ptr = hml_to_i64(field_val);
+                { int64_t stored = hml_to_i64(field_val); memcpy(field_ptr, &stored, sizeof(stored)); }
                 break;
             case HML_FFI_U8:
                 *(uint8_t*)field_ptr = (uint8_t)hml_to_i32(field_val);
                 break;
             case HML_FFI_U16:
-                *(uint16_t*)field_ptr = (uint16_t)hml_to_i32(field_val);
+                { uint16_t stored = (uint16_t)hml_to_i32(field_val); memcpy(field_ptr, &stored, sizeof(stored)); }
                 break;
             case HML_FFI_U32:
-                *(uint32_t*)field_ptr = (uint32_t)hml_to_i32(field_val);
+                { uint32_t stored = (uint32_t)hml_to_i32(field_val); memcpy(field_ptr, &stored, sizeof(stored)); }
                 break;
             case HML_FFI_U64:
-                *(uint64_t*)field_ptr = (uint64_t)hml_to_i64(field_val);
+                { uint64_t stored = (uint64_t)hml_to_i64(field_val); memcpy(field_ptr, &stored, sizeof(stored)); }
                 break;
             case HML_FFI_F32:
-                *(float*)field_ptr = (float)hml_to_f64(field_val);
+                { float stored = (float)hml_to_f64(field_val); memcpy(field_ptr, &stored, sizeof(stored)); }
                 break;
             case HML_FFI_F64:
-                *(double*)field_ptr = hml_to_f64(field_val);
+                { double stored = hml_to_f64(field_val); memcpy(field_ptr, &stored, sizeof(stored)); }
                 break;
             case HML_FFI_PTR:
                 if (field_val.type == HML_VAL_PTR) {
@@ -687,31 +687,31 @@ HmlValue hml_ffi_struct_to_object(void *struct_ptr, HmlFFIStructType *struct_typ
                 field_val = hml_val_i8(*(int8_t*)field_ptr);
                 break;
             case HML_FFI_I16:
-                field_val = hml_val_i16(*(int16_t*)field_ptr);
+                { int16_t loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = hml_val_i16(loaded); }
                 break;
             case HML_FFI_I32:
-                field_val = hml_val_i32(*(int32_t*)field_ptr);
+                { int32_t loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = hml_val_i32(loaded); }
                 break;
             case HML_FFI_I64:
-                field_val = hml_val_i64(*(int64_t*)field_ptr);
+                { int64_t loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = hml_val_i64(loaded); }
                 break;
             case HML_FFI_U8:
                 field_val = hml_val_u8(*(uint8_t*)field_ptr);
                 break;
             case HML_FFI_U16:
-                field_val = hml_val_u16(*(uint16_t*)field_ptr);
+                { uint16_t loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = hml_val_u16(loaded); }
                 break;
             case HML_FFI_U32:
-                field_val = hml_val_u32(*(uint32_t*)field_ptr);
+                { uint32_t loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = hml_val_u32(loaded); }
                 break;
             case HML_FFI_U64:
-                field_val = hml_val_u64(*(uint64_t*)field_ptr);
+                { uint64_t loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = hml_val_u64(loaded); }
                 break;
             case HML_FFI_F32:
-                field_val = hml_val_f32(*(float*)field_ptr);
+                { float loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = hml_val_f32(loaded); }
                 break;
             case HML_FFI_F64:
-                field_val = hml_val_f64(*(double*)field_ptr);
+                { double loaded; memcpy(&loaded, field_ptr, sizeof(loaded)); field_val = hml_val_f64(loaded); }
                 break;
             case HML_FFI_PTR:
                 field_val = hml_val_ptr(*(void**)field_ptr);
@@ -1458,7 +1458,9 @@ HmlValue hml_builtin_ptr_deref_i32(HmlClosureEnv *env, HmlValue ptr) {
     }
 
     void *p = hml_ffi_extract_ptr(ptr, sizeof(int32_t), "ptr_deref_i32()");
-    return hml_val_i32(*(int32_t*)p);
+    int32_t loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_i32(loaded);
 }
 
 // Builtin: ptr_write_i32(ptr, value)
@@ -1470,7 +1472,7 @@ HmlValue hml_builtin_ptr_write_i32(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     }
 
     void *p = hml_ffi_extract_ptr(ptr, sizeof(int32_t), "ptr_write_i32()");
-    *(int32_t*)p = hml_to_i32(value);
+    { int32_t stored = hml_to_i32(value); memcpy(p, &stored, sizeof(stored)); }
     return hml_val_null();
 }
 
@@ -1482,12 +1484,19 @@ HmlValue hml_builtin_ptr_offset(HmlClosureEnv *env, HmlValue ptr, HmlValue offse
         hml_runtime_error("ptr_offset() first argument must be a ptr");
     }
 
+    // Integers only, as in the interpreter
+    if (!hml_is_integer(offset) || offset.type == HML_VAL_RUNE ||
+        !hml_is_integer(element_size) || element_size.type == HML_VAL_RUNE) {
+        hml_runtime_error("ptr_offset() offset and element_size must be integers");
+    }
     void *p = ptr.as.as_ptr;
     int64_t off = hml_to_i64(offset);
     int64_t elem_size = hml_to_i64(element_size);
 
-    char *base = (char*)p;
-    return hml_val_ptr(base + (off * elem_size));
+    // Unsigned arithmetic: the product may overflow, and where the result
+    // points is the caller's business, but the runtime itself must not
+    // execute a signed-overflow multiply.
+    return hml_val_ptr((char *)((uintptr_t)p + (uintptr_t)off * (uintptr_t)elem_size));
 }
 
 // Builtin: ptr_read_i32(ptr) -> i32  (dereference pointer-to-pointer, for qsort)
@@ -1499,7 +1508,9 @@ HmlValue hml_builtin_ptr_read_i32(HmlClosureEnv *env, HmlValue ptr) {
     }
 
     void *p = hml_ffi_extract_ptr(ptr, sizeof(int32_t), "ptr_read_i32()");
-    return hml_val_i32(*(int32_t*)p);
+    int32_t loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_i32(loaded);
 }
 
 // ptr_read_i8(ptr) -> i8
@@ -1519,7 +1530,9 @@ HmlValue hml_builtin_ptr_read_i16(HmlClosureEnv *env, HmlValue ptr) {
         hml_runtime_error("ptr_read_i16() argument must be a ptr or buffer");
     }
     void *p = hml_ffi_extract_ptr(ptr, sizeof(int16_t), "ptr_read_i16()");
-    return hml_val_i16(*(int16_t*)p);
+    int16_t loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_i16(loaded);
 }
 
 // ptr_read_u8(ptr) -> u8
@@ -1539,7 +1552,9 @@ HmlValue hml_builtin_ptr_read_u16(HmlClosureEnv *env, HmlValue ptr) {
         hml_runtime_error("ptr_read_u16() argument must be a ptr or buffer");
     }
     void *p = hml_ffi_extract_ptr(ptr, sizeof(uint16_t), "ptr_read_u16()");
-    return hml_val_u16(*(uint16_t*)p);
+    uint16_t loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_u16(loaded);
 }
 
 // ptr_read_u32(ptr) -> u32
@@ -1549,7 +1564,9 @@ HmlValue hml_builtin_ptr_read_u32(HmlClosureEnv *env, HmlValue ptr) {
         hml_runtime_error("ptr_read_u32() argument must be a ptr or buffer");
     }
     void *p = hml_ffi_extract_ptr(ptr, sizeof(uint32_t), "ptr_read_u32()");
-    return hml_val_u32(*(uint32_t*)p);
+    uint32_t loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_u32(loaded);
 }
 
 // ptr_read_ptr(ptr) -> ptr
@@ -1571,7 +1588,9 @@ HmlValue hml_builtin_ptr_read_i64(HmlClosureEnv *env, HmlValue ptr) {
         hml_runtime_error("ptr_read_i64() argument must be a ptr or buffer");
     }
     void *p = hml_ffi_extract_ptr(ptr, sizeof(int64_t), "ptr_read_i64()");
-    return hml_val_i64(*(int64_t*)p);
+    int64_t loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_i64(loaded);
 }
 
 // ptr_read_u64(ptr) -> u64
@@ -1581,7 +1600,9 @@ HmlValue hml_builtin_ptr_read_u64(HmlClosureEnv *env, HmlValue ptr) {
         hml_runtime_error("ptr_read_u64() argument must be a ptr or buffer");
     }
     void *p = hml_ffi_extract_ptr(ptr, sizeof(uint64_t), "ptr_read_u64()");
-    return hml_val_u64(*(uint64_t*)p);
+    uint64_t loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_u64(loaded);
 }
 
 // ptr_read_f32(ptr) -> f32
@@ -1591,7 +1612,9 @@ HmlValue hml_builtin_ptr_read_f32(HmlClosureEnv *env, HmlValue ptr) {
         hml_runtime_error("ptr_read_f32() argument must be a ptr or buffer");
     }
     void *p = hml_ffi_extract_ptr(ptr, sizeof(float), "ptr_read_f32()");
-    return hml_val_f32(*(float*)p);
+    float loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_f32(loaded);
 }
 
 // ptr_read_f64(ptr) -> f64
@@ -1601,5 +1624,7 @@ HmlValue hml_builtin_ptr_read_f64(HmlClosureEnv *env, HmlValue ptr) {
         hml_runtime_error("ptr_read_f64() argument must be a ptr or buffer");
     }
     void *p = hml_ffi_extract_ptr(ptr, sizeof(double), "ptr_read_f64()");
-    return hml_val_f64(*(double*)p);
+    double loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_f64(loaded);
 }

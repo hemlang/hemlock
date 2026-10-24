@@ -1,0 +1,1 @@
+try { let b = buffer(-5); print(b.length); } catch (e) { print("caught"); }

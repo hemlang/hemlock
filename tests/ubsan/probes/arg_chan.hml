@@ -1,0 +1,1 @@
+try { let c = channel(1e20); print("ok"); } catch (e) { print("caught"); }
