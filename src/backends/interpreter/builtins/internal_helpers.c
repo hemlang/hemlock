@@ -1,6 +1,7 @@
 #include "internal.h"
 
 Value builtin_read_u32(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "__read_u32()")) return val_null();
     if (num_args != 1) {
         runtime_error(ctx, "__read_u32() expects 1 argument (ptr)"); return val_null();
     }
@@ -14,6 +15,7 @@ Value builtin_read_u32(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_read_u64(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "__read_u64()")) return val_null();
     if (num_args != 1) {
         runtime_error(ctx, "__read_u64() expects 1 argument (ptr)"); return val_null();
     }
@@ -28,6 +30,7 @@ Value builtin_read_u64(Value *args, int num_args, ExecutionContext *ctx) {
 
 // Read a pointer from memory (for pointer-to-pointer / double indirection FFI calls)
 Value builtin_read_ptr(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "__read_ptr()")) return val_null();
     if (num_args != 1) {
         runtime_error(ctx, "__read_ptr() expects 1 argument (ptr)"); return val_null();
     }
@@ -50,6 +53,7 @@ Value builtin_strerror_fn(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_dirent_name(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "__dirent_name()")) return val_null();
     if (num_args != 1) {
         runtime_error(ctx, "__dirent_name() expects 1 argument (dirent ptr)"); return val_null();
     }
@@ -82,6 +86,7 @@ Value builtin_string_to_cstr(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_cstr_to_string(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "__cstr_to_string()")) return val_null();
     if (num_args != 1) {
         runtime_error(ctx, "__cstr_to_string() expects 1 argument (ptr)"); return val_null();
     }

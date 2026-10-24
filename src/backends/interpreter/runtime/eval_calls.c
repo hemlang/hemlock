@@ -244,6 +244,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             Value off_val = eval_expr(expr->as.call.args[0], env, ctx);
                             Value src_val = eval_expr(expr->as.call.args[1], env, ctx);
                             Value len_val = eval_expr(expr->as.call.args[2], env, ctx);
+                            if (!is_integer(off_val)) {
+                                // value_to_int() exits the process on a non-integer
+                                runtime_error(ctx, "buffer.%s: offset must be an integer", method);
+                                VALUE_RELEASE(off_val); VALUE_RELEASE(method_self);
+                                return val_null();
+                            }
                             int32_t off = value_to_int(off_val);
                             int32_t len = value_to_int(len_val);
                             if (src_val.type != VAL_BUFFER || !src_val.as.as_buffer) {
@@ -280,6 +286,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                         }
                         Value off_val = eval_expr(expr->as.call.args[0], env, ctx);
                         Value val_arg = eval_expr(expr->as.call.args[1], env, ctx);
+                        if (!is_integer(off_val)) {
+                            // value_to_int() exits the process on a non-integer
+                            runtime_error(ctx, "buffer.%s: offset must be an integer", method);
+                            VALUE_RELEASE(off_val); VALUE_RELEASE(method_self);
+                            return val_null();
+                        }
                         int32_t off = value_to_int(off_val);
                         // Effective bounds check BEFORE the write (runtime_error does not abort).
                         int access_size = buffer_typed_access_size(suffix);
@@ -388,6 +400,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             }
                             Value off_val = eval_expr(expr->as.call.args[0], env, ctx);
                             Value len_val = eval_expr(expr->as.call.args[1], env, ctx);
+                            if (!is_integer(off_val)) {
+                                // value_to_int() exits the process on a non-integer
+                                runtime_error(ctx, "buffer.%s: offset must be an integer", method);
+                                VALUE_RELEASE(off_val); VALUE_RELEASE(method_self);
+                                return val_null();
+                            }
                             int32_t off = value_to_int(off_val);
                             int32_t len = value_to_int(len_val);
                             // 64-bit math so off+len cannot overflow int and bypass the check;
@@ -426,6 +444,12 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                             return val_null();
                         }
                         Value off_val = eval_expr(expr->as.call.args[0], env, ctx);
+                        if (!is_integer(off_val)) {
+                            // value_to_int() exits the process on a non-integer
+                            runtime_error(ctx, "buffer.%s: offset must be an integer", method);
+                            VALUE_RELEASE(off_val); VALUE_RELEASE(method_self);
+                            return val_null();
+                        }
                         int32_t off = value_to_int(off_val);
                         // Effective bounds check BEFORE the read (runtime_error does not abort).
                         int access_size = buffer_typed_access_size(suffix);

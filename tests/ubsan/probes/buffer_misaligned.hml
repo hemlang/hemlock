@@ -1,0 +1,5 @@
+let b = buffer(16);
+let v = b.slice(1, 9);
+ptr_write_i64(v, 1234567890123);
+print(ptr_deref_i64(v));
+ptr_write_f64(v, 3.5); print(ptr_deref_f64(v));

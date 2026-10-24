@@ -1,0 +1,2 @@
+let nan = 0.0 / 0.0;
+try { print(i64(nan)); } catch (e) { print("caught"); }

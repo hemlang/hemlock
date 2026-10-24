@@ -10,6 +10,7 @@
 #ifndef __EMSCRIPTEN__
 
 #include "builtins_internal.h"
+#include "hemlock_limits.h"
 
 // ========== SOCKET OPERATIONS ==========
 
@@ -544,10 +545,15 @@ void hml_socket_set_timeout(HmlValue socket_val, HmlValue seconds_val) {
     }
 
     double seconds = hml_to_f64(seconds_val);
+    if (!(seconds >= 0)) {  // also rejects NaN; mirrors the interpreter
+        hml_runtime_error("set_timeout() timeout must be non-negative");
+    }
+    if (seconds > HML_MAX_WAIT_SECONDS) seconds = HML_MAX_WAIT_SECONDS;
 
 #ifdef _WIN32
     // Windows expects the timeout as a DWORD in milliseconds
-    DWORD timeout = (DWORD)(seconds * 1000.0);
+    double timeout_ms = seconds * HML_MILLISECONDS_PER_SECOND;
+    DWORD timeout = timeout_ms >= 4294967295.0 ? 0xFFFFFFFFu : (DWORD)timeout_ms;
 #else
     struct timeval timeout;
     timeout.tv_sec = (long)seconds;

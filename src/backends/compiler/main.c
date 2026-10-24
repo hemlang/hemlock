@@ -288,7 +288,7 @@ static void print_usage(const char *progname) {
     fprintf(stderr, "  --no-stack-check  Disable stack overflow checking (faster, but no protection)\n");
     fprintf(stderr, "  --static        Static-link the volatile native libs (default on Linux)\n");
     fprintf(stderr, "  --dynamic       Dynamic-link instead (default on macOS; needed for runtime FFI)\n");
-    fprintf(stderr, "  --sandbox [DIR] Enable sandbox mode (restrict FFI, network, process, file writes)\n");
+    fprintf(stderr, "  --sandbox [DIR] Enable sandbox mode (restrict FFI, network, process, file writes, raw pointers)\n");
     fprintf(stderr, "                  If DIR provided, restricts file reads to that directory\n");
     fprintf(stderr, "  --target wasm   Compile for WebAssembly via Emscripten (emcc)\n");
     fprintf(stderr, "  --threads       Enable threading in WASM (Web Workers + SharedArrayBuffer)\n");
@@ -1221,11 +1221,12 @@ int main(int argc, char **argv) {
 
     // Configure sandbox if enabled
     if (opts.sandbox) {
-        // Default sandbox flags: FFI, network, process, file write
+        // Default sandbox flags: FFI, network, process, file write, raw pointers
         ctx->sandbox_flags = HML_SANDBOX_RESTRICT_FFI |
                             HML_SANDBOX_RESTRICT_NETWORK |
                             HML_SANDBOX_RESTRICT_PROCESS |
-                            HML_SANDBOX_RESTRICT_FILE_WRITE;
+                            HML_SANDBOX_RESTRICT_FILE_WRITE |
+                            HML_SANDBOX_RESTRICT_UNSAFE_MEM;
         if (opts.sandbox_root) {
             ctx->sandbox_flags |= HML_SANDBOX_RESTRICT_FILE_READ;
             ctx->sandbox_root = opts.sandbox_root;

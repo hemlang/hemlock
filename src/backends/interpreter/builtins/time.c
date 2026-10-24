@@ -37,9 +37,10 @@ Value builtin_sleep(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "sleep() argument must be numeric"); return val_null();
     }
     double seconds = value_to_float(args[0]);
-    if (seconds < 0) {
+    if (!(seconds >= 0)) {  // also rejects NaN
         runtime_error(ctx, "sleep() argument must be non-negative"); return val_null();
     }
+    if (seconds > HML_MAX_WAIT_SECONDS) seconds = HML_MAX_WAIT_SECONDS;
     // Use nanosleep for more precise sleep
     struct timespec req;
     req.tv_sec = (time_t)seconds;

@@ -42,6 +42,7 @@ Welcome to the Hemlock programming language documentation!
 - [Static Lint](advanced/lint.md) - Catch unreachable code, dead branches, self-assignment, and more before shipping
 - [Static Checking](advanced/static-checking.md) - `hemlock check`: all static passes without execution, with `--json` diagnostics
 - [Signal Handling](advanced/signals.md) - POSIX signal handling
+- [Sandbox Mode](advanced/sandbox.md) - `--sandbox`: switch off FFI, network, processes, file writes, and raw pointers
 - [Command-Line Arguments](advanced/command-line-args.md) - Access program arguments
 - [Command Execution](advanced/command-execution.md) - Execute shell commands
 - [Code Formatting](advanced/code-formatting.md) - Built-in code formatter

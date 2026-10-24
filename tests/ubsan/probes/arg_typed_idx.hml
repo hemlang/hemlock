@@ -1,0 +1,1 @@
+let a: array<i32> = [1, 2, 3]; try { a[0] = 1e20; print(a); } catch (e) { print("caught"); }

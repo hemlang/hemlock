@@ -71,6 +71,7 @@ static void mmap_unregister(void *addr) {
 
 HmlValue hml_builtin_mmap_open(HmlClosureEnv *env, HmlValue path, HmlValue mode) {
     (void)env;
+    hml_sandbox_deny_unsafe_mem("mmap");
 
     if (path.type != HML_VAL_STRING || !path.as.as_string) {
         hml_runtime_error("mmap_open() expects a string path");
@@ -140,6 +141,7 @@ HmlValue hml_builtin_mmap_open(HmlClosureEnv *env, HmlValue path, HmlValue mode)
 
 HmlValue hml_builtin_mmap_open_anon(HmlClosureEnv *env, HmlValue size) {
     (void)env;
+    hml_sandbox_deny_unsafe_mem("mmap");
 
     if (!hml_is_integer(size)) {
         hml_runtime_error("mmap_open_anon() expects an integer size");
@@ -163,6 +165,7 @@ HmlValue hml_builtin_mmap_open_anon(HmlClosureEnv *env, HmlValue size) {
 
 HmlValue hml_builtin_mmap_sync(HmlClosureEnv *env, HmlValue ptr) {
     (void)env;
+    hml_sandbox_deny_unsafe_mem("mmap");
 
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("mmap_sync() expects a pointer argument");
@@ -180,6 +183,7 @@ HmlValue hml_builtin_mmap_sync(HmlClosureEnv *env, HmlValue ptr) {
 
 HmlValue hml_builtin_mmap_close(HmlClosureEnv *env, HmlValue ptr) {
     (void)env;
+    hml_sandbox_deny_unsafe_mem("mmap");
 
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("mmap_close() expects a pointer argument");
@@ -210,6 +214,7 @@ HmlValue hml_builtin_mmap_close(HmlClosureEnv *env, HmlValue ptr) {
 
 HmlValue hml_builtin_mmap_size(HmlClosureEnv *env, HmlValue ptr) {
     (void)env;
+    hml_sandbox_deny_unsafe_mem("mmap");
 
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("mmap_size() expects a pointer argument");
@@ -226,6 +231,7 @@ HmlValue hml_builtin_mmap_size(HmlClosureEnv *env, HmlValue ptr) {
 
 HmlValue hml_builtin_mmap_advise(HmlClosureEnv *env, HmlValue ptr, HmlValue advice) {
     (void)env;
+    hml_sandbox_deny_unsafe_mem("mmap");
 
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("mmap_advise() expects a pointer as first argument");
@@ -249,6 +255,7 @@ HmlValue hml_builtin_mmap_advise(HmlClosureEnv *env, HmlValue ptr, HmlValue advi
 
 HmlValue hml_builtin_mmap_protect(HmlClosureEnv *env, HmlValue ptr, HmlValue prot) {
     (void)env;
+    hml_sandbox_deny_unsafe_mem("mmap");
 
     if (ptr.type != HML_VAL_PTR) {
         hml_runtime_error("mmap_protect() expects a pointer as first argument");

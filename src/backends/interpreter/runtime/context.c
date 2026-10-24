@@ -662,3 +662,14 @@ void sandbox_error(ExecutionContext *ctx, const char *operation) {
     snprintf(buffer, sizeof(buffer), "Sandbox violation: %s is not allowed in sandbox mode", operation);
     runtime_error(ctx, "%s", buffer);
 }
+
+// Refuse a raw-memory operation under HML_SANDBOX_RESTRICT_UNSAFE_MEM.
+// Without this gate a sandboxed script could read or write interpreter memory
+// through a raw pointer and clear its own sandbox flags.
+int sandbox_deny_unsafe_mem(ExecutionContext *ctx, const char *operation) {
+    if (!sandbox_is_restricted(ctx, HML_SANDBOX_RESTRICT_UNSAFE_MEM)) return 0;
+    char what[128];
+    snprintf(what, sizeof(what), "raw memory access (%s)", operation);
+    sandbox_error(ctx, what);
+    return 1;
+}

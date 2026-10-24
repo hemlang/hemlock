@@ -1,0 +1,1 @@
+import { seed } from "@stdlib/math"; try { seed(1e300); print("ok"); } catch (e) { print("caught"); }

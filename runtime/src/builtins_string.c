@@ -870,6 +870,7 @@ HmlValue hml_string_bytes(HmlValue str) {
 
 // Get raw pointer to string bytes (no allocation)
 HmlValue hml_string_byte_ptr(HmlValue str) {
+    hml_sandbox_deny_unsafe_mem("byte_ptr()");
     if (str.type != HML_VAL_STRING || !str.as.as_string) {
         hml_runtime_error("byte_ptr() requires string");
     }

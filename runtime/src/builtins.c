@@ -405,6 +405,7 @@ HmlValue hml_string_concat_display(HmlValue a, HmlValue b) {
 
 // Read a u32 value from a pointer
 HmlValue hml_read_u32(HmlValue ptr_val) {
+    hml_sandbox_deny_unsafe_mem("__read_u32()");
     if (ptr_val.type != HML_VAL_PTR) {
         hml_runtime_error("__read_u32() requires a pointer");
     }
@@ -414,6 +415,7 @@ HmlValue hml_read_u32(HmlValue ptr_val) {
 
 // Read a u64 value from a pointer
 HmlValue hml_read_u64(HmlValue ptr_val) {
+    hml_sandbox_deny_unsafe_mem("__read_u64()");
     if (ptr_val.type != HML_VAL_PTR) {
         hml_runtime_error("__read_u64() requires a pointer");
     }
@@ -423,6 +425,7 @@ HmlValue hml_read_u64(HmlValue ptr_val) {
 
 // Read a pointer value from a pointer (double indirection)
 HmlValue hml_read_ptr(HmlValue ptr_val) {
+    hml_sandbox_deny_unsafe_mem("__read_ptr()");
     if (ptr_val.type != HML_VAL_PTR) {
         hml_runtime_error("__read_ptr() requires a pointer");
     }
@@ -437,6 +440,7 @@ HmlValue hml_strerror(void) {
 
 // Get the name field from a dirent structure
 HmlValue hml_dirent_name(HmlValue ptr_val) {
+    hml_sandbox_deny_unsafe_mem("__dirent_name()");
     if (ptr_val.type != HML_VAL_PTR) {
         hml_runtime_error("__dirent_name() requires a pointer");
     }
@@ -461,6 +465,7 @@ HmlValue hml_string_to_cstr(HmlValue str_val) {
 
 // Convert a C string (ptr) to a Hemlock string
 HmlValue hml_cstr_to_string(HmlValue ptr_val) {
+    hml_sandbox_deny_unsafe_mem("__cstr_to_string()");
     if (ptr_val.type != HML_VAL_PTR) {
         hml_runtime_error("__cstr_to_string() requires a pointer");
     }

@@ -13,6 +13,7 @@
  */
 
 #include "builtins_internal.h"
+#include "num_convert.h"
 #include "utf8.h"
 
 #ifdef __EMSCRIPTEN__
@@ -108,6 +109,15 @@ int hml_sandbox_path_allowed(const char *path, int is_write) {
 void hml_sandbox_error(const char *operation) {
     fprintf(stderr, "Sandbox violation: %s is not allowed in sandbox mode\n", operation);
     exit(1);
+}
+
+// Refuse a raw-memory operation under HML_SANDBOX_RESTRICT_UNSAFE_MEM.
+// Without this gate a sandboxed program could read or write runtime memory
+// through a raw pointer and clear its own sandbox flags. Catchable, matching
+// the interpreter's sandbox_deny_unsafe_mem().
+void hml_sandbox_deny_unsafe_mem(const char *operation) {
+    if (!hml_sandbox_check(HML_SANDBOX_RESTRICT_UNSAFE_MEM)) return;
+    hml_runtime_error_loc("Sandbox violation: raw memory access (%s) is not allowed in sandbox mode", operation);
 }
 
 // ========== RUNTIME INITIALIZATION ==========
@@ -584,12 +594,12 @@ int64_t hml_val_to_int64(HmlValue val) {
         case HML_VAL_F32: {
             float fv = val.as.as_f32;
             if (isnan(fv) || isinf(fv)) return 0;
-            return (int64_t)fv;
+            return hml_f64_to_i64_sat(fv);  // out-of-range casts are UB
         }
         case HML_VAL_F64: {
             double dv = val.as.as_f64;
             if (isnan(dv) || isinf(dv)) return 0;
-            return (int64_t)dv;
+            return hml_f64_to_i64_sat(dv);  // out-of-range casts are UB
         }
         case HML_VAL_BOOL: return val.as.as_bool ? 1 : 0;
         case HML_VAL_RUNE: return val.as.as_rune;

@@ -337,6 +337,11 @@ test-formatter: $(TARGET)
 test-cli: $(TARGET)
 	@bash tests/cli/run_cli_tests.sh
 
+# Sandbox restrictions on both backends (hemlock --sandbox / hemlockc --sandbox)
+.PHONY: test-sandbox
+test-sandbox: $(TARGET) compiler stdlib
+	@bash tests/sandbox/run_sandbox_tests.sh
+
 # Run `hemlock check` static-checker tests
 .PHONY: test-check
 test-check: $(TARGET)
@@ -468,6 +473,14 @@ asan: clean
 	@echo ""
 	@echo "✓ ASAN build complete. Run tests with: make asan-test"
 	@echo "  Or run directly: ASAN_OPTIONS=detect_leaks=1 ./hemlock script.hml"
+
+# UndefinedBehaviorSanitizer sweeps of both backends (tests/ubsan/README.md).
+# Leaves instrumented binaries in the tree: `make clean && make` afterwards.
+.PHONY: ubsan-test
+ubsan-test:
+	@tests/ubsan/run_interp_ubsan.sh; s1=$$?; \
+	 tests/ubsan/run_compiled_ubsan.sh; s2=$$?; \
+	 [ $$s1 -eq 0 ] && [ $$s2 -eq 0 ]
 
 # Run test suite with ASAN
 .PHONY: asan-test
@@ -739,7 +752,7 @@ else
 endif
 
 $(COMPILER_TARGET): $(COMPILER_OBJS) $(RUNTIME_DEP)
-	$(CC) $(COMPILER_OBJS) -o $(COMPILER_TARGET) $(COMPILER_LDFLAGS)
+	$(CC) $(COMPILER_OBJS) -o $(COMPILER_TARGET) $(COMPILER_LDFLAGS) $(EXTRA_LDFLAGS)
 
 # Compiler objects get LIBDIR defined for runtime auto-detection
 $(BUILD_DIR)/backends/compiler/%.o: $(SRC_DIR)/backends/compiler/%.c | $(BUILD_DIRS)
@@ -1017,7 +1030,7 @@ test-memory: compiler
 
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler test-borrow test-lint parity test-contracts test-bundler test-lsp test-memory test-chan-core test-formatter test-cli test-check docs-check
+test-all: test test-compiler test-borrow test-lint parity test-contracts test-bundler test-lsp test-memory test-chan-core test-formatter test-cli test-sandbox test-check docs-check
 
 # ========== RELEASE BUILD ==========
 

@@ -309,6 +309,7 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
 
     // Pointer arithmetic: ptr + int or ptr - int
     if (left.type == HML_VAL_PTR && hml_is_numeric(right)) {
+        hml_sandbox_deny_unsafe_mem("pointer arithmetic");
         int64_t offset = hml_to_i64(right);
         switch (op) {
             case HML_OP_ADD:

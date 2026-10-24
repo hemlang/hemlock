@@ -1,0 +1,2 @@
+import { sleep } from "@stdlib/time";
+try { sleep(-1e300); print("ok"); } catch (e) { print("caught"); }

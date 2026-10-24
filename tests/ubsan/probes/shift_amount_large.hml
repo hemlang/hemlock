@@ -1,0 +1,2 @@
+let x: i64 = 1;
+print(x << 63); let y: i32 = 1; print(y << 31);

@@ -1,0 +1,2 @@
+import { djb2 } from "@stdlib/hash";
+print(djb2("the quick brown fox jumps over the lazy dog many times over"));

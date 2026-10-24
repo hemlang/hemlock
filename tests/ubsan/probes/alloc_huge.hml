@@ -1,0 +1,1 @@
+try { let p = alloc(-1); print("ok"); } catch (e) { print("caught"); }

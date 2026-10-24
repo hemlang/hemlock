@@ -1,4 +1,5 @@
 #include "internal.h"
+#include "num_convert.h"
 
 Value builtin_sin(Value *args, int num_args, ExecutionContext *ctx) {
     if (num_args != 1) {
@@ -213,7 +214,12 @@ Value builtin_floori(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "floori() argument must be numeric, got %s", value_type_name(args[0].type));
         return val_null();
     }
-    return val_i64((int64_t)floor(value_to_float(args[0])));
+    int64_t result;
+    if (!hml_f64_to_i64(floor(value_to_float(args[0])), &result)) {
+        runtime_error(ctx, "Float value out of range for integer conversion to i64");
+        return val_null();
+    }
+    return val_i64(result);
 }
 
 Value builtin_ceili(Value *args, int num_args, ExecutionContext *ctx) {
@@ -225,7 +231,12 @@ Value builtin_ceili(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ceili() argument must be numeric, got %s", value_type_name(args[0].type));
         return val_null();
     }
-    return val_i64((int64_t)ceil(value_to_float(args[0])));
+    int64_t result;
+    if (!hml_f64_to_i64(ceil(value_to_float(args[0])), &result)) {
+        runtime_error(ctx, "Float value out of range for integer conversion to i64");
+        return val_null();
+    }
+    return val_i64(result);
 }
 
 Value builtin_roundi(Value *args, int num_args, ExecutionContext *ctx) {
@@ -237,7 +248,12 @@ Value builtin_roundi(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "roundi() argument must be numeric, got %s", value_type_name(args[0].type));
         return val_null();
     }
-    return val_i64((int64_t)round(value_to_float(args[0])));
+    int64_t result;
+    if (!hml_f64_to_i64(round(value_to_float(args[0])), &result)) {
+        runtime_error(ctx, "Float value out of range for integer conversion to i64");
+        return val_null();
+    }
+    return val_i64(result);
 }
 
 Value builtin_trunci(Value *args, int num_args, ExecutionContext *ctx) {
@@ -249,7 +265,12 @@ Value builtin_trunci(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "trunci() argument must be numeric, got %s", value_type_name(args[0].type));
         return val_null();
     }
-    return val_i64((int64_t)trunc(value_to_float(args[0])));
+    int64_t result;
+    if (!hml_f64_to_i64(trunc(value_to_float(args[0])), &result)) {
+        runtime_error(ctx, "Float value out of range for integer conversion to i64");
+        return val_null();
+    }
+    return val_i64(result);
 }
 
 Value builtin_div(Value *args, int num_args, ExecutionContext *ctx) {
@@ -279,13 +300,36 @@ Value builtin_divi(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "divi() arguments must be numeric");
         return val_null();
     }
+    // Integer operands divide exactly: the float path loses precision above
+    // 2^53 (divi(2^53 + 1, 1) was 2^53). u64 values above INT64_MAX cannot be
+    // an i64 result anyway and take the checked float path.
+    if (is_integer(args[0]) && is_integer(args[1]) &&
+        !(args[0].type == VAL_U64 && args[0].as.as_u64 > (uint64_t)INT64_MAX) &&
+        !(args[1].type == VAL_U64 && args[1].as.as_u64 > (uint64_t)INT64_MAX)) {
+        int64_t a = value_to_int64(args[0]);
+        int64_t b = value_to_int64(args[1]);
+        if (b == 0) {
+            runtime_error(ctx, "divi(): division by zero");
+            return val_null();
+        }
+        if (a == INT64_MIN && b == -1) {
+            runtime_error(ctx, "Integer overflow: i64 division");
+            return val_null();
+        }
+        return val_i64(a / b);
+    }
     double a = value_to_float(args[0]);
     double b = value_to_float(args[1]);
     if (b == 0.0) {
         runtime_error(ctx, "divi(): division by zero");
         return val_null();
     }
-    return val_i64((int64_t)trunc(a / b));
+    int64_t result;
+    if (!hml_f64_to_i64(trunc(a / b), &result)) {
+        runtime_error(ctx, "Float value out of range for integer conversion to i64");
+        return val_null();
+    }
+    return val_i64(result);
 }
 
 Value builtin_abs(Value *args, int num_args, ExecutionContext *ctx) {

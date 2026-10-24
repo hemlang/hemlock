@@ -1,0 +1,1 @@
+let p = alloc(8); try { let q = ptr_offset(p, 1e20, 4); print("ok"); } catch (e) { print("caught"); } free(p);

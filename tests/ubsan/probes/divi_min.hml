@@ -1,0 +1,3 @@
+import { divi } from "@stdlib/math";
+let m: i64 = -9223372036854775807 - 1;
+try { print(divi(m, -1)); } catch (e) { print("caught"); }

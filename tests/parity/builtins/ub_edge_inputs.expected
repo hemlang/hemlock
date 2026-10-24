@@ -1,0 +1,20 @@
+floori(2.5): 2
+ceili(-2.5): -2
+roundi(2.5): 3
+trunci(-2.7): -2
+floori(1e300): error
+ceili(-1e300): error
+roundi(nan): error
+trunci(9.3e18): error
+divi(2^53+1, 1): 9007199254740993
+divi(max, 2): 4611686018427387903
+divi(-7, 2): -3
+divi(min, -1): error
+divi(1, 0): error
+divi(7.5, 2): 3
+divi(1e300, 1): error
+sleep(nan): error
+sleep(0): slept
+1234567890123
+3.5
+-42

@@ -1,4 +1,12 @@
 #include "internal.h"
+#include <string.h>
+
+/*
+ * Typed loads and stores go through memcpy: a ptr or a buffer slice may sit
+ * at any address, and dereferencing a misaligned int64_t* / double* is
+ * undefined behavior (it traps on strict-alignment targets). memcpy of a
+ * fixed small size compiles to the same single load/store.
+ */
 
 // ========== FFI CALLBACK BUILTINS ==========
 
@@ -105,7 +113,10 @@ Value builtin_callback_free(Value *args, int num_args, ExecutionContext *ctx) {
 
 // Helper: extract raw pointer from ptr or buffer value after validating optional buffer bounds.
 static void *extract_raw_ptr_checked(Value val, size_t access_size, const char *operation, ExecutionContext *ctx) {
-    if (val.type == VAL_PTR) return val.as.as_ptr;
+    if (val.type == VAL_PTR) {
+        if (sandbox_deny_unsafe_mem(ctx, operation)) return NULL;
+        return val.as.as_ptr;
+    }
     if (val.type == VAL_BUFFER && val.as.as_buffer) {
         Buffer *buf = val.as.as_buffer;
         if (atomic_load(&buf->freed)) {
@@ -148,7 +159,11 @@ Value builtin_ptr_read_i32(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    return val_i32(*(int32_t*)ptr);
+    int32_t loaded;
+
+    memcpy(&loaded, ptr, sizeof(loaded));
+
+    return val_i32(loaded);
 }
 
 // ptr_deref_i32(ptr) - Dereference a pointer to read an i32 directly
@@ -171,7 +186,9 @@ Value builtin_ptr_deref_i32(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     // Direct dereference
-    return val_i32(*(int32_t*)ptr);
+    int32_t loaded;
+    memcpy(&loaded, ptr, sizeof(loaded));
+    return val_i32(loaded);
 }
 
 // ptr_write_i32(ptr, value) - Write an i32 to a pointer
@@ -214,12 +231,15 @@ Value builtin_ptr_write_i32(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    *(int32_t*)ptr = value;
+    int32_t stored = value;
+
+    memcpy(ptr, &stored, sizeof(stored));
     return val_null();
 }
 
 // ptr_offset(ptr, offset, element_size) - Calculate pointer offset
 Value builtin_ptr_offset(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "ptr_offset()")) return val_null();
     if (num_args != 3) {
         runtime_error(ctx, "ptr_offset() expects 3 arguments (ptr, offset, element_size)");
         return val_null();
@@ -231,12 +251,20 @@ Value builtin_ptr_offset(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     void *ptr = args[0].as.as_ptr;
+    if (!is_integer(args[1]) || !is_integer(args[2])) {
+        // value_to_int64() exits the process on a non-integer
+        runtime_error(ctx, "ptr_offset() offset and element_size must be integers");
+        return val_null();
+    }
     int64_t offset = value_to_int64(args[1]);
     int64_t element_size = value_to_int64(args[2]);
 
     // Calculate new pointer
     char *base = (char*)ptr;
-    return val_ptr(base + (offset * element_size));
+    // Unsigned arithmetic: the product may overflow, and where the result
+    // points is the caller's business, but the runtime itself must not
+    // execute a signed-overflow multiply.
+    return val_ptr((char *)((uintptr_t)base + (uintptr_t)offset * (uintptr_t)element_size));
 }
 
 // ========== ADDITIONAL POINTER HELPERS FOR ALL TYPES ==========
@@ -276,7 +304,9 @@ Value builtin_ptr_deref_i16(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_i16() cannot dereference null pointer");
         return val_null();
     }
-    return val_i16(*(int16_t*)ptr);
+    int16_t loaded;
+    memcpy(&loaded, ptr, sizeof(loaded));
+    return val_i16(loaded);
 }
 
 // ptr_deref_i64(ptr) - Dereference a pointer to read an i64
@@ -295,7 +325,9 @@ Value builtin_ptr_deref_i64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_i64() cannot dereference null pointer");
         return val_null();
     }
-    return val_i64(*(int64_t*)ptr);
+    int64_t loaded;
+    memcpy(&loaded, ptr, sizeof(loaded));
+    return val_i64(loaded);
 }
 
 // ptr_deref_u8(ptr) - Dereference a pointer to read a u8
@@ -333,7 +365,9 @@ Value builtin_ptr_deref_u16(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_u16() cannot dereference null pointer");
         return val_null();
     }
-    return val_u16(*(uint16_t*)ptr);
+    uint16_t loaded;
+    memcpy(&loaded, ptr, sizeof(loaded));
+    return val_u16(loaded);
 }
 
 // ptr_deref_u32(ptr) - Dereference a pointer to read a u32
@@ -352,7 +386,9 @@ Value builtin_ptr_deref_u32(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_u32() cannot dereference null pointer");
         return val_null();
     }
-    return val_u32(*(uint32_t*)ptr);
+    uint32_t loaded;
+    memcpy(&loaded, ptr, sizeof(loaded));
+    return val_u32(loaded);
 }
 
 // ptr_deref_u64(ptr) - Dereference a pointer to read a u64
@@ -371,7 +407,9 @@ Value builtin_ptr_deref_u64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_u64() cannot dereference null pointer");
         return val_null();
     }
-    return val_u64(*(uint64_t*)ptr);
+    uint64_t loaded;
+    memcpy(&loaded, ptr, sizeof(loaded));
+    return val_u64(loaded);
 }
 
 // ptr_deref_f32(ptr) - Dereference a pointer to read an f32
@@ -390,7 +428,9 @@ Value builtin_ptr_deref_f32(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_f32() cannot dereference null pointer");
         return val_null();
     }
-    return val_f32(*(float*)ptr);
+    float loaded;
+    memcpy(&loaded, ptr, sizeof(loaded));
+    return val_f32(loaded);
 }
 
 // ptr_deref_f64(ptr) - Dereference a pointer to read an f64
@@ -409,11 +449,15 @@ Value builtin_ptr_deref_f64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_deref_f64() cannot dereference null pointer");
         return val_null();
     }
-    return val_f64(*(double*)ptr);
+    double loaded;
+    memcpy(&loaded, ptr, sizeof(loaded));
+    return val_f64(loaded);
 }
 
 // ptr_deref_ptr(ptr) - Dereference a pointer to read a pointer (pointer-to-pointer)
 Value builtin_ptr_deref_ptr(Value *args, int num_args, ExecutionContext *ctx) {
+    // Mints or exposes a raw address, even from a buffer
+    if (sandbox_deny_unsafe_mem(ctx, "ptr_deref_ptr()")) return val_null();
     if (num_args != 1) {
         runtime_error(ctx, "ptr_deref_ptr() expects 1 argument (ptr)");
         return val_null();
@@ -469,7 +513,8 @@ Value builtin_ptr_write_i16(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_i16() cannot write to null pointer");
         return val_null();
     }
-    *(int16_t*)ptr = (int16_t)value_to_int(args[1]);
+    int16_t stored = (int16_t)value_to_int(args[1]);
+    memcpy(ptr, &stored, sizeof(stored));
     return val_null();
 }
 
@@ -489,7 +534,8 @@ Value builtin_ptr_write_i64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_i64() cannot write to null pointer");
         return val_null();
     }
-    *(int64_t*)ptr = value_to_int64(args[1]);
+    int64_t stored = value_to_int64(args[1]);
+    memcpy(ptr, &stored, sizeof(stored));
     return val_null();
 }
 
@@ -529,7 +575,8 @@ Value builtin_ptr_write_u16(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_u16() cannot write to null pointer");
         return val_null();
     }
-    *(uint16_t*)ptr = (uint16_t)value_to_int(args[1]);
+    uint16_t stored = (uint16_t)value_to_int(args[1]);
+    memcpy(ptr, &stored, sizeof(stored));
     return val_null();
 }
 
@@ -549,7 +596,8 @@ Value builtin_ptr_write_u32(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_u32() cannot write to null pointer");
         return val_null();
     }
-    *(uint32_t*)ptr = (uint32_t)value_to_int64(args[1]);
+    uint32_t stored = (uint32_t)value_to_int64(args[1]);
+    memcpy(ptr, &stored, sizeof(stored));
     return val_null();
 }
 
@@ -569,7 +617,8 @@ Value builtin_ptr_write_u64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_u64() cannot write to null pointer");
         return val_null();
     }
-    *(uint64_t*)ptr = (uint64_t)value_to_int64(args[1]);
+    uint64_t stored = (uint64_t)value_to_int64(args[1]);
+    memcpy(ptr, &stored, sizeof(stored));
     return val_null();
 }
 
@@ -589,7 +638,8 @@ Value builtin_ptr_write_f32(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_f32() cannot write to null pointer");
         return val_null();
     }
-    *(float*)ptr = (float)value_to_float(args[1]);
+    float stored = (float)value_to_float(args[1]);
+    memcpy(ptr, &stored, sizeof(stored));
     return val_null();
 }
 
@@ -609,12 +659,15 @@ Value builtin_ptr_write_f64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_write_f64() cannot write to null pointer");
         return val_null();
     }
-    *(double*)ptr = value_to_float(args[1]);
+    double stored = value_to_float(args[1]);
+    memcpy(ptr, &stored, sizeof(stored));
     return val_null();
 }
 
 // ptr_write_ptr(ptr, value) - Write a pointer to a pointer location
 Value builtin_ptr_write_ptr(Value *args, int num_args, ExecutionContext *ctx) {
+    // Mints or exposes a raw address, even from a buffer
+    if (sandbox_deny_unsafe_mem(ctx, "ptr_write_ptr()")) return val_null();
     if (num_args != 2) {
         runtime_error(ctx, "ptr_write_ptr() expects 2 arguments (ptr, value)");
         return val_null();
@@ -639,6 +692,8 @@ Value builtin_ptr_write_ptr(Value *args, int num_args, ExecutionContext *ctx) {
 
 // ptr_read_ptr(ptr) - Read a pointer from a pointer
 Value builtin_ptr_read_ptr(Value *args, int num_args, ExecutionContext *ctx) {
+    // Mints or exposes a raw address, even from a buffer
+    if (sandbox_deny_unsafe_mem(ctx, "ptr_read_ptr()")) return val_null();
     if (num_args != 1) {
         runtime_error(ctx, "ptr_read_ptr() expects 1 argument (ptr)");
         return val_null();
@@ -674,7 +729,9 @@ Value builtin_ptr_read_i64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_i64() cannot read from null pointer");
         return val_null();
     }
-    return val_i64(*(int64_t*)ptr);
+    int64_t loaded;
+    memcpy(&loaded, ptr, sizeof(loaded));
+    return val_i64(loaded);
 }
 
 // ptr_read_u64(ptr) - Read a u64 from a pointer
@@ -693,7 +750,9 @@ Value builtin_ptr_read_u64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_u64() cannot read from null pointer");
         return val_null();
     }
-    return val_u64(*(uint64_t*)ptr);
+    uint64_t loaded;
+    memcpy(&loaded, ptr, sizeof(loaded));
+    return val_u64(loaded);
 }
 
 // ptr_read_f32(ptr) - Read an f32 from a pointer
@@ -712,7 +771,9 @@ Value builtin_ptr_read_f32(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_f32() cannot read from null pointer");
         return val_null();
     }
-    return val_f32(*(float*)ptr);
+    float loaded;
+    memcpy(&loaded, ptr, sizeof(loaded));
+    return val_f32(loaded);
 }
 
 // ptr_read_f64(ptr) - Read an f64 from a pointer
@@ -731,7 +792,9 @@ Value builtin_ptr_read_f64(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_f64() cannot read from null pointer");
         return val_null();
     }
-    return val_f64(*(double*)ptr);
+    double loaded;
+    memcpy(&loaded, ptr, sizeof(loaded));
+    return val_f64(loaded);
 }
 
 // ptr_read_i8(ptr) - Read an i8 from a pointer
@@ -769,7 +832,9 @@ Value builtin_ptr_read_i16(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_i16() cannot read from null pointer");
         return val_null();
     }
-    return val_i16(*(int16_t*)ptr);
+    int16_t loaded;
+    memcpy(&loaded, ptr, sizeof(loaded));
+    return val_i16(loaded);
 }
 
 // ptr_read_u8(ptr) - Read a u8 from a pointer
@@ -807,7 +872,9 @@ Value builtin_ptr_read_u16(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_u16() cannot read from null pointer");
         return val_null();
     }
-    return val_u16(*(uint16_t*)ptr);
+    uint16_t loaded;
+    memcpy(&loaded, ptr, sizeof(loaded));
+    return val_u16(loaded);
 }
 
 // ptr_read_u32(ptr) - Read a u32 from a pointer
@@ -826,7 +893,9 @@ Value builtin_ptr_read_u32(Value *args, int num_args, ExecutionContext *ctx) {
         runtime_error(ctx, "ptr_read_u32() cannot read from null pointer");
         return val_null();
     }
-    return val_u32(*(uint32_t*)ptr);
+    uint32_t loaded;
+    memcpy(&loaded, ptr, sizeof(loaded));
+    return val_u32(loaded);
 }
 
 // ========== FFI UTILITY FUNCTIONS ==========
@@ -864,6 +933,7 @@ Value builtin_ffi_sizeof(Value *args, int num_args, ExecutionContext *ctx) {
 
 // ptr_to_buffer(ptr, size) - Copy data from a pointer into a new buffer
 Value builtin_ptr_to_buffer(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "ptr_to_buffer()")) return val_null();
     if (num_args != 2) {
         runtime_error(ctx, "ptr_to_buffer() expects 2 arguments (ptr, size)");
         return val_null();
@@ -896,6 +966,8 @@ Value builtin_ptr_to_buffer(Value *args, int num_args, ExecutionContext *ctx) {
 
 // buffer_ptr(buffer) - Get the raw pointer from a buffer
 Value builtin_buffer_ptr(Value *args, int num_args, ExecutionContext *ctx) {
+    // Mints or exposes a raw address, even from a buffer
+    if (sandbox_deny_unsafe_mem(ctx, "buffer_ptr()")) return val_null();
     if (num_args != 1) {
         runtime_error(ctx, "buffer_ptr() expects 1 argument (buffer)");
         return val_null();

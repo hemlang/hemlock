@@ -1,0 +1,1 @@
+try { print(u64(-1.5)); } catch (e) { print("caught"); }

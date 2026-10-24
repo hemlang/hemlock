@@ -61,3 +61,21 @@ jobs:
         env:
           STRESS_TIMEOUT: "240"
         run: make stress
+
+  # UndefinedBehaviorSanitizer: the interpreter + hemlockc (test, parity,
+  # probes) and an instrumented runtime under every compiled parity/stress/
+  # probe program. See tests/ubsan/README.md.
+  ubsan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc make cmake \
+            libwebsockets-dev libffi-dev zlib1g-dev libssl-dev libzstd-dev libjitterentropy3-dev
+      - name: Interpreter + hemlockc under UBSan
+        run: tests/ubsan/run_interp_ubsan.sh
+      - name: Compiled runtime under UBSan
+        run: tests/ubsan/run_compiled_ubsan.sh
