@@ -739,7 +739,7 @@ else
 endif
 
 $(COMPILER_TARGET): $(COMPILER_OBJS) $(RUNTIME_DEP)
-	$(CC) $(COMPILER_OBJS) -o $(COMPILER_TARGET) $(COMPILER_LDFLAGS)
+	$(CC) $(COMPILER_OBJS) -o $(COMPILER_TARGET) $(COMPILER_LDFLAGS) $(EXTRA_LDFLAGS)
 
 # Compiler objects get LIBDIR defined for runtime auto-detection
 $(BUILD_DIR)/backends/compiler/%.o: $(SRC_DIR)/backends/compiler/%.c | $(BUILD_DIRS)
