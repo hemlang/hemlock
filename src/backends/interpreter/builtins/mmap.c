@@ -74,6 +74,7 @@ static void mmap_unregister(void *addr) {
 // Modes: "r" (read-only), "rw" (read-write)
 // Returns a pointer to the mapped region, or null on failure.
 Value builtin_mmap_open(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "mmap")) return val_null();
     if (num_args < 1 || num_args > 2) {
         runtime_error(ctx, "mmap_open() expects 1-2 arguments (path, mode?), got %d", num_args);
         return val_null();
@@ -171,6 +172,7 @@ Value builtin_mmap_open(Value *args, int num_args, ExecutionContext *ctx) {
 // mmap_open_anon(size: i32|i64): ptr
 // Creates an anonymous memory mapping (not backed by a file).
 Value builtin_mmap_open_anon(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "mmap")) return val_null();
     if (num_args != 1) {
         runtime_error(ctx, "mmap_open_anon() expects 1 argument (size), got %d", num_args);
         return val_null();
@@ -202,6 +204,7 @@ Value builtin_mmap_open_anon(Value *args, int num_args, ExecutionContext *ctx) {
 // mmap_sync(ptr: ptr): bool
 // Flushes changes in a read-write mapped region to disk.
 Value builtin_mmap_sync(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "mmap")) return val_null();
     if (num_args != 1) {
         runtime_error(ctx, "mmap_sync() expects 1 argument (pointer), got %d", num_args);
         return val_null();
@@ -231,6 +234,7 @@ Value builtin_mmap_sync(Value *args, int num_args, ExecutionContext *ctx) {
 // mmap_close(ptr: ptr): bool
 // Unmaps a memory-mapped region. Returns true on success.
 Value builtin_mmap_close(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "mmap")) return val_null();
     if (num_args != 1) {
         runtime_error(ctx, "mmap_close() expects 1 argument (pointer), got %d", num_args);
         return val_null();
@@ -270,6 +274,7 @@ Value builtin_mmap_close(Value *args, int num_args, ExecutionContext *ctx) {
 // mmap_size(ptr: ptr): i64
 // Returns the size of a mapped region.
 Value builtin_mmap_size(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "mmap")) return val_null();
     if (num_args != 1) {
         runtime_error(ctx, "mmap_size() expects 1 argument (pointer), got %d", num_args);
         return val_null();
@@ -294,6 +299,7 @@ Value builtin_mmap_size(Value *args, int num_args, ExecutionContext *ctx) {
 // Provides usage hints to the kernel via madvise().
 // Advice constants: MADV_NORMAL, MADV_SEQUENTIAL, MADV_RANDOM, MADV_WILLNEED, MADV_DONTNEED
 Value builtin_mmap_advise(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "mmap")) return val_null();
     if (num_args != 2) {
         runtime_error(ctx, "mmap_advise() expects 2 arguments (pointer, advice), got %d", num_args);
         return val_null();
@@ -331,6 +337,7 @@ Value builtin_mmap_advise(Value *args, int num_args, ExecutionContext *ctx) {
 // Changes protection on a mapped region via mprotect().
 // Protection flags: PROT_NONE, PROT_READ, PROT_WRITE, PROT_EXEC
 Value builtin_mmap_protect(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "mmap")) return val_null();
     if (num_args != 2) {
         runtime_error(ctx, "mmap_protect() expects 2 arguments (pointer, protection), got %d", num_args);
         return val_null();

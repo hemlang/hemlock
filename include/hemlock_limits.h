@@ -163,9 +163,10 @@
 #define HML_SANDBOX_RESTRICT_FILE_WRITE  0x0008  // Disable file write operations
 #define HML_SANDBOX_RESTRICT_FILE_READ   0x0010  // Disable file read operations (outside sandbox root)
 #define HML_SANDBOX_RESTRICT_SIGNALS     0x0020  // Disable signal operations (signal, raise, kill, abort)
+#define HML_SANDBOX_RESTRICT_UNSAFE_MEM  0x0040  // Disable raw pointers (alloc, ptr_*, ptr arithmetic/indexing, atomics, mmap); buffers stay allowed
 
 // Default sandbox restrictions (everything restricted)
-#define HML_SANDBOX_RESTRICT_ALL         0x003F
+#define HML_SANDBOX_RESTRICT_ALL         0x007F
 #define HML_SANDBOX_RESTRICT_NONE        0x0000
 
 // Maximum path length for sandbox root directory

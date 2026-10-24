@@ -373,6 +373,12 @@ Value eval_binary_values(BinaryOp op, int line, Value left, Value right, Executi
     }
 
     // Pointer arithmetic
+    if (((left.type == VAL_PTR && is_integer(right)) ||
+         (is_integer(left) && right.type == VAL_PTR)) &&
+        (op == OP_ADD || op == OP_SUB) &&
+        sandbox_deny_unsafe_mem(ctx, "pointer arithmetic")) {
+        goto binary_cleanup;
+    }
     if (left.type == VAL_PTR && is_integer(right)) {
         if (op == OP_ADD) {
             void *ptr = left.as.as_ptr;

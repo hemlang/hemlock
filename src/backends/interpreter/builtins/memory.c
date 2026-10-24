@@ -33,6 +33,8 @@ int get_type_size(TypeKind kind) {
 }
 
 Value builtin_alloc(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "alloc()")) return val_null();
+
     if (num_args != 1) {
         runtime_error(ctx, "alloc() expects 1 argument (size in bytes)"); return val_null();
     }
@@ -65,6 +67,7 @@ Value builtin_free(Value *args, int num_args, ExecutionContext *ctx) {
     }
 
     if (args[0].type == VAL_PTR) {
+        if (sandbox_deny_unsafe_mem(ctx, "free() of a ptr")) return val_null();
         // Look up tracked size for this pointer
         uint64_t size = PROFILER_UNTRACK_PTR(ctx, args[0].as.as_ptr);
         PROFILER_FREE(ctx, ctx->current_source_file, ctx->current_line, size);
@@ -202,6 +205,7 @@ Value builtin_memset(Value *args, int num_args, ExecutionContext *ctx) {
 
     void *ptr = NULL;
     if (args[0].type == VAL_PTR) {
+        if (sandbox_deny_unsafe_mem(ctx, "memset() on a ptr")) return val_null();
         ptr = args[0].as.as_ptr;
     } else {
         Buffer *buf = args[0].as.as_buffer;
@@ -248,6 +252,10 @@ Value builtin_memcpy(Value *args, int num_args, ExecutionContext *ctx) {
 
     void *dest = NULL;
     void *src = NULL;
+    if ((args[0].type == VAL_PTR || args[1].type == VAL_PTR) &&
+        sandbox_deny_unsafe_mem(ctx, "memcpy() on a ptr")) {
+        return val_null();
+    }
     if (args[0].type == VAL_PTR) {
         dest = args[0].as.as_ptr;
     } else {
@@ -353,6 +361,8 @@ Value builtin_buffer(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_talloc(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "talloc()")) return val_null();
+
     if (num_args != 2) {
         runtime_error(ctx, "talloc() expects 2 arguments (type, count)"); return val_null();
     }
@@ -397,6 +407,8 @@ Value builtin_talloc(Value *args, int num_args, ExecutionContext *ctx) {
 }
 
 Value builtin_realloc(Value *args, int num_args, ExecutionContext *ctx) {
+    if (sandbox_deny_unsafe_mem(ctx, "realloc()")) return val_null();
+
     if (num_args != 2) {
         runtime_error(ctx, "realloc() expects 2 arguments (ptr, new_size)"); return val_null();
     }

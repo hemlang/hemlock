@@ -337,6 +337,11 @@ test-formatter: $(TARGET)
 test-cli: $(TARGET)
 	@bash tests/cli/run_cli_tests.sh
 
+# Sandbox restrictions on both backends (hemlock --sandbox / hemlockc --sandbox)
+.PHONY: test-sandbox
+test-sandbox: $(TARGET) compiler stdlib
+	@bash tests/sandbox/run_sandbox_tests.sh
+
 # Run `hemlock check` static-checker tests
 .PHONY: test-check
 test-check: $(TARGET)
@@ -1025,7 +1030,7 @@ test-memory: compiler
 
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler test-borrow test-lint parity test-contracts test-bundler test-lsp test-memory test-chan-core test-formatter test-cli test-check docs-check
+test-all: test test-compiler test-borrow test-lint parity test-contracts test-bundler test-lsp test-memory test-chan-core test-formatter test-cli test-sandbox test-check docs-check
 
 # ========== RELEASE BUILD ==========
 

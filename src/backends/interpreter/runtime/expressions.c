@@ -553,6 +553,11 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 VALUE_RETAIN(result);
             } else if (object.type == VAL_PTR) {
                 // Raw pointer indexing - no bounds checking (unsafe!)
+                if (sandbox_deny_unsafe_mem(ctx, "pointer indexing")) {
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    return val_null();
+                }
                 void *ptr = object.as.as_ptr;
                 if (ptr == NULL) {
                     runtime_error(ctx, "Cannot index into null pointer");
@@ -818,6 +823,12 @@ Value eval_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                 return value;
             } else if (object.type == VAL_PTR) {
                 // Raw pointer indexing - no bounds checking (unsafe!)
+                if (sandbox_deny_unsafe_mem(ctx, "pointer indexing")) {
+                    VALUE_RELEASE(object);
+                    VALUE_RELEASE(index_val);
+                    VALUE_RELEASE(value);
+                    return val_null();
+                }
                 void *ptr = object.as.as_ptr;
                 if (ptr == NULL) {
                     runtime_error(ctx, "Cannot index into null pointer");

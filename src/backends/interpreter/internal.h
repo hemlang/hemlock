@@ -485,6 +485,10 @@ int sandbox_path_allowed(ExecutionContext *ctx, const char *path, int is_write);
 // Throw a sandbox violation error
 void sandbox_error(ExecutionContext *ctx, const char *operation);
 
+// Refuse a raw-memory operation under HML_SANDBOX_RESTRICT_UNSAFE_MEM.
+// Returns 1 (after throwing) when blocked; the caller must return immediately.
+int sandbox_deny_unsafe_mem(ExecutionContext *ctx, const char *operation);
+
 // ========== PROFILER ==========
 
 // Profiler instrumentation hooks (inline checks for NULL profiler)

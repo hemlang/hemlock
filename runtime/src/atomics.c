@@ -9,14 +9,16 @@
 #include <stdatomic.h>
 #include <stdint.h>
 
-// Helper macros for alignment checking
+// Helper macros for alignment checking (and the raw-memory sandbox gate)
 // Atomic operations require naturally aligned pointers to guarantee atomicity
 #define CHECK_ALIGNMENT_I32(ptr_val) \
+    hml_sandbox_deny_unsafe_mem("atomic operation"); \
     if ((uintptr_t)(ptr_val).as.as_ptr % _Alignof(_Atomic int32_t) != 0) { \
         hml_runtime_error("atomic operation: misaligned pointer (must be 4-byte aligned)"); \
     }
 
 #define CHECK_ALIGNMENT_I64(ptr_val) \
+    hml_sandbox_deny_unsafe_mem("atomic operation"); \
     if ((uintptr_t)(ptr_val).as.as_ptr % _Alignof(_Atomic int64_t) != 0) { \
         hml_runtime_error("atomic operation: misaligned pointer (must be 8-byte aligned)"); \
     }

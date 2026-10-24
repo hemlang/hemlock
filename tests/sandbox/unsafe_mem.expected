@@ -1,0 +1,29 @@
+alloc: blocked
+talloc: blocked
+buffer_ptr: blocked
+byte_ptr: blocked
+ptr_read_ptr on buffer: blocked
+ptr_deref_ptr on buffer: blocked
+ptr_write_ptr on buffer: blocked
+ptr_offset: blocked
+pointer arithmetic: blocked
+pointer index read: blocked
+pointer index write: blocked
+ptr_read_u8: blocked
+ptr_deref_i32: blocked
+ptr_write_i64: blocked
+ptr_to_buffer: blocked
+memset ptr: blocked
+memcpy ptr: blocked
+free ptr: blocked
+realloc: blocked
+__read_u32: blocked
+__cstr_to_string: blocked
+atomic_load_i32: blocked
+read_u32_be ptr: blocked
+mmap_open_anon: blocked
+buffer ptr_write/ptr_read: 42
+buffer memset/index: 7
+buffer memcpy: 7
+buffer free: ok
+read_u32_be buffer: 117901063

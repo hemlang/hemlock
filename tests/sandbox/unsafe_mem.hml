@@ -1,0 +1,65 @@
+// Run with --sandbox: every raw-pointer operation must raise a catchable
+// "Sandbox violation: raw memory access (...)" error, while buffers keep
+// working. Without the gate a sandboxed script could read or write runtime
+// memory through a raw pointer and clear its own sandbox flags.
+
+fn check(name: string, f) {
+    try {
+        f();
+        print(name + ": ALLOWED");
+    } catch (e) {
+        let msg = "" + e;
+        if (msg.contains("Sandbox violation: raw memory access")) {
+            print(name + ": blocked");
+        } else {
+            print(name + ": other error: " + msg);
+        }
+    }
+}
+
+import { atomic_load_i32 } from "@stdlib/atomic";
+import { read_u32_be } from "@stdlib/bytes";
+import { mmap_open_anon } from "@stdlib/mmap";
+
+// Raw pointer sources
+check("alloc", fn() { alloc(8); });
+check("talloc", fn() { talloc(i32, 4); });
+check("buffer_ptr", fn() { buffer_ptr(buffer(8)); });
+check("byte_ptr", fn() { "hello".byte_ptr(); });
+check("ptr_read_ptr on buffer", fn() { ptr_read_ptr(buffer(8)); });
+check("ptr_deref_ptr on buffer", fn() { ptr_deref_ptr(buffer(8)); });
+check("ptr_write_ptr on buffer", fn() { ptr_write_ptr(buffer(8), null); });
+
+// Raw pointer derivation and access, starting from the one pointer the
+// sandbox still hands out
+let np = ptr_null();
+check("ptr_offset", fn() { ptr_offset(np, 4096, 1); });
+check("pointer arithmetic", fn() { let q = np + 4096; });
+check("pointer index read", fn() { let b = np[0]; });
+check("pointer index write", fn() { np[0] = 1; });
+check("ptr_read_u8", fn() { ptr_read_u8(np); });
+check("ptr_deref_i32", fn() { ptr_deref_i32(np); });
+check("ptr_write_i64", fn() { ptr_write_i64(np, 1); });
+check("ptr_to_buffer", fn() { ptr_to_buffer(np, 8); });
+check("memset ptr", fn() { memset(np, 0, 8); });
+check("memcpy ptr", fn() { memcpy(buffer(8), np, 8); });
+check("free ptr", fn() { free(np); });
+check("realloc", fn() { realloc(np, 16); });
+check("__read_u32", fn() { __read_u32(np); });
+check("__cstr_to_string", fn() { __cstr_to_string(np); });
+check("atomic_load_i32", fn() { atomic_load_i32(np); });
+check("read_u32_be ptr", fn() { read_u32_be(np, 0); });
+check("mmap_open_anon", fn() { mmap_open_anon(4096); });
+
+// Buffers are bounds-checked and stay available
+let b = buffer(8);
+ptr_write_i32(b, 42);
+print("buffer ptr_write/ptr_read: " + ptr_read_i32(b));
+memset(b, 7, 8);
+print("buffer memset/index: " + b[3]);
+let c = buffer(8);
+memcpy(c, b, 8);
+print("buffer memcpy: " + c[7]);
+free(c);
+print("buffer free: ok");
+print("read_u32_be buffer: " + read_u32_be(b, 0));

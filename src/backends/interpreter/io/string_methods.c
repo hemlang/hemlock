@@ -103,6 +103,7 @@ Value call_string_method(String *str, const char *method, Value *args, int num_a
             if (num_args != 0) {
                 return throw_runtime_error(ctx, "byte_ptr() expects no arguments");
             }
+            if (sandbox_deny_unsafe_mem(ctx, "byte_ptr()")) return val_null();
 
             return val_ptr(str->data);
         }
