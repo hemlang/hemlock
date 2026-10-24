@@ -231,6 +231,7 @@ typedef struct {
     int uses_f64;
     char *f64_reason;
     int uses_groups;
+    int uses_barrier; // kernel calls barrier(): different error flow (see PRELUDE)
     int line;         // line of the statement being generated
     int column;
 } Gen;
@@ -323,7 +324,7 @@ static const char *helper_arith(Gen *g, BinaryOp op, HmlTypeKind r, char *name, 
     if (!want_helper(g, name)) return name;
     const char *c = ctype(r);
     SBuf *h = &g->helpers;
-    sb_printf(h, "%s %s(hml_ctx *c, uint site, %s a, %s b) {\n", c, name, c, c);
+    sb_printf(h, "%s %s(HML_CTX *c, uint site, %s a, %s b) {\n", c, name, c, c);
     switch (r) {
         case HML_TK_I32:
             sb_printf(h, "    long r = (long)a %s (long)b;\n", opc);
@@ -366,7 +367,7 @@ static const char *helper_neg(Gen *g, HmlTypeKind t, char *name, size_t n) {
     if (!want_helper(g, name)) return name;
     HmlTypeKind r = neg_type(t);
     SBuf *h = &g->helpers;
-    sb_printf(h, "%s %s(hml_ctx *c, uint site, %s x) {\n", ctype(r), name, ctype(t));
+    sb_printf(h, "%s %s(HML_CTX *c, uint site, %s x) {\n", ctype(r), name, ctype(t));
     switch (t) {
         case HML_TK_I8:  sb_printf(h, "    return as_char((uchar)(-(int)x));\n"); break;
         case HML_TK_I16: sb_printf(h, "    return as_short((ushort)(-(int)x));\n"); break;
@@ -394,7 +395,7 @@ static const char *helper_divmod(Gen *g, int is_mod, HmlTypeKind r, char *name, 
     if (!want_helper(g, name)) return name;
     const char *c = ctype(r);
     SBuf *h = &g->helpers;
-    sb_printf(h, "%s %s(hml_ctx *c, uint site, %s a, %s b) {\n", is_mod ? c : "double", name, c, c);
+    sb_printf(h, "%s %s(HML_CTX *c, uint site, %s a, %s b) {\n", is_mod ? c : "double", name, c, c);
     sb_printf(h, "    if (b == 0) { hml_fail(c, site, 0); return 0; }\n");
     if (is_mod) {
         if (is_signed(r)) sb_printf(h, "    if (b == -1) return 0;\n");
@@ -414,7 +415,7 @@ static const char *helper_shift(Gen *g, int left, HmlTypeKind r, char *name, siz
     const char *c = ctype(r);
     int bw = tbits(r);
     SBuf *h = &g->helpers;
-    sb_printf(h, "%s %s(hml_ctx *c, uint site, %s a, %s b) {\n", c, name, c, c);
+    sb_printf(h, "%s %s(HML_CTX *c, uint site, %s a, %s b) {\n", c, name, c, c);
     if (is_signed(r)) {
         sb_printf(h, "    long l = a, s = b;\n");
         sb_printf(h, "    if (s < 0) { hml_fail(c, site, 0); return 0; }\n");
@@ -447,7 +448,7 @@ static const char *helper_conv(Gen *g, HmlTypeKind s, HmlTypeKind t, char *name,
     if (!want_helper(g, name)) return name;
     SBuf *h = &g->helpers;
     const char *ct = ctype(t);
-    sb_printf(h, "%s %s(hml_ctx *c, uint site, %s x) {\n", ct, name, ctype(s));
+    sb_printf(h, "%s %s(HML_CTX *c, uint site, %s x) {\n", ct, name, ctype(s));
     if (t == HML_TK_BOOL) {
         sb_printf(h, "    return x != 0;\n");
     } else if (is_float(s)) {
@@ -505,29 +506,31 @@ static const char *helper_conv(Gen *g, HmlTypeKind s, HmlTypeKind t, char *name,
     return name;
 }
 
-static const char *helper_load(Gen *g, HmlTypeKind t, char *name, size_t n) {
-    snprintf(name, n, "hml_ld_%s", tname(t));
+// OpenCL 1.2 has no generic address space: global and local memory get
+// separate load/store helpers
+static const char *helper_load(Gen *g, int local, HmlTypeKind t, char *name, size_t n) {
+    snprintf(name, n, "hml_ld%s_%s", local ? "l" : "", tname(t));
     if (!want_helper(g, name)) return name;
     const char *c = ctype(t);
     sb_printf(&g->helpers,
-              "%s %s(hml_ctx *c, uint site, __global %s *b, ulong n, long i) {\n"
+              "%s %s(HML_CTX *c, uint site, %s %s *b, ulong n, long i) {\n"
               "    if (i < 0 || (ulong)i >= n) { hml_fail(c, site, (ulong)i); return 0; }\n"
               "    return b[i];\n"
-              "}\n", c, name, c);
+              "}\n", c, name, local ? "__local" : "__global", c);
     return name;
 }
 
 // Bounds check, then convert, then store (the emulator's store() order)
-static const char *helper_store(Gen *g, HmlTypeKind s, HmlTypeKind t, char *name, size_t n) {
-    snprintf(name, n, "hml_st_%s_%s", tname(s), tname(t));
+static const char *helper_store(Gen *g, int local, HmlTypeKind s, HmlTypeKind t, char *name, size_t n) {
+    snprintf(name, n, "hml_st%s_%s_%s", local ? "l" : "", tname(s), tname(t));
     if (!want_helper(g, name)) return name;
     char conv[64];
     const char *cv = NULL;
     if (s != t) cv = helper_conv(g, s, t, conv, sizeof(conv));
     const char *c = ctype(t);
     SBuf *h = &g->helpers;
-    sb_printf(h, "%s %s(hml_ctx *c, uint site_oob, uint site_conv, __global %s *b, ulong n, long i, %s v) {\n",
-              c, name, c, ctype(s));
+    sb_printf(h, "%s %s(HML_CTX *c, uint site_oob, uint site_conv, %s %s *b, ulong n, long i, %s v) {\n",
+              c, name, local ? "__local" : "__global", c, ctype(s));
     sb_printf(h, "    if (i < 0 || (ulong)i >= n) { hml_fail(c, site_oob, (ulong)i); return 0; }\n");
     if (cv) {
         sb_printf(h, "    %s cv = %s(c, site_conv, v);\n", c, cv);
@@ -554,12 +557,12 @@ static const char *helper_abs(Gen *g, HmlTypeKind t, char *name, size_t n) {
     if (is_signed(t)) {
         char neg[64];
         helper_neg(g, t, neg, sizeof(neg));
-        sb_printf(&g->helpers, "%s %s(hml_ctx *c, uint site, %s x) { return x < 0 ? %s(c, site, x) : x; }\n",
+        sb_printf(&g->helpers, "%s %s(HML_CTX *c, uint site, %s x) { return x < 0 ? %s(c, site, x) : x; }\n",
                   c, name, c, neg);
     } else if (is_float(t)) {
-        sb_printf(&g->helpers, "%s %s(hml_ctx *c, uint site, %s x) { return x < 0 ? -x : x; }\n", c, name, c);
+        sb_printf(&g->helpers, "%s %s(HML_CTX *c, uint site, %s x) { return x < 0 ? -x : x; }\n", c, name, c);
     } else {
-        sb_printf(&g->helpers, "%s %s(hml_ctx *c, uint site, %s x) { return x; }\n", c, name, c);
+        sb_printf(&g->helpers, "%s %s(HML_CTX *c, uint site, %s x) { return x; }\n", c, name, c);
     }
     return name;
 }
@@ -889,6 +892,10 @@ static HmlTypeKind gen_call(Gen *g, Expr *e, SBuf *out) {
     }
     const char *fname = e->as.call.func->as.ident.name;
     int n = e->as.call.num_args;
+    if (strcmp(fname, "barrier") == 0) {
+        gen_error(g, line, "barrier() must be a statement");
+        return HML_TK_OTHER;
+    }
     SBuf args[2];
     HmlTypeKind types[2] = { HML_TK_OTHER, HML_TK_OTHER };
     HmlTypeKind result = HML_TK_OTHER;
@@ -1043,15 +1050,16 @@ static GVar *assign_target(Gen *g, const char *name, int line) {
 static HmlTypeKind gen_buffer_access(Gen *g, Expr *e, Expr *object, Expr *index, Expr *value, SBuf *out) {
     int line = line_of(g, e);
     if (!object || object->type != EXPR_IDENT) {
-        gen_error(g, line, "only gpu_buffer parameters can be indexed");
+        gen_error(g, line, "only gpu_buffer and gpu_local parameters can be indexed");
         return HML_TK_OTHER;
     }
     const char *buf = object->as.ident.name;
     Type *bt = gpu_buffer_param(g->kernel, buf);
     if (!bt) {
-        gen_error(g, line, "'%s' is not a gpu_buffer", buf);
+        gen_error(g, line, "'%s' is not a gpu_buffer or gpu_local", buf);
         return HML_TK_OTHER;
     }
+    int local = gpu_is_local_type(bt);
     HmlTypeKind elem = tk_of(bt->type_args[0]->kind);
     SBuf ci, cv;
     sb_init(&ci);
@@ -1072,7 +1080,8 @@ static HmlTypeKind gen_buffer_access(Gen *g, Expr *e, Expr *object, Expr *index,
         }
         if (tv == HML_TK_OTHER) goto done;
         if (tv == HML_TK_BOOL) {
-            gen_error(g, line, "cannot store a bool into gpu_buffer<%s> '%s'", tname(elem), buf);
+            gen_error(g, line, "cannot store a bool into %s<%s> '%s'",
+                      local ? HML_GPU_LOCAL_TYPE : HML_GPU_BUFFER_TYPE, tname(elem), buf);
             goto done;
         }
     }
@@ -1082,11 +1091,11 @@ static HmlTypeKind gen_buffer_access(Gen *g, Expr *e, Expr *object, Expr *index,
     char name[64];
     if (value) {
         unsigned conv = tv != elem ? conv_sites(g, line, tv, elem) : 0;
-        helper_store(g, tv, elem, name, sizeof(name));
+        helper_store(g, local, tv, elem, name, sizeof(name));
         sb_printf(out, "%s(&hml_c, %uu, %uu, b_%s, n_%s, %s(%s), %s)",
                   name, oob, conv, buf, buf, idx_cast, ci.data, cv.data);
     } else {
-        helper_load(g, elem, name, sizeof(name));
+        helper_load(g, local, elem, name, sizeof(name));
         sb_printf(out, "%s(&hml_c, %uu, b_%s, n_%s, %s(%s))", name, oob, buf, buf, idx_cast, ci.data);
     }
     note_type(g, elem, line, "gpu_buffer<f64> access");
@@ -1261,6 +1270,39 @@ static void emit_check(SBuf *out, int level) {
 }
 
 static void gen_stmt(Gen *g, Stmt *s, SBuf *out, int level);
+
+static int is_barrier_call(Expr *e) {
+    return e && e->type == EXPR_CALL && e->as.call.func && e->as.call.func->type == EXPR_IDENT &&
+           strcmp(e->as.call.func->as.ident.name, "barrier") == 0 && e->as.call.num_args == 0;
+}
+
+static int has_barrier(Stmt *s) {
+    if (!s) return 0;
+    switch (s->type) {
+        case STMT_EXPR: return is_barrier_call(s->as.expr);
+        case STMT_IF: return has_barrier(s->as.if_stmt.then_branch) || has_barrier(s->as.if_stmt.else_branch);
+        case STMT_WHILE: return has_barrier(s->as.while_stmt.body);
+        case STMT_LOOP: return has_barrier(s->as.loop_stmt.body);
+        case STMT_FOR: return has_barrier(s->as.for_loop.body);
+        case STMT_BLOCK:
+            for (int i = 0; i < s->as.block.count; i++) {
+                if (has_barrier(s->as.block.statements[i])) return 1;
+            }
+            return 0;
+        case STMT_SWITCH:
+            for (int i = 0; i < s->as.switch_stmt.num_cases; i++) {
+                if (has_barrier(s->as.switch_stmt.case_bodies[i])) return 1;
+            }
+            return 0;
+        default: return 0;
+    }
+}
+
+// A failed work-item leaves loops early, except loops containing a barrier:
+// the rest of its work-group still has to meet it there
+static int loop_guard(Gen *g, Stmt *body) {
+    return !(g->uses_barrier && has_barrier(body));
+}
 
 static GLoop *push_loop(Gen *g, const char *label) {
     if (g->num_loops >= g->loops_cap) {
@@ -1450,6 +1492,11 @@ static void gen_stmt(Gen *g, Stmt *s, SBuf *out, int level) {
                       out, level);
             return;
         case STMT_EXPR: {
+            if (is_barrier_call(s->as.expr)) {
+                indent(out, level);
+                sb_append(out, "HML_BARRIER();\n");
+                return;
+            }
             SBuf ce;
             sb_init(&ce);
             if (gen_expr(g, s->as.expr, &ce, 1) != HML_TK_OTHER) {
@@ -1495,7 +1542,7 @@ static void gen_stmt(Gen *g, Stmt *s, SBuf *out, int level) {
             if (tc != HML_TK_OTHER) {
                 GLoop *loop = push_loop(g, s->as.while_stmt.label);
                 indent(out, level);
-                sb_append(out, "while (!hml_c.failed && ");
+                sb_append(out, loop_guard(g, s->as.while_stmt.body) ? "while (!hml_c.failed && " : "while (");
                 emit_truth(tc, cc.data, out);
                 sb_append(out, ") ");
                 gen_loop_body(g, s->as.while_stmt.body, loop, out, level);
@@ -1509,7 +1556,7 @@ static void gen_stmt(Gen *g, Stmt *s, SBuf *out, int level) {
         case STMT_LOOP: {
             GLoop *loop = push_loop(g, s->as.loop_stmt.label);
             indent(out, level);
-            sb_append(out, "while (!hml_c.failed) ");
+            sb_append(out, loop_guard(g, s->as.loop_stmt.body) ? "while (!hml_c.failed) " : "while (true) ");
             gen_loop_body(g, s->as.loop_stmt.body, loop, out, level);
             gen_loop_end(loop, out, level);
             pop_loop(g);
@@ -1537,7 +1584,7 @@ static void gen_stmt(Gen *g, Stmt *s, SBuf *out, int level) {
             if (tc != HML_TK_OTHER && ti != HML_TK_OTHER && !g->failed) {
                 GLoop *loop = push_loop(g, s->as.for_loop.label);
                 indent(out, level + 1);
-                sb_append(out, "for (; !hml_c.failed && ");
+                sb_append(out, loop_guard(g, s->as.for_loop.body) ? "for (; !hml_c.failed && " : "for (; ");
                 emit_truth(tc, cc.data, out);
                 sb_printf(out, "; %s) ", ci.data);
                 gen_loop_body(g, s->as.for_loop.body, loop, out, level + 1);
@@ -1582,7 +1629,7 @@ static void gen_stmt(Gen *g, Stmt *s, SBuf *out, int level) {
             return;
         case STMT_RETURN:
             indent(out, level);
-            sb_append(out, "return;\n");
+            sb_append(out, "HML_RETURN();\n");
             return;
         case STMT_SWITCH:
             gen_switch(g, s, out, level);
@@ -1612,18 +1659,27 @@ static const char *PRELUDE =
     "#endif\n"
     "#pragma OPENCL FP_CONTRACT OFF\n"
     "\n"
-    "typedef struct { int failed; uint site; ulong detail; ulong lin; } hml_ctx;\n"
+    "// The error key orders work-items as the emulator runs them: by global\n"
+    "// linear id, or for barrier kernels by work-group, then local id\n"
+    "typedef struct {\n"
+    "    int failed, frozen, barrier_keys;\n"
+    "    uint site;\n"
+    "    ulong detail, lin, group_lin, local_lin;\n"
+    "} hml_ctx;\n"
     "\n"
     "// Record a failure; within one statement the lowest site (earliest in\n"
-    "// Hemlock evaluation order) wins.\n"
-    "void hml_fail(hml_ctx *c, uint site, ulong detail) {\n"
+    "// Hemlock evaluation order) wins. Once a statement has failed the error is\n"
+    "// frozen (a failed work-item may keep running until its next barrier).\n"
+    "void hml_fail(HML_CTX *c, uint site, ulong detail) {\n"
+    "    if (c->frozen) return;\n"
     "    if (!c->failed || site < c->site) { c->site = site; c->detail = detail; }\n"
     "    c->failed = 1;\n"
     "}\n"
     "\n"
     "// Publish this work-item's error if it has the lowest key so far\n"
-    "void hml_report(hml_ctx *c, __global ulong *err) {\n"
-    "    ulong key = (c->lin << HML_SITE_BITS) | c->site;\n"
+    "void hml_report(HML_CTX *c, __global ulong *err) {\n"
+    "    ulong order = c->barrier_keys ? (c->group_lin << HML_KEY_LOCAL_BITS) | c->local_lin : c->lin;\n"
+    "    ulong key = (order << HML_SITE_BITS) | c->site;\n"
     "    volatile __global ulong *k = (volatile __global ulong *)&err[0];\n"
     "    ulong old = *k;\n"
     "    while (key < old) {\n"
@@ -1648,7 +1704,34 @@ static const char *PRELUDE =
     "uint hml_local_size(long d) { return hml_dim_ok(d) ? (uint)get_local_size((uint)d) : 1u; }\n"
     "uint hml_num_groups(long d) { return hml_dim_ok(d) ? (uint)get_num_groups((uint)d) : 1u; }\n"
     "\n"
+    "#define HML_RETURN() { if (hml_c.failed) hml_report(&hml_c, hml_err); return; }\n"
+    "\n";
+
+// Statement-end check without barriers: a failed work-item stops at once
+static const char *CHECK_PLAIN =
     "#define HML_CHECK() if (hml_c.failed) { hml_report(&hml_c, hml_err); return; }\n"
+    "\n";
+
+// With barriers a failed work-item must not return early (its work-group
+// would wait for it at the next barrier). It keeps running with stores
+// suppressed and its error frozen; at each barrier the group checks a shared
+// flag and, if any member failed, every member returns together. The second
+// barrier keeps a fast work-item from setting the flag for the next round
+// before a slow one has read it for this round.
+// Every exit goes through one label at the end of the kernel, where the
+// error is reported: a report-and-return right after a barrier is not
+// reliably compiled by every OpenCL implementation (PoCL drops it).
+static const char *CHECK_BARRIER =
+    "#define HML_CHECK() if (hml_c.failed) { hml_c.frozen = 1; }\n"
+    "#undef HML_RETURN\n"
+    "#define HML_RETURN() goto hml_exit\n"
+    "#define HML_BARRIER() { \\\n"
+    "    if (hml_c.failed) { hml_c.frozen = 1; hml_group_failed = 1; } \\\n"
+    "    barrier(CLK_LOCAL_MEM_FENCE | CLK_GLOBAL_MEM_FENCE); \\\n"
+    "    int hml_gf = hml_group_failed; \\\n"
+    "    barrier(CLK_LOCAL_MEM_FENCE); \\\n"
+    "    if (hml_gf) goto hml_exit; \\\n"
+    "}\n"
     "\n";
 
 int gpu_codegen(KernelCheck *kc, const char *name, Expr *kernel, GpuDeviceCode *out) {
@@ -1682,7 +1765,8 @@ int gpu_codegen(KernelCheck *kc, const char *name, Expr *kernel, GpuDeviceCode *
         int is_const = kernel->as.function.param_is_const ? kernel->as.function.param_is_const[i] : 0;
         if (gpu_is_buffer_type(pt)) {
             HmlTypeKind elem = tk_of(pt->type_args[0]->kind);
-            sb_printf(&sig, "__global %s *b_%s, ulong n_%s, ", ctype(elem), pname, pname);
+            sb_printf(&sig, "%s %s *b_%s, ulong n_%s, ", gpu_is_local_type(pt) ? "__local" : "__global",
+                      ctype(elem), pname, pname);
             note_type(&g, elem, kernel->line, "gpu_buffer<f64> parameter");
         } else {
             HmlTypeKind t = tk_of(pt->kind);
@@ -1700,13 +1784,29 @@ int gpu_codegen(KernelCheck *kc, const char *name, Expr *kernel, GpuDeviceCode *
     }
     sb_append(&sig, "__global ulong *hml_err)");
 
+    g.uses_barrier = has_barrier(kernel->as.function.body);
+    if (g.uses_barrier) g.uses_groups = 1;
     sb_append(&body,
-              "    hml_ctx hml_c;\n"
+              "    HML_CTX hml_c;\n"
               "    hml_c.failed = 0;\n"
+              "    hml_c.frozen = 0;\n"
               "    hml_c.site = 0;\n"
               "    hml_c.detail = 0;\n"
               "    hml_c.lin = (ulong)hml_global_id(0) + (ulong)hml_global_size(0) *\n"
-              "                ((ulong)hml_global_id(1) + (ulong)hml_global_size(1) * (ulong)hml_global_id(2));\n");
+              "                ((ulong)hml_global_id(1) + (ulong)hml_global_size(1) * (ulong)hml_global_id(2));\n"
+              "    hml_c.group_lin = (ulong)hml_group_id(0) + (ulong)hml_num_groups(0) *\n"
+              "                  ((ulong)hml_group_id(1) + (ulong)hml_num_groups(1) * (ulong)hml_group_id(2));\n"
+              "    hml_c.local_lin = (ulong)hml_local_id(0) + (ulong)hml_local_size(0) *\n"
+              "                  ((ulong)hml_local_id(1) + (ulong)hml_local_size(1) * (ulong)hml_local_id(2));\n");
+    if (g.uses_barrier) {
+        sb_append(&body,
+                  "    hml_c.barrier_keys = 1;\n"
+                  "    __local int hml_group_failed;\n"
+                  "    if (hml_c.local_lin == 0) hml_group_failed = 0;\n"
+                  "    barrier(CLK_LOCAL_MEM_FENCE);\n");
+    } else {
+        sb_append(&body, "    hml_c.barrier_keys = 0;\n");
+    }
 
     Stmt *kbody = kernel->as.function.body;
     push_scope(&g);
@@ -1719,13 +1819,24 @@ int gpu_codegen(KernelCheck *kc, const char *name, Expr *kernel, GpuDeviceCode *
     }
     pop_scope(&g);
     pop_scope(&g);  // parameters
+    if (g.uses_barrier) {
+        sb_append(&body, "hml_exit:\n    if (hml_c.failed) hml_report(&hml_c, hml_err);\n");
+    } else {
+        sb_append(&body, "    HML_RETURN();\n");
+    }
 
     int ok = !g.failed;
     if (ok) {
         SBuf prog;
         sb_init(&prog);
         sb_printf(&prog, "#define HML_SITE_BITS %d\n#define HML_ERR_SLOTS %d\n", HML_GPU_SITE_BITS, HML_GPU_ERR_SLOTS);
+        sb_printf(&prog, "#define HML_KEY_LOCAL_BITS %d\n", HML_GPU_KEY_LOCAL_BITS);
+        // In barrier kernels the work-item context is volatile: PoCL loses
+        // private state kept in registers across a barrier under a
+        // non-constant condition (work-items saw each other's values)
+        sb_printf(&prog, "#define HML_CTX %shml_ctx\n", g.uses_barrier ? "volatile " : "");
         sb_append(&prog, PRELUDE);
+        sb_append(&prog, g.uses_barrier ? CHECK_BARRIER : CHECK_PLAIN);
         sb_append(&prog, g.helpers.data);
         sb_printf(&prog, "\n%s {\n%s}\n", sig.data, body.data);
         out->source = sb_take(&prog);
@@ -1735,6 +1846,7 @@ int gpu_codegen(KernelCheck *kc, const char *name, Expr *kernel, GpuDeviceCode *
         out->uses_f64 = g.uses_f64;
         out->f64_reason = g.f64_reason;
         out->uses_groups = g.uses_groups;
+        out->uses_barrier = g.uses_barrier;
         g.sites = NULL;
         g.num_sites = 0;
         g.f64_reason = NULL;

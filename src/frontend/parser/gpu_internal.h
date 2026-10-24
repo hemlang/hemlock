@@ -25,7 +25,8 @@ typedef struct {
 void kernel_error(KernelCheck *kc, int line, int column, const char *fmt, ...);
 
 int gpu_is_scalar_type(Type *t);
-int gpu_is_buffer_type(Type *t);
+int gpu_is_buffer_type(Type *t);   // gpu_buffer<T> or gpu_local<T>
+int gpu_is_local_type(Type *t);    // gpu_local<T>
 // The gpu_buffer<T> type of parameter `name`, or NULL if it is not a buffer
 Type *gpu_buffer_param(Expr *fn, const char *name);
 const char *gpu_scalar_kind_name(TypeKind k);
@@ -49,7 +50,8 @@ typedef struct {
     int num_sites;
     int uses_f64;
     char *f64_reason;   // first f64 use, for the "device has no fp64" error
-    int uses_groups;    // local_id/group_id/local_size/num_groups appear
+    int uses_groups;    // local_id/group_id/local_size/num_groups/barrier appear
+    int uses_barrier;   // barrier() appears: work-group-ordered error keys
 } GpuDeviceCode;
 
 // Type-checks the kernel (reporting through kc) and generates OpenCL C.

@@ -8,7 +8,7 @@ complete importable API surface, generated from `stdlib/*.hml` by
 are verbatim from source; `[native]` marks re-exported native builtins
 whose parameter list comes from the module's documentation.
 
-56 modules, 1090 exported symbols. Import with
+56 modules, 1092 exported symbols. Import with
 `import { name } from "@stdlib/<module>";` — see
 [Standard Library Overview](stdlib-overview.md) and `stdlib/docs/` for
 full documentation.
@@ -431,6 +431,7 @@ fn cl_error_name(code: i32): string  // Name for an OpenCL error code (common on
 fn gpu_available(): bool  // True if at least one OpenCL platform with at least one device is present
 fn gpu_devices()  // Every OpenCL device on every platform, as descriptor objects
 fn local_mem(bytes: i32)  // Size-only marker for a __local kernel argument
+fn local_array(count: i32)  // Work-group local memory of `count` elements for a gpu fn gpu_local<T>
 fn gpu_context(opts?: null)  // Create a context with one device and one in-order command queue.
 ```
 
@@ -438,6 +439,7 @@ fn gpu_context(opts?: null)  // Create a context with one device and one in-orde
 
 ```
 fn is_kernel(k): bool  // True if `k` is a gpu fn kernel descriptor
+fn local_array(count: i32)  // Work-group local memory of `count` elements for a gpu_local<T> parameter
 fn emulate(kernel, global: array, local, args: array)  // Run `kernel` over an N-D range on the CPU.
 ```
 

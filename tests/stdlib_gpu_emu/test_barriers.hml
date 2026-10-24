@@ -1,0 +1,119 @@
+// @stdlib/gpu_emu: barrier() and gpu_local memory
+import { emulate, local_array } from "@stdlib/gpu_emu";
+
+fn expect_error(f, needle: string) {
+    let msg = "";
+    try { f(); } catch (e) { msg = "" + e; }
+    assert(msg.contains(needle), "expected error containing '" + needle + "', got: " + msg);
+    print("error ok: " + needle);
+}
+
+// Work-group tree reduction
+gpu fn group_sum(xs: gpu_buffer<i32>, tmp: gpu_local<i32>, sums: gpu_buffer<i32>) {
+    let l: u32 = local_id(0);
+    tmp[l] = xs[global_id(0)];
+    barrier();
+    for (let s: u32 = local_size(0) / u32(2); s > 0; s = s >> 1) {
+        if (l < s) {
+            tmp[l] += tmp[l + s];
+        }
+        barrier();
+    }
+    if (l == 0) {
+        sums[group_id(0)] = tmp[0];
+    }
+}
+let xs = [];
+for (let i = 0; i < 32; i++) { xs.push(i); }
+let sums = [0, 0, 0, 0];
+emulate(group_sum, [32], [8], [xs, local_array(8), sums]);
+print("sums: " + sums);
+assert(sums[0] == 28 && sums[3] == 220, "group sums");
+
+// Each work-group gets its own local memory, even without barriers
+gpu fn group_counter(tmp: gpu_local<i32>, out: gpu_buffer<i32>) {
+    let l: u32 = local_id(0);
+    tmp[0] += 1;
+    out[global_id(0)] = tmp[0];
+}
+let counts = [0, 0, 0, 0, 0, 0];
+emulate(group_counter, [6], [3], [local_array(1), counts]);
+print("per-group local: " + counts);
+assert(counts[2] == 3 && counts[3] == 1, "local memory is per work-group");
+
+// 2-D groups: rotate values within each 2x2 tile through local memory
+gpu fn rotate_tile(w: u32, xs: gpu_buffer<i32>, tile: gpu_local<i32>, out: gpu_buffer<i32>) {
+    let l: u32 = local_id(1) * local_size(0) + local_id(0);
+    tile[l] = xs[global_id(1) * w + global_id(0)];
+    barrier();
+    out[global_id(1) * w + global_id(0)] = tile[(l + 1) % u32(4)];
+}
+let g = [1, 2, 3, 4, 5, 6, 7, 8];
+let rot = [0, 0, 0, 0, 0, 0, 0, 0];
+emulate(rotate_tile, [4, 2], [2, 2], [u32(4), g, local_array(4), rot]);
+print("rotated: " + rot);
+
+// Barriers in a loop under a uniform condition
+gpu fn ping(rounds: i32, tmp: gpu_local<i32>, out: gpu_buffer<i32>) {
+    let l: u32 = local_id(0);
+    tmp[l] = i32(l);
+    barrier();
+    let v: i32 = 0;
+    for (let r: i32 = 0; r < rounds; r++) {
+        v = tmp[(l + u32(1)) % local_size(0)];
+        barrier();
+        tmp[l] = v;
+        barrier();
+    }
+    out[global_id(0)] = v;
+}
+let pong = [0, 0, 0, 0];
+emulate(ping, [4], [4], [3, local_array(4), pong]);
+print("ping: " + pong);
+
+// ---- errors ----
+gpu fn diverge(xs: gpu_buffer<i32>) {
+    if (local_id(0) < u32(2)) {
+        barrier();
+    }
+    xs[global_id(0)] = 1;
+}
+expect_error(fn() { emulate(diverge, [4], [4], [[0, 0, 0, 0]]); },
+    "work-group (0, 0, 0): barrier divergence: work-item (0, 0, 0) reached the barrier at line 77, but work-item (2, 0, 0) finished");
+
+gpu fn two_barriers(xs: gpu_buffer<i32>) {
+    if (local_id(0) == u32(0)) {
+        barrier();
+    } else {
+        barrier();
+    }
+}
+expect_error(fn() { emulate(two_barriers, [2], [2], [[0, 0]]); },
+    "barrier divergence: work-item (0, 0, 0) reached the barrier at line 86, but work-item (1, 0, 0) reached the barrier at line 88");
+
+expect_error(fn() { emulate(group_sum, [32], null, [xs, local_array(8), sums]); }, "pass an explicit local size");
+expect_error(fn() { emulate(group_sum, [32], [8], [xs, [0, 0], sums]); }, "expects local_array(count)");
+expect_error(fn() { local_array(0); }, "positive element count");
+
+// Out-of-bounds local access names the local buffer and its length
+gpu fn local_oob(tmp: gpu_local<i32>, out: gpu_buffer<i32>) {
+    tmp[local_id(0) + u32(2)] = 1;
+    barrier();
+    out[global_id(0)] = 0;
+}
+expect_error(fn() { emulate(local_oob, [8], [4], [local_array(4), [0, 0, 0, 0, 0, 0, 0, 0]]); },
+    "work-item (2, 0, 0): tmp[4] is out of bounds (length 4)");
+
+// An error stops the launch; the rest of the work-group is unwound cleanly
+gpu fn late_error(xs: gpu_buffer<i32>, tmp: gpu_local<i32>) {
+    let l: u32 = local_id(0);
+    tmp[l] = xs[global_id(0)];
+    barrier();
+    xs[global_id(0)] = tmp[(l + u32(1)) % local_size(0)] * 1000;
+}
+// (the line prefix of the message differs between backends)
+expect_error(fn() { emulate(late_error, [8], [4], [[1, 2, 3, 4, 5, 3000000, 7, 8], local_array(4)]); },
+    "work-item (4, 0, 0): [line ");
+expect_error(fn() { emulate(late_error, [8], [4], [[1, 2, 3, 4, 5, 3000000, 7, 8], local_array(4)]); },
+    "Integer overflow: i32 multiplication");
+print("done");

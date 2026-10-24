@@ -404,7 +404,11 @@ fn check_gpu_fn_args(k, args: array) {
 		let p = k.params[i];
 		let v = args[i];
 		let what = who + " arg " + i + " (" + p.name + ")";
-		if (p.buffer) {
+		if (p.local) {
+			if (typeid(v) != TYPEID_OBJECT || !v.has("_local_count")) {
+				throw what + " expects local_array(count) for gpu_local<" + p.type + ">, got " + typeof(v);
+			}
+		} else if (p.buffer) {
 			if (typeid(v) != TYPEID_OBJECT || !v.has("_mem")) {
 				throw what + " expects a device buffer for gpu_buffer<" + p.type + ">, got " + typeof(v);
 			}
@@ -504,13 +508,41 @@ fn reinterpret_u64(bits, as: string) {
 	return v;
 }
 
+// Split a linear index into up to 3 coordinates of `sizes`
+fn unflatten(lin: u64, sizes: array): array {
+	let out = [u64(0), u64(0), u64(0)];
+	let rest = lin;
+	for (let d = 0; d < sizes.length; d++) {
+		let n = u64(sizes[d]);
+		out[d] = rest % n;
+		rest = u64(divi(rest, n));
+	}
+	return out;
+}
+
+// Global work-item coordinates from an error key's order field: the global
+// linear id, or for barrier kernels (work-group, local id)
+fn work_item_coords(dc, order: u64, global: array, local): array {
+	if (!dc.uses_barrier) { return unflatten(order, global); }
+	let lmask = (u64(1) << u64(dc.key_local_bits)) - u64(1);
+	let lid = unflatten(order & lmask, local);
+	let groups = [];
+	for (let d = 0; d < global.length; d++) { groups.push(divi(global[d], local[d])); }
+	let gid = unflatten(order >> u64(dc.key_local_bits), groups);
+	let out = [u64(0), u64(0), u64(0)];
+	for (let d = 0; d < global.length; d++) {
+		out[d] = gid[d] * u64(local[d]) + lid[d];
+	}
+	return out;
+}
+
 // Turn the device error record into the emulator-style message and throw
-fn raise_gpu_fn_error(k, global: array, args: array, rec: array) {
+fn raise_gpu_fn_error(k, global: array, local, args: array, rec: array) {
 	let dc = k.device;
 	let key = rec[0];
 	let site_mask = (u64(1) << u64(dc.site_bits)) - u64(1);
 	let site = i32(key & site_mask);
-	let lin = key >> u64(dc.site_bits);
+	let order = key >> u64(dc.site_bits);
 	let detail = null;
 	let used = i32(rec[1]);
 	if (used > dc.err_slots) { used = dc.err_slots; }
@@ -535,17 +567,19 @@ fn raise_gpu_fn_error(k, global: array, args: array, rec: array) {
 		let len = "?";
 		for (let i = 0; i < k.params.length; i++) {
 			if (k.params[i].name == s.buf) {
-				len = "" + divi(args[i].size, elem_size(k.params[i].type));
+				if (k.params[i].local) {
+					len = "" + args[i]._local_count;
+				} else {
+					len = "" + divi(args[i].size, elem_size(k.params[i].type));
+				}
 			}
 		}
 		msg = msg.replace("%n", len);
 	}
-	let gx = u64(global[0]);
-	let gy = u64(1);
-	if (global.length > 1) { gy = u64(global[1]); }
-	let x = lin % gx;
-	let y = u64(divi(lin, gx)) % gy;
-	let z = u64(divi(lin, gx * gy));
+	let coords = work_item_coords(dc, order, global, local);
+	let x = coords[0];
+	let y = coords[1];
+	let z = coords[2];
 	throw "gpu fn '" + k.name + "' work-item (" + x + ", " + y + ", " + z + "): " + msg + " (line " + s.line + ")";
 }
 
@@ -568,7 +602,23 @@ fn launch_gpu_fn(ctx, k, global: array, local, args: array) {
 			}
 		}
 	} else if (dc.uses_groups) {
-		throw who + " uses local_id/group_id/local_size/num_groups: pass an explicit local size";
+		throw who + " uses barrier/local_id/group_id/local_size/num_groups: pass an explicit local size";
+	}
+	if (dc.uses_barrier) {
+		// the error key holds the local id and the work-group id in fixed widths
+		let items = 1;
+		let groups = 1;
+		for (let d = 0; d < global.length; d++) {
+			items = items * local[d];
+			groups = groups * divi(global[d], local[d]);
+		}
+		if (items > (1 << dc.key_local_bits)) {
+			throw who + ": work-groups of a kernel using barrier() are limited to " + (1 << dc.key_local_bits) + " work-items";
+		}
+		let group_bits = 64 - dc.site_bits - dc.key_local_bits;
+		if (group_bits < 62 && i64(groups) > (i64(1) << i64(group_bits))) {
+			throw who + ": too many work-groups for a kernel using barrier() (limit 2^" + group_bits + ")";
+		}
 	}
 	if (dc.uses_f64 && !ctx.device.has_f64) {
 		throw who + " needs f64 (" + dc.f64_reason + "), but device '" + ctx.device.name + "' has no fp64 support";
@@ -583,7 +633,14 @@ fn launch_gpu_fn(ctx, k, global: array, local, args: array) {
 	for (let i = 0; i < k.params.length; i++) {
 		let p = k.params[i];
 		let v = args[i];
-		if (p.buffer) {
+		if (p.local) {
+			// __local: size only (no value), then the element count
+			let lcount = u64(v._local_count);
+			check(clSetKernelArg(kern, index, v._local_count * elem_size(p.type), null),
+				"setting " + who + " arg " + i + " (local " + p.name + ")");
+			set_raw_arg(kern, k.name, index + 1, 8, fn(slot) { ptr_write_u64(slot, lcount); });
+			index += 2;
+		} else if (p.buffer) {
 			set_raw_arg(kern, k.name, index, 8, fn(slot) { ptr_write_ptr(slot, v._mem); });
 			let count = u64(divi(v.size, elem_size(p.type)));
 			set_raw_arg(kern, k.name, index + 1, 8, fn(slot) { ptr_write_u64(slot, count); });
@@ -619,7 +676,7 @@ fn launch_gpu_fn(ctx, k, global: array, local, args: array) {
 	let rec = ctx.to_array(err, "u64", rec_len);
 	ctx.free(err);
 	if (rec[0] != U64_ALL_ONES) {
-		raise_gpu_fn_error(k, global, args, rec);
+		raise_gpu_fn_error(k, global, local, args, rec);
 	}
 	return null;
 }
@@ -652,6 +709,13 @@ export fn gpu_devices() {
 // Size-only marker for a __local kernel argument
 export fn local_mem(bytes: i32) {
 	return { _local_bytes: bytes };
+}
+
+// Work-group local memory of `count` elements for a gpu fn gpu_local<T>
+// parameter (each work-group gets its own; contents start undefined)
+export fn local_array(count: i32) {
+	if (count < 1) { throw "gpu: local_array() needs a positive element count, got " + count; }
+	return { _local_count: count };
 }
 
 // Create a context with one device and one in-order command queue.

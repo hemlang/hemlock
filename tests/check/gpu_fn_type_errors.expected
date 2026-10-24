@@ -15,4 +15,6 @@ gpu_fn_type_errors.hml:17:1: error: gpu fn 'float_switch': switch in kernels nee
 gpu_fn_type_errors.hml:18:1: error: gpu fn 'var_case': switch cases in kernels must be integer literals [parse]
 gpu_fn_type_errors.hml:19:36: error: Expect '=' after variable name (at ';') [parse]
 gpu_fn_type_errors.hml:20:1: error: gpu fn 'bad_label': unknown loop label 'nope' [parse]
-17 errors, 0 warnings (1 file checked)
+gpu_fn_type_errors.hml:21:1: error: gpu fn 'barrier_value': barrier() must be a statement [parse]
+gpu_fn_type_errors.hml:22:1: error: gpu fn 'local_store_bool': cannot store a bool into gpu_local<i32> 't' [parse]
+19 errors, 0 warnings (1 file checked)

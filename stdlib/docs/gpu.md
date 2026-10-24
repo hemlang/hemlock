@@ -146,13 +146,13 @@ print(ctx.to_array(dy, "f32", 4));   // [12, 14, 16, 18]
 The frontend checks the subset, so the interpreter, `hemlockc`, and
 `hemlock check` all reject the same programs:
 
-- Parameters are numeric or `bool` scalars, or `gpu_buffer<T>` of a numeric `T`. Each one must be annotated, with no `ref`, defaults, or rest parameters
+- Parameters are numeric or `bool` scalars, `gpu_buffer<T>` (global memory) or `gpu_local<T>` (work-group local memory) of a numeric `T`. Each one must be annotated, with no `ref`, defaults, or rest parameters
 - The return type is omitted or `void`. Results are written into buffers
 - Every local is annotated with a scalar type and initialized
 - Allowed: control flow (`if`, `while`, `for`, `loop`, `switch`, labeled `break`/`continue`), arithmetic, and indexing of `gpu_buffer` parameters (`x[i]`, `x[i] = v`, `x[i] += v`). A buffer can only be indexed, never used bare or reassigned
 - Assignments, buffer stores and `++`/`--` are statements. They cannot appear inside a larger expression
 - Expressions are statically typed with Hemlock's promotion rules. Arithmetic needs numeric operands (no `bool`), bitwise ops need integers, ternary branches and `min`/`max` operands must have the same type, and `switch` takes an integer value with integer-literal cases
-- Calls are limited to device intrinsics: `global_id`, `local_id`, `group_id`, `global_size`, `local_size`, `num_groups`, `work_dim`, `min`, `max`, `abs`, `sqrt`, `floor`, `ceil`, `exp`, `log`, `sin`, `cos`, `pow`, and the conversions `i8()` … `u64()`, `f32()`, `f64()`. See [gpu_emu.md](gpu_emu.md#kernel-intrinsics) for return types
+- Calls are limited to device intrinsics: `global_id`, `local_id`, `group_id`, `global_size`, `local_size`, `num_groups`, `work_dim`, `barrier` (a statement), `min`, `max`, `abs`, `sqrt`, `floor`, `ceil`, `exp`, `log`, `sin`, `cos`, `pow`, and the conversions `i8()` … `u64()`, `f32()`, `f64()`. See [gpu_emu.md](gpu_emu.md#kernel-intrinsics) for return types
 - Rejected: strings, runes, `null`, property access, method calls, closures, nested functions, array/object literals, `match`, `for-in`, `try`/`throw`, `defer`, `await`, recursion, named arguments, and names starting with `__hml_`
 
 `gpu` is a contextual keyword. It only means something directly before `fn`,
@@ -190,9 +190,55 @@ Requirements beyond plain OpenCL C kernels:
   `n / 2` both need fp64. Write `x * f32(2.0)`, and convert operands with
   `f32()` for f32 division. A device without fp64 fails with an error naming
   that line
-- An explicit `local` size when the kernel uses `local_id`, `group_id`,
-  `local_size` or `num_groups` (`descriptor.device.uses_groups`). The
-  emulator enforces the same rule
+- An explicit `local` size when the kernel uses `barrier`, `local_id`,
+  `group_id`, `local_size` or `num_groups` (`descriptor.device.uses_groups`).
+  The emulator enforces the same rule
+
+### Work-group memory and barriers
+
+A `gpu_local<T>` parameter is memory shared by the work-items of one
+work-group. Pass `local_array(count)` for it, which gives each work-group its own
+`count` elements. It is bounds-checked like a `gpu_buffer`. `barrier()` waits
+until every work-item of the work-group has reached it, and makes their
+local and global memory writes visible to each other:
+
+```hemlock
+import { gpu_context, local_array } from "@stdlib/gpu";
+
+gpu fn block_sum(xs: gpu_buffer<i32>, tmp: gpu_local<i32>, sums: gpu_buffer<i32>) {
+    let l: u32 = local_id(0);
+    tmp[l] = xs[global_id(0)];
+    barrier();
+    for (let s: u32 = local_size(0) / u32(2); s > 0; s = s >> 1) {
+        if (l < s) {
+            tmp[l] += tmp[l + s];
+        }
+        barrier();
+    }
+    if (l == 0) {
+        sums[group_id(0)] = tmp[0];
+    }
+}
+
+ctx.launch(block_sum, [n], [64], [dx, local_array(64), dsums]);
+```
+
+Rules (the same as OpenCL's):
+
+- Every work-item of a work-group must reach the same barriers in the same
+  order. Only put a barrier under a condition or loop whose outcome is the
+  same for the whole work-group (for example, a loop bound computed from
+  `local_size`). On a device, breaking this rule is undefined behavior,
+  usually a hang. `@stdlib/gpu_emu` detects it and reports a barrier
+  divergence, so run new kernels under the emulator first
+- Local memory starts undefined on a device; the emulator zero-fills it.
+  Write before you read
+- Work-groups of a kernel that uses `barrier()` hold at most 4096 work-items
+
+Errors in a kernel that uses barriers stop the whole work-group at its next
+barrier (a failing work-item cannot simply return, or its group would wait
+for it forever). The reported error is still the one the emulator stops at:
+the lowest-numbered failing work-item of the first failing work-group.
 
 ### Semantics and errors
 
@@ -226,3 +272,5 @@ Differences from the emulator:
 - Racy kernels (work-items writing the same element) are deterministic only
   in the emulator
 - Devices that flush denormals to zero can differ on denormal values
+- Barrier divergence is detected by the emulator only; on a device it is
+  undefined behavior

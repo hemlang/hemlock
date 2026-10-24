@@ -1,6 +1,6 @@
 // gpu fn: kernels parse, validate, and run under CPU emulation identically
 // on both backends. The binding is a kernel descriptor object.
-import { emulate, is_kernel } from "@stdlib/gpu_emu";
+import { emulate, is_kernel, local_array } from "@stdlib/gpu_emu";
 
 // `gpu` is a contextual keyword: it still works as an identifier
 let gpu = "device0";
@@ -99,3 +99,36 @@ gpu fn f64_math(out: gpu_buffer<f32>) {
 }
 print(f32_consts.device.uses_f64);
 print(f64_math.device.f64_reason);
+
+// barrier() and gpu_local memory: the emulator runs work-groups round by round
+gpu fn block_sum(xs: gpu_buffer<i32>, tmp: gpu_local<i32>, sums: gpu_buffer<i32>) {
+    let l: u32 = local_id(0);
+    tmp[l] = xs[global_id(0)];
+    barrier();
+    for (let s: u32 = local_size(0) / u32(2); s > 0; s = s >> 1) {
+        if (l < s) {
+            tmp[l] += tmp[l + s];
+        }
+        barrier();
+    }
+    if (l == 0) {
+        sums[group_id(0)] = tmp[0];
+    }
+}
+print(block_sum.device.uses_barrier + " " + block_sum.params[1].local + " " + block_sum.params[1].type);
+let bxs = [5, 1, 4, 2, 8, 9, 7, 3];
+let bsums = [0, 0];
+emulate(block_sum, [8], [4], [bxs, local_array(4), bsums]);
+print(bsums);
+
+gpu fn half_barrier(xs: gpu_buffer<i32>) {
+    if (local_id(0) < u32(1)) {
+        barrier();
+    }
+    xs[global_id(0)] = 1;
+}
+try {
+    emulate(half_barrier, [2], [2], [[0, 0]]);
+} catch (e) {
+    print(e);
+}

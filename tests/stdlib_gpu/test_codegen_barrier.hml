@@ -1,0 +1,157 @@
+// Differential test: kernels with barrier() and gpu_local memory must match
+// @stdlib/gpu_emu on a device, errors included (which work-item, which
+// message) even when the failing work-item's group still has barriers ahead.
+import { gpu_context, local_array, DEVICE_ALL } from "@stdlib/gpu";
+import { run_case, report } from "./diff_harness.hml";
+
+let ctx = gpu_context({ device_type: DEVICE_ALL });
+
+// Tree reduction per work-group; i32 sums overflow for large inputs
+gpu fn reduce_sum(op: i32, xs: gpu_buffer<i32>, tmp: gpu_local<i32>, sums: gpu_buffer<i32>) {
+    let l: u32 = local_id(0);
+    tmp[l] = xs[global_id(0)];
+    barrier();
+    for (let s: u32 = local_size(0) / u32(2); s > 0; s = s >> 1) {
+        if (l < s) {
+            tmp[l] += tmp[l + s];
+        }
+        barrier();
+    }
+    if (l == 0) {
+        sums[group_id(0)] = tmp[0];
+    }
+}
+let rx = [];
+for (let i = 0; i < 64; i++) { rx.push(i * 37 % 101 - 50); }
+run_case(ctx, reduce_sum, "reduce_sum", 0, [rx, local_array(16)], ["i32", "local"], ["i32"], 0.0, [64], [16]);
+let rbig = rx.slice(0, 64);
+rbig[21] = 2147483000;
+rbig[22] = 1000;
+rbig[45] = -2147483000;
+rbig[40] = -1000;
+run_case(ctx, reduce_sum, "reduce_sum overflow", 0, [rbig, local_array(16)], ["i32", "local"], ["i32"], 0.0,
+    [64], [16], [1, 0]);
+
+// 2-D work-groups: sum each 4x2 tile
+gpu fn tile_sum(op: i32, w: u32, xs: gpu_buffer<i32>, tmp: gpu_local<i32>, out: gpu_buffer<i32>) {
+    let lx: u32 = local_id(0);
+    let ly: u32 = local_id(1);
+    let l: u32 = ly * local_size(0) + lx;
+    tmp[l] = xs[global_id(1) * w + global_id(0)];
+    barrier();
+    if (l == 0) {
+        let acc: i32 = 0;
+        for (let k: u32 = 0; k < local_size(0) * local_size(1); k++) { acc += tmp[k]; }
+        out[group_id(1) * num_groups(0) + group_id(0)] = acc;
+    }
+}
+let tx = [];
+for (let i = 0; i < 48; i++) { tx.push(i * i - 300); }
+run_case(ctx, tile_sum, "tile_sum 2d", 0, [u32(8), tx, local_array(8)], ["u32", "i32", "local"], ["i32"], 0.0,
+    [8, 6], [4, 2]);
+
+// Tiled transpose through local memory (f32)
+gpu fn transpose_tiled(op: i32, w: u32, h: u32, src: gpu_buffer<f32>, tile: gpu_local<f32>, dst: gpu_buffer<f32>) {
+    let lx: u32 = local_id(0);
+    let ly: u32 = local_id(1);
+    let t: u32 = local_size(0);
+    tile[ly * t + lx] = src[global_id(1) * w + global_id(0)];
+    barrier();
+    let ox: u32 = group_id(1) * t + lx;
+    let oy: u32 = group_id(0) * t + ly;
+    dst[oy * h + ox] = tile[lx * t + ly];
+}
+let tm = [];
+for (let i = 0; i < 8 * 4; i++) { tm.push(f32(i) * f32(0.5)); }
+run_case(ctx, transpose_tiled, "transpose_tiled", 0, [u32(8), u32(4), tm, local_array(16)],
+    ["u32", "u32", "f32", "local"], ["f32"], 0.0, [8, 4], [4, 4]);
+
+// Inclusive prefix sum (Hillis-Steele) with double buffering
+gpu fn scan(op: i32, xs: gpu_buffer<i32>, a: gpu_local<i32>, b: gpu_local<i32>, out: gpu_buffer<i32>) {
+    let l: u32 = local_id(0);
+    let n: u32 = local_size(0);
+    a[l] = xs[global_id(0)];
+    barrier();
+    let src_is_a: bool = true;
+    for (let off: u32 = 1; off < n; off = off * u32(2)) {
+        if (src_is_a) {
+            b[l] = l >= off ? a[l] + a[l - off] : a[l];
+        } else {
+            a[l] = l >= off ? b[l] + b[l - off] : b[l];
+        }
+        barrier();
+        src_is_a = !src_is_a;
+    }
+    out[global_id(0)] = src_is_a ? a[l] : b[l];
+}
+let sx = [];
+for (let i = 0; i < 32; i++) { sx.push(i % 7 - 2); }
+run_case(ctx, scan, "scan", 0, [sx, local_array(8), local_array(8)], ["i32", "local", "local"], ["i32"], 0.0,
+    [32], [8]);
+let sbig = sx.slice(0, 32);
+sbig[13] = 2147483600;
+sbig[14] = 100;
+run_case(ctx, scan, "scan overflow", 0, [sbig, local_array(8), local_array(8)], ["i32", "local", "local"],
+    ["i32"], 0.0, [32], [8], [1, 0, 0]);
+
+// Barrier under a uniform condition, local out-of-bounds, and errors raised
+// before a barrier loop / after the last barrier
+gpu fn misc(op: i32, flag: bool, xs: gpu_buffer<i32>, tmp: gpu_local<i32>, out: gpu_buffer<i32>) {
+    let l: u32 = local_id(0);
+    let x: i32 = xs[global_id(0)];
+    switch (op) {
+        case 0:
+            if (flag) {
+                tmp[l] = x;
+                barrier();
+                x = tmp[(l + 1) % local_size(0)];
+            }
+            out[global_id(0)] = x;
+            break;
+        case 1:
+            tmp[l] = x;
+            barrier();
+            out[global_id(0)] = tmp[l + u32(x)];
+            break;
+        case 2:
+            let y: i32 = x * 1000;
+            for (let r: i32 = 0; r < 3; r++) {
+                tmp[l] = y + r;
+                barrier();
+                y = tmp[(l + 1) % local_size(0)];
+                barrier();
+            }
+            out[global_id(0)] = y;
+            break;
+        case 3:
+            tmp[l] = x;
+            barrier();
+            out[global_id(0)] = i32(u8(tmp[(l + 3) % local_size(0)]));
+            break;
+        case 4:
+            // local 3 fails before the barrier, local 0 only after it: the
+            // emulator (round by round) stops at local 3
+            if (l == 3) {
+                tmp[l] = x * 1000;
+            } else {
+                tmp[l] = x;
+            }
+            barrier();
+            out[global_id(0)] = tmp[l] * 1000;
+            break;
+    }
+}
+let mx = [0, 1, 2, 3, 4, 5, 6, 7, 3000000, 9, 10, 11, 12, 300, 14, -1];
+for (op in [0, 1, 2, 3]) {
+    run_case(ctx, misc, "misc op " + op, op, [true, mx, local_array(4)], ["bool", "i32", "local"], ["i32"], 0.0,
+        [16], [4], [true, 0, 0]);
+}
+let m4 = mx.slice(0, 16);
+m4[11] = 3000000;
+run_case(ctx, misc, "misc op 4 group stops at barrier", 4, [true, m4, local_array(4)], ["bool", "i32", "local"], ["i32"], 0.0,
+    [16], [4], [true, 0, 0]);
+run_case(ctx, misc, "misc op 0 no flag", 0, [false, mx, local_array(4)], ["bool", "i32", "local"], ["i32"], 0.0,
+    [16], [4], [false, 0, 0]);
+
+ctx.release();
+report();

@@ -45,6 +45,7 @@ static const struct {
     { "min", 2, 0 }, { "max", 2, 0 }, { "abs", 1, 0 }, { "sqrt", 1, 0 },
     { "floor", 1, 0 }, { "ceil", 1, 0 }, { "exp", 1, 0 }, { "log", 1, 0 },
     { "sin", 1, 0 }, { "cos", 1, 0 }, { "pow", 2, 0 },
+    { "barrier", 0, 0 },
     { "i8", 1, 1 }, { "i16", 1, 1 }, { "i32", 1, 1 }, { "i64", 1, 1 },
     { "u8", 1, 1 }, { "u16", 1, 1 }, { "u32", 1, 1 }, { "u64", 1, 1 },
     { "f32", 1, 1 }, { "f64", 1, 1 },
@@ -99,16 +100,23 @@ static int is_scalar_type(Type *t) {
     return t && !t->nullable && is_scalar_kind(t->kind);
 }
 
-// gpu_buffer<T> with T a non-bool numeric scalar
-static int is_gpu_buffer_type(Type *t) {
+// gpu_buffer<T> / gpu_local<T> with T a non-bool numeric scalar
+static int is_memory_type(Type *t, const char *type_name) {
     if (!t || t->nullable || t->kind != TYPE_CUSTOM_OBJECT || !t->type_name) return 0;
-    if (strcmp(t->type_name, HML_GPU_BUFFER_TYPE) != 0) return 0;
+    if (strcmp(t->type_name, type_name) != 0) return 0;
     if (t->num_type_args != 1) return 0;
     Type *elem = t->type_args[0];
     return is_scalar_type(elem) && elem->kind != TYPE_BOOL;
 }
 
-// The gpu_buffer<T> type of parameter `name`, or NULL if it is not a buffer
+static int is_gpu_local_type(Type *t) { return is_memory_type(t, HML_GPU_LOCAL_TYPE); }
+
+// Indexable kernel memory: global (gpu_buffer<T>) or work-group local (gpu_local<T>)
+static int is_gpu_buffer_type(Type *t) {
+    return is_memory_type(t, HML_GPU_BUFFER_TYPE) || is_gpu_local_type(t);
+}
+
+// The gpu_buffer<T>/gpu_local<T> type of parameter `name`, or NULL if it is not one
 static Type *buffer_param(Expr *fn, const char *name) {
     for (int i = 0; i < fn->as.function.num_params; i++) {
         if (strcmp(fn->as.function.param_names[i], name) == 0) {
@@ -119,6 +127,11 @@ static Type *buffer_param(Expr *fn, const char *name) {
     return NULL;
 }
 
+// "gpu_buffer" or "gpu_local", for messages about parameter `name`
+static const char *memory_kind(Expr *fn, const char *name) {
+    return is_gpu_local_type(buffer_param(fn, name)) ? HML_GPU_LOCAL_TYPE : HML_GPU_BUFFER_TYPE;
+}
+
 static int is_reserved_name(const char *name) {
     return strncmp(name, HML_GPU_RESERVED_PREFIX, strlen(HML_GPU_RESERVED_PREFIX)) == 0;
 }
@@ -126,6 +139,7 @@ static int is_reserved_name(const char *name) {
 // Exported for gpu_codegen.c
 int gpu_is_scalar_type(Type *t) { return is_scalar_type(t); }
 int gpu_is_buffer_type(Type *t) { return is_gpu_buffer_type(t); }
+int gpu_is_local_type(Type *t) { return is_gpu_local_type(t); }
 Type *gpu_buffer_param(Expr *fn, const char *name) { return buffer_param(fn, name); }
 const char *gpu_scalar_kind_name(TypeKind k) { return scalar_kind_name(k); }
 int gpu_intrinsic_arity(const char *name) { return intrinsic_arity(name); }
@@ -171,14 +185,14 @@ static void check_scalar_name(KernelCheck *kc, Expr *e, const char *name) {
     if (is_reserved_name(name)) {
         kernel_error(kc, e->line, e->column, "names starting with '%s' are reserved", HML_GPU_RESERVED_PREFIX);
     } else if (buffer_param(kc->fn, name)) {
-        kernel_error(kc, e->line, e->column, "gpu_buffer '%s' can only be indexed (%s[i])", name, name);
+        kernel_error(kc, e->line, e->column, "%s '%s' can only be indexed (%s[i])", memory_kind(kc->fn, name), name, name);
     }
 }
 
 // The object of an index expression must be a gpu_buffer parameter
 static void check_buffer_base(KernelCheck *kc, Expr *e, Expr *object) {
     if (!object || object->type != EXPR_IDENT || !buffer_param(kc->fn, object->as.ident.name)) {
-        kernel_error(kc, e->line, e->column, "only gpu_buffer parameters can be indexed");
+        kernel_error(kc, e->line, e->column, "only gpu_buffer and gpu_local parameters can be indexed");
     }
 }
 
@@ -243,7 +257,8 @@ static void check_expr(KernelCheck *kc, Expr *e) {
         }
         case EXPR_ASSIGN:
             if (buffer_param(kc->fn, e->as.assign.name)) {
-                kernel_error(kc, e->line, e->column, "cannot assign to gpu_buffer '%s'", e->as.assign.name);
+                kernel_error(kc, e->line, e->column, "cannot assign to %s '%s'",
+                             memory_kind(kc->fn, e->as.assign.name), e->as.assign.name);
                 return;
             }
             check_scalar_name(kc, e, e->as.assign.name);
@@ -302,7 +317,7 @@ static void check_local_decl(KernelCheck *kc, Stmt *s, const char *name, Type *t
         return;
     }
     if (buffer_param(kc->fn, name)) {
-        kernel_error(kc, s->line, s->column, "local '%s' shadows a gpu_buffer parameter", name);
+        kernel_error(kc, s->line, s->column, "local '%s' shadows a %s parameter", name, memory_kind(kc->fn, name));
         return;
     }
     if (!type || type->kind == TYPE_INFER) {
@@ -411,7 +426,7 @@ int validate_gpu_kernel(Parser *p, const char *name, Expr *fn, int line) {
             kernel_error(&kc, line, 0, "parameter '%s' needs a type annotation (kernels are fully typed)", pname);
         } else if (!is_scalar_type(pt) && !is_gpu_buffer_type(pt)) {
             kernel_error(&kc, line, 0,
-                         "parameter '%s' must be a numeric/bool scalar or gpu_buffer<T> of a numeric T", pname);
+                         "parameter '%s' must be a numeric/bool scalar, or gpu_buffer<T>/gpu_local<T> of a numeric T", pname);
         }
     }
     Type *rt = fn->as.function.return_type;
@@ -510,6 +525,14 @@ static Expr *lower_expr(Expr *fn, Expr *e) {
             }
             if (is_conversion_intrinsic(callee->as.ident.name)) {
                 return at_expr(expr_call(at_expr(expr_ident(callee->as.ident.name), e), args, NULL, n), e);
+            }
+            if (strcmp(callee->as.ident.name, "barrier") == 0) {
+                // the source position identifies the barrier for divergence checks
+                free(args);
+                args = malloc(sizeof(Expr*) * 2);
+                args[0] = at_expr(expr_number_int(e->line), e);
+                args[1] = at_expr(expr_number_int(e->column), e);
+                return wi_call("barrier", args, 2, e);
             }
             return wi_call(callee->as.ident.name, args, n, e);
         }
@@ -661,7 +684,7 @@ static Expr *device_code_object(const char *name, Expr *kernel) {
         sites[i] = field_obj(4, skeys, svals);
     }
     const char *keys[] = { "source", "entry", "sites", "uses_f64", "f64_reason", "uses_groups",
-                           "site_bits", "err_slots" };
+                           "uses_barrier", "site_bits", "err_slots", "key_local_bits" };
     Expr *vals[] = {
         expr_string(dc.source),
         expr_string(dc.entry),
@@ -669,31 +692,35 @@ static Expr *device_code_object(const char *name, Expr *kernel) {
         expr_bool(dc.uses_f64),
         dc.f64_reason ? expr_string(dc.f64_reason) : expr_null(),
         expr_bool(dc.uses_groups),
+        expr_bool(dc.uses_barrier),
         expr_number_int(HML_GPU_SITE_BITS),
         expr_number_int(HML_GPU_ERR_SLOTS),
+        expr_number_int(HML_GPU_KEY_LOCAL_BITS),
     };
-    Expr *obj = field_obj(8, keys, vals);
+    Expr *obj = field_obj(10, keys, vals);
     gpu_device_code_free(&dc);
     return obj;
 }
 
-// { kind, name, params: [{ name, type, buffer }...], device, emulate }
+// { kind, name, params: [{ name, type, buffer, local }...], device, emulate }
 // Takes ownership of `kernel`.
 Expr *expr_gpu_kernel_descriptor(const char *name, Expr *kernel) {
     int nk = kernel->as.function.num_params;
     Expr **params = nk > 0 ? malloc(sizeof(Expr*) * nk) : NULL;
     for (int i = 0; i < nk; i++) {
         Type *pt = kernel->as.function.param_types ? kernel->as.function.param_types[i] : NULL;
-        int is_buf = is_gpu_buffer_type(pt);
-        const char *tname = is_buf ? scalar_kind_name(pt->type_args[0]->kind)
+        int is_mem = is_gpu_buffer_type(pt);
+        int is_local = is_gpu_local_type(pt);
+        const char *tname = is_mem ? scalar_kind_name(pt->type_args[0]->kind)
                           : (is_scalar_type(pt) ? scalar_kind_name(pt->kind) : "?");
-        const char *keys[] = { "name", "type", "buffer" };
+        const char *keys[] = { "name", "type", "buffer", "local" };
         Expr *vals[] = {
             expr_string(kernel->as.function.param_names[i]),
             expr_string(tname),
-            expr_bool(is_buf),
+            expr_bool(is_mem && !is_local),
+            expr_bool(is_local),
         };
-        params[i] = field_obj(3, keys, vals);
+        params[i] = field_obj(4, keys, vals);
     }
 
     const char *keys[] = { "kind", "name", "params", "device", HML_GPU_EMULATE_FIELD };

@@ -18,4 +18,6 @@ gpu fn float_switch(x: f32) { switch (x) { case 1: break; } }
 gpu fn var_case(x: i32) { switch (x) { case x: break; } }
 gpu fn no_init(x: i32) { let y: i32; }
 gpu fn bad_label(x: i32) { outer: while (true) { break nope; } }
+gpu fn barrier_value(x: i32) { let y: i32 = barrier(); }
+gpu fn local_store_bool(t: gpu_local<i32>) { t[0] = true; }
 let fine = 1;

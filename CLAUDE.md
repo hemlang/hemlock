@@ -250,6 +250,8 @@ ctx.launch(scale, [n], null, [u32(n), f32(2.0), dx]);    // device buffer
 import { emulate } from "@stdlib/gpu_emu";
 emulate(scale, [n], null, [u32(n), f32(2.0), xs]);       // xs: array, in place
 // Float literals are f64 (and int / int is f64): x * 2.0 needs device fp64
+// Work-group memory: gpu_local<T> param + local_array(count) arg; barrier()
+// must be reached by the whole work-group (the emulator checks this)
 ```
 
 ### I/O

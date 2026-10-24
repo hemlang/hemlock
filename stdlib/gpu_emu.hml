@@ -36,6 +36,8 @@ import { divi, sqrt as m_sqrt, floor as m_floor, ceil as m_ceil, exp as m_exp,
 
 let MAX_WORK_DIMS = 3;
 let KERNEL_KIND = "gpu_kernel";
+// Thrown into a work-item's task to unwind it when its work-group stops
+let ABORT = "__hml_gpu_emu_abort";
 
 // True if `k` is a gpu fn kernel descriptor
 export fn is_kernel(k): bool {
@@ -95,6 +97,17 @@ fn work_item(name: string, dims: i32) {
 		fn num_groups(d) { return dim_or(self.ngr, d, u32(1)); },
 		fn work_dim() { return self.dims; },
 
+		// barrier(): hand control back to the work-group scheduler and wait
+		// to be resumed (or unwound); line/col identify the barrier
+		ctl: null,
+		fn barrier(line, col) {
+			if (self.ctl == null) {
+				throw "barrier() outside a work-group run";
+			}
+			self.ctl.report.send({ kind: "barrier", line: line, col: col });
+			if (self.ctl.go.recv() == "abort") { throw ABORT; }
+		},
+
 		fn min(a, b) { return b < a ? b : a; },
 		fn max(a, b) { return b > a ? b : a; },
 		fn abs(x) { return x < 0 ? -x : x; },
@@ -140,6 +153,40 @@ fn check_sizes(sizes, what: string) {
 	}
 }
 
+// Work-group local memory of `count` elements for a gpu_local<T> parameter
+// (each work-group gets its own; the emulator zero-fills it, a device does not)
+export fn local_array(count: i32) {
+	if (count < 1) { throw "gpu_emu: local_array() needs a positive element count, got " + count; }
+	return { _local_count: count };
+}
+
+fn fresh_locals(kernel, args: array) {
+	let out = [];
+	for (let i = 0; i < kernel.params.length; i++) {
+		let p = kernel.params[i];
+		if (p.local) {
+			let arr = [];
+			let zero = convert(0, p.type);
+			for (let j = 0; j < args[i]._local_count; j++) { arr.push(zero); }
+			out.push(arr);
+		} else {
+			out.push(null);
+		}
+	}
+	return out;
+}
+
+fn has_locals(kernel): bool {
+	for (p in kernel.params) {
+		if (p.local) { return true; }
+	}
+	return false;
+}
+
+fn coords_text(c: array): string {
+	return "(" + c[0] + ", " + c[1] + ", " + c[2] + ")";
+}
+
 fn check_args(kernel, args: array) {
 	let params = kernel.params;
 	let who = "gpu fn '" + kernel.name + "'";
@@ -150,7 +197,11 @@ fn check_args(kernel, args: array) {
 		let p = params[i];
 		let v = args[i];
 		let what = who + " arg " + i + " (" + p.name + ")";
-		if (p.buffer) {
+		if (p.local) {
+			if (typeid(v) != TYPEID_OBJECT || !v.has("_local_count")) {
+				throw what + " expects local_array(count) for gpu_local<" + p.type + ">, got " + typeof(v);
+			}
+		} else if (p.buffer) {
 			if (typeid(v) != TYPEID_ARRAY) {
 				throw what + " expects an array for gpu_buffer<" + p.type + ">, got " + typeof(v);
 			}
@@ -158,6 +209,118 @@ fn check_args(kernel, args: array) {
 			let hint = "";
 			if (typeof(v) == "f64" && p.type == "f32") { hint = " (float literals are f64; use f32(x))"; }
 			throw what + " expects " + p.type + ", got " + typeof(v) + hint;
+		}
+	}
+}
+
+// One work-item of a barrier kernel, as a task the scheduler resumes.
+// `body` is a closure over the item's arguments: spawn() copies array
+// arguments, and the kernel must write the caller's buffers.
+async fn run_item(body, wi) {
+	if (wi.ctl.go.recv() == "abort") { return null; }
+	try {
+		body();
+		wi.ctl.report.send({ kind: "done" });
+	} catch (e) {
+		let msg = "" + e;
+		if (msg != ABORT && !msg.ends_with(ABORT)) {
+			wi.ctl.report.send({ kind: "error", msg: msg });
+		}
+	}
+	return null;
+}
+
+// Unwind every unfinished work-item of a group and wait for its task
+fn stop_group(items: array) {
+	for (it in items) {
+		if (it.state != "done") { it.wi.ctl.go.send("abort"); }
+	}
+	for (it in items) { join(it.task); }
+}
+
+// Kernels with barrier(): work-groups run one after another; within a group
+// every work-item runs, one at a time in local order, up to its next barrier
+// (a round), then the next round starts once all of them are there.
+// Deterministic, and it checks that all work-items meet the same barrier.
+fn run_with_barriers(kernel, geom, args: array) {
+	let name = kernel.name;
+	let dims = i32(geom.dims);
+	let lx = geom.lsz[0];
+	let ly = geom.lsz[1];
+	let lz = geom.lsz[2];
+	for (let gz: u32 = 0; gz < geom.ngr[2]; gz++) {
+		for (let gy: u32 = 0; gy < geom.ngr[1]; gy++) {
+			for (let gx: u32 = 0; gx < geom.ngr[0]; gx++) {
+				let locs = fresh_locals(kernel, args);
+				let report = channel(1);
+				let items = [];
+				for (let z: u32 = 0; z < lz; z++) {
+					for (let y: u32 = 0; y < ly; y++) {
+						for (let x: u32 = 0; x < lx; x++) {
+							let wi = work_item(name, dims);
+							for (let d = 0; d < MAX_WORK_DIMS; d++) {
+								wi.gsz[d] = geom.gsz[d];
+								wi.lsz[d] = geom.lsz[d];
+								wi.ngr[d] = geom.ngr[d];
+							}
+							wi.lid[0] = x;
+							wi.lid[1] = y;
+							wi.lid[2] = z;
+							wi.grp[0] = gx;
+							wi.grp[1] = gy;
+							wi.grp[2] = gz;
+							for (let d = 0; d < MAX_WORK_DIMS; d++) {
+								wi.gid[d] = wi.grp[d] * wi.lsz[d] + wi.lid[d];
+							}
+							wi.ctl = { go: channel(1), report: report };
+							let item_args = [wi];
+							for (let i = 0; i < args.length; i++) {
+								if (locs[i] != null) { item_args.push(locs[i]); } else { item_args.push(args[i]); }
+							}
+							let f = kernel.emulate;
+							let body = fn() { apply(f, item_args); };
+							let task = spawn(run_item, body, wi);
+							items.push({ wi: wi, task: task, state: "ready", at: null });
+						}
+					}
+				}
+
+				loop {
+					let active = [];
+					for (it in items) {
+						if (it.state == "done") { continue; }
+						it.wi.ctl.go.send("go");
+						let r = report.recv();
+						if (r.kind == "error") {
+							it.state = "done";
+							stop_group(items);
+							throw "gpu fn '" + name + "' work-item " + coords_text(it.wi.gid) + ": " + r.msg;
+						}
+						it.state = r.kind;
+						it.at = r;
+						active.push(it);
+					}
+					if (active.length == 0) { break; }
+					// every work-item that ran this round must stop at the same barrier
+					let first = active[0];
+					for (it in active) {
+						let same = it.state == first.state
+							&& (it.state == "done" || (it.at.line == first.at.line && it.at.col == first.at.col));
+						if (!same) {
+							let where_first = "finished";
+							if (first.state == "barrier") { where_first = "reached the barrier at line " + first.at.line; }
+							let where_it = "finished";
+							if (it.state == "barrier") { where_it = "reached the barrier at line " + it.at.line; }
+							stop_group(items);
+							throw "gpu fn '" + name + "' work-group " + coords_text(first.wi.grp)
+								+ ": barrier divergence: work-item " + coords_text(first.wi.gid) + " " + where_first
+								+ ", but work-item " + coords_text(it.wi.gid) + " " + where_it;
+						}
+					}
+					if (first.state == "done") { break; }
+				}
+				for (it in items) { join(it.task); }
+			}
 		}
 	}
 }
@@ -181,7 +344,7 @@ export fn emulate(kernel, global: array, local, args: array) {
 	}
 	check_args(kernel, args);
 	if (local == null && kernel.device != null && kernel.device.uses_groups) {
-		throw "gpu fn '" + kernel.name + "' uses local_id/group_id/local_size/num_groups: pass an explicit local size";
+		throw "gpu fn '" + kernel.name + "' uses barrier/local_id/group_id/local_size/num_groups: pass an explicit local size";
 	}
 
 	let wi = work_item(kernel.name, global.length);
@@ -197,10 +360,18 @@ export fn emulate(kernel, global: array, local, args: array) {
 		wi.ngr[d] = u32(divi(g, l));
 	}
 
+	if (kernel.device != null && kernel.device.uses_barrier) {
+		run_with_barriers(kernel, wi, args);
+		return null;
+	}
+
 	let full_args = [wi].concat(args);
 	let gx = wi.gsz[0];
 	let gy = wi.gsz[1];
 	let gz = wi.gsz[2];
+	// local memory: one set of arrays per work-group, swapped in per item
+	let uses_locals = has_locals(kernel);
+	let group_locals = {};
 	try {
 		for (let z: u32 = 0; z < gz; z++) {
 			for (let y: u32 = 0; y < gy; y++) {
@@ -211,6 +382,14 @@ export fn emulate(kernel, global: array, local, args: array) {
 					for (let d = 0; d < MAX_WORK_DIMS; d++) {
 						wi.lid[d] = wi.gid[d] % wi.lsz[d];
 						wi.grp[d] = u32(divi(wi.gid[d], wi.lsz[d]));
+					}
+					if (uses_locals) {
+						let key = "" + wi.grp[0] + "," + wi.grp[1] + "," + wi.grp[2];
+						if (!group_locals.has(key)) { group_locals[key] = fresh_locals(kernel, args); }
+						let locs = group_locals[key];
+						for (let i = 0; i < args.length; i++) {
+							if (locs[i] != null) { full_args[i + 1] = locs[i]; }
+						}
 					}
 					apply(kernel.emulate, full_args);
 				}
