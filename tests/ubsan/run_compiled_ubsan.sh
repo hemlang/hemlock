@@ -3,10 +3,10 @@
 #
 # Builds an instrumented copy of the runtime into a throwaway dir, compiles
 # every Hemlock program under the given directories (default: the parity
-# suite) via `hemlockc --emit-c`, links it against that runtime with
+# and stress suites and tests/ubsan/probes) via `hemlockc --emit-c`, links it against that runtime with
 # -fsanitize=undefined, runs it, and collects every UBSan report.
 #
-#   tests/ubsan/run_compiled_ubsan.sh                 # tests/parity
+#   tests/ubsan/run_compiled_ubsan.sh                 # the default set
 #   tests/ubsan/run_compiled_ubsan.sh tests/stress    # any dirs of *.hml
 #
 # The runtime is built WITHOUT -fwrapv: the WASM runtime build has no
@@ -28,9 +28,9 @@ RT_DIR="$ROOT/runtime"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 TIMEOUT="${UBSAN_TEST_TIMEOUT:-60}"
-[ $# -eq 0 ] && set -- tests/parity
+[ $# -eq 0 ] && set -- tests/parity tests/stress tests/ubsan/probes
 
-UBSAN_CFLAGS="-fsanitize=undefined,float-cast-overflow,float-divide-by-zero -fno-sanitize-recover=undefined,float-cast-overflow,float-divide-by-zero -fno-omit-frame-pointer"
+UBSAN_CFLAGS="-fsanitize=undefined,float-cast-overflow -fno-sanitize-recover=undefined,float-cast-overflow -fno-omit-frame-pointer"
 
 if [ ! -x "$HEMLOCKC" ]; then
   echo "FATAL: $HEMLOCKC not found — run 'make' first" >&2

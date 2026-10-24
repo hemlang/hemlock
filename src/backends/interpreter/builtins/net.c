@@ -805,10 +805,15 @@ static Value socket_method_set_timeout(SocketHandle *sock, Value *args, int num_
     }
 
     double seconds = value_to_float(args[0]);
+    if (!(seconds >= 0)) {  // also rejects NaN
+        return throw_runtime_error(ctx, "set_timeout() timeout must be non-negative");
+    }
+    if (seconds > HML_MAX_WAIT_SECONDS) seconds = HML_MAX_WAIT_SECONDS;
 
 #ifdef _WIN32
     // Windows expects the timeout as a DWORD in milliseconds
-    DWORD timeout = (DWORD)(seconds * 1000.0);
+    double timeout_ms = seconds * HML_MILLISECONDS_PER_SECOND;
+    DWORD timeout = timeout_ms >= 4294967295.0 ? 0xFFFFFFFFu : (DWORD)timeout_ms;
 #else
     struct timeval timeout;
     timeout.tv_sec = (long)seconds;

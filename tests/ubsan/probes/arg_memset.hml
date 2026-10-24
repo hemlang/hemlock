@@ -1,0 +1,1 @@
+let p = alloc(8); try { memset(p, 0, 1e20); } catch (e) { print("caught"); } free(p);

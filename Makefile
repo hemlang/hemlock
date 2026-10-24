@@ -469,6 +469,14 @@ asan: clean
 	@echo "✓ ASAN build complete. Run tests with: make asan-test"
 	@echo "  Or run directly: ASAN_OPTIONS=detect_leaks=1 ./hemlock script.hml"
 
+# UndefinedBehaviorSanitizer sweeps of both backends (tests/ubsan/README.md).
+# Leaves instrumented binaries in the tree: `make clean && make` afterwards.
+.PHONY: ubsan-test
+ubsan-test:
+	@tests/ubsan/run_interp_ubsan.sh; s1=$$?; \
+	 tests/ubsan/run_compiled_ubsan.sh; s2=$$?; \
+	 [ $$s1 -eq 0 ] && [ $$s2 -eq 0 ]
+
 # Run test suite with ASAN
 .PHONY: asan-test
 asan-test: asan

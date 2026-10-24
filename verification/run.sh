@@ -81,6 +81,7 @@ run_one() {
                 solver="$CBMC_SOLVER"; flags="${flags//@bitwuzla/}"
             fi
             for s in $sources; do
+                [[ "$s" == "-" ]] && continue   # header-only proof: no sources
                 if [[ "$s" == @* ]]; then srcs+=("$HERE/cbmc/${s#@}"); else srcs+=("$ROOT/$s"); fi
             done
             # @unreachable=f1|f2: replace those functions' bodies with

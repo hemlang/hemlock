@@ -9,6 +9,14 @@
  */
 
 #include "builtins_internal.h"
+#include <string.h>
+
+/*
+ * Typed loads and stores go through memcpy: a ptr or a buffer slice may sit
+ * at any address, and dereferencing a misaligned int64_t* / double* is
+ * undefined behavior (it traps on strict-alignment targets). memcpy of a
+ * fixed small size compiles to the same single load/store.
+ */
 
 // ========== POINTER INDEX OPERATIONS ==========
 
@@ -437,7 +445,9 @@ HmlValue hml_builtin_ptr_deref_i16(HmlClosureEnv *env, HmlValue ptr) {
     if (!p) {
         hml_runtime_error("ptr_deref_i16() cannot dereference null pointer");
     }
-    return hml_val_i16(*(int16_t*)p);
+    int16_t loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_i16(loaded);
 }
 
 // Builtin: ptr_deref_i64(ptr) -> i64
@@ -450,7 +460,9 @@ HmlValue hml_builtin_ptr_deref_i64(HmlClosureEnv *env, HmlValue ptr) {
     if (!p) {
         hml_runtime_error("ptr_deref_i64() cannot dereference null pointer");
     }
-    return hml_val_i64(*(int64_t*)p);
+    int64_t loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_i64(loaded);
 }
 
 // Builtin: ptr_deref_u8(ptr) -> u8
@@ -476,7 +488,9 @@ HmlValue hml_builtin_ptr_deref_u16(HmlClosureEnv *env, HmlValue ptr) {
     if (!p) {
         hml_runtime_error("ptr_deref_u16() cannot dereference null pointer");
     }
-    return hml_val_u16(*(uint16_t*)p);
+    uint16_t loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_u16(loaded);
 }
 
 // Builtin: ptr_deref_u32(ptr) -> u32
@@ -489,7 +503,9 @@ HmlValue hml_builtin_ptr_deref_u32(HmlClosureEnv *env, HmlValue ptr) {
     if (!p) {
         hml_runtime_error("ptr_deref_u32() cannot dereference null pointer");
     }
-    return hml_val_u32(*(uint32_t*)p);
+    uint32_t loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_u32(loaded);
 }
 
 // Builtin: ptr_deref_u64(ptr) -> u64
@@ -502,7 +518,9 @@ HmlValue hml_builtin_ptr_deref_u64(HmlClosureEnv *env, HmlValue ptr) {
     if (!p) {
         hml_runtime_error("ptr_deref_u64() cannot dereference null pointer");
     }
-    return hml_val_u64(*(uint64_t*)p);
+    uint64_t loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_u64(loaded);
 }
 
 // Builtin: ptr_deref_f32(ptr) -> f32
@@ -515,7 +533,9 @@ HmlValue hml_builtin_ptr_deref_f32(HmlClosureEnv *env, HmlValue ptr) {
     if (!p) {
         hml_runtime_error("ptr_deref_f32() cannot dereference null pointer");
     }
-    return hml_val_f32(*(float*)p);
+    float loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_f32(loaded);
 }
 
 // Builtin: ptr_deref_f64(ptr) -> f64
@@ -528,7 +548,9 @@ HmlValue hml_builtin_ptr_deref_f64(HmlClosureEnv *env, HmlValue ptr) {
     if (!p) {
         hml_runtime_error("ptr_deref_f64() cannot dereference null pointer");
     }
-    return hml_val_f64(*(double*)p);
+    double loaded;
+    memcpy(&loaded, p, sizeof(loaded));
+    return hml_val_f64(loaded);
 }
 
 // Builtin: ptr_deref_ptr(ptr) -> ptr (pointer-to-pointer)
@@ -568,7 +590,8 @@ HmlValue hml_builtin_ptr_write_i16(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     if (!p) {
         hml_runtime_error("ptr_write_i16() cannot write to null pointer");
     }
-    *(int16_t*)p = (int16_t)hml_to_i32(value);
+    int16_t stored = (int16_t)hml_to_i32(value);
+    memcpy(p, &stored, sizeof(stored));
     return hml_val_null();
 }
 
@@ -582,7 +605,8 @@ HmlValue hml_builtin_ptr_write_i64(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     if (!p) {
         hml_runtime_error("ptr_write_i64() cannot write to null pointer");
     }
-    *(int64_t*)p = hml_to_i64(value);
+    int64_t stored = hml_to_i64(value);
+    memcpy(p, &stored, sizeof(stored));
     return hml_val_null();
 }
 
@@ -610,7 +634,8 @@ HmlValue hml_builtin_ptr_write_u16(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     if (!p) {
         hml_runtime_error("ptr_write_u16() cannot write to null pointer");
     }
-    *(uint16_t*)p = (uint16_t)hml_to_i32(value);
+    uint16_t stored = (uint16_t)hml_to_i32(value);
+    memcpy(p, &stored, sizeof(stored));
     return hml_val_null();
 }
 
@@ -624,7 +649,8 @@ HmlValue hml_builtin_ptr_write_u32(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     if (!p) {
         hml_runtime_error("ptr_write_u32() cannot write to null pointer");
     }
-    *(uint32_t*)p = (uint32_t)hml_to_i64(value);
+    uint32_t stored = (uint32_t)hml_to_i64(value);
+    memcpy(p, &stored, sizeof(stored));
     return hml_val_null();
 }
 
@@ -638,7 +664,8 @@ HmlValue hml_builtin_ptr_write_u64(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     if (!p) {
         hml_runtime_error("ptr_write_u64() cannot write to null pointer");
     }
-    *(uint64_t*)p = (uint64_t)hml_to_i64(value);
+    uint64_t stored = (uint64_t)hml_to_i64(value);
+    memcpy(p, &stored, sizeof(stored));
     return hml_val_null();
 }
 
@@ -652,7 +679,8 @@ HmlValue hml_builtin_ptr_write_f32(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     if (!p) {
         hml_runtime_error("ptr_write_f32() cannot write to null pointer");
     }
-    *(float*)p = (float)hml_to_f64(value);
+    float stored = (float)hml_to_f64(value);
+    memcpy(p, &stored, sizeof(stored));
     return hml_val_null();
 }
 
@@ -666,7 +694,8 @@ HmlValue hml_builtin_ptr_write_f64(HmlClosureEnv *env, HmlValue ptr, HmlValue va
     if (!p) {
         hml_runtime_error("ptr_write_f64() cannot write to null pointer");
     }
-    *(double*)p = hml_to_f64(value);
+    double stored = hml_to_f64(value);
+    memcpy(p, &stored, sizeof(stored));
     return hml_val_null();
 }
 

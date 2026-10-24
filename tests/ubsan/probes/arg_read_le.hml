@@ -1,0 +1,1 @@
+let b = buffer(8); try { print(b.read_i32_le(1e20)); } catch (e) { print("caught"); }

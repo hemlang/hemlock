@@ -1,0 +1,50 @@
+// Parity test: inputs that used to hit undefined behavior in C.
+// Out-of-range or NaN float-to-int conversions now raise a catchable error
+// (as i32()/i64() already did) instead of returning garbage, divi() divides
+// integers exactly, and typed access to a misaligned buffer slice works.
+// Found by the UBSan audit (tests/ubsan/).
+import { floori, ceili, roundi, trunci, divi } from "@stdlib/math";
+import { sleep } from "@stdlib/time";
+
+fn attempt(label, f) {
+    try { print(label + ": " + f()); } catch (e) { print(label + ": error"); }
+}
+
+let nan = 0.0 / 0.0;
+
+// === Rounding to i64 ===
+attempt("floori(2.5)", fn() { return floori(2.5); });         // 2
+attempt("ceili(-2.5)", fn() { return ceili(-2.5); });         // -2
+attempt("roundi(2.5)", fn() { return roundi(2.5); });         // 3
+attempt("trunci(-2.7)", fn() { return trunci(-2.7); });       // -2
+attempt("floori(1e300)", fn() { return floori(1e300); });     // error
+attempt("ceili(-1e300)", fn() { return ceili(-1e300); });     // error
+attempt("roundi(nan)", fn() { return roundi(nan); });         // error
+attempt("trunci(9.3e18)", fn() { return trunci(9.3e18); });   // error (> 2^63)
+
+// === divi: exact for integers ===
+let big: i64 = 9007199254740993;                              // 2^53 + 1
+attempt("divi(2^53+1, 1)", fn() { return divi(big, 1); });    // 9007199254740993
+let max: i64 = 9223372036854775807;
+attempt("divi(max, 2)", fn() { return divi(max, 2); });       // 4611686018427387903
+attempt("divi(-7, 2)", fn() { return divi(-7, 2); });         // -3
+let min: i64 = -9223372036854775807 - 1;
+attempt("divi(min, -1)", fn() { return divi(min, -1); });     // error (overflow)
+attempt("divi(1, 0)", fn() { return divi(1, 0); });           // error
+attempt("divi(7.5, 2)", fn() { return divi(7.5, 2); });       // 3
+attempt("divi(1e300, 1)", fn() { return divi(1e300, 1); });   // error
+
+// === sleep rejects NaN ===
+attempt("sleep(nan)", fn() { sleep(nan); return "slept"; });  // error
+attempt("sleep(0)", fn() { sleep(0); return "slept"; });      // slept
+
+// === Typed access to a misaligned buffer slice ===
+let b = buffer(16);
+let v = b.slice(1, 9);                                        // odd address
+ptr_write_i64(v, 1234567890123);
+print(ptr_deref_i64(v));                                      // 1234567890123
+ptr_write_f64(v, 3.5);
+print(ptr_deref_f64(v));                                      // 3.5
+let w = b.slice(3, 7);
+ptr_write_i32(w, -42);
+print(ptr_deref_i32(w));                                      // -42

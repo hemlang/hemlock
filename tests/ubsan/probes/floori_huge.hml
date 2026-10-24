@@ -1,0 +1,2 @@
+import { floori } from "@stdlib/math";
+try { print(floori(1e300)); } catch (e) { print("caught"); }

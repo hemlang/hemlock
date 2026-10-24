@@ -1,0 +1,3 @@
+import { floori } from "@stdlib/math";
+let nan = 0.0 / 0.0;
+try { print(floori(nan)); } catch (e) { print("caught"); }

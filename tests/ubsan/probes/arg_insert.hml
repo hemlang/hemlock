@@ -1,0 +1,1 @@
+let a = [1, 2]; try { a.insert(1e20, 5); print(a); } catch (e) { print("caught"); }

@@ -13,6 +13,7 @@
  */
 
 #include "builtins_internal.h"
+#include "num_convert.h"
 #include "utf8.h"
 
 #ifdef __EMSCRIPTEN__
@@ -584,12 +585,12 @@ int64_t hml_val_to_int64(HmlValue val) {
         case HML_VAL_F32: {
             float fv = val.as.as_f32;
             if (isnan(fv) || isinf(fv)) return 0;
-            return (int64_t)fv;
+            return hml_f64_to_i64_sat(fv);  // out-of-range casts are UB
         }
         case HML_VAL_F64: {
             double dv = val.as.as_f64;
             if (isnan(dv) || isinf(dv)) return 0;
-            return (int64_t)dv;
+            return hml_f64_to_i64_sat(dv);  // out-of-range casts are UB
         }
         case HML_VAL_BOOL: return val.as.as_bool ? 1 : 0;
         case HML_VAL_RUNE: return val.as.as_rune;

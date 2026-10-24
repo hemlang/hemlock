@@ -138,6 +138,10 @@
 #define HML_NANOSECONDS_PER_MS      1000000L
 #define HML_MILLISECONDS_PER_SECOND 1000
 
+// Longest sleep / socket timeout honoured (~68 years); longer requests are
+// clamped, since converting e.g. 1e300 seconds to time_t is undefined
+#define HML_MAX_WAIT_SECONDS 2147483647.0
+
 // Initial capacity of a channel's select() waiter list (grows on demand)
 #define HML_CHAN_WAITERS_INITIAL 4
 
