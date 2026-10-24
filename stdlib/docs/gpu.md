@@ -115,7 +115,7 @@ Symbolic name for an OpenCL status code.
 ## Limitations (current)
 
 - `launch` is synchronous. It blocks until the kernel finishes. Async launches mapped onto Hemlock tasks are planned
-- Kernels are OpenCL C source strings. `gpu fn` kernels written in Hemlock parse and validate (see below), but they are not compiled to device code yet
+- Kernels launched here are OpenCL C source strings. `gpu fn` kernels written in Hemlock run on the CPU through [`@stdlib/gpu_emu`](gpu_emu.md), but they are not compiled to device code yet
 - Linux only (`libOpenCL.so.1`)
 
 ## `gpu fn` (preview)
@@ -138,15 +138,28 @@ The frontend enforces the subset, so the interpreter, `hemlockc`, and
 - Parameters are numeric or `bool` scalars, or `gpu_buffer<T>` of a numeric `T`. Each one must be annotated, with no `ref`, defaults, or rest parameters
 - The return type is omitted or `void`. Results are written into buffers
 - Every local is annotated with a scalar type
-- Allowed: control flow (`if`, `while`, `for`, `loop`, `switch`, `break`, `continue`), arithmetic, indexing, `++`/`--`, and calls to plain named functions such as `global_id(0)`
-- Rejected: strings, runes, `null`, property access, method calls, closures, nested functions, array/object literals, `match`, `for-in`, `try`/`throw`, `defer`, `await`, recursion, named arguments
+- Allowed: control flow (`if`, `while`, `for`, `loop`, `switch`, `break`, `continue`), arithmetic, `++`/`--` on scalar variables, and indexing of `gpu_buffer` parameters (`x[i]`, `x[i] = v`, `x[i] += v`). A buffer can only be indexed, never used bare or reassigned
+- Calls are limited to device intrinsics: `global_id`, `local_id`, `group_id`, `global_size`, `local_size`, `num_groups`, `work_dim`, `min`, `max`, `abs`, `sqrt`, `floor`, `ceil`, `exp`, `log`, `sin`, `cos`, `pow`, and the conversions `i8()` … `u64()`, `f32()`, `f64()`. See [gpu_emu.md](gpu_emu.md#kernel-intrinsics) for return types
+- Rejected: strings, runes, `null`, property access, method calls, closures, nested functions, array/object literals, `match`, `for-in`, `try`/`throw`, `defer`, `await`, recursion, named arguments, and names starting with `__hml_`
 
 `gpu` is a contextual keyword. It only means something directly before `fn`,
 so `gpu` still works as a variable name.
 
-Device code generation is not implemented yet. Until it is, the name a `gpu fn`
-declares is bound to a host stub that throws when called:
+The name a `gpu fn` declares is bound to a **kernel descriptor** rather than a
+function. A kernel is not something host code can call:
 
+```hemlock
+print(saxpy.kind);     // "gpu_kernel"
+print(saxpy.name);     // "saxpy"
+print(saxpy.params);   // [{ name: "n", type: "u32", buffer: false }, ...]
+// saxpy.emulate is the kernel lowered to plain Hemlock, used by @stdlib/gpu_emu
 ```
-gpu fn 'saxpy' is a device kernel and cannot be called from host code
+
+Run kernels on the CPU with [`@stdlib/gpu_emu`](gpu_emu.md):
+
+```hemlock
+import { emulate } from "@stdlib/gpu_emu";
+emulate(saxpy, [4], null, [u32(4), f32(2.0), xs, ys]);
 ```
+
+Device code generation (compiling a `gpu fn` to OpenCL C so `ctx.launch` can run it) is the next step.

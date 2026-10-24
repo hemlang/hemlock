@@ -1,7 +1,22 @@
 #include "formatter_internal.h"
 #include <ctype.h>
+#include <float.h>
 
 // ========== EXPRESSION FORMATTING ==========
+
+// Shortest text that reads back as the same double and still lexes as a
+// float: "%g" alone turns 2.0 into "2", which is an i32 literal.
+static void fmt_float_literal(FmtCtx *ctx, double value) {
+    char text[64];
+    for (int prec = 1; prec <= DBL_DECIMAL_DIG; prec++) {
+        snprintf(text, sizeof(text), "%.*g", prec, value);
+        if (strtod(text, NULL) == value) break;
+    }
+    buf_append(&ctx->buf, text);
+    if (!strpbrk(text, ".eE")) {
+        buf_append(&ctx->buf, ".0");
+    }
+}
 
 const char *binary_op_str(BinaryOp op) {
     switch (op) {
@@ -249,7 +264,7 @@ void fmt_expr(FmtCtx *ctx, Expr *expr) {
             if (original) {
                 buf_append(&ctx->buf, original);
             } else if (expr->as.number.is_float) {
-                buf_printf(&ctx->buf, "%g", expr->as.number.float_value);
+                fmt_float_literal(ctx, expr->as.number.float_value);
             } else if (expr->as.number.is_u64) {
                 buf_printf(&ctx->buf, "%" PRIu64, expr->as.number.uint_value);
             } else {

@@ -458,8 +458,8 @@ static void serialize_expr(SerializeContext *ctx, Expr *expr) {
             break;
 
         case EXPR_FUNCTION:
-            // Flags byte: bit 0 async, bit 1 gpu. A gpu fn stub serializes its
-            // name and the kernel; the stub is rebuilt on load.
+            // Flags byte: bit 0 async, bit 1 gpu. A gpu fn's emulation fn
+            // serializes its name and the kernel; the lowering is redone on load.
             write_u8(ctx, (expr->as.function.is_async ? 1 : 0) |
                           (expr->as.function.is_gpu ? 2 : 0));
             if (expr->as.function.is_gpu) {
@@ -827,7 +827,7 @@ static Expr* deserialize_expr_inner(DeserializeContext *ctx) {
             expr->as.function.return_type = deserialize_type(ctx);
             expr->as.function.body = deserialize_stmt(ctx);
             if (gpu_name) {
-                expr = expr_gpu_kernel_stub(gpu_name, expr);
+                expr = expr_gpu_emulate_fn(gpu_name, expr);
                 free(gpu_name);
             }
             break;

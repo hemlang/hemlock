@@ -239,12 +239,15 @@ let dx = ctx.from_array(xs, "f32");
 ctx.launch(k, [n], null, [u32(n), f32(2.0), dx]);  // arg types must match exactly
 ctx.free(dx); ctx.release();
 
-// Hemlock kernels: typed subset, validated by the frontend; device codegen
-// not implemented yet, so the host binding throws when called
+// Hemlock kernels: typed subset validated by the frontend. The name binds a
+// kernel descriptor (not callable). Run on the CPU with @stdlib/gpu_emu
+// (both backends); device codegen is not implemented yet.
 gpu fn scale(n: u32, a: f32, x: gpu_buffer<f32>) {
     let i: u32 = global_id(0);
     if (i < n) { x[i] = a * x[i]; }
 }
+import { emulate } from "@stdlib/gpu_emu";
+emulate(scale, [n], null, [u32(n), f32(2.0), xs]);  // xs: array, updated in place
 ```
 
 ### I/O
@@ -281,7 +284,7 @@ Typed arrays: `let nums: array<i32> = [1, 2, 3];`
 
 ---
 
-## Standard Library (55 modules)
+## Standard Library (56 modules)
 
 Import with `@stdlib/` prefix: `import { sin, cos, PI } from "@stdlib/math";`
 
@@ -310,6 +313,7 @@ Side-effect imports (no bindings, module top-level runs): `import "./suite.hml";
 | `fs` | open, open_fd, fileno, read_file, write_file, list_dir, exists |
 | `glob` | File pattern matching |
 | `gpu` | GPU compute via OpenCL: devices, buffers, kernel launch |
+| `gpu_emu` | Run `gpu fn` kernels on the CPU (emulate, is_kernel) |
 | `hash` | sha1, sha256, sha512, md5, djb2, crc32, adler32 |
 | `http` | http_get, http_post, http_request |
 | `ipc` | Inter-process communication |

@@ -8,17 +8,21 @@ void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
 
     switch (stmt->type) {
         case STMT_LET:
+            // gpu fn name(...) { ... }: the binding holds a kernel descriptor
+            if (gpu_kernel_of(stmt->as.let.value)) {
+                fmt_annotations(ctx, stmt->as.let.annotations, stmt->as.let.annotation_count);
+                fmt_indent(ctx);
+                Expr *kernel = gpu_kernel_of(stmt->as.let.value);
+                fmt_fn_params(ctx, kernel, stmt->as.let.name, HML_GPU_KEYWORD " fn ");
+                buf_append(&ctx->buf, " ");
+                fmt_stmt(ctx, kernel->as.function.body);
             // Check if this is a named function declaration (fn name(...) { ... })
-            if (stmt->as.let.value && stmt->as.let.value->type == EXPR_FUNCTION) {
+            } else if (stmt->as.let.value && stmt->as.let.value->type == EXPR_FUNCTION) {
                 // Output annotations before the function
                 fmt_annotations(ctx, stmt->as.let.annotations, stmt->as.let.annotation_count);
                 fmt_indent(ctx);
                 Expr *fn = stmt->as.let.value;
                 const char *prefix = fn->as.function.is_async ? "async fn " : "fn ";
-                if (fn->as.function.is_gpu) {
-                    fn = fn->as.function.gpu_kernel;
-                    prefix = HML_GPU_KEYWORD " fn ";
-                }
                 fmt_fn_params(ctx, fn, stmt->as.let.name, prefix);
                 buf_append(&ctx->buf, " ");
                 fmt_stmt(ctx, fn->as.function.body);
@@ -540,15 +544,17 @@ void fmt_stmt(FmtCtx *ctx, Stmt *stmt) {
                 ctx->indent = 0;
                 // Handle function declarations specially
                 Stmt *decl = stmt->as.export_stmt.declaration;
-                if (decl->type == STMT_LET && decl->as.let.value &&
+                if (decl->type == STMT_LET && gpu_kernel_of(decl->as.let.value)) {
+                    // export gpu fn name(...) { }
+                    Expr *kernel = gpu_kernel_of(decl->as.let.value);
+                    fmt_fn_params(ctx, kernel, decl->as.let.name, HML_GPU_KEYWORD " fn ");
+                    buf_append(&ctx->buf, " ");
+                    fmt_stmt(ctx, kernel->as.function.body);
+                } else if (decl->type == STMT_LET && decl->as.let.value &&
                     decl->as.let.value->type == EXPR_FUNCTION) {
                     // export fn name(...) { }
                     Expr *fn = decl->as.let.value;
                     const char *prefix = fn->as.function.is_async ? "async fn " : "fn ";
-                    if (fn->as.function.is_gpu) {
-                        fn = fn->as.function.gpu_kernel;
-                        prefix = HML_GPU_KEYWORD " fn ";
-                    }
                     fmt_fn_params(ctx, fn, decl->as.let.name, prefix);
                     buf_append(&ctx->buf, " ");
                     fmt_stmt(ctx, fn->as.function.body);

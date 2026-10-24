@@ -8,7 +8,7 @@ complete importable API surface, generated from `stdlib/*.hml` by
 are verbatim from source; `[native]` marks re-exported native builtins
 whose parameter list comes from the module's documentation.
 
-55 modules, 1088 exported symbols. Import with
+56 modules, 1090 exported symbols. Import with
 `import { name } from "@stdlib/<module>";` — see
 [Standard Library Overview](stdlib-overview.md) and `stdlib/docs/` for
 full documentation.
@@ -432,6 +432,13 @@ fn gpu_available(): bool  // True if at least one OpenCL platform with at least 
 fn gpu_devices()  // Every OpenCL device on every platform, as descriptor objects
 fn local_mem(bytes: i32)  // Size-only marker for a __local kernel argument
 fn gpu_context(opts?: null)  // Create a context with one device and one in-order command queue.
+```
+
+## @stdlib/gpu_emu
+
+```
+fn is_kernel(k): bool  // True if `k` is a gpu fn kernel descriptor
+fn emulate(kernel, global: array, local, args: array)  // Run `kernel` over an N-D range on the CPU.
 ```
 
 ## @stdlib/hash

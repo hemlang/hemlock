@@ -1,5 +1,6 @@
-// gpu fn: kernel declarations parse and validate identically on both
-// backends; the host-side binding is a stub that throws when called.
+// gpu fn: kernels parse, validate, and run under CPU emulation identically
+// on both backends. The binding is a kernel descriptor object.
+import { emulate, is_kernel } from "@stdlib/gpu_emu";
 
 // `gpu` is a contextual keyword: it still works as an identifier
 let gpu = "device0";
@@ -26,14 +27,40 @@ gpu fn clamp_all(n: u32, lo: f64, hi: f64, xs: gpu_buffer<f64>) {
     xs[i] = v < lo ? lo : (v > hi ? hi : v);
 }
 
-print(typeof(saxpy));
-print(typeid(fill) == TYPEID_FUNCTION);
+gpu fn transpose(w: u32, h: u32, src: gpu_buffer<i32>, dst: gpu_buffer<i32>) {
+    let x: u32 = global_id(0);
+    let y: u32 = global_id(1);
+    dst[x * h + y] = src[y * w + x];
+}
 
-let kernels = [saxpy, fill, clamp_all];
-for (k in kernels) {
-    try {
-        k(1, 2, 3);
-    } catch (e) {
-        print(e);
-    }
+print(typeof(saxpy) + " " + saxpy.kind + " " + saxpy.name);
+print(is_kernel(fill));
+for (p in clamp_all.params) {
+    print("  " + p.name + ": " + p.type + (p.buffer ? " buffer" : ""));
+}
+
+let xs = [1, 2, 3, 4, 5];
+let ys = [10, 10, 10, 10, 10];
+emulate(saxpy, [8], null, [u32(5), f32(0.5), xs, ys]);
+print(ys);
+
+// Grid-stride loop: 3 work-items cover 10 elements
+let filled = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+emulate(fill, [3], null, [u32(10), 7, filled]);
+print(filled);
+
+let vals = [-2.5, 0.25, 9.0, 3.5];
+emulate(clamp_all, [4], [2], [u32(4), 0.0, 3.0, vals]);
+print(vals);
+
+// 2-D: 3x2 matrix transpose
+let m = [1, 2, 3, 4, 5, 6];
+let t = [0, 0, 0, 0, 0, 0];
+emulate(transpose, [3, 2], null, [u32(3), u32(2), m, t]);
+print(t);
+
+try {
+    emulate(fill, [4], null, [u32(5), 1, [0, 0]]);
+} catch (e) {
+    print(e);
 }

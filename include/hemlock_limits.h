@@ -16,6 +16,13 @@
 // gpu fn kernels: contextual keyword and the device buffer parameter type
 #define HML_GPU_KEYWORD "gpu"
 #define HML_GPU_BUFFER_TYPE "gpu_buffer"
+// Kernel descriptor: `kind` value and the field holding the CPU-emulation fn
+#define HML_GPU_KERNEL_KIND "gpu_kernel"
+#define HML_GPU_EMULATE_FIELD "emulate"
+// Work-item context parameter of the emulation fn; names with this prefix
+// are reserved inside kernels so they cannot collide with it
+#define HML_GPU_WI_PARAM "__hml_wi"
+#define HML_GPU_RESERVED_PREFIX "__hml_"
 
 // Initial capacity for dynamic arrays (will grow as needed)
 #define HML_INITIAL_STATEMENTS_CAPACITY 256

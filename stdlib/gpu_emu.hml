@@ -1,0 +1,220 @@
+// @stdlib/gpu_emu - run `gpu fn` kernels on the CPU
+//
+// A `gpu fn` declaration binds a kernel descriptor whose `emulate` field is
+// the kernel lowered to ordinary Hemlock by the frontend. emulate() runs it
+// once per work-item over an N-D range, so kernels can be written, tested
+// and debugged without a GPU, on both the interpreter and hemlockc.
+//
+// Semantics (the reference semantics for gpu fn kernels):
+// - Work-items run one at a time, in order, x fastest, then y, then z.
+//   Racy kernels are therefore deterministic here; they will not be on a GPU.
+// - Kernel arithmetic follows Hemlock rules: i32/i64 overflow throws.
+// - Buffer accesses are bounds-checked; an out-of-bounds index throws.
+// - Any error stops the launch and is rethrown with the failing work-item.
+// - Device buffers are Hemlock arrays, read and written in place. Loads and
+//   stores convert to the buffer's declared element type, as a C store does.
+// - Scalar arguments must match the kernel's parameter types exactly, the
+//   same rule @stdlib/gpu applies to real devices: pass f32(2.0), not 2.0.
+//
+// No OpenCL installation is needed: this module is pure Hemlock.
+//
+// Usage:
+// import { emulate } from "@stdlib/gpu_emu";
+//
+// gpu fn saxpy(n: u32, a: f32, x: gpu_buffer<f32>, y: gpu_buffer<f32>) {
+//     let i: u32 = global_id(0);
+//     if (i < n) { y[i] = a * x[i] + y[i]; }
+// }
+//
+// let xs = [1, 2, 3, 4];
+// let ys = [10, 10, 10, 10];
+// emulate(saxpy, [4], null, [u32(4), f32(2.0), xs, ys]);
+// print(ys);   // [12, 14, 16, 18]
+
+import { divi, sqrt as m_sqrt, floor as m_floor, ceil as m_ceil, exp as m_exp,
+	log as m_log, sin as m_sin, cos as m_cos, pow as m_pow } from "@stdlib/math";
+
+let MAX_WORK_DIMS = 3;
+let KERNEL_KIND = "gpu_kernel";
+
+// True if `k` is a gpu fn kernel descriptor
+export fn is_kernel(k): bool {
+	return typeid(k) == TYPEID_OBJECT && k.has("kind") && k.kind == KERNEL_KIND
+		&& k.has("emulate") && k.has("params");
+}
+
+fn convert(v, t: string) {
+	return match (t) {
+		"i8" => i8(v),
+		"i16" => i16(v),
+		"i32" => i32(v),
+		"i64" => i64(v),
+		"u8" => u8(v),
+		"u16" => u16(v),
+		"u32" => u32(v),
+		"u64" => u64(v),
+		"f32" => f32(v),
+		"f64" => f64(v),
+		_ => v
+	};
+}
+
+fn is_integer(v): bool {
+	let t = typeid(v);
+	return t >= TYPEID_I8 && t <= TYPEID_U64;
+}
+
+// Math intrinsics keep an f32 argument f32 (as OpenCL overloads do)
+fn keep_f32(x, r) {
+	if (typeid(x) == TYPEID_F32) { return f32(r); }
+	return r;
+}
+
+fn dim_or(arr: array, d, fallback) {
+	if (!is_integer(d) || d < 0 || d >= MAX_WORK_DIMS) { return fallback; }
+	return arr[d];
+}
+
+fn work_item(name: string, dims: i32) {
+	return {
+		kernel: name,
+		dims: u32(dims),
+		gid: [u32(0), u32(0), u32(0)],
+		lid: [u32(0), u32(0), u32(0)],
+		grp: [u32(0), u32(0), u32(0)],
+		gsz: [u32(1), u32(1), u32(1)],
+		lsz: [u32(1), u32(1), u32(1)],
+		ngr: [u32(1), u32(1), u32(1)],
+
+		// Thread-index intrinsics. Dimensions past work_dim() report id 0, size 1.
+		fn global_id(d) { return dim_or(self.gid, d, u32(0)); },
+		fn local_id(d) { return dim_or(self.lid, d, u32(0)); },
+		fn group_id(d) { return dim_or(self.grp, d, u32(0)); },
+		fn global_size(d) { return dim_or(self.gsz, d, u32(1)); },
+		fn local_size(d) { return dim_or(self.lsz, d, u32(1)); },
+		fn num_groups(d) { return dim_or(self.ngr, d, u32(1)); },
+		fn work_dim() { return self.dims; },
+
+		fn min(a, b) { return b < a ? b : a; },
+		fn max(a, b) { return b > a ? b : a; },
+		fn abs(x) { return x < 0 ? -x : x; },
+		fn sqrt(x) { return keep_f32(x, m_sqrt(x)); },
+		fn floor(x) { return keep_f32(x, m_floor(x)); },
+		fn ceil(x) { return keep_f32(x, m_ceil(x)); },
+		fn exp(x) { return keep_f32(x, m_exp(x)); },
+		fn log(x) { return keep_f32(x, m_log(x)); },
+		fn sin(x) { return keep_f32(x, m_sin(x)); },
+		fn cos(x) { return keep_f32(x, m_cos(x)); },
+		fn pow(a, b) { return keep_f32(a, m_pow(a, b)); },
+
+		// Buffer access, emitted by the frontend for buf[i] / buf[i] = v
+		fn check_index(b, i, buf: string) {
+			if (!is_integer(i)) {
+				throw "index into '" + buf + "' must be an integer, got " + typeof(i);
+			}
+			if (i < 0 || i >= b.length) {
+				throw buf + "[" + i + "] is out of bounds (length " + b.length + ")";
+			}
+		},
+		fn load(b, i, t: string, buf: string) {
+			self.check_index(b, i, buf);
+			return convert(b[i], t);
+		},
+		fn store(b, i, v, t: string, buf: string) {
+			self.check_index(b, i, buf);
+			let c = convert(v, t);
+			b[i] = c;
+			return c;
+		},
+	};
+}
+
+fn check_sizes(sizes, what: string) {
+	if (typeid(sizes) != TYPEID_ARRAY || sizes.length < 1 || sizes.length > MAX_WORK_DIMS) {
+		throw "gpu_emu: " + what + " must be an array of 1 to " + MAX_WORK_DIMS + " sizes";
+	}
+	for (s in sizes) {
+		if (!is_integer(s) || s < 1) {
+			throw "gpu_emu: " + what + " entries must be positive integers, got " + s;
+		}
+	}
+}
+
+fn check_args(kernel, args: array) {
+	let params = kernel.params;
+	let who = "gpu fn '" + kernel.name + "'";
+	if (args.length != params.length) {
+		throw who + " takes " + params.length + " arguments, got " + args.length;
+	}
+	for (let i = 0; i < params.length; i++) {
+		let p = params[i];
+		let v = args[i];
+		let what = who + " arg " + i + " (" + p.name + ")";
+		if (p.buffer) {
+			if (typeid(v) != TYPEID_ARRAY) {
+				throw what + " expects an array for gpu_buffer<" + p.type + ">, got " + typeof(v);
+			}
+		} else if (typeof(v) != p.type) {
+			let hint = "";
+			if (typeof(v) == "f64" && p.type == "f32") { hint = " (float literals are f64; use f32(x))"; }
+			throw what + " expects " + p.type + ", got " + typeof(v) + hint;
+		}
+	}
+}
+
+// Run `kernel` over an N-D range on the CPU.
+//   global: [x] / [x, y] / [x, y, z] work-items
+//   local:  work-group size of the same rank (each must divide global),
+//           or null for a single work-group spanning the whole range
+//   args:   kernel arguments in order; arrays for gpu_buffer parameters
+export fn emulate(kernel, global: array, local, args: array) {
+	if (!is_kernel(kernel)) {
+		throw "gpu_emu: emulate() needs a gpu fn kernel, got " + typeof(kernel);
+	}
+	check_sizes(global, "global size");
+	if (local != null) {
+		check_sizes(local, "local size");
+		if (local.length != global.length) {
+			throw "gpu_emu: local size rank (" + local.length + ") must match global (" + global.length + ")";
+		}
+	}
+	check_args(kernel, args);
+
+	let wi = work_item(kernel.name, global.length);
+	for (let d = 0; d < global.length; d++) {
+		let g = u32(global[d]);
+		let l = g;
+		if (local != null) { l = u32(local[d]); }
+		if (g % l != 0) {
+			throw "gpu_emu: global size " + g + " is not a multiple of local size " + l + " in dimension " + d;
+		}
+		wi.gsz[d] = g;
+		wi.lsz[d] = l;
+		wi.ngr[d] = u32(divi(g, l));
+	}
+
+	let full_args = [wi].concat(args);
+	let gx = wi.gsz[0];
+	let gy = wi.gsz[1];
+	let gz = wi.gsz[2];
+	try {
+		for (let z: u32 = 0; z < gz; z++) {
+			for (let y: u32 = 0; y < gy; y++) {
+				for (let x: u32 = 0; x < gx; x++) {
+					wi.gid[0] = x;
+					wi.gid[1] = y;
+					wi.gid[2] = z;
+					for (let d = 0; d < MAX_WORK_DIMS; d++) {
+						wi.lid[d] = wi.gid[d] % wi.lsz[d];
+						wi.grp[d] = u32(divi(wi.gid[d], wi.lsz[d]));
+					}
+					apply(kernel.emulate, full_args);
+				}
+			}
+		}
+	} catch (e) {
+		throw "gpu fn '" + kernel.name + "' work-item (" + wi.gid[0] + ", " + wi.gid[1] + ", "
+			+ wi.gid[2] + "): " + e;
+	}
+	return null;
+}

@@ -1,0 +1,60 @@
+// The CPU emulator (@stdlib/gpu_emu) and a real OpenCL device must agree.
+// The same computation is written once as a gpu fn and once as OpenCL C.
+import { gpu_context, DEVICE_ALL } from "@stdlib/gpu";
+import { emulate } from "@stdlib/gpu_emu";
+
+gpu fn blend(n: u32, a: f32, x: gpu_buffer<f32>, y: gpu_buffer<f32>, out: gpu_buffer<f32>,
+             hist: gpu_buffer<i32>) {
+    let i: u32 = global_id(0);
+    if (i >= n) { return; }
+    let v: f32 = a * x[i] + y[i];
+    if (v > 50) {
+        v = v - 50;
+    }
+    out[i] = max(v, f32(1.5));
+    hist[i] = i32(i % 4) * 10 + i32(local_id(0));
+}
+
+let src = `
+__kernel void blend(uint n, float a, __global const float *x, __global const float *y,
+                    __global float *out, __global int *hist) {
+    uint i = get_global_id(0);
+    if (i >= n) return;
+    float v = a * x[i] + y[i];
+    if (v > 50) { v = v - 50; }
+    out[i] = max(v, 1.5f);
+    hist[i] = (int)(i % 4) * 10 + (int)get_local_id(0);
+}
+`;
+
+let n = 64;
+let xs = [];
+let ys = [];
+for (let i = 0; i < n; i++) { xs.push(i * 0.5); ys.push(n - i); }
+
+// Emulator
+let e_out = [];
+let e_hist = [];
+for (let i = 0; i < n; i++) { e_out.push(0); e_hist.push(0); }
+emulate(blend, [n], [8], [u32(n), f32(1.5), xs, ys, e_out, e_hist]);
+
+// Device
+let ctx = gpu_context({ device_type: DEVICE_ALL });
+let prog = ctx.program(src);
+let k = prog.kernel("blend");
+let dx = ctx.from_array(xs, "f32");
+let dy = ctx.from_array(ys, "f32");
+let dout = ctx.alloc(n * 4);
+let dhist = ctx.alloc(n * 4);
+ctx.launch(k, [n], [8], [u32(n), f32(1.5), dx, dy, dout, dhist]);
+let d_out = ctx.to_array(dout, "f32", n);
+let d_hist = ctx.to_array(dhist, "i32", n);
+
+for (let i = 0; i < n; i++) {
+    assert(e_out[i] == d_out[i], "out[" + i + "]: emulator " + e_out[i] + " vs device " + d_out[i]);
+    assert(e_hist[i] == d_hist[i], "hist[" + i + "]: emulator " + e_hist[i] + " vs device " + d_hist[i]);
+}
+print("emulator matches device on " + n + " work-items");
+
+ctx.free(dx); ctx.free(dy); ctx.free(dout); ctx.free(dhist);
+k.release(); prog.release(); ctx.release();

@@ -5,8 +5,14 @@ gpu fn untyped(x) { }
 gpu fn bad_param(s: string) { }
 gpu fn returns(x: i32): i32 { return x; }
 gpu fn infer_local(x: i32) { let y = x + 1; }
-gpu fn strings(x: i32) { print("hi"); }
+gpu fn strings(x: i32) { x = "hi"; }
 gpu fn recursive(x: i32) { recursive(x); }
 gpu fn props(x: gpu_buffer<i32>) { let n: i32 = x.length; }
 gpu fn throws(x: i32) { throw 1; }
+gpu fn unknown_fn(x: i32) { print(x); }
+gpu fn arity(x: f32) { x = sqrt(x, x); }
+gpu fn index_scalar(x: i32) { x = x[0]; }
+gpu fn bare_buffer(b: gpu_buffer<f32>) { let y: f32 = sqrt(b); }
+gpu fn inc_element(b: gpu_buffer<i32>) { b[0]++; }
+gpu fn reserved(__hml_wi: i32) { }
 let fine = 1;

@@ -1,11 +1,5 @@
-// gpu fn: kernel declarations parse and validate identically on both
-// backends; the host-side binding is a stub that throws when called.
-
-// `gpu` is a contextual keyword: it still works as an identifier
-let gpu = "device0";
-fn gpu_label(): string { return "on " + gpu; }
-print(gpu_label());
-
+// gpu fn survives .hmlc serialization: the kernel is stored and lowered
+// again on load. .hmlc cannot import, so a minimal work-item drives it.
 gpu fn saxpy(n: u32, a: f32, x: gpu_buffer<f32>, y: gpu_buffer<f32>) {
     let i: u32 = global_id(0);
     if (i < n) {
@@ -13,27 +7,17 @@ gpu fn saxpy(n: u32, a: f32, x: gpu_buffer<f32>, y: gpu_buffer<f32>) {
     }
 }
 
-gpu fn fill(n: u32, value: i32, out: gpu_buffer<i32>): void {
-    for (let i: u32 = global_id(0); i < n; i += global_size(0)) {
-        out[i] = value;
-    }
+let wi = {
+    gid: u32(0),
+    fn global_id(d) { return self.gid; },
+    fn load(b, i, t, name) { return f32(b[i]); },
+    fn store(b, i, v, t, name) { b[i] = f32(v); return b[i]; },
+};
+let xs = [1, 2, 3];
+let ys = [10, 10, 10];
+for (let g: u32 = 0; g < 4; g++) {
+    wi.gid = g;
+    saxpy.emulate(wi, u32(3), f32(2.0), xs, ys);
 }
-
-gpu fn clamp_all(n: u32, lo: f64, hi: f64, xs: gpu_buffer<f64>) {
-    let i: u32 = global_id(0);
-    if (i >= n) { return; }
-    let v: f64 = xs[i];
-    xs[i] = v < lo ? lo : (v > hi ? hi : v);
-}
-
-print(typeof(saxpy));
-print(typeid(fill) == TYPEID_FUNCTION);
-
-let kernels = [saxpy, fill, clamp_all];
-for (k in kernels) {
-    try {
-        k(1, 2, 3);
-    } catch (e) {
-        print(e);
-    }
-}
+print(saxpy.kind + " " + saxpy.name + " " + saxpy.params.length);
+print(ys);

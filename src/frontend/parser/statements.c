@@ -1048,7 +1048,7 @@ static Stmt* export_statement(Parser *p) {
     fn_expr->line = fn_start_line;
     if (is_gpu) {
         validate_gpu_kernel(p, name, fn_expr, fn_start_line);
-        fn_expr = expr_gpu_kernel_stub(name, fn_expr);
+        fn_expr = expr_gpu_kernel_descriptor(name, fn_expr);
     }
 
     // Create let statement
@@ -1727,8 +1727,8 @@ static Stmt* statement_inner(Parser *p) {
 
     // Named function: fn name(...) { ... } or async fn name(...) { ... }
     // Desugar to: let name = fn(...) { ... }; or let name = async fn(...) { ... };
-    // gpu fn name(...) { ... } desugars to a throwing host stub carrying the
-    // validated kernel (see gpu_kernel.c).
+    // gpu fn name(...) { ... } desugars to let name = <kernel descriptor>
+    // (see gpu_kernel.c).
     int is_async = 0;
     int is_gpu = 0;
     if (check_contextual(p, HML_GPU_KEYWORD) && p->next.type == TOK_FN) {
@@ -1893,7 +1893,7 @@ static Stmt* statement_inner(Parser *p) {
         fn_expr->line = stmt_start_line;
         if (is_gpu) {
             validate_gpu_kernel(p, name, fn_expr, stmt_start_line);
-            fn_expr = expr_gpu_kernel_stub(name, fn_expr);
+            fn_expr = expr_gpu_kernel_descriptor(name, fn_expr);
         }
 
         // Desugar to let statement

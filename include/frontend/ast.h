@@ -188,8 +188,9 @@ struct Expr {
             Type *return_type;
             Stmt *body;
             uint32_t *param_hashes; // Pre-computed param name hashes (lazy, NULL until first use)
-            // gpu fn: this function is the host-side stub (throws when called);
-            // the validated kernel AST lives in gpu_kernel, its name in gpu_name.
+            // gpu fn: this function is the kernel lowered for CPU emulation
+            // (a descriptor's `emulate` field); the validated kernel AST
+            // lives in gpu_kernel, its name in gpu_name.
             int is_gpu;
             Expr *gpu_kernel;
             char *gpu_name;
@@ -607,7 +608,11 @@ Expr* expr_get_property(Expr *object, const char *property);
 Expr* expr_set_property(Expr *object, const char *property, Expr *value);
 Expr* expr_index(Expr *object, Expr *index);
 Expr* expr_index_assign(Expr *object, Expr *index, Expr *value);
-Expr* expr_gpu_kernel_stub(const char *name, Expr *kernel);
+// gpu fn kernels (gpu_kernel.c): the binding's descriptor object, the
+// kernel lowered for CPU emulation, and the kernel behind a descriptor.
+Expr* expr_gpu_kernel_descriptor(const char *name, Expr *kernel);
+Expr* expr_gpu_emulate_fn(const char *name, Expr *kernel);
+Expr* gpu_kernel_of(Expr *value);
 Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr **param_defaults, int *param_is_ref, int *param_is_const, int num_params, char *rest_param, Type *rest_param_type, Type *return_type, Stmt *body);
 Expr* expr_array_literal(Expr **elements, int num_elements);
 Expr* expr_object_literal(char **field_names, Expr **field_values, int num_fields);

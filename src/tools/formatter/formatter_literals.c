@@ -58,14 +58,15 @@ void extract_literals(const char *source, LiteralMap *map) {
 
         if (tok.type == TOK_NUMBER) {
             // Check if this literal has special formatting worth preserving
-            // (hex/bin/oct prefix or underscores)
+            // (hex/bin/oct prefix or underscores), or is a float: its exact
+            // text keeps it a float (2.0 must not print as the i32 2)
             int has_prefix = (tok.length > 1 && tok.start[0] == '0' &&
                              (tok.start[1] == 'x' || tok.start[1] == 'X' ||
                               tok.start[1] == 'b' || tok.start[1] == 'B' ||
                               tok.start[1] == 'o' || tok.start[1] == 'O'));
             int has_underscore = (memchr(tok.start, '_', tok.length) != NULL);
 
-            if (has_prefix || has_underscore) {
+            if (has_prefix || has_underscore || tok.is_float) {
                 // Copy the original text
                 char *text = malloc(tok.length + 1);
                 memcpy(text, tok.start, tok.length);

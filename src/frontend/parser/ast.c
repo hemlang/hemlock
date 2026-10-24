@@ -233,24 +233,6 @@ Expr* expr_function(int is_async, char **param_names, Type **param_types, Expr *
     return expr;
 }
 
-// Host-side binding for `gpu fn name(...)`: fn(...args) { throw "..."; }.
-// Takes ownership of `kernel`.
-Expr* expr_gpu_kernel_stub(const char *name, Expr *kernel) {
-    char msg[256];
-    snprintf(msg, sizeof(msg),
-             "gpu fn '%s' is a device kernel and cannot be called from host code", name);
-    Stmt **stmts = malloc(sizeof(Stmt*));
-    stmts[0] = stmt_throw(expr_string(msg));
-    stmts[0]->line = kernel->line;
-    Expr *stub = expr_function(0, NULL, NULL, NULL, NULL, NULL, 0, strdup("args"), NULL, NULL,
-                               stmt_block(stmts, 1));
-    stub->line = kernel->line;
-    stub->as.function.is_gpu = 1;
-    stub->as.function.gpu_kernel = kernel;
-    stub->as.function.gpu_name = strdup(name);
-    return stub;
-}
-
 Expr* expr_array_literal(Expr **elements, int num_elements) {
     Expr *expr = malloc(sizeof(Expr));
     expr->type = EXPR_ARRAY_LITERAL;

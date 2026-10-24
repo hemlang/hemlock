@@ -1,6 +1,12 @@
 on device0
-function
+object gpu_kernel saxpy
 true
-gpu fn 'saxpy' is a device kernel and cannot be called from host code
-gpu fn 'fill' is a device kernel and cannot be called from host code
-gpu fn 'clamp_all' is a device kernel and cannot be called from host code
+  n: u32
+  lo: f64
+  hi: f64
+  xs: f64 buffer
+[10.5, 11, 11.5, 12, 12.5]
+[7, 7, 7, 7, 7, 7, 7, 7, 7, 7]
+[0, 0.25, 3, 3]
+[1, 4, 2, 5, 3, 6]
+gpu fn 'fill' work-item (0, 0, 0): out[4] is out of bounds (length 2)
