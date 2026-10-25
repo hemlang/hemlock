@@ -1,1 +1,1 @@
-channel_double_close.hml:4: warning: double free: 'ch' was already freed (line 2)
+channel_double_close.hml:4: warning: double release: 'ch' was already closed (line 3)

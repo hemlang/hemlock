@@ -1,0 +1,15 @@
+# select() waits right after registering, without scanning again: an item
+# that arrived between the fast-path scan and registration is never noticed.
+--- old
+    while TRUE do
+        call scan(first);
+  SEL_scanned:
+        if found[self] then
++++ new
+    found[self] := FALSE;
+  SEL_loop_head:
+    while TRUE do
+        if reg = 0 then call scan(first); end if;
+  SEL_scanned:
+        reg := 0;
+        if found[self] then

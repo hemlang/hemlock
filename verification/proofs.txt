@@ -11,6 +11,8 @@
 #             tlc: module
 #   flags     extra tool flags (cbmc: -D..., --unwind N, ...); the token
 #             @bitwuzla selects the Bitwuzla SMT backend for that proof;
+#             @mutant=NAME (tlc) checks tla/mutants/NAME.mut planted into
+#             the model instead of the model itself;
 #             @pairs expands the line into one proof per integer type pair
 #             (name_<lt>_<rt>, e.g. rt_mul_i32_u8)
 #
@@ -93,3 +95,36 @@ chan_rendezvous_safety|pass|tlc|RendezvousSafety.cfg|Channel.tla|
 chan_buffered_progress|pass|tlc|BufferedProgress.cfg|Channel.tla|
 chan_buffered_close|pass|tlc|BufferedClose.cfg|Channel.tla|
 chan_buffered_safety|pass|tlc|BufferedSafety.cfg|Channel.tla|
+
+# ---- select() over several channels (src/shared/chan_core.c), TLA+ model ----
+select_progress|pass|tlc|SelectProgress.cfg|ChannelSelect.tla|
+select_compete|pass|tlc|SelectCompete.cfg|ChannelSelect.tla|
+select_close|pass|tlc|SelectClose.cfg|ChannelSelect.tla|
+select_timeout|pass|tlc|SelectTimeout.cfg|ChannelSelect.tla|
+select_timeout_close|pass|tlc|SelectTimeoutClose.cfg|ChannelSelect.tla|
+
+# ---- task lifecycle: spawn/join/detach/refcount (both backends), TLA+ model ----
+task_handles|pass|tlc|TaskHandles.cfg|Task.tla|
+task_detach_fn_interp|pass|tlc|TaskDetachFnInterp.cfg|Task.tla|
+task_detach_fn_compiled|pass|tlc|TaskDetachFnCompiled.cfg|Task.tla|
+task_create_fails_interp|pass|tlc|TaskCreateFailsInterp.cfg|Task.tla|
+task_create_fails_compiled|pass|tlc|TaskCreateFailsCompiled.cfg|Task.tla|
+
+# ---- mutants: known bugs planted in the models (tla/mutants/*.mut) ----
+# Each must be caught. A mutant that passes means its model went vacuous.
+mut_chan_timeout_ignores_handoff|fail|tlc|RendezvousSafety.cfg|Channel.tla|@mutant=chan_timeout_ignores_handoff
+mut_chan_rendezvous_signal|fail|tlc|RendezvousProgress.cfg|Channel.tla|@mutant=chan_rendezvous_signal
+mut_chan_handoff_by_slot|fail|tlc|RendezvousSafety.cfg|Channel.tla|@mutant=chan_handoff_by_slot
+mut_select_no_rescan|fail|tlc|SelectCompete.cfg|ChannelSelect.tla|@mutant=select_no_rescan
+mut_select_send_no_notify|fail|tlc|SelectCompete.cfg|ChannelSelect.tla|@mutant=select_send_no_notify
+mut_select_close_no_notify|fail|tlc|SelectClose.cfg|ChannelSelect.tla|@mutant=select_close_no_notify
+mut_select_destroy_registered|fail|tlc|SelectCompete.cfg|ChannelSelect.tla|@mutant=select_destroy_registered
+mut_select_lock_order|fail|tlc|SelectCompete.cfg|ChannelSelect.tla|@mutant=select_lock_order
+mut_select_clear_ready_late|fail|tlc|SelectCompete.cfg|ChannelSelect.tla|@mutant=select_clear_ready_late
+mut_select_no_recv_gen|fail|tlc|SelectTimeout.cfg|ChannelSelect.tla|@mutant=select_no_recv_gen
+mut_task_no_free_detach|fail|tlc|TaskHandles.cfg|Task.tla|@mutant=task_no_free_detach
+mut_task_free_detach_always|fail|tlc|TaskHandles.cfg|Task.tla|@mutant=task_free_detach_always
+mut_task_detach_ignores_joined|fail|tlc|TaskHandles.cfg|Task.tla|@mutant=task_detach_ignores_joined
+mut_task_join_ignores_detached|fail|tlc|TaskHandles.cfg|Task.tla|@mutant=task_join_ignores_detached
+mut_task_release_before_publish|fail|tlc|TaskHandles.cfg|Task.tla|@mutant=task_release_before_publish
+mut_task_racy_refcount|fail|tlc|TaskHandles.cfg|Task.tla|@mutant=task_racy_refcount

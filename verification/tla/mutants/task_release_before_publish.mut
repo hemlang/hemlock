@@ -1,0 +1,17 @@
+# The worker drops its reference before publishing its result: if that was
+# the last reference, it writes into a freed task.
+--- old
+  W_complete:
+    \* (the function body runs here)
+    assert ~freed;
+    await tmtx = 0;                             \* lock; set state; unlock
+    tstate := "completed";
+  W_release:
+    call release();                             \* the worker's reference
++++ new
+  W_release:
+    call release();
+  W_complete:
+    assert ~freed;
+    await tmtx = 0;
+    tstate := "completed";

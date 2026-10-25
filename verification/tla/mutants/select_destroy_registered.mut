@@ -1,0 +1,8 @@
+# The stack waiter is destroyed before it is removed from every channel, so a
+# concurrent send() can still notify it (use after scope).
+--- old
+  SEL_unregister:
+    reg := 1;
++++ new
+  SEL_unregister:
+    reg := 1; live[self] := FALSE;

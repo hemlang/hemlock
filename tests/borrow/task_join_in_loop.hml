@@ -1,0 +1,9 @@
+// Releasing a task inside a loop is phrased by how it was released: the
+// second iteration joins it again (not a "double free").
+async fn work(): i32 { return 1; }
+fn main() {
+    let t = spawn(work);
+    for (let i = 0; i < 2; i++) {
+        join(t);
+    }
+}

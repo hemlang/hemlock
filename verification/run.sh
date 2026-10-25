@@ -11,7 +11,8 @@
 # proofs.txt (CBMC's built-in SAT backend is ~20x slower on 64-bit
 # multiply/divide; it is used as a fallback when bitwuzla is missing),
 # and java + tla2tools.jar for the TLA+ models (TLA2TOOLS_JAR, default
-# verification/.cache/tla2tools.jar). See README.md for setup.
+# verification/.cache/tla2tools.jar), plus python3 for the @mutant proofs.
+# Only the tools the selected proofs need are required. See README.md for setup.
 #
 # Exit status is non-zero if any proof's verdict differs from its expected
 # verdict in proofs.txt, or a proof could not be run.
@@ -116,11 +117,27 @@ run_one() {
             rm -rf "$work"
             ;;
         tlc)
-            local meta; meta="$(mktemp -d)"
-            (cd "$HERE/tla" && java -XX:+UseParallelGC -cp "$TLA2TOOLS_JAR" tlc2.TLC \
-                -workers 1 -metadir "$meta" -config "$target" "$sources" $flags) > "$log" 2>&1
-            # TLC: 0 = no error, 11 = deadlock, 12 = safety violation, 13 = liveness
-            case $? in 0) verdict=pass ;; 11|12|13) verdict=fail ;; *) verdict=error ;; esac
+            local meta dir="$HERE/tla" rc
+            meta="$(mktemp -d)"
+            # @mutant=name: check tla/mutants/name.mut planted into the model
+            # (re-translated in a scratch dir) instead of the model itself.
+            if [[ "$flags" =~ @mutant=([A-Za-z0-9_]+) ]]; then
+                dir="$meta/model"; mkdir -p "$dir"
+                flags="${flags//@mutant=${BASH_REMATCH[1]}/}"
+                python3 "$HERE/tla/mutate.py" "$HERE/tla/mutants/${BASH_REMATCH[1]}.mut" \
+                    "$HERE/tla/$sources" "$dir" "$TLA2TOOLS_JAR" > "$log" 2>&1 || dir=""
+            fi
+            if [[ -n "$dir" ]]; then
+                # shellcheck disable=SC2086
+                (cd "$dir" && java -XX:+UseParallelGC -cp "$TLA2TOOLS_JAR" tlc2.TLC \
+                    -workers 1 -metadir "$meta/states" -config "$HERE/tla/$target" "$sources" $flags) >> "$log" 2>&1
+                rc=$?
+            else
+                rc=1   # mutant did not apply
+            fi
+            # TLC: 0 = no error, 11 = deadlock, 12 = safety violation,
+            # 13 = liveness, 14 = assertion failure
+            case $rc in 0) verdict=pass ;; 11|12|13|14) verdict=fail ;; *) verdict=error ;; esac
             rm -rf "$meta"
             ;;
         *) verdict=error; echo "unknown tool '$tool'" > "$log" ;;
@@ -133,15 +150,23 @@ run_one() {
 export -f run_one
 export HERE ROOT LOGDIR TLA2TOOLS_JAR CBMC_CHECKS CBMC_INCLUDES CBMC_SOLVER
 
-if ! command -v cbmc >/dev/null 2>&1; then echo "cbmc not found on PATH" >&2; exit 2; fi
-[[ "$CBMC_SOLVER" != "--bitwuzla" ]] && echo "note: bitwuzla not found; @bitwuzla proofs fall back to CaDiCaL (slow)" >&2
-
-RESULTS="$LOGDIR/results.txt"
+RUN=()
 for p in "${PROOFS[@]}"; do
     name="${p%%|*}"
     [[ -n "${SKIP[$name]+x}" ]] && continue
-    selected "$name" "$@" && printf '%s\0' "$p"
-done | xargs -0 -P "$JOBS" -I{} bash -c 'run_one "$1"' _ {} | tee "$RESULTS"
+    selected "$name" "$@" && RUN+=("$p")
+done
+# Only demand the tools the selected proofs use.
+if printf '%s\n' "${RUN[@]}" | grep -q '^[^|]*|[^|]*|cbmc|'; then
+    if ! command -v cbmc >/dev/null 2>&1; then echo "cbmc not found on PATH" >&2; exit 2; fi
+    [[ "$CBMC_SOLVER" != "--bitwuzla" ]] && echo "note: bitwuzla not found; @bitwuzla proofs fall back to CaDiCaL (slow)" >&2
+fi
+if printf '%s\n' "${RUN[@]}" | grep -q '^[^|]*|[^|]*|tlc|'; then
+    if [[ ! -f "$TLA2TOOLS_JAR" ]]; then echo "tla2tools.jar not found at $TLA2TOOLS_JAR" >&2; exit 2; fi
+fi
+
+RESULTS="$LOGDIR/results.txt"
+for p in "${RUN[@]}"; do printf '%s\0' "$p"; done | xargs -0 -P "$JOBS" -I{} bash -c 'run_one "$1"' _ {} | tee "$RESULTS"
 for name in "${!SKIP[@]}"; do
     selected "$name" "$@" && printf 'SKIP     %-30s %s\n' "$name" "${SKIP[$name]}"
 done

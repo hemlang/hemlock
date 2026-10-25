@@ -53,6 +53,8 @@ typedef enum {
 typedef struct {
     BcState state;
     int acquire_line;
+    int release_line;    // where it was released (FREED), 0 if unknown
+    const char *release_op;  // how: "free", "close", "join", ... (static), or NULL
     char *kind;          // "memory", "buffer", "file" — owned
     char *origin;        // first binding name — owned, for messages
     unsigned char deferred_free;  // a `defer free(x)` is pending for scope exit
@@ -74,6 +76,8 @@ typedef struct BcScope {
 // Snapshot entry for branch merging (mutable resource state only).
 typedef struct {
     BcState state;
+    int release_line;
+    const char *release_op;
     unsigned char deferred_free;
     unsigned char escaped;
 } BcSnap;
@@ -162,6 +166,8 @@ static int bc_new_resource(BorrowContext *ctx, const char *kind,
     BcResource *r = &bc_resources(ctx)[id];
     r->state = BC_OWNED;
     r->acquire_line = line;
+    r->release_line = 0;
+    r->release_op = NULL;
     r->kind = strdup(kind ? kind : "resource");
     r->origin = strdup(origin ? origin : "<temp>");
     r->deferred_free = 0;
@@ -271,6 +277,8 @@ static BcSnap *bc_snapshot(BorrowContext *ctx, int *out_n) {
     BcResource *res = bc_resources(ctx);
     for (int i = 0; i < n; i++) {
         snap[i].state = res[i].state;
+        snap[i].release_line = res[i].release_line;
+        snap[i].release_op = res[i].release_op;
         snap[i].deferred_free = res[i].deferred_free;
         snap[i].escaped = res[i].escaped;
     }
@@ -281,6 +289,8 @@ static void bc_restore(BorrowContext *ctx, BcSnap *snap, int n) {
     BcResource *res = bc_resources(ctx);
     for (int i = 0; i < n && i < ctx->num_resources; i++) {
         res[i].state = snap[i].state;
+        res[i].release_line = snap[i].release_line;
+        res[i].release_op = snap[i].release_op;
         res[i].deferred_free = snap[i].deferred_free;
         res[i].escaped = snap[i].escaped;
     }
@@ -309,6 +319,15 @@ static void bc_merge_two(BorrowContext *ctx, BcSnap *a, int na, BcSnap *b, int n
             BcState sa = (i < na) ? a[i].state : res[i].state;
             BcState sb = (i < nb) ? b[i].state : res[i].state;
             res[i].state = bc_merge_state(sa, sb);
+            // Keep where/how it was released if a path released it; a line
+            // is only kept if every releasing path agrees on it.
+            int la = (i < na) ? a[i].release_line : res[i].release_line;
+            int lb = (i < nb) ? b[i].release_line : res[i].release_line;
+            const char *oa = (i < na) ? a[i].release_op : res[i].release_op;
+            const char *ob = (i < nb) ? b[i].release_op : res[i].release_op;
+            int da = bc_state_dead(sa), db = bc_state_dead(sb);
+            res[i].release_op = da ? oa : db ? ob : NULL;
+            res[i].release_line = (da && db) ? (la == lb ? la : 0) : da ? la : db ? lb : 0;
             res[i].deferred_free = ((i < na && a[i].deferred_free) ||
                                     (i < nb && b[i].deferred_free)) ? 1 : 0;
             res[i].escaped = ((i < na && a[i].escaped) ||
@@ -457,6 +476,44 @@ static int bc_is_diverging_call(Expr *e) {
 
 // ========== CORE CHECKS ==========
 
+// Past participle of a release op for diagnostics: "free" -> "freed". With no
+// op (released inside a called function), the verb for the resource's kind.
+static const char *bc_released_as(const char *op, const char *kind) {
+    if (!op) {
+        if (!kind) return "released";
+        if (strcmp(kind, "memory") == 0 || strcmp(kind, "buffer") == 0) return "freed";
+        if (strcmp(kind, "task") == 0) return "released";
+        return "closed";   // file, channel, mapping, ffi library
+    }
+    if (strcmp(op, "free") == 0) return "freed";
+    if (strcmp(op, "join") == 0) return "joined";
+    if (strcmp(op, "detach") == 0) return "detached";
+    if (strcmp(op, "await") == 0) return "awaited";
+    if (strcmp(op, "close") == 0 || strcmp(op, "ffi_close") == 0 ||
+        strcmp(op, "mmap_close") == 0)
+        return "closed";
+    return "released";
+}
+
+// "double free" for memory, "double release" for files, channels, tasks, ...
+static const char *bc_double_release(const BcResource *r) {
+    return (strcmp(r->kind, "memory") == 0 || strcmp(r->kind, "buffer") == 0)
+               ? "double free" : "double release";
+}
+
+// Release-inside-a-loop warning, phrased for how the resource was released.
+static void bc_warn_loop_release(BorrowContext *ctx, const BcResource *r) {
+    if (r->release_op && strcmp(r->release_op, "free") != 0) {
+        bc_warn(ctx, r->acquire_line,
+                "'%s' is %s inside a loop; a later iteration may %s it again",
+                r->origin, bc_released_as(r->release_op, r->kind), r->release_op);
+    } else {
+        bc_warn(ctx, r->acquire_line,
+                "'%s' is freed inside a loop; a later iteration may double free it",
+                r->origin);
+    }
+}
+
 // Record a *use* of binding `name`: flag if its resource is dead.
 static void bc_check_use(BorrowContext *ctx, const char *name, int line) {
     if (line <= 0) line = ctx->cur_line;
@@ -470,8 +527,13 @@ static void bc_check_use(BorrowContext *ctx, const char *name, int line) {
     BcResource *r = bc_res(ctx, b->resource_id);
     if (!r) return;
     if (r->state == BC_FREED) {
-        bc_warn(ctx, line,
-                "use of '%s' after it was freed (line %d)", name, r->acquire_line);
+        if (r->release_line > 0) {
+            bc_warn(ctx, line, "use of '%s' after it was %s (line %d)",
+                    name, bc_released_as(r->release_op, r->kind), r->release_line);
+        } else {
+            bc_warn(ctx, line, "use of '%s' after it was %s",
+                    name, bc_released_as(r->release_op, r->kind));
+        }
     } else if (r->state == BC_MOVED) {
         bc_warn(ctx, line, "use of '%s' after it was moved", name);
     }
@@ -500,15 +562,22 @@ static void bc_release(BorrowContext *ctx, const char *name, const char *op, int
     }
     switch (r->state) {
         case BC_FREED:
-            bc_warn(ctx, line,
-                    "double free: '%s' was already freed (line %d)",
-                    name, r->acquire_line);
+            if (r->release_line > 0) {
+                bc_warn(ctx, line, "%s: '%s' was already %s (line %d)",
+                        bc_double_release(r), name, bc_released_as(r->release_op, r->kind),
+                        r->release_line);
+            } else {
+                bc_warn(ctx, line, "%s: '%s' was already %s",
+                        bc_double_release(r), name, bc_released_as(r->release_op, r->kind));
+            }
             break;
         case BC_MAYBE_FREED:
             bc_warn(ctx, line,
-                    "possible double free: '%s' may already be freed on some paths",
-                    name);
+                    "possible %s: '%s' may already be %s on some paths",
+                    bc_double_release(r), name, bc_released_as(r->release_op, r->kind));
             r->state = BC_FREED;
+            r->release_line = line;
+            r->release_op = op;
             break;
         case BC_MOVED:
             bc_warn(ctx, line, "%s of '%s' after it was moved", op, name);
@@ -516,10 +585,12 @@ static void bc_release(BorrowContext *ctx, const char *name, const char *op, int
         case BC_OWNED:
             if (r->deferred_free) {
                 bc_warn(ctx, line,
-                        "double free: '%s' is already scheduled to be freed via "
-                        "defer", name);
+                        "%s: '%s' is already scheduled to be %s via defer",
+                        bc_double_release(r), name, bc_released_as(op, r->kind));
             }
             r->state = BC_FREED;
+            r->release_line = line;
+            r->release_op = op;
             break;
     }
 }
@@ -1019,9 +1090,7 @@ static void bc_stmt(BorrowContext *ctx, Stmt *stmt) {
             for (int i = 0; i < n && i < ctx->num_resources; i++) {
                 if (entry[i].state == BC_OWNED &&
                     (res[i].state == BC_FREED)) {
-                    bc_warn(ctx, res[i].acquire_line,
-                            "'%s' is freed inside a loop; a later iteration may "
-                            "double free it", res[i].origin);
+                    bc_warn_loop_release(ctx, &res[i]);
                 }
             }
             // Body may run zero times: merge entry with post-body conservatively.
@@ -1036,9 +1105,7 @@ static void bc_stmt(BorrowContext *ctx, Stmt *stmt) {
             BcResource *res = bc_resources(ctx);
             for (int i = 0; i < n && i < ctx->num_resources; i++) {
                 if (entry[i].state == BC_OWNED && res[i].state == BC_FREED) {
-                    bc_warn(ctx, res[i].acquire_line,
-                            "'%s' is freed inside a loop; a later iteration may "
-                            "double free it", res[i].origin);
+                    bc_warn_loop_release(ctx, &res[i]);
                 }
             }
             int bn; BcSnap *post = bc_snapshot(ctx, &bn);
@@ -1056,9 +1123,7 @@ static void bc_stmt(BorrowContext *ctx, Stmt *stmt) {
             BcResource *res = bc_resources(ctx);
             for (int i = 0; i < n && i < ctx->num_resources; i++) {
                 if (entry[i].state == BC_OWNED && res[i].state == BC_FREED) {
-                    bc_warn(ctx, res[i].acquire_line,
-                            "'%s' is freed inside a loop; a later iteration may "
-                            "double free it", res[i].origin);
+                    bc_warn_loop_release(ctx, &res[i]);
                 }
             }
             int bn; BcSnap *post = bc_snapshot(ctx, &bn);
@@ -1075,9 +1140,7 @@ static void bc_stmt(BorrowContext *ctx, Stmt *stmt) {
             BcResource *res = bc_resources(ctx);
             for (int i = 0; i < n && i < ctx->num_resources; i++) {
                 if (entry[i].state == BC_OWNED && res[i].state == BC_FREED) {
-                    bc_warn(ctx, res[i].acquire_line,
-                            "'%s' is freed inside a loop; a later iteration may "
-                            "double free it", res[i].origin);
+                    bc_warn_loop_release(ctx, &res[i]);
                 }
             }
             int bn; BcSnap *post = bc_snapshot(ctx, &bn);
@@ -1212,6 +1275,8 @@ static void bc_analyze_function(BorrowContext *ctx, Expr *fn) {
                                 !bc_state_dead(snap[i].state);
             res[i].escaped = res[i].escaped || snap[i].escaped || released_here;
             res[i].state = snap[i].state;
+            res[i].release_line = snap[i].release_line;
+            res[i].release_op = snap[i].release_op;
             res[i].deferred_free = snap[i].deferred_free;
         }
         free(snap);
@@ -1263,6 +1328,8 @@ static void bc_apply_call_consumption(BorrowContext *ctx, Expr *call) {
         if (!r || r->state != BC_OWNED) continue;
         r->state = (sum->consumed[i] == BC_PARAM_CONSUMED) ? BC_FREED
                                                            : BC_MAYBE_FREED;
+        r->release_line = call->line;      // released by this call
+        r->release_op = NULL;
     }
 }
 

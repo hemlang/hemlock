@@ -350,7 +350,7 @@ void hml_detach(HmlValue task_val) {
     }
     if (task->detached) {
         pthread_mutex_unlock(&task->sync->mutex);
-        return;  // already detached
+        hml_runtime_error("task already detached");
     }
     task->detached = 1;
     pthread_mutex_unlock(&task->sync->mutex);

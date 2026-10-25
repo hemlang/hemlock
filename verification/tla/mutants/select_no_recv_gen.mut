@@ -1,0 +1,10 @@
+# select() dequeues without bumping recv_gen: a rendezvous sender cannot see
+# that its item was taken, times out, and withdraws it again.
+--- old
+                selItem[self] := Head(buf[c]);
+                take(c);
++++ new
+                selItem[self] := Head(buf[c]);
+                received[c] := Append(received[c], Head(buf[c]));
+                buf[c] := Tail(buf[c]);
+                wake_senders(c);

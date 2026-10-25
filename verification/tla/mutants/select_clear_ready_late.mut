@@ -1,0 +1,8 @@
+# select() clears `ready` just before waiting instead of right after waking,
+# discarding a notification that arrived during the scan. Lost wakeup.
+--- old
+        await mtx[WM(self)] = 0; mtx[WM(self)] := self;
+  SEL_wait:
++++ new
+        await mtx[WM(self)] = 0; mtx[WM(self)] := self; ready[self] := FALSE;
+  SEL_wait:

@@ -1,2 +1,2 @@
-warnings_exit_zero.hml:3: warning: double free: 'p' was already freed (line 1) [borrow]
+warnings_exit_zero.hml:3: warning: double free: 'p' was already freed (line 2) [borrow]
 0 errors, 1 warning (1 file checked)

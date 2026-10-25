@@ -1,1 +1,1 @@
-mmap_double_close.hml:5: warning: double free: 'm' was already freed (line 3)
+mmap_double_close.hml:5: warning: double release: 'm' was already closed (line 4)

@@ -1,7 +1,8 @@
 name: Formal Verification
 
 # CBMC proofs of the shared UTF-8 / type-promotion code and of both backends'
-# integer operators, plus TLC model checking of the channel core.
+# integer operators, plus TLC model checking of channels, select() and the
+# task lifecycle.
 # See verification/README.md. Each proof has an expected verdict in
 # verification/proofs.txt; the job fails on any mismatch.
 
@@ -11,6 +12,8 @@ on:
     paths:
       - 'src/shared/**'
       - 'runtime/src/builtins_ops.c'
+      - 'runtime/src/builtins_async.c'
+      - 'src/backends/interpreter/builtins/concurrency.c'
       - 'runtime/src/value.c'
       - 'runtime/include/**'
       - 'src/backends/interpreter/runtime/binary_ops.c'
@@ -23,6 +26,8 @@ on:
     paths:
       - 'src/shared/**'
       - 'runtime/src/builtins_ops.c'
+      - 'runtime/src/builtins_async.c'
+      - 'src/backends/interpreter/builtins/concurrency.c'
       - 'runtime/src/value.c'
       - 'runtime/include/**'
       - 'src/backends/interpreter/runtime/binary_ops.c'

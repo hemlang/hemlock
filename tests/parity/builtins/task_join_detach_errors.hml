@@ -1,0 +1,29 @@
+// join()/detach() misuse: each task handle is joined or detached at most once,
+// and both backends raise the same catchable error for every other call.
+// (Lifecycle model: verification/tla/Task.tla.)
+
+// The interpreter prefixes errors with a source location; compare the message.
+fn report(what: string, e, expected: string) {
+    print(what + ": " + (e.contains(expected) ? expected : "UNEXPECTED " + e));
+}
+
+async fn work(n) {
+    return n * 2;
+}
+
+let t1 = spawn(work, 1);
+print(join(t1));
+try { join(t1); } catch (e) { report("join twice", e, "task handle already joined"); }
+try { detach(t1); } catch (e) { report("detach joined", e, "cannot detach already joined task"); }
+
+let t2 = spawn(work, 2);
+detach(t2);
+try { detach(t2); } catch (e) { report("detach twice", e, "task already detached"); }
+try { join(t2); } catch (e) { report("join detached", e, "cannot join detached task"); }
+
+// await is join: the same rules apply.
+let t3 = spawn(work, 3);
+print(await t3);
+try { await t3; } catch (e) { report("await twice", e, "task handle already joined"); }
+
+print("done");

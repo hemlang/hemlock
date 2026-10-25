@@ -1,0 +1,7 @@
+# wake_senders() signals instead of broadcasting on a rendezvous channel: the
+# wakeup can go to a sender queued for the slot instead of the one whose item
+# was taken, which then never returns.
+--- old
+    if Cap = 0 then broadcast("nf"); else signal("nf"); end if;
++++ new
+    signal("nf");

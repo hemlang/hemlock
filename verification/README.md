@@ -11,6 +11,8 @@ answer rather than a crash.
 | Integer ops (compiled) | `runtime/src/builtins_ops.c` | CBMC | `+ - * % & \| ^ << >>`, comparisons, unary `- ~ ++ --` match an executable spec for **every** type pair and **every** value; no UB (`*` and `%`: see method notes) |
 | Integer ops (interpreter) | `src/backends/interpreter/runtime/binary_ops.c` (`eval_binary_values`) | CBMC | same spec, so passing both = a parity proof |
 | Channels | `src/shared/chan_core.c` | TLA+ / TLC | FIFO, no duplicate or lost items, send status tells the truth, no lost wakeups / deadlock |
+| `select()` | `src/shared/chan_core.c` (`hml_chan_select`) | TLA+ / TLC | same, across several channels and against concurrent `recv()`; no lost wakeup between scan and wait; no lock-order deadlock; the stack waiter is never notified after it is gone |
+| Tasks | `spawn`/`join`/`detach`/`await` and task refcounting in both backends | TLA+ / TLC | task freed exactly once and never used after; every pthread joined or detached exactly once (no POSIX UB, no leak); one join wins and sees the result; `join` never hangs |
 
 The CBMC proofs are exhaustive over their inputs: a `VERIFICATION SUCCESSFUL`
 for `rt_add` means there is no pair of integer types and no pair of values for
@@ -19,20 +21,26 @@ undefined behavior. The string harnesses are bounded: arbitrary strings of up
 to 4 bytes for navigation and validation, 6 for memory safety. That covers
 every UTF-8 sequence shape, truncated or not, and every pair of adjacent
 sequences up to 4 bytes in total.
-The TLA+ model is exhaustive over 2-3 senders/receivers and capacities 0-2.
+The TLA+ models are exhaustive over their configurations: 2-3
+senders/receivers and capacities 0-2 for one channel; a rendezvous plus a
+buffered channel with 2 senders, 1-2 selectors and a competing `recv()` for
+`select()`; 3 concurrent handle holders for tasks. Every model is also run
+against planted bugs (mutants) that it must catch, so a model that has
+quietly stopped checking something fails the run.
 
 ## Running
 
 ```bash
 verification/run.sh              # everything (~31 min on 4 cores)
 verification/run.sh utf8 chan    # subset, by name substring
+verification/run.sh chan select task mut_   # concurrency models only: needs just Java
 KEEP_LOGS=/tmp/v verification/run.sh rt_shr   # keep logs to read counterexamples
 make verify                      # same as run.sh
 ```
 
 Every proof in `proofs.txt` has an expected verdict. `pass` proofs must
-verify; `fail` proofs are known, accepted properties that do not hold (today
-only the lossy promotion pairs, finding 7) and must still produce a
+verify; `fail` proofs are known, accepted properties that do not hold (the lossy
+promotion pairs, finding 7) or mutants (below), and must still produce a
 counterexample. The run fails on any mismatch, so a regression
 breaks it, and so does fixing a defect without flipping its line to `pass`.
 
@@ -62,9 +70,16 @@ verification/
 │   │   └── utf8_*.c
 │   └── stubs/runtime_errors.c error entry points: "raise only if the spec allows it"
 └── tla/
-    ├── Channel.tla            PlusCal model of chan_core.c (+ generated TLA+)
-    └── *.cfg                  model-checking configurations
+    ├── Channel.tla            PlusCal model of chan_core.c send/recv/close (+ generated TLA+)
+    ├── ChannelSelect.tla      PlusCal model of select() over several channels
+    ├── Task.tla               PlusCal model of the task lifecycle (both backends)
+    ├── *.cfg                  model-checking configurations
+    ├── mutants/*.mut          known bugs planted into the models; each must be caught
+    └── mutate.py              applies a mutant and re-translates (used by run.sh)
 ```
+
+After editing the PlusCal in a `.tla` file, regenerate its TLA+ translation:
+`cd verification/tla && java -cp ../.cache/tla2tools.jar pcal.trans -nocfg Model.tla`.
 
 ### Method notes
 
@@ -87,7 +102,31 @@ verification/
   time out *after* being signalled (consuming the signal). The model was
   mutation-tested: replacing the rendezvous `broadcast` with `signal`
   deadlocks, and replacing the `recv_gen` handoff check with "slot is empty"
-  violates `SendContract`.
+  violates `SendContract`. Those two are now committed mutants
+  (`chan_rendezvous_signal`, `chan_handoff_by_slot`).
+- **Mutants keep the models honest.** `tla/mutants/*.mut` each plant one
+  known bug (a missing notify, a lock-order inversion, a racy refcount, ...)
+  into a model's PlusCal; `proofs.txt` expects every one to `fail`. This is
+  how finding 10 was caught, and how a regression of that kind would be.
+  Each mutant was checked to fail for its intended reason (the deadlock,
+  invariant or assertion named in its comment), not an incidental one.
+- **Every mutex is modelled in `ChannelSelect.tla`.** A step that takes a
+  mutex, works on the state it protects and releases it is one atomic step;
+  a mutex held across a blocking point (the channel mutex while `send()`
+  notifies select waiters, the waiter mutex around its wait) is held
+  explicitly, so a lock-order deadlock is a TLC deadlock. Its rotating start
+  index is nondeterministic, which over-approximates the global counter.
+- **pthreads get POSIX's rules in `Task.tla`.** `pthread_join` or
+  `pthread_detach` on a thread that was already joined or detached is an
+  assertion failure (undefined behavior: the ID may be reused), and a thread
+  that has exited without being joined or detached when everything is done
+  is a leak. The function body, argument copying and exception transfer are
+  abstracted to "runs, then publishes its outcome under the task mutex".
+- **PlusCal procedures cannot see process-local variables.** A procedure
+  assignment to a name that is also a process-local variable binds to one
+  process type's copy, and the translator silently renames the other's;
+  `[f EXCEPT ![self] = v]` with `self` outside `DOMAIN f` is then a no-op.
+  Anything a procedure writes is a global indexed by thread (finding 10).
 
 - **`*` and `%` are stated in each backend's arithmetic shape.** For `+ -`
   the spec computes the exact result in `__int128` and range-checks it. For
@@ -122,9 +161,15 @@ verification/
   Bitwuzla, CaDiCaL, or `--refine-arithmetic`, even with one operand bounded
   to 8 bits. All other 63 multiply pairs are proved, including `i64` with
   every narrower type and `u64 × u64`.
-- Everything not in the table: the object/array/refcount machinery,
-  `select()` (not in the channel model), FFI, I/O, the parser and codegen,
-  and float arithmetic beyond promotion.
+- Everything not in the table: the object/array/refcount machinery (except
+  task handles), FFI, I/O, the parser and codegen, and float arithmetic
+  beyond promotion.
+- The concurrency models are hand transcriptions of the C, step for step;
+  nothing proves the C refines them, and they are bounded (see above).
+  Not modelled: `@stdlib/async` (ThreadPool, written in Hemlock on top of
+  channels), the atomics builtins, and the memory model (the C uses mutexes
+  and `SEQ_CST` atomics throughout, which the models treat as
+  sequentially consistent).
 - Proofs are about the C as written, compiled by CBMC's front end. They say
   nothing about GCC or Emscripten miscompiling it.
 
@@ -252,6 +297,32 @@ builds' `-fwrapv`, but undefined behavior in the WASM build, which lacks it.
 **Fix:** multiply as `uint32_t` (`in_mul_u16_u16`; parity test
 `tests/parity/language/unsigned_narrow_mul.hml`).
 
+### 10. The channel model never explored a sender timeout (model defect)
+
+`Channel.tla`'s `wait` procedure set `timedOut`, which PlusCal bound to the
+receiver's process-local variable; the sender's same-named variable was
+renamed `timedOut_` and nothing ever set it. For a sender, the "timed out"
+wakeup assigned `[timedOut EXCEPT ![self] = TRUE]` with `self` outside the
+receivers' domain, a no-op, so every sender timeout path, including the
+rendezvous withdraw, was dead code in the model and the timeout
+configurations checked only receivers. **Fix:** `timedOut` is a global
+indexed by thread. The code itself was correct: all six channel
+configurations still pass, now over sender timeouts too (distinct states:
+`RendezvousSafety` 49k to 200k, `BufferedSafety` 128k to 215k), and
+withdrawing now asserts the
+slot still holds the sender's own item. Mutant
+`chan_timeout_ignores_handoff` (time out without checking `recv_gen`) passed
+the old model and is caught by the new one.
+
+### 11. `detach()` twice: interpreter threw, compiled code ignored it
+
+Found while transcribing both backends into `Task.tla`. The interpreter
+raises "task already detached"; `hml_detach` returned silently. Both are
+safe (the model checks either), but they are different programs. **Fix:**
+the compiled runtime throws the interpreter's error. Parity test
+`tests/parity/builtins/task_join_detach_errors.hml` covers every join/detach
+misuse; previously none was tested on either backend.
+
 ## Results
 
 Full run on 4 cores (CBMC 6.4.1, Bitwuzla 0.8.2, TLC 1.8.0): **305 proofs,
@@ -273,3 +344,22 @@ multiply, see "What is not covered"). Wall time 31 min, CPU time 2h02m.
 
 The six expected failures are the lossy promotion rows of finding 7. They
 are the spec of where promotion is lossy, not defects.
+
+### Concurrency models
+
+The TLA+ part was re-run on its own after findings 10 and 11 and the
+`select()`/task models were added (`verification/run.sh chan select task
+mut_`, 4 cores, TLC 1.8.0): **32 proofs, 32 matched**, wall time 3m13s.
+The CBMC proofs are unchanged by that work and were not re-run with it.
+
+| Area | Proofs | Verified | Expected `fail` | CPU time | Slowest | Largest state space |
+|------|-------:|---------:|----------------:|---------:|--------:|--------------------:|
+| Channels | 6 | 6 | 0 | 0m39s | 12s | 215k (`BufferedSafety`) |
+| `select()` | 5 | 5 | 0 | 4m43s | 186s | 3.46M (`SelectProgress`) |
+| Tasks | 5 | 5 | 0 | 0m20s | 13s | 244k (`TaskHandles`) |
+| Mutants | 16 | 0 | 16 | 1m55s | 20s | |
+
+Every mutant fails for the reason its file names: 6 deadlocks (lost
+wakeups, lock-order inversion, rendezvous `signal`), 5 invariant violations
+(`WaiterLifetime`, `JoinXorDetach`, `NoLeak`) and 5 assertions (withdrawing
+an item that is not ours, use after free, POSIX UB on a pthread).

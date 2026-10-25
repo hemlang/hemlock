@@ -15,7 +15,7 @@
 (*   - on return the mutex is re-acquired.                                 *)
 (*                                                                         *)
 (* Sender s sends the item s, so items are unique and traceable.           *)
-(* select() is not modelled here.                                          *)
+(* select() is modelled in ChannelSelect.tla.                              *)
 (***************************************************************************)
 EXTENDS Naturals, Sequences, FiniteSets, TLC
 
@@ -42,7 +42,11 @@ variables
     received = <<>>,                   \* history: items in receive order
     released = {},                     \* items the core released (dropped)
     sendRes = [s \in Senders |-> "none"],
-    recvRes = [r \in Receivers |-> "none"];
+    recvRes = [r \in Receivers |-> "none"],
+    \* wait()'s result, per thread. A global so that the procedure and both
+    \* process types name the same variable (PlusCal procedures cannot see
+    \* process-local variables; a same-named local would be silently renamed).
+    timedOut = [p \in Senders \cup Receivers |-> FALSE];
 
 define
     Count == Len(buf)
@@ -92,7 +96,7 @@ macro wake_senders() begin
     if Cap = 0 then broadcast("nf"); else signal("nf"); end if;
 end macro;
 
-\* wait_cond(): sets timedOut. Re-acquires the mutex before returning.
+\* wait_cond(): sets timedOut[self]. Re-acquires the mutex before returning.
 procedure wait(cv) begin
   W_park:
     parked[cv] := parked[cv] \cup {self};
@@ -100,15 +104,15 @@ procedure wait(cv) begin
   W_wake:
     either
         await self \notin parked[cv];          \* signalled / broadcast
-        timedOut := FALSE;
+        timedOut[self] := FALSE;
     or
         await Timeouts;                        \* ETIMEDOUT (maybe after a signal)
         parked[cv] := parked[cv] \ {self};
-        timedOut := TRUE;
+        timedOut[self] := TRUE;
     or
         await Spurious /\ self \in parked[cv]; \* spurious wakeup
         parked[cv] := parked[cv] \ {self};
-        timedOut := FALSE;
+        timedOut[self] := FALSE;
     end either;
   W_relock:
     await lock = 0;
@@ -117,7 +121,7 @@ procedure wait(cv) begin
 end procedure;
 
 process sender \in Senders
-variables timedOut = FALSE, staged = 0;
+variables staged = 0;
 begin
   S_lock:
     await lock = 0; lock := self;
@@ -125,7 +129,7 @@ begin
     while Count = SlotCap /\ ~closed do
         call wait("nf");
   S_phase1_check:
-        if timedOut /\ Count = SlotCap /\ ~closed then
+        if timedOut[self] /\ Count = SlotCap /\ ~closed then
             lock := 0;
             released := released \cup {self};
             sendRes[self] := "timeout";
@@ -154,8 +158,9 @@ begin
     while recvGen = staged /\ ~closed do
         call wait("nf");
   S_phase2_check:
-        if timedOut /\ recvGen = staged then
+        if timedOut[self] /\ recvGen = staged then
             \* withdraw_staged(): drop slot 0 without counting a receive
+            assert buf = <<self>>;   \* the slot still holds our item
             released := released \cup {Head(buf)};
             buf := <<>>;
             wake_senders();
@@ -166,6 +171,7 @@ begin
     end while;
   S_handoff_check:
     if recvGen = staged then
+        assert buf = <<self>>;   \* the slot still holds our item
         released := released \cup {Head(buf)};
         buf := <<>>;
         lock := 0;
@@ -180,7 +186,6 @@ begin
 end process;
 
 process receiver \in Receivers
-variables timedOut = FALSE;
 begin
   R_lock:
     await lock = 0; lock := self;
@@ -188,7 +193,7 @@ begin
     while Count = 0 /\ ~closed do
         call wait("ne");
   R_wait_check:
-        if timedOut /\ Count = 0 /\ ~closed then
+        if timedOut[self] /\ Count = 0 /\ ~closed then
             lock := 0;
             recvRes[self] := "timeout";
             goto R_end;
@@ -224,11 +229,10 @@ begin
 end process;
 
 end algorithm; *)
-\* BEGIN TRANSLATION (chksum(pcal) = "93a5530d" /\ chksum(tla) = "65a7dddc")
-\* Process variable timedOut of process sender at line 120 col 11 changed to timedOut_
+\* BEGIN TRANSLATION
 CONSTANT defaultInitValue
 VARIABLES pc, lock, buf, closed, recvGen, parked, enqueued, received, 
-          released, sendRes, recvRes, stack
+          released, sendRes, recvRes, timedOut, stack
 
 (* define statement *)
 Count == Len(buf)
@@ -262,11 +266,10 @@ Conservation == (\A p \in Senders \cup Receivers : pc[p] = "Done") =>
 RecvClosedOnlyWhenDrained == \A r \in Receivers :
     recvRes[r] = "closed" => closed
 
-VARIABLES cv, timedOut_, staged, timedOut
+VARIABLES cv, staged
 
 vars == << pc, lock, buf, closed, recvGen, parked, enqueued, received, 
-           released, sendRes, recvRes, stack, cv, timedOut_, staged, timedOut
-        >>
+           released, sendRes, recvRes, timedOut, stack, cv, staged >>
 
 ProcSet == (Senders) \cup (Receivers) \cup {Closer}
 
@@ -281,13 +284,11 @@ Init == (* Global variables *)
         /\ released = {}
         /\ sendRes = [s \in Senders |-> "none"]
         /\ recvRes = [r \in Receivers |-> "none"]
+        /\ timedOut = [p \in Senders \cup Receivers |-> FALSE]
         (* Procedure wait *)
         /\ cv = [ self \in ProcSet |-> defaultInitValue]
         (* Process sender *)
-        /\ timedOut_ = [self \in Senders |-> FALSE]
         /\ staged = [self \in Senders |-> 0]
-        (* Process receiver *)
-        /\ timedOut = [self \in Receivers |-> FALSE]
         /\ stack = [self \in ProcSet |-> << >>]
         /\ pc = [self \in ProcSet |-> CASE self \in Senders -> "S_lock"
                                         [] self \in Receivers -> "R_lock"
@@ -298,8 +299,8 @@ W_park(self) == /\ pc[self] = "W_park"
                 /\ lock' = 0
                 /\ pc' = [pc EXCEPT ![self] = "W_wake"]
                 /\ UNCHANGED << buf, closed, recvGen, enqueued, received, 
-                                released, sendRes, recvRes, stack, cv, 
-                                timedOut_, staged, timedOut >>
+                                released, sendRes, recvRes, timedOut, stack, 
+                                cv, staged >>
 
 W_wake(self) == /\ pc[self] = "W_wake"
                 /\ \/ /\ self \notin parked[cv[self]]
@@ -313,8 +314,7 @@ W_wake(self) == /\ pc[self] = "W_wake"
                       /\ timedOut' = [timedOut EXCEPT ![self] = FALSE]
                 /\ pc' = [pc EXCEPT ![self] = "W_relock"]
                 /\ UNCHANGED << lock, buf, closed, recvGen, enqueued, received, 
-                                released, sendRes, recvRes, stack, cv, 
-                                timedOut_, staged >>
+                                released, sendRes, recvRes, stack, cv, staged >>
 
 W_relock(self) == /\ pc[self] = "W_relock"
                   /\ lock = 0
@@ -324,7 +324,7 @@ W_relock(self) == /\ pc[self] = "W_relock"
                   /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                   /\ UNCHANGED << buf, closed, recvGen, parked, enqueued, 
                                   received, released, sendRes, recvRes, 
-                                  timedOut_, staged, timedOut >>
+                                  timedOut, staged >>
 
 wait(self) == W_park(self) \/ W_wake(self) \/ W_relock(self)
 
@@ -333,8 +333,8 @@ S_lock(self) == /\ pc[self] = "S_lock"
                 /\ lock' = self
                 /\ pc' = [pc EXCEPT ![self] = "S_phase1"]
                 /\ UNCHANGED << buf, closed, recvGen, parked, enqueued, 
-                                received, released, sendRes, recvRes, stack, 
-                                cv, timedOut_, staged, timedOut >>
+                                received, released, sendRes, recvRes, timedOut, 
+                                stack, cv, staged >>
 
 S_phase1(self) == /\ pc[self] = "S_phase1"
                   /\ IF Count = SlotCap /\ ~closed
@@ -348,10 +348,10 @@ S_phase1(self) == /\ pc[self] = "S_phase1"
                              /\ UNCHANGED << stack, cv >>
                   /\ UNCHANGED << lock, buf, closed, recvGen, parked, enqueued, 
                                   received, released, sendRes, recvRes, 
-                                  timedOut_, staged, timedOut >>
+                                  timedOut, staged >>
 
 S_phase1_check(self) == /\ pc[self] = "S_phase1_check"
-                        /\ IF timedOut_[self] /\ Count = SlotCap /\ ~closed
+                        /\ IF timedOut[self] /\ Count = SlotCap /\ ~closed
                               THEN /\ lock' = 0
                                    /\ released' = (released \cup {self})
                                    /\ sendRes' = [sendRes EXCEPT ![self] = "timeout"]
@@ -359,8 +359,8 @@ S_phase1_check(self) == /\ pc[self] = "S_phase1_check"
                               ELSE /\ pc' = [pc EXCEPT ![self] = "S_phase1"]
                                    /\ UNCHANGED << lock, released, sendRes >>
                         /\ UNCHANGED << buf, closed, recvGen, parked, enqueued, 
-                                        received, recvRes, stack, cv, 
-                                        timedOut_, staged, timedOut >>
+                                        received, recvRes, timedOut, stack, cv, 
+                                        staged >>
 
 S_closed_check(self) == /\ pc[self] = "S_closed_check"
                         /\ IF closed
@@ -371,8 +371,8 @@ S_closed_check(self) == /\ pc[self] = "S_closed_check"
                               ELSE /\ pc' = [pc EXCEPT ![self] = "S_enqueue"]
                                    /\ UNCHANGED << lock, released, sendRes >>
                         /\ UNCHANGED << buf, closed, recvGen, parked, enqueued, 
-                                        received, recvRes, stack, cv, 
-                                        timedOut_, staged, timedOut >>
+                                        received, recvRes, timedOut, stack, cv, 
+                                        staged >>
 
 S_enqueue(self) == /\ pc[self] = "S_enqueue"
                    /\ buf' = Append(buf, self)
@@ -389,15 +389,14 @@ S_enqueue(self) == /\ pc[self] = "S_enqueue"
                          ELSE /\ pc' = [pc EXCEPT ![self] = "S_stage"]
                               /\ UNCHANGED << lock, sendRes >>
                    /\ UNCHANGED << closed, recvGen, received, released, 
-                                   recvRes, stack, cv, timedOut_, staged, 
-                                   timedOut >>
+                                   recvRes, timedOut, stack, cv, staged >>
 
 S_stage(self) == /\ pc[self] = "S_stage"
                  /\ staged' = [staged EXCEPT ![self] = recvGen]
                  /\ pc' = [pc EXCEPT ![self] = "S_phase2"]
                  /\ UNCHANGED << lock, buf, closed, recvGen, parked, enqueued, 
-                                 received, released, sendRes, recvRes, stack, 
-                                 cv, timedOut_, timedOut >>
+                                 received, released, sendRes, recvRes, 
+                                 timedOut, stack, cv >>
 
 S_phase2(self) == /\ pc[self] = "S_phase2"
                   /\ IF recvGen = staged[self] /\ ~closed
@@ -411,11 +410,13 @@ S_phase2(self) == /\ pc[self] = "S_phase2"
                              /\ UNCHANGED << stack, cv >>
                   /\ UNCHANGED << lock, buf, closed, recvGen, parked, enqueued, 
                                   received, released, sendRes, recvRes, 
-                                  timedOut_, staged, timedOut >>
+                                  timedOut, staged >>
 
 S_phase2_check(self) == /\ pc[self] = "S_phase2_check"
-                        /\ IF timedOut_[self] /\ recvGen = staged[self]
-                              THEN /\ released' = (released \cup {Head(buf)})
+                        /\ IF timedOut[self] /\ recvGen = staged[self]
+                              THEN /\ Assert(buf = <<self>>, 
+                                             "Failure of assertion at line 163, column 13.")
+                                   /\ released' = (released \cup {Head(buf)})
                                    /\ buf' = <<>>
                                    /\ IF Cap = 0
                                          THEN /\ parked' = [parked EXCEPT !["nf"] = {}]
@@ -431,12 +432,13 @@ S_phase2_check(self) == /\ pc[self] = "S_phase2_check"
                                    /\ UNCHANGED << lock, buf, parked, released, 
                                                    sendRes >>
                         /\ UNCHANGED << closed, recvGen, enqueued, received, 
-                                        recvRes, stack, cv, timedOut_, staged, 
-                                        timedOut >>
+                                        recvRes, timedOut, stack, cv, staged >>
 
 S_handoff_check(self) == /\ pc[self] = "S_handoff_check"
                          /\ IF recvGen = staged[self]
-                               THEN /\ released' = (released \cup {Head(buf)})
+                               THEN /\ Assert(buf = <<self>>, 
+                                              "Failure of assertion at line 174, column 9.")
+                                    /\ released' = (released \cup {Head(buf)})
                                     /\ buf' = <<>>
                                     /\ lock' = 0
                                     /\ sendRes' = [sendRes EXCEPT ![self] = "closed"]
@@ -445,23 +447,22 @@ S_handoff_check(self) == /\ pc[self] = "S_handoff_check"
                                     /\ UNCHANGED << lock, buf, released, 
                                                     sendRes >>
                          /\ UNCHANGED << closed, recvGen, parked, enqueued, 
-                                         received, recvRes, stack, cv, 
-                                         timedOut_, staged, timedOut >>
+                                         received, recvRes, timedOut, stack, 
+                                         cv, staged >>
 
 S_ok(self) == /\ pc[self] = "S_ok"
               /\ lock' = 0
               /\ sendRes' = [sendRes EXCEPT ![self] = "ok"]
               /\ pc' = [pc EXCEPT ![self] = "S_end"]
               /\ UNCHANGED << buf, closed, recvGen, parked, enqueued, received, 
-                              released, recvRes, stack, cv, timedOut_, staged, 
-                              timedOut >>
+                              released, recvRes, timedOut, stack, cv, staged >>
 
 S_end(self) == /\ pc[self] = "S_end"
                /\ TRUE
                /\ pc' = [pc EXCEPT ![self] = "Done"]
                /\ UNCHANGED << lock, buf, closed, recvGen, parked, enqueued, 
-                               received, released, sendRes, recvRes, stack, cv, 
-                               timedOut_, staged, timedOut >>
+                               received, released, sendRes, recvRes, timedOut, 
+                               stack, cv, staged >>
 
 sender(self) == S_lock(self) \/ S_phase1(self) \/ S_phase1_check(self)
                    \/ S_closed_check(self) \/ S_enqueue(self)
@@ -474,8 +475,8 @@ R_lock(self) == /\ pc[self] = "R_lock"
                 /\ lock' = self
                 /\ pc' = [pc EXCEPT ![self] = "R_wait"]
                 /\ UNCHANGED << buf, closed, recvGen, parked, enqueued, 
-                                received, released, sendRes, recvRes, stack, 
-                                cv, timedOut_, staged, timedOut >>
+                                received, released, sendRes, recvRes, timedOut, 
+                                stack, cv, staged >>
 
 R_wait(self) == /\ pc[self] = "R_wait"
                 /\ IF Count = 0 /\ ~closed
@@ -488,8 +489,8 @@ R_wait(self) == /\ pc[self] = "R_wait"
                       ELSE /\ pc' = [pc EXCEPT ![self] = "R_take"]
                            /\ UNCHANGED << stack, cv >>
                 /\ UNCHANGED << lock, buf, closed, recvGen, parked, enqueued, 
-                                received, released, sendRes, recvRes, 
-                                timedOut_, staged, timedOut >>
+                                received, released, sendRes, recvRes, timedOut, 
+                                staged >>
 
 R_wait_check(self) == /\ pc[self] = "R_wait_check"
                       /\ IF timedOut[self] /\ Count = 0 /\ ~closed
@@ -499,8 +500,8 @@ R_wait_check(self) == /\ pc[self] = "R_wait_check"
                             ELSE /\ pc' = [pc EXCEPT ![self] = "R_wait"]
                                  /\ UNCHANGED << lock, recvRes >>
                       /\ UNCHANGED << buf, closed, recvGen, parked, enqueued, 
-                                      received, released, sendRes, stack, cv, 
-                                      timedOut_, staged, timedOut >>
+                                      received, released, sendRes, timedOut, 
+                                      stack, cv, staged >>
 
 R_take(self) == /\ pc[self] = "R_take"
                 /\ IF Count = 0
@@ -510,8 +511,8 @@ R_take(self) == /\ pc[self] = "R_take"
                       ELSE /\ pc' = [pc EXCEPT ![self] = "R_dequeue"]
                            /\ UNCHANGED << lock, recvRes >>
                 /\ UNCHANGED << buf, closed, recvGen, parked, enqueued, 
-                                received, released, sendRes, stack, cv, 
-                                timedOut_, staged, timedOut >>
+                                received, released, sendRes, timedOut, stack, 
+                                cv, staged >>
 
 R_dequeue(self) == /\ pc[self] = "R_dequeue"
                    /\ received' = Append(received, Head(buf))
@@ -527,15 +528,15 @@ R_dequeue(self) == /\ pc[self] = "R_dequeue"
                    /\ lock' = 0
                    /\ recvRes' = [recvRes EXCEPT ![self] = "ok"]
                    /\ pc' = [pc EXCEPT ![self] = "R_end"]
-                   /\ UNCHANGED << closed, enqueued, released, sendRes, stack, 
-                                   cv, timedOut_, staged, timedOut >>
+                   /\ UNCHANGED << closed, enqueued, released, sendRes, 
+                                   timedOut, stack, cv, staged >>
 
 R_end(self) == /\ pc[self] = "R_end"
                /\ TRUE
                /\ pc' = [pc EXCEPT ![self] = "Done"]
                /\ UNCHANGED << lock, buf, closed, recvGen, parked, enqueued, 
-                               received, released, sendRes, recvRes, stack, cv, 
-                               timedOut_, staged, timedOut >>
+                               received, released, sendRes, recvRes, timedOut, 
+                               stack, cv, staged >>
 
 receiver(self) == R_lock(self) \/ R_wait(self) \/ R_wait_check(self)
                      \/ R_take(self) \/ R_dequeue(self) \/ R_end(self)
@@ -548,8 +549,8 @@ C_lock == /\ pc[Closer] = "C_lock"
                 ELSE /\ pc' = [pc EXCEPT ![Closer] = "Done"]
                      /\ lock' = lock
           /\ UNCHANGED << buf, closed, recvGen, parked, enqueued, received, 
-                          released, sendRes, recvRes, stack, cv, timedOut_, 
-                          staged, timedOut >>
+                          released, sendRes, recvRes, timedOut, stack, cv, 
+                          staged >>
 
 C_close == /\ pc[Closer] = "C_close"
            /\ closed' = TRUE
@@ -557,7 +558,7 @@ C_close == /\ pc[Closer] = "C_close"
            /\ lock' = 0
            /\ pc' = [pc EXCEPT ![Closer] = "Done"]
            /\ UNCHANGED << buf, recvGen, enqueued, received, released, sendRes, 
-                           recvRes, stack, cv, timedOut_, staged, timedOut >>
+                           recvRes, timedOut, stack, cv, staged >>
 
 closer == C_lock \/ C_close
 

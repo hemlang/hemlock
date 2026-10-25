@@ -1,0 +1,5 @@
+# close() broadcasts the channel's condvars but does not notify select() waiters.
+--- old
+        call notify(curClose);
++++ new
+        skip;
