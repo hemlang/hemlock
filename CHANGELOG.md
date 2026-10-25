@@ -5,6 +5,17 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Formal verification of the concurrency model** (TLA+). `select()` over several channels, racing `send`/`recv`/`close`, and the task lifecycle (`spawn`/`join`/`detach`/`await`, task refcounting and `task_free`'s pthread safety net, for both backends) are now model checked, alongside 16 committed mutants each model must catch. See `verification/README.md`.
+
+### Fixed
+
+- **`detach()` on an already-detached task** now throws "task already detached" in compiled code too; it was silently ignored, unlike the interpreter.
+- **The channel TLA+ model never explored sender timeouts** (a PlusCal variable-scoping slip made them dead code); fixed, and the channel core still verifies with them.
+
 ## [2.13.0] - 2026-10-24
 
 ### Added

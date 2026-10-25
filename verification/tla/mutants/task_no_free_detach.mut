@@ -1,0 +1,8 @@
+# task_free() without the "detach if nobody joined or detached" safety net:
+# a dropped handle leaks the pthread.
+--- old
+    if hasThread /\ ~joined /\ ~detached then
+        pthread_detach();
+    end if;
++++ new
+    skip;

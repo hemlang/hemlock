@@ -1,0 +1,10 @@
+# "Was that the last reference?" is read separately from the decrement
+# (instead of from atomic_fetch_sub's result): two releasers can both read 2,
+# both decrement, neither frees. The task and its pthread leak.
+--- old
+    rc := rc - 1;
+    last := (rc = 0);   \* PlusCal: reads the value just written
++++ new
+    last := (rc = 1);
+  REL_write:
+    rc := rc - 1;

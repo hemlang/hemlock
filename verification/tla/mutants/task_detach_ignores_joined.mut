@@ -1,0 +1,7 @@
+# detach() does not check the join claim: the thread is both joined and detached.
+--- old
+    if joined then
+        tmtx := 0;
++++ new
+    if FALSE then
+        tmtx := 0;

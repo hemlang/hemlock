@@ -1,0 +1,7 @@
+# A rendezvous sender whose timed wait expires withdraws its item without
+# checking whether a receiver already took it (double release in C).
+# Undetected before timedOut was made a global: sender timeouts were vacuous.
+--- old
+        if timedOut[self] /\ recvGen = staged then
++++ new
+        if timedOut[self] then

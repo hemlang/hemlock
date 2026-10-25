@@ -1,0 +1,7 @@
+# Detect the rendezvous handoff by "slot is empty" instead of recv_gen: another
+# sender may refill the slot first, so a sender waits for, or withdraws,
+# someone else's item.
+--- old
+recvGen = staged
++++ new
+Count > 0

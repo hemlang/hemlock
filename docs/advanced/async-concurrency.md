@@ -169,7 +169,7 @@ let task = spawn(background_work);
 detach(task);  // Task runs independently, cannot join
 ```
 
-**Important:** Detached tasks cannot be joined. Both the pthread and Task struct are automatically cleaned up when the task completes.
+**Important:** Detached tasks cannot be joined, and a task can be detached only once (a second `detach()` throws). Both the pthread and Task struct are automatically cleaned up when the task completes.
 
 ## Channels
 

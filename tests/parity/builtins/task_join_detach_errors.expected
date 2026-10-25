@@ -1,0 +1,8 @@
+2
+join twice: task handle already joined
+detach joined: cannot detach already joined task
+detach twice: task already detached
+join detached: cannot join detached task
+6
+await twice: task handle already joined
+done

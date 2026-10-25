@@ -1,0 +1,19 @@
+# select() unregisters while holding its waiter mutex: it then takes channel
+# mutexes under the waiter mutex, the reverse of send()'s order. Deadlock.
+--- old
+        if found[self] then
+            selRes[self] := scanRes[self];
+            goto SEL_unregister;
++++ new
+        if found[self] then
+            selRes[self] := scanRes[self];
+  SEL_hold_waiter:
+            await mtx[WM(self)] = 0; mtx[WM(self)] := self;
+            goto SEL_unregister;
+--- old
+  SEL_destroy:
+    live[self] := FALSE;
++++ new
+  SEL_destroy:
+    live[self] := FALSE;
+    if mtx[WM(self)] = self then mtx[WM(self)] := 0; end if;

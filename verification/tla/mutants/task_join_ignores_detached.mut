@@ -1,0 +1,7 @@
+# join() does not check the detach claim: pthread_join on a detached thread.
+--- old
+        elsif detached then
+            errors[self] := "join detached";
++++ new
+        elsif FALSE then
+            errors[self] := "join detached";

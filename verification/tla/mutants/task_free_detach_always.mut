@@ -1,0 +1,6 @@
+# task_free() detaches unconditionally: detaching a joined or already-detached
+# thread is undefined behavior.
+--- old
+    if hasThread /\ ~joined /\ ~detached then
++++ new
+    if hasThread then

@@ -1,0 +1,5 @@
+# send() wakes plain receivers but not select() waiters.
+--- old
+    call notify(SendTo[self]);                 \* wake_receivers()
++++ new
+    skip;
