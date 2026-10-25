@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **`detach()` on an already-detached task** now throws "task already detached" in compiled code too; it was silently ignored, unlike the interpreter.
+- **Borrow-checker diagnostics named the wrong line and the wrong operation.** "already freed (line N)" and "use after it was freed (line N)" pointed at the line that *acquired* the resource, not the one that released it, and every kind said "double free" — so a second `join()` read `double free: 't' was already freed`. Messages now cite the release line and its operation (`double release: 't' was already joined (line 4)`, `use of 'f' after it was closed (line 3)`); memory keeps "double free".
 - **The channel TLA+ model never explored sender timeouts** (a PlusCal variable-scoping slip made them dead code); fixed, and the channel core still verifies with them.
 
 ## [2.13.0] - 2026-10-24

@@ -1,1 +1,1 @@
-task_double_join.hml:5: warning: double free: 't' was already freed (line 3)
+task_double_join.hml:5: warning: double release: 't' was already joined (line 4)

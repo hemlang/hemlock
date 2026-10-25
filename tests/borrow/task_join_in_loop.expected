@@ -1,0 +1,1 @@
+task_join_in_loop.hml:5: warning: 't' is joined inside a loop; a later iteration may join it again

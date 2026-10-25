@@ -74,7 +74,7 @@ fn main() {
 fn main() {
     let p = alloc(64);
     free(p);
-    memset(p, 0, 64);   // warning: use of 'p' after it was freed (line 2)
+    memset(p, 0, 64);   // warning: use of 'p' after it was freed (line 3)
 }
 ```
 
@@ -82,9 +82,14 @@ fn main() {
 fn main() {
     let p = alloc(64);
     free(p);
-    free(p);            // warning: double free: 'p' was already freed (line 2)
+    free(p);            // warning: double free: 'p' was already freed (line 3)
 }
 ```
+
+The line in parentheses is where the resource was released. Messages use the
+release that happened: a file or channel is *closed*, a task *joined*,
+*detached* or *awaited*, and releasing one twice is a "double release"
+(`double release: 't' was already joined (line 4)`).
 
 ```hemlock
 fn main() {
