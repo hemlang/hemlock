@@ -18,8 +18,8 @@
  *                 backend's truthiness of the literal's value, for every
  *                 literal including NaN and -0.0.
  *
- * The including harness defines BValue, to_backend(), backend_binop() and
- * backend_truthy(), and the result accessors below.
+ * The including harness (fold_runtime.c, fold_interp.c) converts literals
+ * to its backend's values and calls the backend's operator.
  */
 #ifndef HML_CBMC_FOLD_BACKEND_H
 #define HML_CBMC_FOLD_BACKEND_H
