@@ -32,7 +32,7 @@ quietly stopped checking something fails the run.
 ## Running
 
 ```bash
-verification/run.sh              # everything (~31 min on 4 cores)
+verification/run.sh              # everything (~1h30 on 4 cores; ~5h40m CPU)
 verification/run.sh utf8 chan    # subset, by name substring
 verification/run.sh chan select task mut_   # concurrency models only: needs just Java
 KEEP_LOGS=/tmp/v verification/run.sh rt_shr   # keep logs to read counterexamples
