@@ -68,7 +68,17 @@ rt_gt|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_GT @bitwuzla
 rt_ge|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_GE @bitwuzla
 # `/` reads an f64 out of HmlValue: CBMC 6.4.1 emits invalid SMT2 for that
 # (README "Method notes"), so it runs on CaDiCaL
-rt_div|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_DIV @pairs
+# `/` compares two IEEE quotients, ~6 min per type pair on CaDiCaL, so not
+# all 64 pairs: one per promoted type, with an operand whose conversion to
+# it changes the value (README "What is not covered")
+rt_div_i8_i8|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_DIV -DLT=HML_TK_I8 -DRT=HML_TK_I8
+rt_div_i8_u8|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_DIV -DLT=HML_TK_I8 -DRT=HML_TK_U8
+rt_div_u8_i16|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_DIV -DLT=HML_TK_U8 -DRT=HML_TK_I16
+rt_div_i16_u16|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_DIV -DLT=HML_TK_I16 -DRT=HML_TK_U16
+rt_div_u16_i32|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_DIV -DLT=HML_TK_U16 -DRT=HML_TK_I32
+rt_div_i32_u32|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_DIV -DLT=HML_TK_I32 -DRT=HML_TK_U32
+rt_div_u32_i64|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_DIV -DLT=HML_TK_U32 -DRT=HML_TK_I64
+rt_div_i64_u64|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_DIV -DLT=HML_TK_I64 -DRT=HML_TK_U64
 rt_unary|pass|cbmc|int_unary_runtime.c|$RT|--unwind 2 @bitwuzla
 
 # ---- interpreter integer ops (src/backends/interpreter/runtime/binary_ops.c) ----
@@ -92,7 +102,18 @@ in_lt|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_LT $UN
 in_le|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_LE $UN
 in_gt|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_GT $UN
 in_ge|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_GE $UN
-in_div|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN @pairs
+# `/`: the same pairs plus the interpreter's i32/i64 fast paths
+in_div_i8_i8|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN -DLT=HML_TK_I8 -DRT=HML_TK_I8
+in_div_i8_u8|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN -DLT=HML_TK_I8 -DRT=HML_TK_U8
+in_div_u8_i16|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN -DLT=HML_TK_U8 -DRT=HML_TK_I16
+in_div_i16_u16|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN -DLT=HML_TK_I16 -DRT=HML_TK_U16
+in_div_u16_i32|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN -DLT=HML_TK_U16 -DRT=HML_TK_I32
+in_div_i32_u32|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN -DLT=HML_TK_I32 -DRT=HML_TK_U32
+in_div_u32_i64|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN -DLT=HML_TK_U32 -DRT=HML_TK_I64
+in_div_i64_u64|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN -DLT=HML_TK_I64 -DRT=HML_TK_U64
+in_div_i32_i32|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN -DLT=HML_TK_I32 -DRT=HML_TK_I32
+in_div_i64_i64|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN -DLT=HML_TK_I64 -DRT=HML_TK_I64
+in_div_i32_i64|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN -DLT=HML_TK_I32 -DRT=HML_TK_I64
 
 # ---- channels (src/shared/chan_core.c), TLA+ model ----
 chan_rendezvous_progress|pass|tlc|RendezvousProgress.cfg|Channel.tla|
@@ -155,7 +176,7 @@ fold_lt|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_LT @bitwuzla @litpairs
 fold_le|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_LE @bitwuzla @litpairs
 fold_gt|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_GT @bitwuzla @litpairs
 fold_ge|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_GE @bitwuzla @litpairs
-fold_div|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_DIV @bitwuzla @litpairs
+fold_div|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_DIV @litpairs
 fold_unary|pass|cbmc|fold_unary.c|-|--unwind 2 @bitwuzla @lits
 # Float/mixed folds compare IEEE results on CaDiCaL (README "Method notes"),
 # one arithmetic operator per proof.

@@ -182,6 +182,16 @@ After editing the PlusCal in a `.tla` file, regenerate its TLA+ translation:
   Bitwuzla, CaDiCaL, or `--refine-arithmetic`, even with one operand bounded
   to 8 bits. All other 63 multiply pairs are proved, including `i64` with
   every narrower type and `u64 × u64`.
+- **Integer `/` is proved for 8 of 64 type pairs per backend** (`rt_div_*`,
+  `in_div_*`; the interpreter also for its i32/i64 fast paths): one pair per
+  promoted type, chosen so that converting an operand to it changes the
+  value (`i8 / u8`, `i32 / u32`, `i64 / u64`, ...). Each proof compares two
+  IEEE quotients on CaDiCaL (see "No live `double`" above) and takes
+  minutes; all 128 would take about 13 CPU hours. The folded `/` is proved
+  for every literal pair (`fold_div_*`).
+- **Folding `i64 * i64`** (`fold_mul_i64_i64`, marked `skip`), for the
+  same reason as the backends' checked 64x64 multiply above. Every other
+  literal pair of `*` is proved.
 - **Non-numeric folds** of the optimizer: string concatenation and
   interpolation of literals, boolean `&& || == !=` on bool literals, and
   the structural rewrites (dropping a dead `if`/`while` branch, a decided
