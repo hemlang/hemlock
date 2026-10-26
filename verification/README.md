@@ -460,3 +460,29 @@ Every mutant fails for the reason its file names: 6 deadlocks (lost
 wakeups, lock-order inversion, rendezvous `signal`), 5 invariant violations
 (`WaiterLifetime`, `JoinXorDetach`, `NoLeak`) and 5 assertions (withdrawing
 an item that is not ours, use after free, POSIX UB on a pthread).
+
+### Constant folding and `/`
+
+Run after findings 12-15 were fixed (all CBMC proofs, 3 jobs, CBMC 6.4.1,
+Bitwuzla 0.8.2; the TLA+ models are unchanged and were not re-run):
+**463 proofs, all matching their expected verdict**, plus 3 `skip`
+(checked `i64 x i64` multiply: `rt_`, `in_`, and `fold_mul_i64_i64`).
+`utf8_navigation_valid` needs about 7.5 GB and was re-run on its own;
+`fold_mod_i64_i32` found a defect in this change's own `%` fold (an
+`i64 % -1` folded to an i32 `0`), fixed and re-run. Total CPU time 5h32m.
+
+| Area | Proofs | CPU time | Slowest |
+|------|-------:|---------:|--------:|
+| Integer folds (`fold_*` but `*`) | 138 | 0m53s | 2s |
+| Integer `*` folds | 8 | 21m45s | 1042s (`fold_mul_i64_i32`) |
+| Float folds, truthiness (`fold_float_*`, `fold_truthy_*`) | 10 | 113m56s | 2083s (`fold_float_cmp_bits_in`) |
+| `/` operand conversion (`div_conv_*`) | 2 | 0m41s | 22s |
+| `/` end to end (`rt_div_*`, `in_div_*`, i8 pairs) | 4 | 12m10s | 310s |
+
+Every folding and `/` proof was checked against planted bugs, each caught
+for its intended reason: negation applying the literal rule, negating i32
+MIN, demoting an i64 sum to i32, dropping the i32 overflow check, dropping
+`% -1`, logical `>>`, signed u64 `<`, truncating float truthiness, folding
+`&` on floats, converting `/`'s operands directly to f64 at the call site
+(finding 14, caught by `rt_div_i8_u8`), a wrong case in the runtime's
+conversion helper (`div_conv_rt`) and in the fold's (`fold_div_*`).
