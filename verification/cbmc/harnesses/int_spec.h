@@ -16,7 +16,11 @@
  *     amount is negative; amount >= bits gives 0 (or -1 for >> of a negative
  *     signed value); >> is arithmetic for signed R and logical for unsigned
  *     R. This is the interpreter's behavior, which is the reference.
+ *   - /: raises iff the converted divisor is 0; otherwise f64, the
+ *     converted operands' quotient (both convert to double exactly or by
+ *     one correct rounding, as each backend does)
  *   - comparisons: on the converted values, signed or unsigned per R
+ *   - unary (spec_negate, spec_bit_not): see below
  *
  * Types are HmlTypeKind (src/shared/type_promotion.h), which both backends
  * already map to; each harness adapts its backend's value type to SpecInt.
@@ -33,6 +37,7 @@ typedef enum {
     SPEC_ADD, SPEC_SUB, SPEC_MUL, SPEC_MOD,
     SPEC_AND, SPEC_OR, SPEC_XOR, SPEC_SHL, SPEC_SHR,
     SPEC_EQ, SPEC_NE, SPEC_LT, SPEC_LE, SPEC_GT, SPEC_GE,
+    SPEC_DIV,
     SPEC_OP_COUNT
 } SpecOp;
 
@@ -42,6 +47,7 @@ typedef struct {
     int raises;        /* operation must raise a catchable error */
     int is_bool;       /* comparison: result is `flag` */
     int flag;
+    int is_float;      /* `/`: result is the f64 spec_quotient() */
     SpecInt result;    /* arithmetic: result type and value */
 } SpecResult;
 
@@ -155,9 +161,47 @@ static i128 spec_mod(HmlTypeKind R, int native_i32, i128 a, i128 b) {
     }
 }
 
+/* A value already in R's range, as a double (exact, or one correct
+ * rounding for 64-bit magnitudes above 2^53). */
+static double spec_to_double(HmlTypeKind R, i128 v) {
+    return R == HML_TK_U64 ? (double)(uint64_t)v : (double)(int64_t)v;
+}
+
+static HmlTypeKind spec_promote(HmlTypeKind a, HmlTypeKind b) {
+    return spec_rank(a) >= spec_rank(b) ? a : b;
+}
+
+/* An operand converted to R by C cast, as a double. Equal to
+ * spec_to_double(R, spec_wrap(v, R)) (asserted by spec_quotient); stated as
+ * a cast so the solver sees the backends' conversion shape. */
+static double spec_cast_to_double(HmlTypeKind R, i128 v) {
+    switch (R) {
+        case HML_TK_I8:  return (double)(int8_t)v;
+        case HML_TK_I16: return (double)(int16_t)v;
+        case HML_TK_I32: return (double)(int32_t)v;
+        case HML_TK_I64: return (double)(int64_t)v;
+        case HML_TK_U8:  return (double)(uint8_t)v;
+        case HML_TK_U16: return (double)(uint16_t)v;
+        case HML_TK_U32: return (double)(uint32_t)v;
+        default:         return (double)(uint64_t)v;
+    }
+}
+
+/* `l / r` for a nonzero divisor: the quotient of the operands converted to
+ * the promoted type. Kept out of SpecResult: CBMC 6.4.1 cannot encode a
+ * struct with a double member for Bitwuzla (README "Method notes"). */
+static double spec_quotient(SpecInt l, SpecInt r) {
+    HmlTypeKind R = spec_promote(l.type, r.type);
+    double a = spec_cast_to_double(R, l.value), b = spec_cast_to_double(R, r.value);
+    __CPROVER_assert(a == spec_to_double(R, spec_wrap(l.value, R)) &&
+                     b == spec_to_double(R, spec_wrap(r.value, R)),
+                     "spec: cast conversion equals spec_wrap");
+    return a / b;
+}
+
 static SpecResult spec_eval(SpecOp op, SpecInt l, SpecInt r) {
-    SpecResult out = { 0, 0, 0, { HML_TK_NULL, 0 } };
-    HmlTypeKind R = spec_rank(l.type) >= spec_rank(r.type) ? l.type : r.type;
+    SpecResult out = { 0, 0, 0, 0, { HML_TK_NULL, 0 } };
+    HmlTypeKind R = spec_promote(l.type, r.type);
     int bits = spec_bits(R), sgn = spec_signed(R);
     i128 a = spec_wrap(l.value, R), b = spec_wrap(r.value, R);
     i128 x = 0;
@@ -199,6 +243,10 @@ static SpecResult spec_eval(SpecOp op, SpecInt l, SpecInt r) {
             else if (shift >= bits) x = 0;
             else x = (i128)((unsigned __int128)spec_wrap(a, HML_TK_U64) << (int)shift);
             break;
+        case SPEC_DIV:
+            out.is_float = 1;
+            out.raises = b == 0;
+            return out;
         case SPEC_SHR:
             if (shift < 0) out.raises = 1;
             else if (shift >= bits) x = (sgn && a < 0) ? -1 : 0;
@@ -220,6 +268,33 @@ static SpecResult spec_eval(SpecOp op, SpecInt l, SpecInt r) {
     out.result.type = R;
     out.result.value = spec_wrap(x, R);
     return out;
+}
+
+/*
+ * Unary minus: i8/i16 wrap in-type; i32/i64 MIN raise; u8 -> i16,
+ * u16 -> i32, u32 -> i64 (exact); u64 -> i64, exact when x <= INT64_MAX,
+ * else raise.
+ */
+static SpecInt spec_negate(SpecInt x, int *raises) {
+    *raises = 0;
+    switch (x.type) {
+        case HML_TK_I8: case HML_TK_I16:
+            return (SpecInt){ x.type, spec_wrap(-x.value, x.type) };
+        case HML_TK_I32: case HML_TK_I64:
+            *raises = spec_wrap(-x.value, x.type) != -x.value;
+            return (SpecInt){ x.type, -x.value };
+        case HML_TK_U8:  return (SpecInt){ HML_TK_I16, -x.value };
+        case HML_TK_U16: return (SpecInt){ HML_TK_I32, -x.value };
+        case HML_TK_U32: return (SpecInt){ HML_TK_I64, -x.value };
+        default:
+            *raises = x.value > INT64_MAX;
+            return (SpecInt){ HML_TK_I64, -x.value };
+    }
+}
+
+/* ~x: same type, bitwise complement. */
+static SpecInt spec_bit_not(SpecInt x) {
+    return (SpecInt){ x.type, spec_wrap(~x.value, x.type) };
 }
 
 #ifndef LT

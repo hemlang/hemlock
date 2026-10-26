@@ -61,6 +61,24 @@ while IFS= read -r line; do
         done
         continue
     fi
+    # @lits / @litpairs: one proof per literal class (or pair of classes) of
+    # the constant-folding proofs (cbmc/harnesses/fold_lit.h): 0 = i32-range
+    # int literal, 1 = i64 int literal, 2 = u64 literal.
+    if [[ " $line " == *" @litpairs"* || " $line " == *" @lits"* ]]; then
+        classes=(i32 i64 u64)
+        pairs=" @litpairs"; [[ " $line " == *" @lits"* && " $line " != *" @litpairs"* ]] && pairs=""
+        base="${line// @litpairs/}"; base="${base// @lits/}"
+        for l in 0 1 2; do
+            if [[ -n "$pairs" ]]; then
+                for r in 0 1 2; do
+                    PROOFS+=("${base%%|*}_${classes[$l]}_${classes[$r]}|${base#*|} -DLK=$l -DRK=$r")
+                done
+            else
+                PROOFS+=("${base%%|*}_${classes[$l]}|${base#*|} -DLK=$l")
+            fi
+        done
+        continue
+    fi
     PROOFS+=("$line")
 done < "$MANIFEST"
 

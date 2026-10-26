@@ -157,37 +157,11 @@ char* codegen_expr(CodegenContext *ctx, Expr *expr) {
                 }
             }
 
-            // OPTIMIZATION: Constant folding for unary operations on literals
-            if (expr->as.unary.operand->type == EXPR_NUMBER &&
-                !expr->as.unary.operand->as.number.is_float &&
-                !expr->as.unary.operand->as.number.is_u64 &&
-                expr->as.unary.operand->as.number.int_value != INT64_MIN) {
-                int64_t val = expr->as.unary.operand->as.number.int_value;
-                int can_fold = 1;
-
-                switch (expr->as.unary.op) {
-                    case UNARY_NEGATE:
-                        val = -val;
-                        break;
-                    case UNARY_BIT_NOT:
-                        val = ~val;
-                        break;
-                    default:
-                        can_fold = 0;
-                        break;
-                }
-
-                if (can_fold) {
-                    if (val >= INT32_MIN && val <= INT32_MAX) {
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_i32(%d);", result, (int32_t)val);
-                    } else {
-                        char ibuf[32];
-                        codegen_format_i64(ibuf, sizeof(ibuf), val);
-                        codegen_writeln(ctx, "HmlValue %s = hml_val_i64(%s);", result, ibuf);
-                    }
-                    break;
-                }
-            }
+            // No constant folding of - and ~ here: the frontend optimizer
+            // folds every numeric unary whose result is exactly a literal
+            // (frontend/const_fold.h, proved in verification/), and what it
+            // left unfolded raises or keeps a type no literal has, e.g.
+            // -(-2147483648) throws and -(2147483648) stays i64.
 
             // Constant folding for NOT on boolean literals
             if (expr->as.unary.op == UNARY_NOT && expr->as.unary.operand->type == EXPR_BOOL) {

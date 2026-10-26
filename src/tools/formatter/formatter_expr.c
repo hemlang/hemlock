@@ -1,6 +1,7 @@
 #include "formatter_internal.h"
 #include <ctype.h>
 #include <float.h>
+#include <math.h>
 
 // ========== EXPRESSION FORMATTING ==========
 
@@ -254,6 +255,48 @@ void fmt_pattern(FmtCtx *ctx, Pattern *pattern) {
     }
 }
 
+
+/*
+ * Whether a unary operator's operand must be parenthesized to re-parse as
+ * the same tree. Parens are not in the AST, so they are re-derived:
+ *   - operands that bind looser than unary: -(a + b), !(a == b)
+ *   - `-` before something that starts with '-': -(-a) is not --a
+ *   - `-` before a number literal: -(2147483648) negates an i64, while
+ *     -2147483648 is the i32 literal (the parser builds negative literals).
+ *     Not needed for -0 and u64 above 2^63, which stay negations anyway.
+ */
+static int unary_operand_needs_parens(UnaryOp op, Expr *operand) {
+    switch (operand->type) {
+        case EXPR_NUMBER:
+            if (op != UNARY_NEGATE) return 0;   /* !-5, ~-5 re-parse as written */
+            if (operand->as.number.is_float) return 1;
+            if (operand->as.number.is_u64) return operand->as.number.uint_value == (uint64_t)INT64_MAX + 1;
+            return operand->as.number.int_value != 0;
+        case EXPR_UNARY:
+            return op == UNARY_NEGATE && operand->as.unary.op == UNARY_NEGATE;
+        case EXPR_PREFIX_DEC:
+            return op == UNARY_NEGATE;
+        case EXPR_IDENT:
+        case EXPR_STRING:
+        case EXPR_RUNE:
+        case EXPR_BOOL:
+        case EXPR_NULL:
+        case EXPR_CALL:
+        case EXPR_GET_PROPERTY:
+        case EXPR_INDEX:
+        case EXPR_OPTIONAL_CHAIN:
+        case EXPR_ARRAY_LITERAL:
+        case EXPR_OBJECT_LITERAL:
+        case EXPR_STRING_INTERPOLATION:
+        case EXPR_PREFIX_INC:
+        case EXPR_POSTFIX_INC:
+        case EXPR_POSTFIX_DEC:
+        case EXPR_AWAIT:
+            return 0;
+        default:
+            return 1;
+    }
+}
 void fmt_expr(FmtCtx *ctx, Expr *expr) {
     if (!expr) return;
 
@@ -262,6 +305,11 @@ void fmt_expr(FmtCtx *ctx, Expr *expr) {
             // Try to use original literal text (preserves hex/bin/oct and separators)
             const char *original = literal_map_lookup(ctx->literals, expr->line, expr->column);
             if (original) {
+                // A negative literal (`-0x10`) sits at its number token, whose
+                // text has no sign; tokens themselves are never negative.
+                int negative = expr->as.number.is_float ? signbit(expr->as.number.float_value)
+                                                        : !expr->as.number.is_u64 && expr->as.number.int_value < 0;
+                if (negative) buf_append_char(&ctx->buf, '-');
                 buf_append(&ctx->buf, original);
             } else if (expr->as.number.is_float) {
                 fmt_float_literal(ctx, expr->as.number.float_value);
@@ -329,14 +377,18 @@ void fmt_expr(FmtCtx *ctx, Expr *expr) {
             break;
         }
 
-        case EXPR_UNARY:
+        case EXPR_UNARY: {
             switch (expr->as.unary.op) {
                 case UNARY_NOT: buf_append_char(&ctx->buf, '!'); break;
                 case UNARY_NEGATE: buf_append_char(&ctx->buf, '-'); break;
                 case UNARY_BIT_NOT: buf_append_char(&ctx->buf, '~'); break;
             }
+            int parens = unary_operand_needs_parens(expr->as.unary.op, expr->as.unary.operand);
+            if (parens) buf_append_char(&ctx->buf, '(');
             fmt_expr(ctx, expr->as.unary.operand);
+            if (parens) buf_append_char(&ctx->buf, ')');
             break;
+        }
 
         case EXPR_TERNARY:
             fmt_expr(ctx, expr->as.ternary.condition);

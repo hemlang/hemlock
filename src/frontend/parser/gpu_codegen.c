@@ -1169,6 +1169,11 @@ static HmlTypeKind gen_expr(Gen *g, Expr *e, SBuf *out, int effects_ok) {
                 sb_printf(out, "((int)%" PRId64 ")", e->as.number.int_value);
                 return HML_TK_I32;
             }
+            if (e->as.number.int_value == INT64_MIN) {
+                // -9223372036854775808L is negation of an out-of-range literal in C
+                sb_append(out, "((long)(-9223372036854775807L - 1L))");
+                return HML_TK_I64;
+            }
             sb_printf(out, "((long)%" PRId64 "L)", e->as.number.int_value);
             return HML_TK_I64;
         case EXPR_BOOL:

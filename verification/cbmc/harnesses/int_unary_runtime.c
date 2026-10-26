@@ -2,9 +2,7 @@
  * PROOF: runtime unary minus, ~, ++ and -- on integers follow the
  * documented overflow policy, without UB, for every integer type and value:
  *
- *   -x : i8/i16 wrap in-type; i32/i64 MIN raise; u8 -> i16, u16 -> i32,
- *        u32 -> i64 (exact); u64 -> i64 exact when x <= INT64_MAX, else raise
- *   ~x : same type, bitwise complement
+ *   -x, ~x : spec_negate, spec_bit_not (int_spec.h)
  *   ++x / --x : same type, always wrap
  */
 #include "int_spec.h"
@@ -50,22 +48,8 @@ void harness(void) {
     SpecInt want;
     int raises = 0;
     switch (which) {
-        case 0: /* negate */
-            switch (x.type) {
-                case HML_TK_I8: case HML_TK_I16:
-                    want = (SpecInt){ x.type, spec_wrap(-x.value, x.type) }; break;
-                case HML_TK_I32: case HML_TK_I64:
-                    want = (SpecInt){ x.type, -x.value };
-                    raises = spec_wrap(-x.value, x.type) != -x.value; break;
-                case HML_TK_U8:  want = (SpecInt){ HML_TK_I16, -x.value }; break;
-                case HML_TK_U16: want = (SpecInt){ HML_TK_I32, -x.value }; break;
-                case HML_TK_U32: want = (SpecInt){ HML_TK_I64, -x.value }; break;
-                default:
-                    want = (SpecInt){ HML_TK_I64, -x.value };
-                    raises = x.value > INT64_MAX; break;
-            }
-            break;
-        case 1: want = (SpecInt){ x.type, spec_wrap(~x.value, x.type) }; break;
+        case 0: want = spec_negate(x, &raises); break;
+        case 1: want = spec_bit_not(x); break;
         case 2: want = (SpecInt){ x.type, spec_wrap(x.value + 1, x.type) }; break;
         default: want = (SpecInt){ x.type, spec_wrap(x.value - 1, x.type) }; break;
     }

@@ -1,7 +1,8 @@
 /*
  * PROOF: the compiled-program runtime's hml_binary_op (runtime/src/
  * builtins_ops.c) implements int_spec.h for every pair of integer types,
- * every operand value and every integer operator, without UB.
+ * every operand value and every integer operator (including `/`, whose
+ * result is f64), without UB.
  * Split the work with -DOP=SPEC_xxx and/or -DLT=/-DRT=HML_TK_xxx.
  */
 #define SPEC_SHAPE_RUNTIME   /* * and % in 64-bit, as builtins_ops.c does */
@@ -15,6 +16,7 @@ static const HmlBinaryOp op_map[SPEC_OP_COUNT] = {
     HML_OP_BIT_AND, HML_OP_BIT_OR, HML_OP_BIT_XOR, HML_OP_LSHIFT, HML_OP_RSHIFT,
     HML_OP_EQUAL, HML_OP_NOT_EQUAL, HML_OP_LESS, HML_OP_LESS_EQUAL,
     HML_OP_GREATER, HML_OP_GREATER_EQUAL,
+    HML_OP_DIV,
 };
 
 static HmlValue to_runtime(SpecInt v) {
@@ -63,7 +65,10 @@ void harness(void) {
     HmlValue res = hml_binary_op(op_map[op], to_runtime(l), to_runtime(r));
     __CPROVER_assert(!want.raises, "raises when the spec requires it");
 
-    if (want.is_bool) {
+    if (want.is_float) {
+        __CPROVER_assert(res.type == HML_VAL_F64, "division yields f64");
+        __CPROVER_assert(res.as.as_f64 == spec_quotient(l, r), "quotient matches spec");
+    } else if (want.is_bool) {
         __CPROVER_assert(res.type == HML_VAL_BOOL, "comparison yields bool");
         __CPROVER_assert(res.as.as_bool == want.flag, "comparison matches spec");
     } else {

@@ -1,0 +1,18 @@
+// Parity test: `/` converts integer operands to the promoted type, like
+// every other operator, before dividing in f64. Compiled code converted
+// each operand to f64 directly, so i8(-1) / u8(1) was -1 there and 255 in
+// the interpreter. Found by verification/ (rt_div).
+let a: i8 = -1;
+let b: u8 = 1;
+print(a / b);                // 255: -1 as u8
+print(a % b);                // 0, on the same converted values
+let c = -1;
+let d: u64 = 4;
+print(c / d);                // 4.61169e+18: (2^64 - 1) / 4
+print(c < d);                // false, same conversion
+let e: i16 = -6;
+let f: u16 = 3;
+print(e / f);                // 21843.3: 65530 / 3
+let g: i32 = -7;
+let h: i64 = 2;
+print(g / h);                // -3.5: no unsigned type involved

@@ -110,15 +110,39 @@ static inline int hml_op_numeric(HmlValue v) {
     return hml_is_numeric(v) && v.type != HML_VAL_RUNE;
 }
 
+// An integer operand converted to the (integer) promoted type, as a double.
+// `/` converts its operands like every other operator, so i8(-1) / u8(1)
+// divides 255 by 1 (mirrors the interpreter's promote_value).
+static double int_in_promoted_type(HmlValue v, HmlValueType t) {
+    int64_t x = hml_to_i64(v);
+    switch (t) {
+        case HML_VAL_I8:  return (double)(int8_t)x;
+        case HML_VAL_I16: return (double)(int16_t)x;
+        case HML_VAL_I32: return (double)(int32_t)x;
+        case HML_VAL_U8:  return (double)(uint8_t)x;
+        case HML_VAL_U16: return (double)(uint16_t)x;
+        case HML_VAL_U32: return (double)(uint32_t)x;
+        case HML_VAL_U64: return (double)(uint64_t)x;
+        default:          return (double)x;
+    }
+}
+
 HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
     // Division always uses float regardless of operand types
     if (op == HML_OP_DIV && hml_op_numeric(left) && hml_op_numeric(right)) {
-        double l = hml_to_f64(left);
-        double r = hml_to_f64(right);
         // IEEE 754: float / 0.0 returns Inf or NaN - do not throw for float operands.
         // Only throw for integer operands where zero division is undefined.
         int either_float = (left.type == HML_VAL_F64 || left.type == HML_VAL_F32 ||
                             right.type == HML_VAL_F64 || right.type == HML_VAL_F32);
+        double l, r;
+        if (either_float) {
+            l = hml_to_f64(left);
+            r = hml_to_f64(right);
+        } else {
+            HmlValueType int_type = promote_types(left.type, right.type);
+            l = int_in_promoted_type(left, int_type);
+            r = int_in_promoted_type(right, int_type);
+        }
         if (r == 0.0 && !either_float) hml_runtime_error_line("Division by zero");
         // When the promoted type is f32 the quotient stays f32 (mirrors the
         // interpreter); everything else divides as f64.
