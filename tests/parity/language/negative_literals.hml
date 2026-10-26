@@ -24,3 +24,7 @@ try {
 } catch (e) {
     print("caught: " + e.contains("larger than INT64_MAX"));
 }
+
+// Constant folding keeps i64 results i64 (verification/ fold_mod_i64_i32)
+print(typeof(-2147483649 % -1));
+print(typeof(-1 % -2147483649));

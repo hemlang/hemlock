@@ -189,7 +189,10 @@ static inline int hml_fold_binary(BinaryOp op, HmlNumLit l, HmlNumLit r, HmlFold
                                                  hml_fold_div_operand(r, l, r)));
         case OP_MOD: {
             if (b == 0) return 0;
-            if (b == -1) return hml_fold_num(out, hml_lit_int(0));  /* MIN % -1 is defined as 0 */
+            if (b == -1) {                    /* MIN % -1 is defined as 0 */
+                if (!p32) return 0;           /* an i64 0 has no literal */
+                return hml_fold_num(out, hml_lit_int(0));
+            }
             if (p32) return hml_fold_num(out, hml_lit_int((int32_t)a % (int32_t)b));
             int64_t res = a % b;
             if (hml_lit_fits_i32(res)) return 0;              /* keep runtime i64 type */
