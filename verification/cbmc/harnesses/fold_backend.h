@@ -28,14 +28,18 @@ static const BinaryOp fold_ops[] = {
 };
 #define FOLD_OP_COUNT ((int)(sizeof(fold_ops) / sizeof(fold_ops[0])))
 
-/* The operator: fold_ops[FOLD_OP] when given (one proof per operator),
- * otherwise any of them. */
+/* The operator: fold_ops[FOLD_OP] when given (one proof per arithmetic
+ * operator: each compares two IEEE circuits, which CaDiCaL proves equal
+ * only one at a time), otherwise any from fold_ops[FOLD_OP_FROM] on. */
+#ifndef FOLD_OP_FROM
+#define FOLD_OP_FROM 0
+#endif
 static BinaryOp fold_pick_op(void) {
 #ifdef FOLD_OP
     return fold_ops[FOLD_OP];
 #else
     int i = nondet_int();
-    __CPROVER_assume(i >= 0 && i < FOLD_OP_COUNT);
+    __CPROVER_assume(i >= FOLD_OP_FROM && i < FOLD_OP_COUNT);
     return fold_ops[i];
 #endif
 }

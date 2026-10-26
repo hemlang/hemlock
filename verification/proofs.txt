@@ -68,7 +68,7 @@ rt_gt|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_GT @bitwuzla
 rt_ge|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_GE @bitwuzla
 # `/` reads an f64 out of HmlValue: CBMC 6.4.1 emits invalid SMT2 for that
 # (README "Method notes"), so it runs on CaDiCaL
-rt_div|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_DIV
+rt_div|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_DIV @pairs
 rt_unary|pass|cbmc|int_unary_runtime.c|$RT|--unwind 2 @bitwuzla
 
 # ---- interpreter integer ops (src/backends/interpreter/runtime/binary_ops.c) ----
@@ -92,7 +92,7 @@ in_lt|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_LT $UN
 in_le|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_LE $UN
 in_gt|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_GT $UN
 in_ge|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_GE $UN
-in_div|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN
+in_div|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN @pairs
 
 # ---- channels (src/shared/chan_core.c), TLA+ model ----
 chan_rendezvous_progress|pass|tlc|RendezvousProgress.cfg|Channel.tla|
@@ -157,7 +157,19 @@ fold_gt|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_GT @bitwuzla @litpairs
 fold_ge|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_GE @bitwuzla @litpairs
 fold_div|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_DIV @bitwuzla @litpairs
 fold_unary|pass|cbmc|fold_unary.c|-|--unwind 2 @bitwuzla @lits
-fold_float_rt|pass|cbmc|fold_runtime.c|$RT|--unwind 2
+# Float/mixed folds compare IEEE results on CaDiCaL (README "Method notes"),
+# one arithmetic operator per proof.
+fold_float_add_rt|pass|cbmc|fold_runtime.c|$RT|--unwind 2 -DFOLD_OP=0
+fold_float_sub_rt|pass|cbmc|fold_runtime.c|$RT|--unwind 2 -DFOLD_OP=1
+fold_float_mul_rt|pass|cbmc|fold_runtime.c|$RT|--unwind 2 -DFOLD_OP=2
+fold_float_div_rt|pass|cbmc|fold_runtime.c|$RT|--unwind 2 -DFOLD_OP=3
+fold_float_mod_rt|pass|cbmc|fold_runtime.c|$RT|--unwind 2 -DFOLD_OP=4
+fold_float_cmp_bits_rt|pass|cbmc|fold_runtime.c|$RT|--unwind 2 -DFOLD_OP_FROM=5
 fold_truthy_rt|pass|cbmc|fold_runtime.c|$RT|--unwind 2 -DTRUTHY
-fold_float_in|pass|cbmc|fold_interp.c|$IN|--unwind 2 $UN
+fold_float_add_in|pass|cbmc|fold_interp.c|$IN|--unwind 2 -DFOLD_OP=0 $UN
+fold_float_sub_in|pass|cbmc|fold_interp.c|$IN|--unwind 2 -DFOLD_OP=1 $UN
+fold_float_mul_in|pass|cbmc|fold_interp.c|$IN|--unwind 2 -DFOLD_OP=2 $UN
+fold_float_div_in|pass|cbmc|fold_interp.c|$IN|--unwind 2 -DFOLD_OP=3 $UN
+fold_float_mod_in|pass|cbmc|fold_interp.c|$IN|--unwind 2 -DFOLD_OP=4 $UN
+fold_float_cmp_bits_in|pass|cbmc|fold_interp.c|$IN|--unwind 2 -DFOLD_OP_FROM=5 $UN
 fold_truthy_in|pass|cbmc|fold_interp.c|$IN|--unwind 2 -DTRUTHY $UN
