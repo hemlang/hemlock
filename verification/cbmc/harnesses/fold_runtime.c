@@ -37,7 +37,11 @@ static HmlBinaryOp backend_op(BinaryOp op) {
 }
 
 void harness(void) {
-#ifdef TRUTHY
+#if defined(CONV)
+    HmlNumLit x = nondet_lit();
+    __CPROVER_assert(same_double(hml_lit_as_double(x), hml_to_f64(to_backend(x))),
+                     "float folds use the backend's f64 operand");
+#elif defined(TRUTHY)
     HmlNumLit x = nondet_lit();
     __CPROVER_assert(hml_lit_truthy(x) == hml_to_bool(to_backend(x)),
                      "constant truthiness matches the runtime");

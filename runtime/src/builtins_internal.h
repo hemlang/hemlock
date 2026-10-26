@@ -143,6 +143,8 @@ double hml_val_to_double(HmlValue val);
 // Note: type_priority() and promote_types() are now static inline in builtins_ops.c,
 // using the shared type_promotion module for the actual logic.
 HmlValue make_int_result(HmlValueType result_type, int64_t value);
+// An integer operand of `/` converted to the integer promoted type t, as f64
+double hml_int_as_promoted_f64(HmlValue v, HmlValueType t);
 
 // UTF-8 encoder (used by string operations)
 int encode_utf8(uint32_t cp, char *out);

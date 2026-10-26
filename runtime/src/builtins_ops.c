@@ -112,8 +112,9 @@ static inline int hml_op_numeric(HmlValue v) {
 
 // An integer operand converted to the (integer) promoted type, as a double.
 // `/` converts its operands like every other operator, so i8(-1) / u8(1)
-// divides 255 by 1 (mirrors the interpreter's promote_value).
-static double int_in_promoted_type(HmlValue v, HmlValueType t) {
+// divides 255 by 1 (mirrors the interpreter's promote_value). Not static:
+// verification/ proves it for every type pair (rt_div_conv).
+double hml_int_as_promoted_f64(HmlValue v, HmlValueType t) {
     int64_t x = hml_to_i64(v);
     switch (t) {
         case HML_VAL_I8:  return (double)(int8_t)x;
@@ -140,8 +141,8 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             r = hml_to_f64(right);
         } else {
             HmlValueType int_type = promote_types(left.type, right.type);
-            l = int_in_promoted_type(left, int_type);
-            r = int_in_promoted_type(right, int_type);
+            l = hml_int_as_promoted_f64(left, int_type);
+            r = hml_int_as_promoted_f64(right, int_type);
         }
         if (r == 0.0 && !either_float) hml_runtime_error_line("Division by zero");
         // When the promoted type is f32 the quotient stays f32 (mirrors the

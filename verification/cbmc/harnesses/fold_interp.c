@@ -24,7 +24,11 @@ static Value to_backend(HmlNumLit l) {
 }
 
 void harness(void) {
-#ifdef TRUTHY
+#if defined(CONV)
+    HmlNumLit x = nondet_lit();
+    __CPROVER_assert(same_double(hml_lit_as_double(x), value_to_float(promote_value(to_backend(x), VAL_F64))),
+                     "float folds use the backend's f64 operand");
+#elif defined(TRUTHY)
     HmlNumLit x = nondet_lit();
     __CPROVER_assert(hml_lit_truthy(x) == value_is_truthy(to_backend(x)),
                      "constant truthiness matches the interpreter");

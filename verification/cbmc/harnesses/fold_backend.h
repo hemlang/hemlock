@@ -6,6 +6,13 @@
  *                 fold must not hide a runtime error and must produce the
  *                 backend's bool, or its f64 bit for bit (any NaN for NaN:
  *                 both compute the same C expression on the same doubles).
+ *   -DCONV:       every literal, as an operand of a float operation, is
+ *                 the f64 the backend computes with. For `* / %` this is
+ *                 what is proved: comparing two IEEE products, quotients or
+ *                 remainders does not finish on CaDiCaL, so that the fold
+ *                 and the backend then apply the same C operator is by
+ *                 inspection (README "What is not covered"). `+ -` and all
+ *                 comparisons are checked end to end (default mode).
  *   -DTRUTHY:     constant conditions (if/while elimination, !, &&, ||,
  *                 ternary) use hml_lit_truthy, which must equal the
  *                 backend's truthiness of the literal's value, for every

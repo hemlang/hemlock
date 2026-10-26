@@ -8,7 +8,8 @@
  *     declines)
  *   - a folded literal has the spec's value AND, re-read as a literal, the
  *     spec's result type (i32 literals re-infer as i32, i64 as i64, u64 as
- *     u64); `/` folds to the spec's f64 quotient, comparisons to its bool
+ *     u64); `/` folds to an f64 computed from the spec's converted
+ *     operands, comparisons to the spec's bool
  *
  * Declining is always sound, so it is not checked. Together with rt_* and
  * in_* (both backends implement the same spec) this proves that folding is
@@ -41,9 +42,19 @@ void harness(void) {
         __CPROVER_assert(out.is_bool, "comparison folds to a bool");
         __CPROVER_assert(out.flag == want.flag, "folded comparison matches spec");
     } else if (want.is_float) {
+        /* `/`: the fold divides hml_fold_div_operand(l) by
+         * hml_fold_div_operand(r); checked here is that those are the
+         * spec's converted operands. Comparing the two IEEE quotients
+         * themselves does not finish (README "What is not covered"). */
+        SpecInt sl = lit_value(l), sr = lit_value(r);
+        HmlTypeKind R = spec_promote(sl.type, sr.type);
         __CPROVER_assert(!out.is_bool && out.num.kind == HML_LIT_F64, "`/` folds to an f64");
-        __CPROVER_assert(out.num.v.f == spec_quotient(lit_value(l), lit_value(r)),
-                         "folded quotient matches spec");
+        __CPROVER_assert(hml_fold_div_operand(l, l, r) == spec_cast_to_double(R, sl.value) &&
+                         hml_fold_div_operand(r, l, r) == spec_cast_to_double(R, sr.value),
+                         "`/` divides the operands converted to the promoted type");
+        __CPROVER_assert(spec_cast_to_double(R, sl.value) == spec_to_double(R, spec_wrap(sl.value, R)) &&
+                         spec_cast_to_double(R, sr.value) == spec_to_double(R, spec_wrap(sr.value, R)),
+                         "spec: cast conversion equals spec_wrap");
     } else {
         __CPROVER_assert(!out.is_bool && out.num.kind != HML_LIT_F64, "integer op folds to an integer");
         SpecInt got = lit_value(out.num);

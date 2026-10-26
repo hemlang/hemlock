@@ -182,13 +182,21 @@ After editing the PlusCal in a `.tla` file, regenerate its TLA+ translation:
   Bitwuzla, CaDiCaL, or `--refine-arithmetic`, even with one operand bounded
   to 8 bits. All other 63 multiply pairs are proved, including `i64` with
   every narrower type and `u64 × u64`.
-- **Integer `/` is proved for 8 of 64 type pairs per backend** (`rt_div_*`,
-  `in_div_*`; the interpreter also for its i32/i64 fast paths): one pair per
-  promoted type, chosen so that converting an operand to it changes the
-  value (`i8 / u8`, `i32 / u32`, `i64 / u64`, ...). Each proof compares two
-  IEEE quotients on CaDiCaL (see "No live `double`" above) and takes
-  minutes; all 128 would take about 13 CPU hours. The folded `/` is proved
-  for every literal pair (`fold_div_*`).
+- **`/` (and float `* %`) is proved by its operands, not its result,
+  except for narrow types.** Checking that two IEEE quotients agree means
+  proving two dividers equal, which only finishes on CaDiCaL for small
+  operands (`i8 / u8`: 6 min, 16-bit pairs: over an hour). So for every
+  type pair `div_conv_rt` / `div_conv_in` prove that each backend hands the
+  division the operands converted to the promoted type, `rt_div_*` /
+  `in_div_*` check the whole `/` path end to end for the `i8` pairs
+  (which is what catches converting at the wrong place, finding 14), and
+  `fold_div_*` prove the folded `/` divides the spec's converted operands.
+  Likewise `fold_float_conv_*` prove float folds compute with the
+  backend's f64 operands, while only `+ -` and comparisons are compared end
+  to end. That both sides then apply the same C operator (`/`, `*`,
+  `fmod`) is by inspection. The interpreter's i32/i64 `/` fast paths
+  (`(double)l / (double)r` on same-signedness operands) are not covered
+  by `div_conv_in`, which checks its generic path.
 - **Folding `i64 * i64`** (`fold_mul_i64_i64`, marked `skip`), for the
   same reason as the backends' checked 64x64 multiply above. Every other
   literal pair of `*` is proved.

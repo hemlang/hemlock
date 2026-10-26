@@ -84,6 +84,19 @@ static inline int hml_fold_num(HmlFoldResult *out, HmlNumLit v) {
 }
 
 /*
+ * Operand `x` of an integer `l / r` (x is l or r), converted to the
+ * promoted type, as the f64 the quotient is computed from: i32 when both
+ * fit, else u64 if either is u64, else i64. Split out so the proofs can
+ * check the conversion separately from the IEEE division (fold_div_conv).
+ */
+static inline double hml_fold_div_operand(HmlNumLit x, HmlNumLit l, HmlNumLit r) {
+    if (l.kind == HML_LIT_U64 || r.kind == HML_LIT_U64)
+        return (double)(x.kind == HML_LIT_U64 ? x.v.u : (uint64_t)x.v.i);
+    if (hml_lit_fits_i32(l.v.i) && hml_lit_fits_i32(r.v.i)) return (double)(int32_t)x.v.i;
+    return (double)x.v.i;
+}
+
+/*
  * Fold `l op r`. Returns 1 and sets *out if the result is a literal.
  *
  * Promotion of two literals: f64 if either is a float, else u64 if either
@@ -126,7 +139,8 @@ static inline int hml_fold_binary(BinaryOp op, HmlNumLit l, HmlNumLit r, HmlFold
             case OP_MUL: return hml_fold_num(out, hml_lit_u64(a * b));
             case OP_DIV:
                 if (b == 0) return 0;  /* runtime throws for int operands */
-                return hml_fold_num(out, hml_lit_f64((double)a / (double)b));
+                return hml_fold_num(out, hml_lit_f64(hml_fold_div_operand(l, l, r) /
+                                                     hml_fold_div_operand(r, l, r)));
             case OP_MOD:
                 if (b == 0) return 0;
                 return hml_fold_num(out, hml_lit_u64(a % b));
@@ -171,8 +185,8 @@ static inline int hml_fold_binary(BinaryOp op, HmlNumLit l, HmlNumLit r, HmlFold
         }
         case OP_DIV:
             if (b == 0) return 0;  /* runtime throws Division by zero */
-            if (p32) return hml_fold_num(out, hml_lit_f64((double)(int32_t)a / (double)(int32_t)b));
-            return hml_fold_num(out, hml_lit_f64((double)a / (double)b));
+            return hml_fold_num(out, hml_lit_f64(hml_fold_div_operand(l, l, r) /
+                                                 hml_fold_div_operand(r, l, r)));
         case OP_MOD: {
             if (b == 0) return 0;
             if (b == -1) return hml_fold_num(out, hml_lit_int(0));  /* MIN % -1 is defined as 0 */
