@@ -8,11 +8,12 @@ answer rather than a crash.
 |------|------|------|----------------|
 | UTF-8 | `src/shared/utf8.c` | CBMC | round-trip for every scalar value; decoders memory-safe on arbitrary bytes |
 | Type promotion | `src/shared/type_promotion.c` | CBMC | commutative, associative, monotone, matches the documented lattice |
-| Integer ops (compiled) | `runtime/src/builtins_ops.c` | CBMC | `+ - * % & \| ^ << >>`, comparisons, unary `- ~ ++ --` match an executable spec for **every** type pair and **every** value; no UB (`*` and `%`: see method notes) |
+| Integer ops (compiled) | `runtime/src/builtins_ops.c` | CBMC | `+ - * / % & \| ^ << >>`, comparisons, unary `- ~ ++ --` match an executable spec for **every** type pair and **every** value; no UB (`*` and `%`: see method notes) |
 | Integer ops (interpreter) | `src/backends/interpreter/runtime/binary_ops.c` (`eval_binary_values`) | CBMC | same spec, so passing both = a parity proof |
 | Channels | `src/shared/chan_core.c` | TLA+ / TLC | FIFO, no duplicate or lost items, send status tells the truth, no lost wakeups / deadlock |
 | `select()` | `src/shared/chan_core.c` (`hml_chan_select`) | TLA+ / TLC | same, across several channels and against concurrent `recv()`; no lost wakeup between scan and wait; no lock-order deadlock; the stack waiter is never notified after it is gone |
 | Tasks | `spawn`/`join`/`detach`/`await` and task refcounting in both backends | TLA+ / TLC | task freed exactly once and never used after; every pthread joined or detached exactly once (no POSIX UB, no leak); one join wins and sees the result; `join` never hangs |
+| Constant folding | `include/frontend/const_fold.h` (the numeric folds of `src/frontend/optimizer`) | CBMC | every integer fold matches the integer spec: same value, same type once re-read as a literal, never removes a runtime error (binary ops and unary `- ~`); float/mixed folds and constant-condition truthiness match each backend directly. With the rows above: a program prints the same with or without the optimizer |
 
 The CBMC proofs are exhaustive over their inputs: a `VERIFICATION SUCCESSFUL`
 for `rt_add` means there is no pair of integer types and no pair of values for
@@ -31,7 +32,7 @@ quietly stopped checking something fails the run.
 ## Running
 
 ```bash
-verification/run.sh              # everything (~31 min on 4 cores)
+verification/run.sh              # everything (~1h30 on 4 cores; ~5h40m CPU)
 verification/run.sh utf8 chan    # subset, by name substring
 verification/run.sh chan select task mut_   # concurrency models only: needs just Java
 KEEP_LOGS=/tmp/v verification/run.sh rt_shr   # keep logs to read counterexamples
@@ -149,6 +150,26 @@ After editing the PlusCal in a `.tla` file, regenerate its TLA+ translation:
   positions. Under `--bitwuzla` that both "refutes" true overflow facts
   (`ov == (exact product out of range)`) and "proves" false ones. Any CBMC
   proof using these builtins with `--bitwuzla` needs this header.
+- **No live `double` inside an aggregate under Bitwuzla.** CBMC 6.4.1
+  encodes a struct for Bitwuzla by concatenating its members as
+  bit-vectors (e.g. for every struct passed by value), but emits a
+  `double` member as a floating-point term, which Bitwuzla rejects
+  ("expected bit-vector term ... to 'concat'"): the proof reports `ERROR`.
+  A union is one bit-vector and is fine until its `double` member is read
+  or written, which crashes CBMC ("convert_expr should not be applied to
+  unsupported type"). Hence: `spec_quotient()` returns the expected `/`
+  result outside `SpecResult`; `HmlNumLit` (`const_fold.h`) is a tagged
+  union, and the integer folding proofs fix the literal classes per proof
+  (`@lits`, `@litpairs`, `cbmc/harnesses/fold_lit.h`) so its f64 member is
+  never live; and the proofs that need it live (`fold_float_*`,
+  `fold_truthy_*`) or read an f64 out of a backend value (`rt_div`,
+  `in_div`) run on CaDiCaL, which bit-blasts floats itself.
+- **Folds are stated in the backends' arithmetic shape**, for the reason
+  given for `*` and `%` above: i32 x i32 `+ - * % /` are computed in
+  `int32_t` exactly as both backends' i32 fast paths do, and the spec's `/`
+  converts operands by C cast (asserted equal to `spec_wrap`). Without
+  this, Bitwuzla has to prove two differently shaped multipliers, dividers
+  or float dividers equal and does not finish.
 - **The interpreter harness enters at `eval_binary_values`**, the part of
   `eval_binary_expr` after operand evaluation, extracted for this purpose.
   Putting an `Expr` in the program state trips a CBMC 6.4.1 bug: unions with
@@ -161,6 +182,34 @@ After editing the PlusCal in a `.tla` file, regenerate its TLA+ translation:
   Bitwuzla, CaDiCaL, or `--refine-arithmetic`, even with one operand bounded
   to 8 bits. All other 63 multiply pairs are proved, including `i64` with
   every narrower type and `u64 × u64`.
+- **`/` (and float `* %`) is proved by its operands, not its result,
+  except for narrow types.** Checking that two IEEE quotients agree means
+  proving two dividers equal, which only finishes on CaDiCaL for small
+  operands (`i8 / u8`: 6 min, 16-bit pairs: over an hour). So for every
+  type pair `div_conv_rt` / `div_conv_in` prove that each backend hands the
+  division the operands converted to the promoted type, `rt_div_*` /
+  `in_div_*` check the whole `/` path end to end for the `i8` pairs
+  (which is what catches converting at the wrong place, finding 14), and
+  `fold_div_*` prove the folded `/` divides the spec's converted operands.
+  Likewise `fold_float_conv_*` prove float folds compute with the
+  backend's f64 operands, while only `+ -` and comparisons are compared end
+  to end. That both sides then apply the same C operator (`/`, `*`,
+  `fmod`) is by inspection. The interpreter's i32/i64 `/` fast paths
+  (`(double)l / (double)r` on same-signedness operands) are not covered
+  by `div_conv_in`, which checks its generic path.
+- **Folding `i64 * i64`** (`fold_mul_i64_i64`, marked `skip`), for the
+  same reason as the backends' checked 64x64 multiply above. Every other
+  literal pair of `*` is proved.
+- **Non-numeric folds** of the optimizer: string concatenation and
+  interpolation of literals, boolean `&& || == !=` on bool literals, and
+  the structural rewrites (dropping a dead `if`/`while` branch, a decided
+  `&&`/`||`, `??` on a literal). Their decisions rest on constant
+  truthiness, which is proved (`fold_truthy_*`); the tree surgery is not.
+- **Mixed integer/`f32` arithmetic is not proved, and the backends
+  disagree on it.** The interpreter converts the integer operand to `f32`
+  first, compiled code to `f64`: `16777217 - f32(16777216.0)` prints `0`
+  interpreted and `1` compiled. Found while fixing finding 14; literals are
+  never `f32`, so no fold is affected. Not fixed here.
 - Everything not in the table: the object/array/refcount machinery (except
   task handles), FFI, I/O, the parser and codegen, and float arithmetic
   beyond promotion.
@@ -323,6 +372,54 @@ the compiled runtime throws the interpreter's error. Parity test
 `tests/parity/builtins/task_join_detach_errors.hml` covers every join/detach
 misuse; previously none was tested on either backend.
 
+### 12. Negative literals were typed by the optimizer, which does not always run
+
+`-2147483648` was parsed as negation of the i64 `2147483648`; only the
+optimizer's negation fold turned it into the i32 MIN literal, and the same
+fold made `-9223372036854775808` work at all (negating a u64 above
+INT64_MAX throws). The interpreter runs a program that imports anything
+without the optimizer (`execute_file_with_modules`), so there
+`typeof(-2147483648)` was `i64` and `-9223372036854775808` threw, while
+the same line printed `i32` / worked in a program without imports and in
+compiled code. **Fix:** the parser builds a negative literal from `-`
+directly followed by a number token, so literal typing no longer depends on
+the optimizer (`tests/parity/language/negative_literals.hml`,
+`tests/parity/modules/negative_literals_import.hml`). The formatter re-adds
+the `-` when it keeps a literal's original spelling (`-0x10` stays
+`-0x10`; negative match patterns used to come out in decimal).
+
+### 13. The negation fold applied the literal rule to every value
+
+Because it carried the literal rule, the fold also rewrote `-(2147483648)`
+to an i32 (runtime: i64) and `-(-2147483648)` to the i64 `2147483648`
+(runtime: "Integer overflow: i32 negation"), against the documented
+overflow policy for constant expressions. **Fix:** `hml_fold_negate` folds
+exactly what runtime negation computes and declines the rest
+(`fold_unary`).
+
+### 14. `/` converted mixed-signedness operands differently on the backends
+
+Compiled `/` converted each integer operand to f64 directly; every other
+operator, and the interpreter's `/`, first converts to the promoted type.
+
+```
+                        interp       compiled (before)
+i8(-1) / u8(1)            255          -1
+-1 / u64(3)               6.14891e+18  -0.333333
+```
+
+**Fix:** compiled `/` converts to the promoted type first (`rt_div`;
+`in_div` passes unchanged; `tests/parity/language/int_division_promotion.hml`).
+The fold already did this for literals (`fold_div`), so constant and
+non-constant division disagreed in compiled code.
+
+### 15. Compiled-only constant folding of `-` and `~` in codegen
+
+`codegen_expr.c` folded unary minus and `~` on integer literals that the
+optimizer had left alone, with its own rule: it would turn
+`-(-2147483648)` (which must throw) into `2147483648`, and `-(2147483648)`
+into an i32. **Fix:** removed; the frontend fold is the only one.
+
 ## Results
 
 Full run on 4 cores (CBMC 6.4.1, Bitwuzla 0.8.2, TLC 1.8.0): **305 proofs,
@@ -363,3 +460,29 @@ Every mutant fails for the reason its file names: 6 deadlocks (lost
 wakeups, lock-order inversion, rendezvous `signal`), 5 invariant violations
 (`WaiterLifetime`, `JoinXorDetach`, `NoLeak`) and 5 assertions (withdrawing
 an item that is not ours, use after free, POSIX UB on a pthread).
+
+### Constant folding and `/`
+
+Run after findings 12-15 were fixed (all CBMC proofs, 3 jobs, CBMC 6.4.1,
+Bitwuzla 0.8.2; the TLA+ models are unchanged and were not re-run):
+**463 proofs, all matching their expected verdict**, plus 3 `skip`
+(checked `i64 x i64` multiply: `rt_`, `in_`, and `fold_mul_i64_i64`).
+`utf8_navigation_valid` needs about 7.5 GB and was re-run on its own;
+`fold_mod_i64_i32` found a defect in this change's own `%` fold (an
+`i64 % -1` folded to an i32 `0`), fixed and re-run. Total CPU time 5h32m.
+
+| Area | Proofs | CPU time | Slowest |
+|------|-------:|---------:|--------:|
+| Integer folds (`fold_*` but `*`) | 138 | 0m53s | 2s |
+| Integer `*` folds | 8 | 21m45s | 1042s (`fold_mul_i64_i32`) |
+| Float folds, truthiness (`fold_float_*`, `fold_truthy_*`) | 10 | 113m56s | 2083s (`fold_float_cmp_bits_in`) |
+| `/` operand conversion (`div_conv_*`) | 2 | 0m41s | 22s |
+| `/` end to end (`rt_div_*`, `in_div_*`, i8 pairs) | 4 | 12m10s | 310s |
+
+Every folding and `/` proof was checked against planted bugs, each caught
+for its intended reason: negation applying the literal rule, negating i32
+MIN, demoting an i64 sum to i32, dropping the i32 overflow check, dropping
+`% -1`, logical `>>`, signed u64 `<`, truncating float truthiness, folding
+`&` on floats, converting `/`'s operands directly to f64 at the call site
+(finding 14, caught by `rt_div_i8_u8`), a wrong case in the runtime's
+conversion helper (`div_conv_rt`) and in the fold's (`fold_div_*`).

@@ -14,7 +14,9 @@
 #             @mutant=NAME (tlc) checks tla/mutants/NAME.mut planted into
 #             the model instead of the model itself;
 #             @pairs expands the line into one proof per integer type pair
-#             (name_<lt>_<rt>, e.g. rt_mul_i32_u8)
+#             (name_<lt>_<rt>, e.g. rt_mul_i32_u8); @litpairs / @lits into
+#             one per pair of literal classes / per class of the folding
+#             proofs (name_<l>_<r> / name_<l>, classes i32 i64 u64)
 #
 # A proof whose verdict differs from `expect` fails the run, so fixing a
 # known defect means flipping its line to `pass` in the same change.
@@ -64,6 +66,14 @@ rt_lt|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_LT @bitwuzla
 rt_le|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_LE @bitwuzla
 rt_gt|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_GT @bitwuzla
 rt_ge|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_GE @bitwuzla
+# `/` reads an f64 out of HmlValue: CBMC 6.4.1 emits invalid SMT2 for that
+# (README "Method notes"), so it runs on CaDiCaL
+# `/` end to end compares two IEEE quotients, which finishes only for narrow
+# operands (i8 pairs: minutes; 16-bit: hours); every pair's operand
+# conversion is proved by div_conv_rt (README "What is not covered")
+rt_div_i8_i8|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_DIV -DLT=HML_TK_I8 -DRT=HML_TK_I8
+rt_div_i8_u8|pass|cbmc|int_binop_runtime.c|$RT|--unwind 2 -DOP=SPEC_DIV -DLT=HML_TK_I8 -DRT=HML_TK_U8
+div_conv_rt|pass|cbmc|div_conv.c|$RT|--unwind 2 @bitwuzla
 rt_unary|pass|cbmc|int_unary_runtime.c|$RT|--unwind 2 @bitwuzla
 
 # ---- interpreter integer ops (src/backends/interpreter/runtime/binary_ops.c) ----
@@ -87,6 +97,10 @@ in_lt|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_LT $UN
 in_le|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_LE $UN
 in_gt|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_GT $UN
 in_ge|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_GE $UN
+# `/`: as for rt_div; operand conversion of every pair: div_conv_in
+in_div_i8_i8|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN -DLT=HML_TK_I8 -DRT=HML_TK_I8
+in_div_i8_u8|pass|cbmc|int_binop_interp.c|$IN|--unwind 2 -DOP=SPEC_DIV $UN -DLT=HML_TK_I8 -DRT=HML_TK_U8
+div_conv_in|pass|cbmc|div_conv.c|$IN|--unwind 2 -DBACKEND_INTERP $UN @bitwuzla
 
 # ---- channels (src/shared/chan_core.c), TLA+ model ----
 chan_rendezvous_progress|pass|tlc|RendezvousProgress.cfg|Channel.tla|
@@ -128,3 +142,38 @@ mut_task_detach_ignores_joined|fail|tlc|TaskHandles.cfg|Task.tla|@mutant=task_de
 mut_task_join_ignores_detached|fail|tlc|TaskHandles.cfg|Task.tla|@mutant=task_join_ignores_detached
 mut_task_release_before_publish|fail|tlc|TaskHandles.cfg|Task.tla|@mutant=task_release_before_publish
 mut_task_racy_refcount|fail|tlc|TaskHandles.cfg|Task.tla|@mutant=task_racy_refcount
+
+# ---- constant folding (include/frontend/const_fold.h, used by src/frontend/optimizer) ----
+# Integer folds against int_spec.h; with rt_* / in_* this makes folding
+# invisible on both backends. Float/mixed folds and constant truthiness are
+# checked against each backend directly.
+fold_add|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_ADD @bitwuzla @litpairs
+fold_sub|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_SUB @bitwuzla @litpairs
+fold_mul|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_MUL @bitwuzla @litpairs
+fold_mul_i64_i64|skip|checked 64x64 multiply: no solver finishes (README "What is not covered")
+fold_mod|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_MOD @bitwuzla @litpairs
+fold_and|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_AND @bitwuzla @litpairs
+fold_or|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_OR @bitwuzla @litpairs
+fold_xor|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_XOR @bitwuzla @litpairs
+fold_shl|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_SHL @bitwuzla @litpairs
+fold_shr|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_SHR @bitwuzla @litpairs
+fold_eq|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_EQ @bitwuzla @litpairs
+fold_ne|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_NE @bitwuzla @litpairs
+fold_lt|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_LT @bitwuzla @litpairs
+fold_le|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_LE @bitwuzla @litpairs
+fold_gt|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_GT @bitwuzla @litpairs
+fold_ge|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_GE @bitwuzla @litpairs
+fold_div|pass|cbmc|fold_int.c|-|--unwind 2 -DOP=SPEC_DIV @bitwuzla @litpairs
+fold_unary|pass|cbmc|fold_unary.c|-|--unwind 2 @bitwuzla @lits
+# Float/mixed folds on CaDiCaL (README "Method notes"): + - end to end, one
+# per proof; * / % by their operands (fold_float_conv_*, see fold_backend.h)
+fold_float_add_rt|pass|cbmc|fold_runtime.c|$RT|--unwind 2 -DFOLD_OP=0
+fold_float_sub_rt|pass|cbmc|fold_runtime.c|$RT|--unwind 2 -DFOLD_OP=1
+fold_float_conv_rt|pass|cbmc|fold_runtime.c|$RT|--unwind 2 -DCONV
+fold_float_cmp_bits_rt|pass|cbmc|fold_runtime.c|$RT|--unwind 2 -DFOLD_OP_FROM=5
+fold_truthy_rt|pass|cbmc|fold_runtime.c|$RT|--unwind 2 -DTRUTHY
+fold_float_add_in|pass|cbmc|fold_interp.c|$IN|--unwind 2 -DFOLD_OP=0 $UN
+fold_float_sub_in|pass|cbmc|fold_interp.c|$IN|--unwind 2 -DFOLD_OP=1 $UN
+fold_float_conv_in|pass|cbmc|fold_interp.c|$IN|--unwind 2 -DCONV $UN
+fold_float_cmp_bits_in|pass|cbmc|fold_interp.c|$IN|--unwind 2 -DFOLD_OP_FROM=5 $UN
+fold_truthy_in|pass|cbmc|fold_interp.c|$IN|--unwind 2 -DTRUTHY $UN

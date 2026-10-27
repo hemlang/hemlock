@@ -17,6 +17,32 @@ Expr* comparison(Parser *p);
 Expr* shift(Parser *p);
 Expr* term(Parser *p);
 Expr* factor(Parser *p);
+/*
+ * `-` directly followed by a number token is a negative literal, typed by
+ * its value like any literal: -2147483648 is i32, -9223372036854775808 is
+ * i64 MIN. This is syntax, not a fold, so it holds whether or not the
+ * optimizer runs. Negates `lit` in place and keeps its token position (the
+ * formatter looks up the original spelling there and re-adds the '-').
+ * Returns 0, leaving a runtime negation, when the value is not a literal:
+ * u64 above 2^63 (negating it throws), and -0 (an integer zero; formatting
+ * keeps the '-' only on a unary node).
+ */
+static int negate_number_literal(Expr *lit) {
+    if (lit->as.number.is_float) {
+        lit->as.number.float_value = -lit->as.number.float_value;
+        return 1;
+    }
+    if (lit->as.number.is_u64) {
+        if (lit->as.number.uint_value != (uint64_t)INT64_MAX + 1) return 0;
+        lit->as.number.is_u64 = 0;
+        lit->as.number.int_value = INT64_MIN;
+        return 1;
+    }
+    if (lit->as.number.int_value <= 0) return 0;  /* lexer values are >= 0 */
+    lit->as.number.int_value = -lit->as.number.int_value;
+    return 1;
+}
+
 Expr* unary(Parser *p);
 Expr* postfix(Parser *p);
 // Parse the remainder of a function expression after the 'fn' keyword has
@@ -390,6 +416,9 @@ static Pattern* parse_primary_pattern(Parser *p) {
             } else {
                 lit = expr_number_int(-p->previous.int_value);
             }
+            // Token position: the formatter keeps the original spelling
+            lit->line = p->previous.line;
+            lit->column = p->previous.column;
             Pattern *pat = pattern_literal(lit);
             pat->line = line;
             pat->column = column;
@@ -409,6 +438,8 @@ static Pattern* parse_primary_pattern(Parser *p) {
         } else {
             lit = expr_number_int(p->previous.int_value);
         }
+        lit->line = p->previous.line;
+        lit->column = p->previous.column;
         Pattern *pat = pattern_literal(lit);
         pat->line = line;
         pat->column = column;
@@ -1172,7 +1203,14 @@ static Expr* unary_inner(Parser *p) {
     }
 
     if (match(p, TOK_MINUS)) {
+        int literal_line = p->current.line, literal_column = p->current.column;
+        int is_number = check(p, TOK_NUMBER);
         Expr *operand = unary(p);
+        if (is_number && operand->type == EXPR_NUMBER &&
+            operand->line == literal_line && operand->column == literal_column &&
+            negate_number_literal(operand)) {
+            return operand;
+        }
         return expr_unary(UNARY_NEGATE, operand);
     }
 

@@ -1,0 +1,9 @@
+// Parity test: negative literals mean the same in a program that imports
+// modules. The interpreter runs such programs without the AST optimizer,
+// which used to be where -2147483648 became an i32 (it was i64 there) and
+// -9223372036854775808 stopped throwing. The parser now builds them.
+import { literal_types } from "./negative_literals_lib.hml";
+
+print(typeof(-2147483648));
+print(-9223372036854775808);
+literal_types();

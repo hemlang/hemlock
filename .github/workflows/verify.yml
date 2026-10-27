@@ -1,7 +1,7 @@
 name: Formal Verification
 
-# CBMC proofs of the shared UTF-8 / type-promotion code and of both backends'
-# integer operators, plus TLC model checking of channels, select() and the
+# CBMC proofs of the shared UTF-8 / type-promotion code, of both backends'
+# integer operators and of constant folding, plus TLC model checking of channels, select() and the
 # task lifecycle.
 # See verification/README.md. Each proof has an expected verdict in
 # verification/proofs.txt; the job fails on any mismatch.
@@ -11,6 +11,7 @@ on:
     branches: [ main, master ]
     paths:
       - 'src/shared/**'
+      - 'include/frontend/const_fold.h'
       - 'runtime/src/builtins_ops.c'
       - 'runtime/src/builtins_async.c'
       - 'src/backends/interpreter/builtins/concurrency.c'
@@ -25,6 +26,7 @@ on:
     branches: [ main, master ]
     paths:
       - 'src/shared/**'
+      - 'include/frontend/const_fold.h'
       - 'runtime/src/builtins_ops.c'
       - 'runtime/src/builtins_async.c'
       - 'src/backends/interpreter/builtins/concurrency.c'

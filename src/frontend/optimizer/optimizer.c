@@ -11,10 +11,21 @@
 #include <string.h>
 #include <math.h>
 #include "frontend/optimizer.h"
+#include "frontend/const_fold.h"
 
 /* Forward declarations */
 static Expr *optimize_expr_internal(Expr *expr, OptimizationStats *stats);
 static void optimize_stmt_internal(Stmt *stmt, OptimizationStats *stats);
+
+/*
+ * Literal value of an EXPR_NUMBER node. Same precedence as EXPR_NUMBER
+ * evaluation: is_float first, then is_u64.
+ */
+static HmlNumLit number_to_lit(Expr *expr) {
+    if (expr->as.number.is_float) return hml_lit_f64(expr->as.number.float_value);
+    if (expr->as.number.is_u64) return hml_lit_u64(expr->as.number.uint_value);
+    return hml_lit_int(expr->as.number.int_value);
+}
 
 /*
  * Check if an expression is a constant number.
@@ -35,13 +46,6 @@ static int is_const_bool(Expr *expr) {
  */
 static int is_const_null(Expr *expr) {
     return expr && expr->type == EXPR_NULL;
-}
-
-/*
- * Check if an expression is a constant integer (not float).
- */
-static int is_const_int(Expr *expr) {
-    return expr && expr->type == EXPR_NUMBER && !expr->as.number.is_float && !expr->as.number.is_u64;
 }
 
 /*
@@ -82,13 +86,7 @@ static int get_const_truthiness(Expr *expr, int *truthy) {
         return 1;
     }
     if (is_const_number(expr)) {
-        if (expr->as.number.is_float) {
-            *truthy = expr->as.number.float_value != 0.0;
-        } else if (expr->as.number.is_u64) {
-            *truthy = expr->as.number.uint_value != 0;
-        } else {
-            *truthy = expr->as.number.int_value != 0;
-        }
+        *truthy = hml_lit_truthy(number_to_lit(expr));
         return 1;
     }
     if (is_const_null(expr)) {
@@ -96,28 +94,6 @@ static int get_const_truthiness(Expr *expr, int *truthy) {
         return 1;
     }
     return 0;
-}
-
-/*
- * Get the numeric value of a constant as double.
- */
-static double get_number_as_double(Expr *expr) {
-    if (expr->as.number.is_float) {
-        return expr->as.number.float_value;
-    }
-    if (expr->as.number.is_u64) {
-        return (double)expr->as.number.uint_value;
-    }
-    return (double)expr->as.number.int_value;
-}
-
-/*
- * Whether an int64 value fits the i32 literal range. Integer literals (and
- * folded integer results) evaluate to i32 when they fit, i64 otherwise, so
- * folding must respect this boundary to preserve the runtime result type.
- */
-static int fits_i32(int64_t v) {
-    return v >= INT32_MIN && v <= INT32_MAX;
 }
 
 /*
@@ -156,156 +132,33 @@ static Expr *make_bool_expr(int value, int line) {
     return expr;
 }
 
+/* Inverse of number_to_lit. */
+static Expr *lit_to_number(HmlNumLit lit, int line) {
+    switch (lit.kind) {
+        case HML_LIT_F64: return make_float_expr(lit.v.f, line);
+        case HML_LIT_U64: return make_u64_expr(lit.v.u, line);
+        default:          return make_int_expr(lit.v.i, line);
+    }
+}
+
 /*
  * Try to fold a binary operation on two constant numbers.
- * Returns NULL if folding is not possible.
- *
- * Folding must be exactly semantics-preserving: the folded literal has to
- * carry the same value AND the same runtime type the unfolded expression
- * would produce, and expressions whose evaluation raises a runtime error
- * (i32/i64 overflow, division/modulo by zero) must be left unfolded so the
- * error still fires. When in doubt, decline to fold.
- *
- * Literal typing recap (mirrors EXPR_NUMBER evaluation): floats are f64,
- * u64-flagged literals are u64, other integers are i32 when they fit and
- * i64 otherwise. Promotion for two int literals is therefore i32 (both fit
- * i32), u64 (either u64), or i64 (the rest). i32 and i64 add/sub/mul throw
- * on overflow at runtime; u64 wraps; signed % -1 is 0.
+ * Returns NULL if folding is not possible. The folding rules live in
+ * frontend/const_fold.h, where they are proved semantics-preserving
+ * against both backends (verification/README.md).
  */
 static Expr *try_fold_binary_numeric(BinaryOp op, Expr *left, Expr *right, int line, OptimizationStats *stats) {
     if (!is_const_number(left) || !is_const_number(right)) {
         return NULL;
     }
 
-    int left_is_float = left->as.number.is_float;
-    int right_is_float = right->as.number.is_float;
-    int any_float = left_is_float || right_is_float;
-    int any_u64 = (!left_is_float && left->as.number.is_u64) ||
-                  (!right_is_float && right->as.number.is_u64);
-
-    Expr *result = NULL;
-
-    if (any_float) {
-        /* Promoted type is f64 (literal floats are always f64). Runtime
-         * float arithmetic is IEEE 754: division/modulo by zero produce
-         * inf/NaN without throwing, so folding is always safe here. */
-        double l = get_number_as_double(left);
-        double r = get_number_as_double(right);
-        switch (op) {
-            case OP_ADD: result = make_float_expr(l + r, line); break;
-            case OP_SUB: result = make_float_expr(l - r, line); break;
-            case OP_MUL: result = make_float_expr(l * r, line); break;
-            case OP_DIV: result = make_float_expr(l / r, line); break;
-            case OP_MOD: result = make_float_expr(fmod(l, r), line); break;
-            case OP_EQUAL:         result = make_bool_expr(l == r, line); break;
-            case OP_NOT_EQUAL:     result = make_bool_expr(l != r, line); break;
-            case OP_LESS:          result = make_bool_expr(l < r, line); break;
-            case OP_LESS_EQUAL:    result = make_bool_expr(l <= r, line); break;
-            case OP_GREATER:       result = make_bool_expr(l > r, line); break;
-            case OP_GREATER_EQUAL: result = make_bool_expr(l >= r, line); break;
-            default: return NULL;  /* bitwise/shift on floats: runtime error */
-        }
-    } else if (any_u64) {
-        /* Promoted type is u64: unsigned 64-bit with wrapping semantics.
-         * The folded literal keeps the u64 flag so its runtime type stays
-         * u64 regardless of magnitude. */
-        uint64_t l = left->as.number.is_u64 ? left->as.number.uint_value
-                                            : (uint64_t)left->as.number.int_value;
-        uint64_t r = right->as.number.is_u64 ? right->as.number.uint_value
-                                             : (uint64_t)right->as.number.int_value;
-        switch (op) {
-            case OP_ADD: result = make_u64_expr(l + r, line); break;
-            case OP_SUB: result = make_u64_expr(l - r, line); break;
-            case OP_MUL: result = make_u64_expr(l * r, line); break;
-            case OP_DIV:
-                if (r == 0) return NULL;  /* runtime throws for int operands */
-                result = make_float_expr((double)l / (double)r, line);
-                break;
-            case OP_MOD:
-                if (r == 0) return NULL;
-                result = make_u64_expr(l % r, line);
-                break;
-            case OP_EQUAL:         result = make_bool_expr(l == r, line); break;
-            case OP_NOT_EQUAL:     result = make_bool_expr(l != r, line); break;
-            case OP_LESS:          result = make_bool_expr(l < r, line); break;
-            case OP_LESS_EQUAL:    result = make_bool_expr(l <= r, line); break;
-            case OP_GREATER:       result = make_bool_expr(l > r, line); break;
-            case OP_GREATER_EQUAL: result = make_bool_expr(l >= r, line); break;
-            case OP_BIT_AND: result = make_u64_expr(l & r, line); break;
-            case OP_BIT_OR:  result = make_u64_expr(l | r, line); break;
-            case OP_BIT_XOR: result = make_u64_expr(l ^ r, line); break;
-            default: return NULL;  /* shifts: width semantics left to runtime */
-        }
-    } else {
-        /* Plain int literals: promoted type is i32 when both operands fit
-         * i32, i64 otherwise. */
-        int64_t l = left->as.number.int_value;
-        int64_t r = right->as.number.int_value;
-        int p32 = fits_i32(l) && fits_i32(r);
-        switch (op) {
-            case OP_ADD:
-            case OP_SUB:
-            case OP_MUL: {
-                int64_t res;
-                int ovf = (op == OP_ADD) ? __builtin_add_overflow(l, r, &res)
-                        : (op == OP_SUB) ? __builtin_sub_overflow(l, r, &res)
-                                         : __builtin_mul_overflow(l, r, &res);
-                if (ovf) return NULL;              /* runtime throws i64 overflow */
-                if (p32 && !fits_i32(res)) return NULL;  /* runtime throws i32 overflow */
-                if (!p32 && fits_i32(res)) return NULL;  /* would demote i64 result to i32 */
-                result = make_int_expr(res, line);
-                break;
-            }
-            case OP_DIV:
-                if (r == 0) return NULL;  /* runtime throws Division by zero */
-                result = make_float_expr((double)l / (double)r, line);
-                break;
-            case OP_MOD: {
-                if (r == 0) return NULL;
-                int64_t res = (r == -1) ? 0 : l % r;  /* MIN % -1 is defined as 0 */
-                if (!p32 && fits_i32(res)) return NULL;  /* keep runtime i64 type */
-                result = make_int_expr(res, line);
-                break;
-            }
-            case OP_EQUAL:         result = make_bool_expr(l == r, line); break;
-            case OP_NOT_EQUAL:     result = make_bool_expr(l != r, line); break;
-            case OP_LESS:          result = make_bool_expr(l < r, line); break;
-            case OP_LESS_EQUAL:    result = make_bool_expr(l <= r, line); break;
-            case OP_GREATER:       result = make_bool_expr(l > r, line); break;
-            case OP_GREATER_EQUAL: result = make_bool_expr(l >= r, line); break;
-            case OP_BIT_AND:
-            case OP_BIT_OR:
-            case OP_BIT_XOR: {
-                int64_t res = (op == OP_BIT_AND) ? (l & r)
-                            : (op == OP_BIT_OR)  ? (l | r) : (l ^ r);
-                if (!p32 && fits_i32(res)) return NULL;  /* keep runtime i64 type */
-                result = make_int_expr(res, line);
-                break;
-            }
-            case OP_BIT_LSHIFT: {
-                if (r < 0) return NULL;  /* runtime error: negative shift */
-                if (!p32) return NULL;   /* i64 width semantics left to runtime */
-                int32_t li = (int32_t)l;
-                int32_t res = (r >= 32) ? 0 : (int32_t)((uint32_t)li << r);
-                result = make_int_expr(res, line);
-                break;
-            }
-            case OP_BIT_RSHIFT: {
-                if (r < 0) return NULL;
-                if (!p32) return NULL;
-                int32_t li = (int32_t)l;
-                int32_t res = (r >= 32) ? (li < 0 ? -1 : 0) : (li >> (int32_t)r);
-                result = make_int_expr(res, line);
-                break;
-            }
-            default: return NULL;  /* OP_AND/OP_OR handled separately */
-        }
+    HmlFoldResult folded;
+    if (!hml_fold_binary(op, number_to_lit(left), number_to_lit(right), &folded)) {
+        return NULL;
     }
 
-    if (result) {
-        stats->constants_folded++;
-    }
-    return result;
+    stats->constants_folded++;
+    return folded.is_bool ? make_bool_expr(folded.flag, line) : lit_to_number(folded.num, line);
 }
 
 /*
@@ -481,53 +334,25 @@ static Expr *optimize_unary(Expr *expr, OptimizationStats *stats) {
         }
 
         case UNARY_NEGATE:
-            /* Fold negation of numeric literals. This is what makes a
-             * negative literal like -2147483648 a plain i32 constant.
-             * Cases that raise at runtime (negating i64 MIN, negating a u64
-             * above the i64 range) are left unfolded so the error fires.
-             * Note -(-x) → x is NOT applied for non-constant x: negation of
-             * i32/i64 MIN throws, so double negation is not the identity. */
-            if (is_const_number(operand)) {
-                Expr *result = NULL;
-                if (operand->as.number.is_float) {
-                    result = make_float_expr(-operand->as.number.float_value, expr->line);
-                } else if (operand->as.number.is_u64) {
-                    uint64_t uv = operand->as.number.uint_value;
-                    if (uv <= (uint64_t)INT64_MAX) {
-                        result = make_int_expr(-(int64_t)uv, expr->line);
-                    } else if (uv == (uint64_t)INT64_MAX + 1) {
-                        result = make_int_expr(INT64_MIN, expr->line);
-                    }
-                    /* larger u64: runtime error, don't fold */
-                } else if (operand->as.number.int_value != INT64_MIN) {
-                    result = make_int_expr(-operand->as.number.int_value, expr->line);
-                }
-                if (result) {
-                    stats->constants_folded++;
-                    expr_free(expr);  /* Free the replaced unary and its operand */
-                    return result;
-                }
-            }
-            break;
-
         case UNARY_BIT_NOT:
-            /* ~constant → folded. ~ preserves the operand's runtime type, so
-             * only fold when the folded literal re-infers the same type:
-             * i32 stays i32 (~ of an i32-range value is i32-range), i64
-             * operands must not collapse into the i32 literal range. */
-            if (is_const_int(operand)) {
-                int64_t v = operand->as.number.int_value;
-                int64_t res = ~v;
-                if (fits_i32(v) || !fits_i32(res)) {
+            /* -const / ~const → folded when the result is a literal of the
+             * same runtime type (frontend/const_fold.h). Negative literals
+             * in source are built by the parser, not here. -(-x) → x is NOT
+             * applied for non-constant x: negation of i32/i64 MIN throws,
+             * so double negation is not the identity. ~~x → x would be
+             * sound only for integer-typed x, so it is left alone too. */
+            if (is_const_number(operand)) {
+                HmlNumLit folded;
+                int ok = expr->as.unary.op == UNARY_NEGATE
+                             ? hml_fold_negate(number_to_lit(operand), &folded)
+                             : hml_fold_bit_not(number_to_lit(operand), &folded);
+                if (ok) {
                     stats->constants_folded++;
-                    Expr *result = make_int_expr(res, expr->line);
+                    Expr *result = lit_to_number(folded, expr->line);
                     expr_free(expr);  /* Free the replaced unary and its operand */
                     return result;
                 }
             }
-            /* ~~x → x is sound (~ is a self-inverse bijection that keeps
-             * the operand type), but only when x is integer-typed; leave
-             * non-constant operands alone to preserve runtime errors. */
             break;
     }
 

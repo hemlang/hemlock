@@ -1,0 +1,22 @@
+// Unary operands keep the parens that change the parse, and negative
+// literals keep their spelling
+let a = 1;
+let b = 2;
+let sum = -(a + b);
+let neg = -(-a);
+let not_eq = !(a == b);
+let inv = ~(a | b);
+let dec = -(--a);
+let coalesce = -(a ?? b);
+let neg_neg = -(-5);
+let i64_negated = -(2147483648);
+let i32_min = -2147483648;
+let hex = -0x10;
+let sep = -1_000 + -0.5;
+let zero = -0;
+let call = -a.x;
+let not_neg = !-5;
+let r = match (a) {
+    -0x10 => "neg",
+    _ => "other"
+};

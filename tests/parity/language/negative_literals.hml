@@ -1,0 +1,30 @@
+// Parity test: `-` directly before a number is a negative literal, typed by
+// its value like any literal; negating any other value follows the runtime
+// rules. The literal rule used to live in the optimizer's negation fold, so
+// it also changed -(2147483648) to i32 and let -(-2147483648) skip its
+// overflow error. Proved in verification/ (fold_unary).
+print(typeof(-2147483648));      // i32: the i32 MIN literal
+print(-2147483648);
+print(typeof(-2147483649));      // i64
+print(-9223372036854775808);     // i64 MIN literal
+print(typeof(-9223372036854775808));
+print(typeof(-(2147483648)));    // i64: negating the i64 2147483648
+print(-(2147483648));
+print(-0x10);
+print(-1_000 + -0.5);
+print(typeof(-1.5));
+
+try {
+    print(-(-2147483648));       // negating i32 MIN overflows
+} catch (e) {
+    print("caught: " + e.contains("overflow"));
+}
+try {
+    print(-(9223372036854775808));   // u64 above INT64_MAX
+} catch (e) {
+    print("caught: " + e.contains("larger than INT64_MAX"));
+}
+
+// Constant folding keeps i64 results i64 (verification/ fold_mod_i64_i32)
+print(typeof(-2147483649 % -1));
+print(typeof(-1 % -2147483649));

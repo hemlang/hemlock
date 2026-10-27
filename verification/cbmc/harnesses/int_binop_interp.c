@@ -1,7 +1,8 @@
 /*
  * PROOF: the interpreter's binary operators (eval_binary_values in
  * src/backends/interpreter/runtime/binary_ops.c) implement int_spec.h for every pair of integer
- * types, every operand value and every integer operator, without UB.
+ * types, every operand value and every integer operator (including `/`, whose
+ * result is f64), without UB.
  *
  * Together with int_binop_runtime.c this is a parity proof: both backends
  * agree with one spec, hence with each other.
@@ -30,6 +31,7 @@ static const BinaryOp op_map[SPEC_OP_COUNT] = {
     OP_ADD, OP_SUB, OP_MUL, OP_MOD,
     OP_BIT_AND, OP_BIT_OR, OP_BIT_XOR, OP_BIT_LSHIFT, OP_BIT_RSHIFT,
     OP_EQUAL, OP_NOT_EQUAL, OP_LESS, OP_LESS_EQUAL, OP_GREATER, OP_GREATER_EQUAL,
+    OP_DIV,
 };
 
 static Value to_interp(SpecInt v) {
@@ -80,7 +82,10 @@ void harness(void) {
     if (ctx.exception_state.is_throwing) return;   /* raise already checked */
     __CPROVER_assert(!want.raises, "raises when the spec requires it");
 
-    if (want.is_bool) {
+    if (want.is_float) {
+        __CPROVER_assert(res.type == VAL_F64, "division yields f64");
+        __CPROVER_assert(res.as.as_f64 == spec_quotient(l, r), "quotient matches spec");
+    } else if (want.is_bool) {
         __CPROVER_assert(res.type == VAL_BOOL, "comparison yields bool");
         __CPROVER_assert(res.as.as_bool == want.flag, "comparison matches spec");
     } else {

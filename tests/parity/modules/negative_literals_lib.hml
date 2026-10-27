@@ -1,0 +1,6 @@
+// Fixture for negative_literals_import.hml
+export fn literal_types() {
+    print(typeof(-2147483648));
+    print(-9223372036854775808);
+    print(typeof(-(2147483648)));
+}
