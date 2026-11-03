@@ -1,0 +1,7 @@
+// An `import * as` namespace used by an imported module's top-level code.
+import { doubled, hooks, tick } from "./module_init_namespace_lib.hml";
+
+print(doubled);
+print(hooks.on_tick(21));
+print(hooks.scaled(4));
+print(tick(10));
