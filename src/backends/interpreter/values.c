@@ -1,4 +1,5 @@
 #include "hemlock_alloc.h"
+#include "hemlock_compat.h"  // flockfile/funlockfile on Windows
 #include "internal.h"
 #include <stdlib.h>
 #include <string.h>

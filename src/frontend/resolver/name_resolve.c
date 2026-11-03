@@ -25,12 +25,11 @@
 #include "frontend/name_resolve.h"
 #include "frontend/parser.h"
 #include "builtin_globals.h"
+#include "hemlock_compat.h"   /* realpath on Windows */
 #include "modules.h"
 #include "shared/file_io.h"
 
-#ifndef _WIN32
 #include <dirent.h>
-#endif
 #include <unistd.h>
 
 #define NR_LIST_INIT_CAP      8
@@ -132,6 +131,41 @@ static char *nr_canonical_path(const char *path) {
     return real ? real : strdup(path);
 }
 
+/* Absolute-path test that understands Windows paths (C:/, C:\, \\server)
+ * in addition to POSIX ones. Mirrors path_is_absolute() in src/modules/modules.c,
+ * which is static there. */
+static int nr_path_is_absolute(const char *path) {
+    if (path[0] == '/') return 1;
+#ifdef _WIN32
+    if (path[0] == '\\') return 1;
+    if (((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z'))
+        && path[1] == ':' && (path[2] == '/' || path[2] == '\\')) {
+        return 1;
+    }
+#endif
+    return 0;
+}
+
+static int nr_is_separator(char c) {
+#ifdef _WIN32
+    return c == '/' || c == '\\';
+#else
+    return c == '/';
+#endif
+}
+
+/* Compare one path character. Windows treats separators interchangeably and
+ * file names case-insensitively, so `Z:\work` names the same directory as
+ * `z:/work`. */
+static int nr_path_char_eq(char a, char b) {
+    if (nr_is_separator(a) && nr_is_separator(b)) return 1;
+#ifdef _WIN32
+    if (a >= 'A' && a <= 'Z') a = (char)(a - 'A' + 'a');
+    if (b >= 'A' && b <= 'Z') b = (char)(b - 'A' + 'a');
+#endif
+    return a == b;
+}
+
 /*
  * How a module's path is printed. An absolute path is right for a module
  * outside the tree being built (the stdlib), but for one inside it the
@@ -139,18 +173,20 @@ static char *nr_canonical_path(const char *path) {
  * trim the working directory off when it is a prefix.
  */
 static char *nr_display_path(const char *path) {
-    if (path[0] != '/') return strdup(path);
+    if (!nr_path_is_absolute(path)) return strdup(path);
 
     char cwd[PATH_MAX];
     if (!getcwd(cwd, sizeof(cwd))) return strdup(path);
 
     char *cwd_real = realpath(cwd, NULL);
     const char *base = cwd_real ? cwd_real : cwd;
-    size_t base_len = strlen(base);
+
+    size_t i = 0;
+    while (base[i] && path[i] && nr_path_char_eq(base[i], path[i])) i++;
 
     char *out = NULL;
-    if (base_len > 0 && strncmp(path, base, base_len) == 0 && path[base_len] == '/') {
-        out = strdup(path + base_len + 1);
+    if (i > 0 && base[i] == '\0' && nr_is_separator(path[i]) && path[i + 1]) {
+        out = strdup(path + i + 1);
     }
     free(cwd_real);
     return out ? out : strdup(path);
@@ -518,7 +554,6 @@ static int nr_edit_distance(const char *a, const char *b, int limit) {
  * name that exists in the stdlib but was never imported can say where it
  * lives. Only reached once a name has already failed to resolve. */
 static void nr_scan_stdlib(NrCtx *ctx) {
-#ifndef _WIN32
     if (ctx->stdlib_scanned) return;
     ctx->stdlib_scanned = 1;
 
@@ -599,9 +634,6 @@ static void nr_scan_stdlib(NrCtx *ctx) {
         free(source);
     }
     closedir(dir);
-#else
-    (void)ctx;
-#endif
 }
 
 /*

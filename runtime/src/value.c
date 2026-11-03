@@ -10,6 +10,7 @@
 #include "num_convert.h"
 #include "chan_core.h"
 #include "builtins_internal.h"  // print_value_to, for the uncaught-task report
+#include "hemlock_compat.h"      // flockfile/funlockfile on Windows
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
