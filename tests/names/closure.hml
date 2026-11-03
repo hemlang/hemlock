@@ -1,0 +1,9 @@
+// @expect-compile-fail undefined name in a closure
+// Undefined name inside a closure that also captures a real binding.
+let factor = 3;
+
+let scale = fn(x: i32): i32 {
+    return x * factor + offset;
+};
+
+print(scale(2));

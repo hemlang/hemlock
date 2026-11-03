@@ -244,6 +244,10 @@ struct Task {
     void *task_mutex;           // pthread_mutex_t for thread-safe state access
     int ref_count;              // Reference count for memory management (atomic)
     char *name;                 // Optional debug name (from spawn_with)
+    char *source_file;          // File that spawned the task (owned, may be NULL).
+                                // Captured at spawn because the interpreter's
+                                // "current source file" is a main-thread global
+                                // a worker must not read.
 };
 
 // Field entry struct - unified storage for name and value (reduces fragmentation)

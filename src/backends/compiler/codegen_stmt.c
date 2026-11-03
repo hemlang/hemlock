@@ -2174,18 +2174,34 @@ void codegen_stmt(CodegenContext *ctx, Stmt *stmt) {
                     // - In main file: use _main_ prefix (e.g., _main_env)
                     char prefixed_name[CODEGEN_MANGLED_NAME_SIZE];
                     const char *var_name = ns_name;
+                    int is_prefixed = 0;
                     if (ctx->current_module) {
                         snprintf(prefixed_name, sizeof(prefixed_name), "%s%s",
                                 ctx->current_module->module_prefix, ns_name);
                         var_name = prefixed_name;
+                        is_prefixed = 1;
                     } else if (codegen_is_main_var(ctx, ns_name)) {
                         snprintf(prefixed_name, sizeof(prefixed_name), "_main_%s", ns_name);
                         var_name = prefixed_name;
+                        is_prefixed = 1;
                     }
 
                     // Initialize namespace object with exports (variable already declared as static)
                     codegen_writeln(ctx, "%s = hml_val_object();", var_name);
-                    codegen_add_local(ctx, ns_name);
+
+                    // Only register a local when the C symbol really is the
+                    // bare name. Registering `rules` for a value that lives in
+                    // `_modNN_rules` made every reference from the module's own
+                    // top-level code resolve down the local path and emit the
+                    // bare name, so `import * as rules` followed by any use of
+                    // `rules` in a module initializer - directly, or captured by
+                    // a closure there - generated C that said `rules` with
+                    // nothing declaring it. Module-level `let`s never register a
+                    // local for exactly this reason: the identifier path then
+                    // reaches the module-prefix case and emits _modNN_rules.
+                    if (!is_prefixed) {
+                        codegen_add_local(ctx, ns_name);
+                    }
 
                     for (int i = 0; i < imported->num_exports; i++) {
                         ExportedSymbol *exp = &imported->exports[i];

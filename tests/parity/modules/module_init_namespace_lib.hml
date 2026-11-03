@@ -1,0 +1,21 @@
+// Helper module (no .expected): imported by module_init_namespace.hml.
+//
+// Uses an `import * as` namespace from the module's own TOP-LEVEL code, both
+// directly and from a closure created there. The namespace binding used to be
+// registered as an unprefixed local while its value lived in _modNN_rules, so
+// every such reference generated C that said `rules` with nothing declaring
+// it: "error: 'rules' undeclared". Game servers keep their match hooks in
+// exactly this shape (`export let hooks = { ... }` calling into a namespace).
+import * as rules from "./module_init_namespace_lib_rules.hml";
+
+// Direct use in an initializer.
+export let doubled = rules.double(5);
+
+// Captured by a closure created in module init.
+export let hooks = {
+    on_tick: fn(n) { return rules.double(n); },
+    fn scaled(n) => n * rules.factor,
+};
+
+// The same call from a module function always worked; keep it covered.
+export fn tick(n) { return rules.double(n); }

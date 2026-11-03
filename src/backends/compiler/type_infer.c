@@ -82,8 +82,13 @@ CheckedType* type_check_infer_expr(TypeCheckContext *ctx, Expr *expr) {
                 return checked_type_clone(type);
             }
 
-            // Check for built-in functions using unified registry
-            if (hml_is_builtin(name)) {
+            // Builtins come from include/builtin_globals.h via the name
+            // resolver. This used to read include/builtins_registry.h, a
+            // hand-maintained second copy of the list that had drifted badly:
+            // it called `sin`, `open` and `getenv` builtins (they are stdlib
+            // exports) and omitted ~110 names that are, among them `write`
+            // and every ptr_read_*.
+            if (name_resolve_is_builtin(name)) {
                 return checked_type_primitive(CHECKED_ANY);
             }
 

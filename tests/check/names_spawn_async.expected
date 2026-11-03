@@ -1,0 +1,2 @@
+names_spawn_async.hml:8:5: error: undefined name 'sleep' (did you mean to import it from @stdlib/time?) [names]
+1 error, 0 warnings (1 file checked)

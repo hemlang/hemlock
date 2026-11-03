@@ -1474,8 +1474,16 @@ Expr* assignment(Parser *p) {
             // Variable null coalescing assignment: x ??= value
             const char *name = expr->as.ident.name;
             Expr *lhs_copy = expr_ident(name);
+            // Carry the target's position onto the desugared nodes: they are
+            // all a diagnostic about this assignment has to point at.
+            lhs_copy->line = expr->line;
+            lhs_copy->column = expr->column;
             Expr *null_coalesce = expr_null_coalesce(lhs_copy, rhs);
+            null_coalesce->line = expr->line;
+            null_coalesce->column = expr->column;
             Expr *result = expr_assign(name, null_coalesce);
+            result->line = expr->line;
+            result->column = expr->column;
             expr_free(expr);
             return result;
         } else if (expr->type == EXPR_INDEX) {
@@ -1540,8 +1548,16 @@ Expr* assignment(Parser *p) {
             // Note: expr_ident and expr_assign both strdup internally
             const char *name = expr->as.ident.name;
             Expr *lhs_copy = expr_ident(name);
+            // See the ??= case: the desugared nodes inherit the target's
+            // position so diagnostics do not report line 0.
+            lhs_copy->line = expr->line;
+            lhs_copy->column = expr->column;
             Expr *binary = expr_binary(lhs_copy, compound_op, rhs);
+            binary->line = expr->line;
+            binary->column = expr->column;
             Expr *result = expr_assign(name, binary);
+            result->line = expr->line;
+            result->column = expr->column;
             expr_free(expr);
             return result;
         } else if (expr->type == EXPR_INDEX) {
@@ -1609,6 +1625,10 @@ Expr* assignment(Parser *p) {
             const char *name = expr->as.ident.name;
             Expr *value = assignment(p);
             Expr *result = expr_assign(name, value);
+            // expr_assign() starts at line 0; the assignment is reported at
+            // its target's position.
+            result->line = expr->line;
+            result->column = expr->column;
             expr_free(expr);
             return result;
         } else if (expr->type == EXPR_INDEX) {

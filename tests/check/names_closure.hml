@@ -1,0 +1,10 @@
+// @expect-compile-fail undefined name in a closure
+// An undefined name inside a closure, where the enclosing scope has
+// same-shaped bindings that must not be mistaken for it.
+let factor = 3;
+
+let scale = fn(x: i32): i32 {
+    return x * factor + offset;
+};
+
+print(scale(2));

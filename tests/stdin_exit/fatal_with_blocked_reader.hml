@@ -1,0 +1,6 @@
+// Same for a fatal error, which also exits.
+import { sleep } from "@stdlib/time";
+
+spawn(async fn() { read_line(); });
+sleep(0.2);
+throw "boom";

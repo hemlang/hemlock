@@ -74,6 +74,10 @@ void hml_set_source(const char *file, const char *code) {
     g_source_code = code;
 }
 
+const char *hml_get_source_file(void) {
+    return g_source_file;
+}
+
 // Return a pointer to the start of `line_num` in `source`, with its length.
 static const char *hml_get_source_line(const char *source, int line_num, int *line_length) {
     if (!source || line_num <= 0) { *line_length = 0; return NULL; }

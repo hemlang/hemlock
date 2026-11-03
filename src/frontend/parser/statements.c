@@ -246,6 +246,10 @@ Stmt* block_statement(Parser *p) {
     }
     int count = 0;
 
+    // Anything inside braces is below module top level: function bodies, loop
+    // and branch bodies, bare blocks. import_statement() reads this.
+    p->block_depth++;
+
     while (!check(p, TOK_RBRACE) && !check(p, TOK_EOF)) {
         // Snapshot the current token so we can detect no-progress iterations
         // (same guard as parse_program). A statement that errors without
@@ -275,6 +279,7 @@ Stmt* block_statement(Parser *p) {
     }
 
     consume(p, TOK_RBRACE, "Expect '}' after block");
+    p->block_depth--;
 
     return stmt_block(statements, count);
 }
@@ -658,6 +663,23 @@ static Stmt* return_statement(Parser *p) {
     return stmt_return(value);
 }
 
+/*
+ * A source-module import only binds its names at module top level. Inside a
+ * function body, a loop or branch body, or a bare block it parses and binds
+ * nothing, so every name it was meant to provide is undefined - the error
+ * then lands on the use, far from the mistake, and `import` inside a function
+ * is a common enough habit that it was worth pointing at the import itself.
+ *
+ * FFI library imports are a different statement (`import "libc.so.6"`) and do
+ * work below top level, so they are not rejected here.
+ */
+static void reject_nested_import(Parser *p) {
+    if (p->block_depth > 0) {
+        error_at(p, &p->previous,
+                 "import must be at module top level (it binds nothing here)");
+    }
+}
+
 static Stmt* import_statement(Parser *p) {
     // Bare string import: import "library.so" (FFI) or
     // import "./module.hml" / import "@stdlib/module" (side-effect source import)
@@ -674,12 +696,20 @@ static Stmt* import_statement(Parser *p) {
         int is_source_import = (library_path[0] == '@') ||
             (path_len > 4 && strcmp(library_path + path_len - 4, ".hml") == 0);
 
+        if (is_source_import) {
+            reject_nested_import(p);
+        }
+
         Stmt *stmt = is_source_import
             ? stmt_import_named(NULL, NULL, 0, library_path)
             : stmt_import_ffi(library_path);
         free(library_path);
         return stmt;
     }
+
+    // Every remaining form imports a source module, so none of them may
+    // appear below module top level.
+    reject_nested_import(p);
 
     // Check for star import: import * from "module" or import * as name from "module"
     if (match(p, TOK_STAR)) {

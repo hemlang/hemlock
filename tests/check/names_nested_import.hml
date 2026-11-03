@@ -1,0 +1,9 @@
+// @expect-compile-fail import below module top level
+// A source-module import inside a function body binds nothing, so it is a
+// parse error at the import rather than an undefined name at each use.
+fn read_command() {
+    import { parse } from "@stdlib/json";
+    return parse(read_line());
+}
+
+print("never calls it");

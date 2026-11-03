@@ -9,7 +9,7 @@
 #define HEMLOCK_TYPE_CHECK_INTERNAL_H
 
 #include "compiler/type_check.h"
-#include "../../include/builtins_registry.h"
+#include "frontend/name_resolve.h"
 #include "../../include/hemlock_limits.h"
 #include <stdio.h>
 #include <stdlib.h>

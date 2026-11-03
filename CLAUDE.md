@@ -447,14 +447,28 @@ Both backends share a common frontend (lexer, parser, AST). The interpreter does
 make test              # Run interpreter tests
 make test-compiler     # Run compiler tests
 make parity            # Run parity tests (both must match)
+make test-names        # Undefined-name diagnostics (hemlockc == interpreter)
+make test-check        # `hemlock check` diagnostics
+make test-task-errors  # Uncaught exceptions in spawned tasks reach stderr
+make test-stdin-exit   # read_line() must not deadlock exit() (glibc >= 2.39)
 make test-all          # Run all test suites
 ```
 
 **Static checking without execution:** `hemlock check [--json] file.hml` runs
-all static passes (syntax with multi-error recovery, lint, type check, borrow
-check) and reports every diagnostic. Use it to validate code you just wrote
-before running it; `--json` gives structured diagnostics
+all static passes (syntax with multi-error recovery, name resolution, lint,
+type check, borrow check) and reports every diagnostic. Use it to validate
+code you just wrote before running it; `--json` gives structured diagnostics
 (see `docs/advanced/static-checking.md`).
+
+**Undefined names are a hard error in every tool.** A shared frontend pass
+(`src/frontend/resolver/name_resolve.c`) resolves every identifier across the
+entry file and every module it imports, before any code runs or is generated:
+`hemlockc` refuses to emit C for an unresolved name, `hemlock check` reports it
+(pass `"names"`), and the interpreter reports it at startup (`--no-name-check`
+opts out). Add a new builtin global by adding it to `include/builtin_globals.h`
+only — the interpreter registers from that list and the resolver reads it, and
+`make test-builtin-sync` fails the build if they drift. See
+`docs/reference/name-resolution.md`.
 
 **Important:** Always use a timeout when running tests (async tests may hang):
 ```bash

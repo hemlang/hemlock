@@ -1,0 +1,3 @@
+// Helper module (no .expected): the namespace target.
+export fn double(x) { return x * 2; }
+export let factor = 2;

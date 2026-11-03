@@ -1,0 +1,6 @@
+// @expect-compile-fail assignment to an undeclared name
+// Hemlock has no implicit declaration: assigning to a name that was never
+// declared throws "Undefined variable" at runtime, so it is an error here too.
+let counter = 0;
+countr = counter + 1;
+print(counter);

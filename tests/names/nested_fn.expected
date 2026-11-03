@@ -1,0 +1,2 @@
+nested_fn.hml:5:20: error: undefined name 'scale_factor'
+1 error generated

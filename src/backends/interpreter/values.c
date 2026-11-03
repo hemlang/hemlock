@@ -1,4 +1,5 @@
 #include "hemlock_alloc.h"
+#include "hemlock_compat.h"  // flockfile/funlockfile on Windows
 #include "internal.h"
 #include <stdlib.h>
 #include <string.h>
@@ -981,6 +982,7 @@ Task* task_new(int id, Function *function, Value *args, int num_args, Environmen
     task->detached = 0;
     task->ref_count = 1;  // Start with 1 - caller owns the first reference
     task->name = NULL;
+    task->source_file = NULL;
 
     // Initialize task mutex for thread-safe state access
     task->task_mutex = malloc(sizeof(pthread_mutex_t));
@@ -994,8 +996,64 @@ Task* task_new(int id, Function *function, Value *args, int num_args, Environmen
     return task;
 }
 
+/*
+ * An exception that reaches the top of a task body is handed to whoever
+ * join()s the task. Nobody joins a detached task, or one whose handle was
+ * dropped - `spawn(async fn() { ... });` as a statement - and until this
+ * existed the exception went with it: the task died, the process carried on,
+ * and nothing was written anywhere. That is how an undefined name inside a
+ * spawned handler stayed invisible in production for weeks.
+ *
+ * Reporting at free time rather than at task exit is what makes it sound: by
+ * then the task's last reference is gone, so no join() can still arrive to
+ * claim the exception.
+ */
+static void task_report_uncaught(Task *task) {
+    if (!task->ctx || !task->ctx->exception_state.is_throwing || task->joined) {
+        return;
+    }
+
+    char *message = value_to_string(task->ctx->exception_state.exception_value);
+
+    /*
+     * The summary line is byte-identical to the compiled runtime's (see
+     * task_report_uncaught in runtime/src/value.c). The location and stack
+     * trace below it are interpreter-only detail, the same split that already
+     * applies to a top-level uncaught exception: both backends print
+     * "Uncaught exception: msg", only the interpreter follows it with a trace.
+     *
+     * One lock for the whole report so a concurrent writer cannot land
+     * between the summary line and the trace.
+     */
+    flockfile(stderr);
+    fprintf(stderr, "Uncaught exception in spawned task #%d", task->id);
+    if (task->name) {
+        fprintf(stderr, " '%s'", task->name);
+    }
+    fprintf(stderr, ": %s\n", message ? message : "");
+    if (task->source_file && task->ctx->current_line > 0) {
+        fprintf(stderr, "  at %s:%d\n", task->source_file, task->ctx->current_line);
+    } else if (task->ctx->current_line > 0) {
+        fprintf(stderr, "  at line %d\n", task->ctx->current_line);
+    }
+    /* No source text: the snippet printer only has the main file's source,
+     * and a task's frames routinely come from other modules. */
+    call_stack_print_with_source(&task->ctx->call_stack, NULL);
+    funlockfile(stderr);
+
+    free(message);
+
+    /* Claim the exception value. join() moves it to the joiner and
+     * exec_context_free() leaves it alone, so an unjoined task's exception is
+     * ours to release. */
+    VALUE_RELEASE(task->ctx->exception_state.exception_value);
+    task->ctx->exception_state.is_throwing = 0;
+    task->ctx->exception_state.exception_value = val_null();
+}
+
 void task_free(Task *task) {
     if (task) {
+        task_report_uncaught(task);
         // Release function (reference counted)
         // This will indirectly release the environment since function owns it
         if (task->function) {
@@ -1027,6 +1085,7 @@ void task_free(Task *task) {
             free(task->task_mutex);
         }
         free(task->name);
+        free(task->source_file);
         free(task);
     }
 }

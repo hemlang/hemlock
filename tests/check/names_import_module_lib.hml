@@ -1,0 +1,10 @@
+// @expect-compile-fail undefined name (helper for names_import_module.hml)
+// Helper fixture (no .expected): imported by names_import_module.hml.
+// The undefined name is on line 7 of THIS file, which is what the
+// diagnostic has to say - not a line in the file that imports it.
+import { time_ms } from "@stdlib/time";
+
+export fn start_server(port: i32) {
+    sleep(0.2);
+    print("listening on " + port + " since " + time_ms());
+}

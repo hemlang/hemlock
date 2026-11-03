@@ -1,0 +1,2 @@
+names_nested_fn.hml:5:20: error: undefined name 'scale_factor' [names]
+1 error, 0 warnings (1 file checked)

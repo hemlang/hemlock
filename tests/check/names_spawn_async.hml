@@ -1,0 +1,12 @@
+// @expect-compile-fail undefined name in an async fn passed to spawn
+// An undefined name inside an async fn passed to spawn(). This is the shape
+// that used to ship: the interpreter never reached the line, hemlock check
+// said nothing, and hemlockc emitted a call to a C function it never defined.
+import { time_ms } from "@stdlib/time";
+
+spawn(async fn() {
+    sleep(0.2);
+    print(time_ms());
+});
+
+print("spawned");

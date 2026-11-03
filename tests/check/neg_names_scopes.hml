@@ -1,0 +1,126 @@
+// Negative fixture: every binding form the name resolver has to understand.
+// It asserts a clean report, so a false positive here fails the suite.
+import { sleep, time_ms } from "@stdlib/time";
+import { sqrt as root, PI } from "@stdlib/math";
+import * as fs from "@stdlib/fs";
+import { exported_fn, exported_let, renamed_source as renamed } from "./neg_names_exports.hml";
+import * from "./neg_names_star.hml";
+
+// Forward reference: mutual recursion between top-level functions.
+fn even(n: i32): bool { if (n == 0) { return true; } return odd(n - 1); }
+fn odd(n: i32): bool { if (n == 0) { return false; } return even(n - 1); }
+
+// A function body seeing a top-level `let` declared after it.
+fn read_later(): i32 { return declared_below; }
+let declared_below = 5;
+
+// Self-referential closure: the name is in scope inside its own initializer.
+let countdown = fn(n: i32): i32 {
+    if (n <= 0) { return 0; }
+    return countdown(n - 1);
+};
+
+// Params (optional, ref, const, rest), closures over params, captures.
+fn shapes(a: i32, ref c: i32, const d: array, b?: 2, ...rest) {
+    let captured = a + b;
+    let inner = fn(x: i32): i32 { return x + captured + a; };
+    c = inner(1);
+    for (item in d) { print(item); }
+    for (r in rest) { print(r); }
+}
+
+// Loop bindings, labels, and a block-scoped declaration.
+fn loops(items: array) {
+    outer: for (let i = 0; i < 10; i++) {
+        for (k, v in items) {
+            if (k == i) { break outer; }
+            print(v);
+        }
+    }
+    while (items.length > 99) { let scoped = 1; print(scoped); }
+    loop { break; }
+    { let in_block = 2; print(in_block); }
+}
+
+// catch parameter, defer, throw.
+fn guarded() {
+    defer print("cleanup");
+    try {
+        throw "x";
+    } catch (err) {
+        print(err);
+    } finally {
+        print("finally");
+    }
+}
+
+// Pattern bindings: binding, typed, or, guard, object and array destructuring.
+fn classify(value): string {
+    return match (value) {
+        0 => "zero",
+        1 | 2 | 3 => "small",
+        n: i32 if n < 10 => "medium " + n,
+        { name, age: years } => name + " " + years,
+        [first, second, ...tail] => first + second + tail.length,
+        other => "other " + other,
+    };
+}
+
+// switch: each case body is its own scope, braced or not.
+fn switched(x: i32) {
+    switch (x) {
+        case 1: {
+            let braced = 10;
+            print(braced);
+        }
+        case 2:
+            let unbraced = 20;
+            print(unbraced);
+        default: break;
+    }
+}
+
+// `self` in object-literal method shorthand; `define` declares a signature.
+let counter = {
+    count: 0,
+    fn inc() { self.count = self.count + 1; },
+    fn get(): i32 => self.count,
+};
+
+define Greeter {
+    name: string,
+    fn greet(): string,
+}
+
+enum Color { RED, GREEN }
+type Alias = Greeter;
+
+// Everything above, actually referenced.
+fn main_body() {
+    print(even(4));
+    print(odd(3));
+    print(read_later());
+    print(countdown(3));
+    let x = 1;
+    shapes(1, x, [1, 2], 2, 9);
+    loops([1, 2]);
+    guarded();
+    print(classify(5));
+    switched(1);
+    counter.inc();
+    print(counter.get());
+    let g: Alias = { name: "a", fn greet(): string => "hi " + self.name };
+    print(g.greet());
+    print(Color.RED);
+    print(root(PI) + exported_fn(exported_let) + renamed());
+    print(fs.exists("/tmp"));
+    sleep(0.0);
+    print(time_ms() > 0);
+}
+
+main_body();
+
+// A star-imported function is called at top level: hemlockc only resolves
+// star imports in the main file's top-level scope, not from inside a function
+// body (a pre-existing parity gap - the interpreter handles both).
+print(star_only());

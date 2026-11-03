@@ -1,8 +1,8 @@
 # Static Checking (`hemlock check`)
 
 `hemlock check` runs the compiler's static analysis passes over source files
-**without executing them or generating code**: syntax, lint, type checking,
-and borrow checking. Unlike `hemlockc --check`, which stops at the first
+**without executing them or generating code**: syntax, name resolution, lint,
+type checking, and borrow checking. Unlike `hemlockc --check`, which stops at the first
 failing pass, `hemlock check` collects every diagnostic from every pass and
 reports them together, in source order — and can emit them as JSON with a
 stable schema for editors, CI, and AI coding agents.
@@ -40,20 +40,53 @@ reports what a compile would report:
 
 1. **Parse** — syntax errors, with panic-mode recovery so *multiple* errors
    are reported per run instead of only the first.
-2. **Lint** — unreachable code, dead branches, self-assignment,
+2. **Name resolution** — identifiers that no binding in scope explains
+   (see [Name resolution](#name-resolution) below).
+3. **Lint** — unreachable code, dead branches, self-assignment,
    modulo-by-zero, duplicate fields/cases (see [Static Lint](lint.md)).
    Runs on the source as written, before optimization.
-3. **Type check** — static checking of annotations, function signatures,
+4. **Type check** — static checking of annotations, function signatures,
    object literals against `define` types (see [Type System](../reference/type-system.md)).
-4. **Borrow check** — use-after-free, double-free, free-in-loop
+5. **Borrow check** — use-after-free, double-free, free-in-loop
    (see [Borrow Checker](borrow-checker.md)).
 
 If the file has syntax errors, the later passes are skipped (their input
 would be an incomplete AST) — but all syntax errors found are still reported.
 
-Only the named files are analyzed. Imports are bound dynamically (as in the
-compiler); imported modules are checked when they are checked or compiled in
-their own right.
+Name resolution follows imports, so it reports diagnostics in modules the
+named files pull in — including a syntax error in one, under pass `"parse"`.
+The other passes analyze only the named files; an imported module is linted,
+type checked and borrow checked when it is checked or compiled in its own
+right.
+
+## Name resolution
+
+The name pass walks the entry file **and every module it imports,
+transitively**, and reports each identifier that nothing in scope explains:
+not a builtin, not a module-level declaration, not an import, not a
+parameter, not a loop or pattern binding, not a catch parameter.
+
+```
+$ hemlock check repro.hml
+repro.hml:2:20: error: undefined name 'sleep' (did you mean to import it from @stdlib/time?) [names]
+1 error, 0 warnings (1 file checked)
+```
+
+It is an **error**, not a warning: Hemlock has no implicit declaration, so a
+name nothing defines throws `Undefined variable` the moment control reaches
+it — which may be weeks after deploy, or never. Assigning to an undeclared
+name is reported the same way, for the same reason.
+
+The same pass gates `hemlockc` and runs at interpreter startup, so all three
+tools agree about what exists. See
+[Name Resolution](../reference/name-resolution.md) for what it checks, what
+it deliberately does not, and the `--no-name-check` escape hatch.
+
+The hint is best-effort, in this order: a module the file already imports
+exports that name; a stdlib module exports it; something spelled almost the
+same is in scope. Where several modules export the name they are all collected
+and sorted, so the message does not depend on the order they were discovered
+in — see [Name Resolution](../reference/name-resolution.md#hints).
 
 ## Text output
 
@@ -98,7 +131,7 @@ breaking changes):
 
 - `line` and `column` are 1-based; `column: 0` means the column is unknown.
 - `severity` is `"error"` or `"warning"`.
-- `pass` is one of `"parse"`, `"lint"`, `"types"`, `"borrow"`.
+- `pass` is one of `"parse"`, `"names"`, `"lint"`, `"types"`, `"borrow"`.
 - `diagnostics` is ordered by file (in argument order), then line, then column.
 
 ## Why not just run the file?
@@ -119,6 +152,7 @@ hemlock check --json src/main.hml
 
 ## See Also
 
+- [Name Resolution](../reference/name-resolution.md) — the name pass in detail
 - [Static Lint](lint.md) — the lint pass in detail
 - [Borrow Checker](borrow-checker.md) — the ownership analysis in detail
 - [Type System](../reference/type-system.md) — what the type checker enforces

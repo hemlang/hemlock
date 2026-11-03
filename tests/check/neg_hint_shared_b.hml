@@ -1,0 +1,3 @@
+// Helper fixture (no .expected): exports a name also exported by _a.
+export fn shared_helper(x) { return x + 2; }
+export fn only_in_b(x) { return x; }

@@ -1,0 +1,2 @@
+names_nested_import.hml:5:5: error: import must be at module top level (it binds nothing here) (at 'import') [parse]
+1 error, 0 warnings (1 file checked)

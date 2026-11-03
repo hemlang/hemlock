@@ -1,0 +1,10 @@
+// @expect-compile-fail undefined name in a nested function
+// An undefined name inside a nested function body, not at top level.
+fn outer(n: i32): i32 {
+    fn inner(x: i32): i32 {
+        return x * scale_factor;
+    }
+    return inner(n);
+}
+
+print(outer(2));

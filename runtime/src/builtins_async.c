@@ -175,6 +175,9 @@ static void *task_thread_main(void *arg) {
     task->result = result;
     task->has_exception = threw;
     task->exception_value = exception;
+    /* hml_error_line is thread-local and the task may be freed from another
+     * thread, so the location has to be taken here. */
+    task->exception_line = threw ? hml_error_line : 0;
     task->state = HML_TASK_COMPLETED;
     pthread_mutex_unlock(&task->sync->mutex);
 

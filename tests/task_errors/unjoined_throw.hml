@@ -1,0 +1,13 @@
+// An exception that escapes a spawned task nobody joins. The handle is
+// dropped immediately, so no join() can ever claim the exception; it used to
+// vanish with the task, which is how a bug in a spawned request handler
+// stayed invisible in production.
+import { sleep } from "@stdlib/time";
+
+async fn handler() {
+    throw "handler blew up";
+}
+
+spawn(handler);
+sleep(0.2);
+print("main still alive");

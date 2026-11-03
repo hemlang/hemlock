@@ -1,0 +1,2 @@
+names_hint_two_modules.hml:8:37: error: undefined name 'shared_helper' (did you mean to import it from ./neg_hint_shared_a.hml or ./neg_hint_shared_b.hml?) [names]
+1 error, 0 warnings (1 file checked)

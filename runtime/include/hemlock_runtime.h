@@ -620,6 +620,7 @@ __attribute__((noreturn)) void hml_runtime_error_line(const char *format, ...);
 // Source context for runtime error messages. Set once at program start by
 // generated main(); hml_error_line is updated per statement by generated code.
 void hml_set_source(const char *file, const char *code);
+const char *hml_get_source_file(void);
 extern _Thread_local int hml_error_line;
 
 // ========== DEFER SUPPORT ==========

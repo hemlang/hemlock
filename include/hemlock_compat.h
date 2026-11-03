@@ -26,6 +26,12 @@ int hml_get_executable_path(char *buf, size_t size);
 typedef long long hml_ssize_t_compat;
 hml_ssize_t_compat getline(char **lineptr, size_t *n, FILE *stream);
 
+// POSIX stdio stream locking, used to keep a multi-line diagnostic from
+// interleaving with another thread's output. The MSVCRT spelling is
+// _lock_file/_unlock_file, declared by <stdio.h> above.
+#define flockfile(stream)   _lock_file(stream)
+#define funlockfile(stream) _unlock_file(stream)
+
 int mkstemps(char *template_path, int suffixlen);
 
 // tmpfile() replacement: MSVCRT's tmpfile() creates in the drive root,

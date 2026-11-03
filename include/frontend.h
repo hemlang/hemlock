@@ -7,6 +7,7 @@
 #include "frontend/formatter.h"
 #include "frontend/lexer.h"
 #include "frontend/module.h"
+#include "frontend/name_resolve.h"
 #include "frontend/optimizer.h"
 #include "frontend/parser.h"
 #include "frontend/resolver.h"

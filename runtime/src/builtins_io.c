@@ -11,6 +11,7 @@
 
 #include "hemlock_alloc.h"
 #include "builtins_internal.h"
+#include "stdin_lines.h"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -19,17 +20,14 @@
 // ========== I/O OPERATIONS ==========
 
 HmlValue hml_read_line(void) {
-    char *line = NULL;
-    size_t len = 0;
-    ssize_t read = getline(&line, &len, stdin);
-    if (read == -1) {
-        free(line);
+    // Reads through the shared stdin buffer rather than getline(stdin): that
+    // held stdin's stdio lock while blocked, which deadlocked exit() (and any
+    // fatal error) on glibc >= 2.39. See src/shared/stdin_lines.h. It also
+    // strips a CR before the newline, which the interpreter always did and
+    // this did not.
+    char *line = hml_stdin_read_line(NULL);
+    if (!line) {
         return hml_val_null();
-    }
-    // Remove trailing newline
-    if (read > 0 && line[read - 1] == '\n') {
-        line[read - 1] = '\0';
-        read--;
     }
     HmlValue result = hml_val_string(line);
     free(line);
