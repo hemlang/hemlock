@@ -1,0 +1,10 @@
+// A task blocked in read_line() must not stop exit() from ending the process.
+// getline(stdin) held stdin's stdio lock while blocked, and glibc >= 2.39
+// takes every stream's lock during the exit-time flush, so this hung forever.
+import { sleep } from "@stdlib/time";
+import { exit } from "@stdlib/process";
+
+spawn(async fn() { read_line(); });
+sleep(0.2);
+print("exiting");
+exit(2);

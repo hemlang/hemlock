@@ -1,0 +1,20 @@
+// Negative fixture: an FFI library import below module top level is legal and
+// must stay legal — unlike a source-module import, it does work there. Guards
+// the parse error added for nested source imports from over-reaching.
+//
+// The `extern fn` lives in the bare block, not in the function body: hemlockc
+// does not support `extern fn` inside a function body (a separate, pre-existing
+// gap), so putting one there would make this fixture fail to compile for a
+// reason that has nothing to do with imports.
+fn loads_a_library() {
+    import "libc.so.6";
+    print("loaded");
+}
+
+{
+    import "libc.so.6";
+    extern fn strcmp(a: string, b: string): i32;
+    print(strcmp("a", "a"));
+}
+
+loads_a_library();

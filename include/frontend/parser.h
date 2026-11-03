@@ -25,6 +25,9 @@ typedef struct {
     int had_error;
     int panic_mode;
     int parse_depth;     // Current recursion depth (bounds deeply nested input)
+    int block_depth;     // Enclosing { } blocks; 0 = module top level. A
+                         // source-module import binds nothing anywhere else,
+                         // so it is rejected there (FFI imports still work).
     const char *source;  // Source code for error messages
     // Type parameters in scope (for parsing generic type definitions)
     char **type_params;    // Current type parameter names (e.g., ["T", "U"])

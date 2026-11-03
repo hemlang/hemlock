@@ -3,6 +3,7 @@
 #include "hemlock_compat.h"
 #include <stdarg.h>
 #include <stdatomic.h>
+#include "stdin_lines.h"
 
 // ========== RUNTIME ERROR HELPER ==========
 
@@ -429,29 +430,20 @@ Value builtin_read_line(Value *args, int num_args, ExecutionContext *ctx) {
         return val_null();
     }
 
-    char *line = NULL;
+    // Reads through the shared stdin buffer rather than getline(stdin): that
+    // held stdin's stdio lock while blocked, which deadlocked exit() (and any
+    // fatal error) on glibc >= 2.39. See src/shared/stdin_lines.h.
     size_t len = 0;
-    ssize_t read = getline(&line, &len, stdin);
-
-    if (read == -1) {
-        free(line);
+    char *line = hml_stdin_read_line(&len);
+    if (!line) {
         return val_null();  // EOF
-    }
-
-    // Strip newline
-    if (read > 0 && line[read - 1] == '\n') {
-        line[read - 1] = '\0';
-        read--;
-    }
-    if (read > 0 && line[read - 1] == '\r') {
-        line[read - 1] = '\0';
-        read--;
     }
 
     String *str = hml_xmalloc(sizeof(String));
     str->data = line;
-    str->length = read;
-    str->capacity = len;
+    str->length = (int)len;
+    str->char_length = -1;  // Cache not yet computed
+    str->capacity = (int)len + 1;
     str->ref_count = 1;  // Start with 1 - caller owns the first reference
 
     return (Value){ .type = VAL_STRING, .as.as_string = str };

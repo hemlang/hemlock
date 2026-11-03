@@ -93,6 +93,7 @@ import { sin, cos } from "@stdlib/math";
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **2.14.0** | 2026-11-03 | Undefined names are a hard error in `hemlockc`, `hemlock check` and the interpreter via a shared name-resolution pass over the whole module graph (`--no-name-check` opts out); uncaught exceptions in unjoined spawned tasks reach stderr; module-init codegen fixes (anonymous functions, `import * as` namespaces); a source-module `import` below module top level is a parse error; `read_line()` no longer deadlocks `exit()` on glibc >= 2.39 |
 | **2.13.0** | 2026-10-24 | GPU compute via `@stdlib/gpu` (OpenCL `gpu fn` kernels, `barrier()`/`gpu_local<T>`) + CPU emulator `@stdlib/gpu_emu`; formal verification of the runtime core (CBMC + TLA+); sandbox hardening (spawned tasks inherit sandbox, raw pointers gated); Linux/ARM64 CI + release artifact |
 | **2.12.0** | 2026-10-15 || **2.12.0** | 2026-10-15 | `@stdlib/json_schema` JSON Schema Draft 7 validation; channels share one queueing core, blocking `select()`, one spawn path; `channel`/`task`/`file` type annotations; `hemlockc` typed-parameter conversion |
 | **2.11.0** | 2026-10-06 | Exact, strict JSON (de)serialization; substantially more precise borrow checker; `main_loop()`/`main_loop_stop()` in `@stdlib/time` for a proper wasm frame loop |

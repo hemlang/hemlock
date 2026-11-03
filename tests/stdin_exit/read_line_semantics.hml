@@ -1,0 +1,9 @@
+// read_line() reads through the shared stdin buffer; these are the semantics
+// it has to keep: lines in order, CRLF and LF both stripped, a final line
+// with no newline still returned, null at end of input, and .length counting
+// codepoints rather than bytes.
+loop {
+    let l = read_line();
+    if (l == null) { print("EOF"); break; }
+    print("[" + l + "] " + l.length + "/" + l.byte_length);
+}

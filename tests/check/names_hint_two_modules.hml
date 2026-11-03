@@ -1,0 +1,8 @@
+// @expect-compile-fail undefined name exported by two imported modules
+// Both imported modules export `shared_helper`, and neither import binds it.
+// The hint names both, sorted, so the message does not depend on the order
+// the modules were discovered in.
+import { only_in_a } from "./neg_hint_shared_a.hml";
+import { only_in_b } from "./neg_hint_shared_b.hml";
+
+print(only_in_a(1) + only_in_b(2) + shared_helper(3));

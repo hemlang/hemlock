@@ -19,6 +19,7 @@
 #include "version.h"
 #include "profiler/profiler.h"
 #include "shared/file_io.h"
+#include "stdin_lines.h"
 
 #define HEMLOCK_BUILD_DATE __DATE__
 #define HEMLOCK_BUILD_TIME __TIME__
@@ -987,13 +988,16 @@ static void run_repl(int stack_depth) {
     for (;;) {
         printf(">>> ");
 
-        if (!fgets(line, sizeof(line), stdin)) {
+        // Through the shared stdin buffer, like read_line(), so a script run
+        // before the REPL cannot leave input stranded in a buffer the other
+        // one does not see (and so a REPL line is not capped at `line`'s size).
+        char *repl_line = hml_stdin_read_line(NULL);
+        if (!repl_line) {
             printf("\n");
             break;
         }
-
-        // Remove newline
-        line[strcspn(line, "\n")] = 0;
+        snprintf(line, sizeof(line), "%s", repl_line);
+        free(repl_line);
 
         // Check for exit
         if (strcmp(line, "exit") == 0) {

@@ -636,31 +636,137 @@ static void nr_scan_stdlib(NrCtx *ctx) {
     closedir(dir);
 }
 
+/* ---------- candidate module specs for an import hint ---------- */
+
+#define NR_HINT_MAX_NAMED 3   /* list at most this many modules by name */
+
+/* Sorted, de-duplicated list of import specs ("@stdlib/json"). Borrowed
+ * pointers: every spec is owned by an NrEdge or by ctx->stdlib_specs. */
+typedef struct {
+    const char **items;
+    int count;
+    int cap;
+} NrSpecs;
+
+static void nr_specs_init(NrSpecs *l) {
+    l->items = NULL;
+    l->count = 0;
+    l->cap = 0;
+}
+
+static void nr_specs_free(NrSpecs *l) {
+    free(l->items);
+    nr_specs_init(l);
+}
+
+/* Insert in sorted order, skipping duplicates, so the message a given name
+ * produces does not depend on the order the modules were discovered in. */
+static void nr_specs_add(NrSpecs *l, const char *spec) {
+    if (!spec) return;
+
+    int pos = 0;
+    while (pos < l->count) {
+        int cmp = strcmp(l->items[pos], spec);
+        if (cmp == 0) return;
+        if (cmp > 0) break;
+        pos++;
+    }
+
+    if (l->count >= l->cap) {
+        int cap = l->cap ? l->cap * 2 : NR_LIST_INIT_CAP;
+        const char **items = realloc(l->items, sizeof(const char *) * (size_t)cap);
+        if (!items) return;
+        l->items = items;
+        l->cap = cap;
+    }
+    for (int i = l->count; i > pos; i--) {
+        l->items[i] = l->items[i - 1];
+    }
+    l->items[pos] = spec;
+    l->count++;
+}
+
+/*
+ * "did you mean to import it from @stdlib/time?" for one module, and for
+ * several, all of them up to NR_HINT_MAX_NAMED. Past that the count is the
+ * useful part - that the name is ambiguous and the reader has to choose -
+ * so it leads, with the first few named.
+ */
+static char *nr_format_specs(const NrSpecs *specs) {
+    if (specs->count == 0) return NULL;
+
+    size_t len = 64;
+    int named = specs->count < NR_HINT_MAX_NAMED ? specs->count : NR_HINT_MAX_NAMED;
+    for (int i = 0; i < named; i++) {
+        len += strlen(specs->items[i]) + 4;
+    }
+    char *out = malloc(len);
+    if (!out) return NULL;
+
+    size_t at = 0;
+    if (specs->count > NR_HINT_MAX_NAMED) {
+        at += (size_t)snprintf(out + at, len - at,
+                               "exported by %d modules, among them ", specs->count);
+    } else {
+        at += (size_t)snprintf(out + at, len - at, "did you mean to import it from ");
+    }
+
+    for (int i = 0; i < named; i++) {
+        const char *sep = "";
+        if (i > 0) sep = (i == named - 1) ? (specs->count > NR_HINT_MAX_NAMED ? " and " : " or ")
+                                          : ", ";
+        at += (size_t)snprintf(out + at, len - at, "%s%s", sep, specs->items[i]);
+    }
+    if (specs->count <= NR_HINT_MAX_NAMED) {
+        snprintf(out + at, len - at, "?");
+    }
+    return out;
+}
+
 /*
  * Why this name might be missing, best guess first:
  *   1. a module this file already imports exports it -> a missing import name
  *   2. a stdlib module exports it                    -> a missing import
  *   3. something spelled almost the same is in scope -> a typo
+ *
+ * Where several modules export the name, all of them are collected and sorted
+ * rather than taking the first match. `parse` is exported by nine stdlib
+ * modules, so picking the first put whichever one readdir() happened to
+ * return in the message - a different suggestion on a different machine, and
+ * usually the wrong one.
  */
 static char *nr_build_hint(NrCtx *ctx, NrModule *m, const char *name) {
+    NrSpecs specs;
+    nr_specs_init(&specs);
+
+    /* A module this file already imports is a better answer than any stdlib
+     * module, so if any of them export the name, look no further. */
     for (int i = 0; i < m->num_edges; i++) {
         NrModule *target = m->edges[i].target;
         if (!target || !m->edges[i].spec) continue;
         for (int j = 0; j < target->num_exports; j++) {
             if (strcmp(target->exports[j], name) == 0) {
-                return nr_format_hint("did you mean to import it from %s?",
-                                      m->edges[i].spec);
+                nr_specs_add(&specs, m->edges[i].spec);
+                break;
             }
         }
     }
 
-    nr_scan_stdlib(ctx);
-    for (int i = 0; i < ctx->num_stdlib; i++) {
-        if (strcmp(ctx->stdlib_names[i], name) == 0) {
-            return nr_format_hint("did you mean to import it from %s?",
-                                  ctx->stdlib_specs[i]);
+    if (specs.count == 0) {
+        nr_scan_stdlib(ctx);
+        for (int i = 0; i < ctx->num_stdlib; i++) {
+            if (strcmp(ctx->stdlib_names[i], name) == 0) {
+                nr_specs_add(&specs, ctx->stdlib_specs[i]);
+            }
         }
     }
+
+    if (specs.count > 0) {
+        char *hint = nr_format_specs(&specs);
+        nr_specs_free(&specs);
+        return hint;
+    }
+    nr_specs_free(&specs);
 
     size_t name_len = strlen(name);
     if (name_len >= NR_MIN_HINT_LENGTH) {

@@ -127,7 +127,9 @@ echo ""
 #   contracts, formatter, lint, check, sandbox - their own run_*.sh
 #   names             - names/run_name_tests.sh (undefined names: exit 1 by design)
 #   task_errors       - task_errors/run_task_error_tests.sh (stderr is the assertion)
-TEST_FILES=$(find "$TEST_DIR" -name "*.hml" -not -path "*/compiler/*" -not -path "*/parity/*" -not -path "*/contracts/*" -not -path "*/formatter/*" -not -path "*/lint/*" -not -path "*/check/*" -not -path "*/sandbox/*" -not -path "*/names/*" -not -path "*/task_errors/*" | sort)
+#   stdin_exit        - stdin_exit/run_stdin_exit_tests.sh (needs stdin held open
+#                       and asserts exit codes; one fixture exits 2 by design)
+TEST_FILES=$(find "$TEST_DIR" -name "*.hml" -not -path "*/compiler/*" -not -path "*/parity/*" -not -path "*/contracts/*" -not -path "*/formatter/*" -not -path "*/lint/*" -not -path "*/check/*" -not -path "*/sandbox/*" -not -path "*/names/*" -not -path "*/task_errors/*" -not -path "*/stdin_exit/*" | sort)
 
 CURRENT_CATEGORY=""
 for test_file in $TEST_FILES; do

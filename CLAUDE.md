@@ -450,6 +450,7 @@ make parity            # Run parity tests (both must match)
 make test-names        # Undefined-name diagnostics (hemlockc == interpreter)
 make test-check        # `hemlock check` diagnostics
 make test-task-errors  # Uncaught exceptions in spawned tasks reach stderr
+make test-stdin-exit   # read_line() must not deadlock exit() (glibc >= 2.39)
 make test-all          # Run all test suites
 ```
 

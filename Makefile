@@ -359,6 +359,11 @@ test-names: $(TARGET) compiler stdlib
 test-task-errors: $(TARGET) compiler runtime stdlib
 	@bash tests/task_errors/run_task_error_tests.sh
 
+# read_line() must not deadlock exit(), and must keep its line semantics
+.PHONY: test-stdin-exit
+test-stdin-exit: $(TARGET) compiler runtime stdlib
+	@bash tests/stdin_exit/run_stdin_exit_tests.sh
+
 # include/builtin_globals.h must stay in step with the interpreter's registration
 .PHONY: test-builtin-sync
 test-builtin-sync:
@@ -1047,7 +1052,7 @@ test-memory: compiler
 
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler test-borrow test-lint test-names test-task-errors test-builtin-sync parity test-contracts test-bundler test-lsp test-memory test-chan-core test-formatter test-cli test-sandbox test-check docs-check
+test-all: test test-compiler test-borrow test-lint test-names test-task-errors test-stdin-exit test-builtin-sync parity test-contracts test-bundler test-lsp test-memory test-chan-core test-formatter test-cli test-sandbox test-check docs-check
 
 # ========== RELEASE BUILD ==========
 

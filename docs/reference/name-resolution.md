@@ -100,6 +100,28 @@ guessing. That happens when a module cannot be read or parsed, or when
 reported — a module that will not parse produces its own diagnostics, named
 by that module's file and line.
 
+## Hints
+
+The suggestion after the name is best-effort, in this order:
+
+1. a module the file already imports exports that name — a missing import name;
+2. a stdlib module exports it — a missing import;
+3. something spelled almost the same is in scope — a typo.
+
+Where several modules export the name, all of them are collected and **sorted**,
+so the message does not depend on the order they happened to be discovered in:
+
+| Matches | Message |
+|---------|---------|
+| 1 | `did you mean to import it from @stdlib/time?` |
+| 2–3 | `did you mean to import it from @stdlib/datetime or @stdlib/time?` |
+| more | `exported by 9 modules, among them @stdlib/args, @stdlib/csv and @stdlib/json` |
+
+Past three the count leads, because the useful fact is that the name is
+ambiguous and the choice is the reader's. `parse` is exported by nine stdlib
+modules, and naming whichever one `readdir()` returned first gave a different
+suggestion on a different machine — usually the wrong one.
+
 ## Escape hatch
 
 `hemlockc` has none: emitting C that references undefined symbols is never
@@ -115,6 +137,33 @@ hemlock --no-name-check script.hml
 Use it to shave the parse off process startup, or to run a program whose
 unreachable code names something that does not exist. `hemlock check` always
 runs the pass — it is the pre-deploy gate.
+
+### Code that never runs
+
+The pass does not care whether a line is reachable, so a program that has
+been running for months with a latent undefined name in a dead function now
+fails at startup instead. That is the point — the name was always wrong, and
+waiting for control to reach it is how one stayed in a shipped game server
+for weeks — but it does mean an existing tree can stop starting after an
+upgrade.
+
+The usual cause was an `import` inside a function body, which parsed and bound
+nothing, so every name it was meant to provide was undefined. That is now a
+parse error at the import itself:
+
+```hemlock
+fn read_command() {
+    import { parse } from "@stdlib/json";   // error: import must be at
+    return parse(read_line());              // module top level
+}
+```
+
+Move the import to module top level. An FFI library import
+(`import "libc.so.6"`) does work below top level and is unaffected.
+
+For anything else, `--no-name-check` gets the program starting again in the
+meantime, but the name is still undefined: the program will fail the moment it
+reaches that code.
 
 ## Builtin names
 
@@ -140,6 +189,9 @@ today; when the gap closes, the list shrinks.
 | `make test-check` | `hemlock check`'s own diagnostic format, including the imported-module case (`tests/check/names_*.hml`) |
 | `tests/check/neg_names_scopes.hml` | Every binding form above, asserting a clean report — the false-positive guard |
 | `make test-builtin-sync` | `builtin_globals.h` and the interpreter's registration agree |
+| `tests/check/names_nested_import.hml` | a source-module import below top level is a parse error |
+| `tests/check/neg_nested_ffi_import.hml` | an FFI import below top level is still legal |
+| `tests/check/names_hint_two_modules.hml` | a name exported by two imported modules names both, sorted |
 
 ## See Also
 

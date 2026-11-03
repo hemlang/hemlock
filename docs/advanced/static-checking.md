@@ -84,7 +84,9 @@ it deliberately does not, and the `--no-name-check` escape hatch.
 
 The hint is best-effort, in this order: a module the file already imports
 exports that name; a stdlib module exports it; something spelled almost the
-same is in scope.
+same is in scope. Where several modules export the name they are all collected
+and sorted, so the message does not depend on the order they were discovered
+in — see [Name Resolution](../reference/name-resolution.md#hints).
 
 ## Text output
 
