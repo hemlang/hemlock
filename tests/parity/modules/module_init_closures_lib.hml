@@ -1,0 +1,22 @@
+// Helper module (no .expected): imported by module_init_closures.hml.
+//
+// Every anonymous function here is created by the module's TOP-LEVEL code,
+// not inside an exported function body. Codegen used to generate module init
+// bodies after the closure pass had already emitted implementations and
+// forward declarations, so these closures were registered too late: the
+// generated C referenced hml_fn_anon_N with nothing defining it and the build
+// failed with "'hml_fn_anon_N' undeclared".
+
+export let handlers = {
+    on_get: fn(p) { return "get " + p; },
+    on_post: fn(p) { return "post " + p; },
+};
+
+export let callbacks = [fn() { return 1; }, fn() { return 2; }];
+
+let prefix = "mod:";
+
+// A top-level closure that captures a module-level binding.
+export let tagged = fn(s) { return prefix + s; };
+
+export let nested = { inner: { deep: fn(x) { return x * 3; } } };

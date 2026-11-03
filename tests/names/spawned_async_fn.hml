@@ -1,0 +1,11 @@
+// @expect-compile-fail undefined name in an async fn passed to spawn
+// Undefined name inside an async fn passed to spawn(). The shape that shipped:
+// the interpreter never reached the line, and the task died silently.
+import { time_ms } from "@stdlib/time";
+
+spawn(async fn() {
+    sleep(0.2);
+    print(time_ms());
+});
+
+print("spawned");

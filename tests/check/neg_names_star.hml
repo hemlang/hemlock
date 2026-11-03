@@ -1,0 +1,3 @@
+// Helper fixture (no .expected): imported with `import *`, which drops every
+// export into the importing module's scope.
+export fn star_only(): i32 { return 3; }

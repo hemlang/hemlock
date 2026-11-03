@@ -1,0 +1,5 @@
+// Helper fixture (no .expected): the module neg_names_scopes.hml imports
+// from, covering named and renamed imports.
+export fn exported_fn(x: i32): i32 { return x + 1; }
+export let exported_let = 7;
+export fn renamed_source(): i32 { return 2; }

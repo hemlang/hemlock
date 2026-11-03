@@ -1,0 +1,10 @@
+// Same for a detached task, which can never be joined by construction.
+import { sleep } from "@stdlib/time";
+
+async fn background() {
+    throw "background blew up";
+}
+
+detach(spawn(background));
+sleep(0.2);
+print("main still alive");

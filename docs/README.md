@@ -41,6 +41,7 @@ Welcome to the Hemlock programming language documentation!
 - [Borrow Checker](advanced/borrow-checker.md) - Rust-like ownership analysis (use-after-free, double-free, leaks)
 - [Static Lint](advanced/lint.md) - Catch unreachable code, dead branches, self-assignment, and more before shipping
 - [Static Checking](advanced/static-checking.md) - `hemlock check`: all static passes without execution, with `--json` diagnostics
+- [Name Resolution](reference/name-resolution.md) - Undefined names are an error in every tool, across the whole module graph
 - [Signal Handling](advanced/signals.md) - POSIX signal handling
 - [Sandbox Mode](advanced/sandbox.md) - `--sandbox`: switch off FFI, network, processes, file writes, and raw pointers
 - [Command-Line Arguments](advanced/command-line-args.md) - Access program arguments

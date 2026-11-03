@@ -218,6 +218,10 @@ struct HmlTask {
     char *name;             // Optional debug name (from spawn_with)
     int has_exception;      // 1 if task threw an exception
     HmlValue exception_value; // Exception value for propagation on join()
+    int exception_line;     // Line the exception escaped from. Captured on the
+                            // worker thread because hml_error_line is
+                            // thread-local and the task may be freed on
+                            // another thread.
 };
 
 // Channel (for async communication)

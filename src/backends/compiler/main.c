@@ -1035,6 +1035,40 @@ int main(int argc, char **argv) {
     }
     resolve_program(statements, stmt_count);
 
+    // Name resolution across the whole module graph. This is a hard gate, and
+    // deliberately the first one: an identifier nothing in scope explains
+    // cannot be code-generated into anything but a C symbol that was never
+    // defined, which surfaces as a GCC error about generated code instead of
+    // a Hemlock error about the user's source.
+    if (opts.verbose) {
+        printf("Resolving names...\n");
+    }
+    {
+        NameResolveResult *names =
+            name_resolve_entry(opts.input_file, statements, stmt_count);
+        if (names) {
+            for (NameDiag *d = names->diags; d; d = d->next) {
+                char *line = name_diag_format(d);
+                if (line) {
+                    fprintf(stderr, "%s\n", line);
+                    free(line);
+                }
+            }
+            int name_errors = names->error_count;
+            name_resolve_result_free(names);
+            if (name_errors > 0) {
+                fprintf(stderr, "%d error%s generated\n",
+                        name_errors, name_errors > 1 ? "s" : "");
+                for (int i = 0; i < stmt_count; i++) {
+                    stmt_free(statements[i]);
+                }
+                free(statements);
+                free(source);
+                return 1;
+            }
+        }
+    }
+
     // Static lint / diagnostics (advisory by default). Flags well-typed,
     // memory-safe code that is almost certainly a mistake: unreachable code,
     // dead branches, self-assignment, modulo-by-zero, and (strict) unused

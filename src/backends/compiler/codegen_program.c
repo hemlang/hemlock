@@ -1110,6 +1110,7 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
     MemBuffer *main_buffer = membuf_new();
     MemBuffer *module_decl_buffer = membuf_new();
     MemBuffer *module_impl_buffer = membuf_new();
+    MemBuffer *module_init_buffer = membuf_new();
     FILE *saved_output = ctx->output;
 
     // Pre-pass: Collect all main file variable names BEFORE generating code
@@ -1219,6 +1220,28 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
             codegen_module_funcs(ctx, mod, module_decl_buffer, module_impl_buffer);
             mod = mod->next;
         }
+    }
+
+    // Module init bodies (a module's top-level statements) go to a buffer here
+    // for the same reason: they run through codegen and so can register
+    // closures, and every closure has to exist before the closure pass below
+    // emits implementations and forward declarations.
+    //
+    // These used to be generated at the very end, writing straight to the
+    // output. An anonymous function in a module's top-level initializer -
+    // `export let handlers = { on_get: fn(p) { ... } };` - was therefore
+    // registered after the closure pass had already run, so the reference to
+    // hml_fn_anon_N was emitted with nothing declaring or defining it, and
+    // the build failed with "'hml_fn_anon_N' undeclared" in generated C.
+    if (ctx->module_cache && ctx->module_cache->modules) {
+        FILE *saved_output = ctx->output;
+        ctx->output = module_init_buffer->stream;
+        CompiledModule *mod = ctx->module_cache->modules;
+        while (mod) {
+            codegen_module_init(ctx, mod);
+            mod = mod->next;
+        }
+        ctx->output = saved_output;
     }
 
     // Pass 1: Generate named function bodies to buffer (this collects closures)
@@ -2129,16 +2152,13 @@ void codegen_program(CodegenContext *ctx, Stmt **stmts, int stmt_count) {
         codegen_write(ctx, "// Module function implementations\n");
         membuf_flush_to(module_impl_buffer, ctx->output);
 
-        // Module init function implementations
+        // Module init function implementations (from buffer)
         codegen_write(ctx, "// Module init functions\n");
-        CompiledModule *mod = ctx->module_cache->modules;
-        while (mod) {
-            codegen_module_init(ctx, mod);
-            mod = mod->next;
-        }
+        membuf_flush_to(module_init_buffer, ctx->output);
     }
     membuf_free(module_decl_buffer);
     membuf_free(module_impl_buffer);
+    membuf_free(module_init_buffer);
 
     // Named function implementations (from buffer)
     codegen_write(ctx, "// Named function implementations\n");

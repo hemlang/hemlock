@@ -9,6 +9,7 @@
 #include "../include/hemlock_runtime.h"
 #include "num_convert.h"
 #include "chan_core.h"
+#include "builtins_internal.h"  // print_value_to, for the uncaught-task report
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -723,8 +724,47 @@ static void function_free(HmlFunction *fn) {
     }
 }
 
+/*
+ * An exception that reaches the top of a task body is handed to whoever
+ * join()s the task. Nobody joins a detached task, or one whose handle was
+ * dropped - `spawn(async fn() { ... });` as a statement - and until this
+ * existed the exception went with it: the task died, the process carried on,
+ * and nothing was written anywhere.
+ *
+ * Reporting at free time rather than at task exit is what makes it sound: by
+ * then the task's last reference is gone, so no join() can still arrive to
+ * claim the exception.
+ *
+ * The summary line is byte-identical to the interpreter's (see
+ * task_report_uncaught in src/backends/interpreter/values.c); the interpreter
+ * follows it with a stack trace, the same split that already applies to a
+ * top-level uncaught exception.
+ */
+static void task_report_uncaught(HmlTask *task) {
+    if (!task->has_exception || task->joined) return;
+
+    flockfile(stderr);
+    fprintf(stderr, "Uncaught exception in spawned task #%d", task->id);
+    if (task->name) {
+        fprintf(stderr, " '%s'", task->name);
+    }
+    fprintf(stderr, ": ");
+    print_value_to(stderr, task->exception_value);
+    fprintf(stderr, "\n");
+    const char *file = hml_get_source_file();
+    if (file && task->exception_line > 0) {
+        fprintf(stderr, "  at %s:%d\n", file, task->exception_line);
+    } else if (task->exception_line > 0) {
+        fprintf(stderr, "  at line %d\n", task->exception_line);
+    }
+    funlockfile(stderr);
+
+    task->has_exception = 0;
+}
+
 static void task_free(HmlTask *task) {
     if (task) {
+        task_report_uncaught(task);
         // If a task handle is dropped without an explicit join()/detach(),
         // the pthread remains joinable and leaks thread resources even after
         // task completion. Detach here as a final safety net before teardown.
@@ -736,6 +776,9 @@ static void task_free(HmlTask *task) {
         hml_release(&task->function);
         // Release the result
         hml_release(&task->result);
+        // join() moves the exception to the joiner; an unjoined task's is ours
+        // (it was leaked outright before task_report_uncaught existed).
+        hml_release(&task->exception_value);
         // Free the args array
         if (task->args) {
             for (int i = 0; i < task->num_args; i++) {

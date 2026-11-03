@@ -1,0 +1,15 @@
+// Negative fixture: resolves cleanly, so both tools must stay silent and
+// exit 0. The thorough false-positive guard lives in
+// tests/check/neg_names_scopes.hml; this one keeps the compiler path covered.
+import { sleep } from "@stdlib/time";
+import { sqrt as root } from "@stdlib/math";
+
+fn even(n: i32): bool { if (n == 0) { return true; } return odd(n - 1); }
+fn odd(n: i32): bool { if (n == 0) { return false; } return even(n - 1); }
+
+spawn(async fn() {
+    sleep(0.0);
+    print(root(4.0));
+});
+
+print(even(4));

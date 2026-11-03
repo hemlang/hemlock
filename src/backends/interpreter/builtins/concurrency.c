@@ -136,6 +136,13 @@ static Value spawn_task(const char *who, Function *fn, Value *args, int num_args
     if (opts->name) {
         task->name = hml_xstrdup(opts->name);
     }
+    /* Where the spawn happened, for the report an unjoined task's uncaught
+     * exception produces. Read here, on the spawner's thread: the worker must
+     * not touch this main-thread global. */
+    const char *spawn_file = get_current_source_file();
+    if (spawn_file) {
+        task->source_file = hml_xstrdup(spawn_file);
+    }
     task->thread = malloc(sizeof(pthread_t));
     if (!task->thread) {
         task_release(task);

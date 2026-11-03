@@ -1,0 +1,2 @@
+names_in_imported_module_lib.hml:11:5: error: undefined name 'sleep' (did you mean to import it from @stdlib/time?)
+1 error generated

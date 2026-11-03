@@ -1,9 +1,9 @@
-// @expect-compile-fail unresolvable identifier is also a hard error
-// An identifier the type checker cannot resolve is reported with its real
-// source line. It used to say "…hml:0:" because the parser never stamped
-// line/column onto identifier expressions. Resolving to nothing is also a
-// hard error, so the compile failure below is expected and part of the
-// asserted output -- the point of the fixture is the ":3:" in the warning.
+// @expect-compile-fail unresolvable identifier is a hard error
+// An identifier that resolves to nothing is reported with its real source
+// line. It used to say "…hml:0:" because the parser never stamped
+// line/column onto identifier expressions, and before name resolution
+// existed it surfaced from codegen as "error (line 9)" with no file at all.
+// The point of the fixture is the "hml:9:12:" below.
 let a = 1;
 let b = 2;
 print("" + NOPE);

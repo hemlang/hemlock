@@ -1,0 +1,11 @@
+// spawn_with gives the task a name, which the report includes so one noisy
+// worker can be told from the rest.
+import { sleep } from "@stdlib/time";
+
+async fn worker() {
+    throw "worker blew up";
+}
+
+spawn_with({ name: "ingest" }, worker);
+sleep(0.2);
+print("main still alive");

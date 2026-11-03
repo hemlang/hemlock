@@ -1,0 +1,8 @@
+// Anonymous functions created by an imported module's top-level code.
+import { handlers, callbacks, tagged, nested } from "./module_init_closures_lib.hml";
+
+print(handlers.on_get("a"));
+print(handlers.on_post("b"));
+print(callbacks[0]() + callbacks[1]());
+print(tagged("x"));
+print(nested.inner.deep(4));

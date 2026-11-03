@@ -1,0 +1,5 @@
+// @expect-compile-fail undefined name in the module it imports
+// The entry file is clean; the undefined name lives in the module it imports.
+import { start_server } from "./names_import_module_lib.hml";
+
+start_server(8080);

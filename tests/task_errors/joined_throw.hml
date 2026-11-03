@@ -1,0 +1,16 @@
+// A joined task's exception belongs to the joiner: it is re-thrown there and
+// must NOT also be reported to stderr, or every handled failure would print.
+import { sleep } from "@stdlib/time";
+
+async fn failing(): i32 {
+    throw "expected";
+}
+
+try {
+    let r = await spawn(failing);
+    print("unreachable " + r);
+} catch (e) {
+    print("caught: " + e);
+}
+sleep(0.1);
+print("main still alive");

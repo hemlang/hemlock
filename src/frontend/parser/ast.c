@@ -1355,6 +1355,14 @@ void expr_free(Expr *expr) {
             if (expr->as.function.param_hashes) {
                 free(expr->as.function.param_hashes);
             }
+            // Free rest parameter name and type. The AST owns both: a
+            // Function built from this expression borrows them
+            // (borrows_ast_params) and does not free them, so leaving them
+            // here leaked the name of every `...rest` parameter per AST freed.
+            free(expr->as.function.rest_param);
+            if (expr->as.function.rest_param_type) {
+                type_free(expr->as.function.rest_param_type);
+            }
             // Free return type
             if (expr->as.function.return_type) {
                 type_free(expr->as.function.return_type);

@@ -1,0 +1,7 @@
+// @expect-compile-fail undefined name at top level
+// An undefined name at module top level.
+import { time_ms } from "@stdlib/time";
+
+let start = time_ms();
+sleep(0.2);
+print(start);

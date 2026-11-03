@@ -349,10 +349,47 @@ static int has_modules(const char *source) {
     return 0;
 }
 
-static void run_file(const char *path, int argc, char **argv, int stack_depth, int sandbox_flags, const char *sandbox_root) {
+/*
+ * Report undefined names in `path` and everything it imports, and return the
+ * number found.
+ *
+ * The interpreter on its own only notices an undefined name when control
+ * reaches it, which may be weeks after deployment or never. Resolving the
+ * whole module graph up front turns that into a startup failure, and matches
+ * what hemlockc does with the same program. The scan costs one extra parse of
+ * the program; `--no-name-check` skips it.
+ */
+static int check_names_before_run(const char *path) {
+    NameResolveResult *names = name_resolve_entry(path, NULL, 0);
+    if (!names) return 0;
+
+    for (NameDiag *d = names->diags; d; d = d->next) {
+        char *line = name_diag_format(d);
+        if (line) {
+            fprintf(stderr, "%s\n", line);
+            free(line);
+        }
+    }
+    int count = names->error_count;
+    name_resolve_result_free(names);
+    return count;
+}
+
+static void run_file(const char *path, int argc, char **argv, int stack_depth,
+                     int sandbox_flags, const char *sandbox_root, int name_check) {
     char *source = read_file(path);
     if (source == NULL) {
         exit(1);
+    }
+
+    if (name_check) {
+        int name_errors = check_names_before_run(path);
+        if (name_errors > 0) {
+            fprintf(stderr, "%d error%s generated\n",
+                    name_errors, name_errors > 1 ? "s" : "");
+            free(source);
+            exit(1);
+        }
     }
 
     // Initialize FFI
@@ -1065,7 +1102,7 @@ static void print_help(const char *program) {
     printf("    <FILE>       Hemlock script file to execute (.hml, .hmlc, or .hmlb)\n");
     printf("    <ARGS>...    Arguments passed to the script (available in 'args' array)\n\n");
     printf("SUBCOMMANDS:\n");
-    printf("    check        Static analysis without execution (syntax, lint, types, borrow)\n");
+    printf("    check        Static analysis without execution (syntax, names, lint, types, borrow)\n");
     printf("        --json       Output diagnostics as JSON (see 'check --help')\n");
     printf("        --strict-types / --borrow-strict / --lint-strict / --no-lint\n");
     printf("    format       Format Hemlock source code\n");
@@ -1097,6 +1134,7 @@ static void print_help(const char *program) {
     printf("    --verbose            Print progress during bundling/packaging\n");
     printf("    --stack-depth <N>    Set maximum call stack depth (default: 10000)\n");
     printf("    --sandbox [DIR]      Run in sandbox mode (restricts dangerous operations)\n");
+    printf("    --no-name-check      Skip the startup pass that reports undefined names\n");
     printf("                         Disables: FFI, network, process spawning, file writes,\n");
     printf("                         signals (signal, raise, kill, abort), raw pointers\n");
     printf("                         (alloc, ptr_*, pointer arithmetic, atomics, mmap)\n");
@@ -1452,12 +1490,12 @@ static int run_format(int argc, char **argv) {
 
 // One collected diagnostic, normalized across all passes.
 typedef struct CheckDiag {
-    const char *file;       // borrowed (argv)
+    char *file;             // owned: may name an imported module, not argv
     int line;               // 1-based
     int column;             // 1-based when known, 0 = unknown
     int end_column;
     int is_warning;         // 0 = error, 1 = warning
-    const char *pass;       // "parse" | "lint" | "types" | "borrow"
+    const char *pass;       // "parse" | "names" | "lint" | "types" | "borrow"
     char *message;          // owned
     int seq;                // insertion order (stable sort tiebreaker)
 } CheckDiag;
@@ -1491,7 +1529,7 @@ static void check_collect(CheckDiagList *list, const char *file, int line,
     }
 
     CheckDiag *d = &list->items[list->count];
-    d->file = file;
+    d->file = strdup(file ? file : "<unknown>");
     d->line = line;
     d->column = column;
     d->end_column = end_column;
@@ -1499,7 +1537,11 @@ static void check_collect(CheckDiagList *list, const char *file, int line,
     d->pass = pass;
     d->message = strdup(message ? message : "");
     d->seq = list->count;
-    if (!d->message) return;
+    if (!d->file || !d->message) {
+        free(d->file);
+        free(d->message);
+        return;
+    }
     list->count++;
 
     if (is_warning) {
@@ -1507,6 +1549,20 @@ static void check_collect(CheckDiagList *list, const char *file, int line,
     } else {
         list->errors++;
     }
+}
+
+// Checking several files that import the same module reaches that module once
+// per entry file; report each of its diagnostics only the first time.
+static int check_has_diag(const CheckDiagList *list, const char *file, int line,
+                          int column, const char *message) {
+    for (int i = 0; i < list->count; i++) {
+        const CheckDiag *d = &list->items[i];
+        if (d->line == line && d->column == column &&
+            strcmp(d->file, file) == 0 && strcmp(d->message, message) == 0) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 // Order a file's diagnostics by source position (passes run whole-file, so
@@ -1553,6 +1609,27 @@ static int check_one_file(const char *path, const CheckOptions *opts,
     // misleading follow-on diagnostics.
     if (!parser.had_error && statements) {
         resolve_program(statements, stmt_count);
+
+        // Name resolution. The same pass the compiler gates on, which is the
+        // point: `hemlock check` is the pre-deploy gate, so a name that would
+        // fail at runtime has to be an error here too. It covers the whole
+        // module graph, so a diagnostic may name an imported module rather
+        // than `path`.
+        NameResolveResult *names = name_resolve_entry(path, statements, stmt_count);
+        if (names) {
+            for (NameDiag *nd = names->diags; nd; nd = nd->next) {
+                if (check_has_diag(list, nd->file, nd->line, nd->column, nd->message)) {
+                    continue;
+                }
+                // The pass reports two kinds: an unresolved name (which
+                // carries the name) and a module it could not read or parse
+                // (which does not). The second is a syntax error and belongs
+                // to the "parse" pass as far as consumers are concerned.
+                check_collect(list, nd->file, nd->line, nd->column, nd->column,
+                              0, nd->name ? "names" : "parse", nd->message);
+            }
+            name_resolve_result_free(names);
+        }
 
         if (opts->lint) {
             LintContext *lc = lint_new(path);
@@ -1698,7 +1775,9 @@ static int run_check(int argc, char **argv) {
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             printf("Hemlock Static Checker\n\n");
             printf("Parses and analyzes source files without executing them, running the\n");
-            printf("same static passes as the compiler: syntax, lint, type check, borrow\n");
+            printf("same static passes as the compiler: syntax, name resolution, lint,\n");
+    printf("type check, borrow check. Name resolution follows imports, so a\n");
+    printf("diagnostic may name an imported module rather than the file given.\n");
             printf("check. Reports every diagnostic found instead of stopping at the first\n");
             printf("failing pass.\n\n");
             printf("USAGE:\n");
@@ -1722,7 +1801,8 @@ static int run_check(int argc, char **argv) {
             printf("        { \"version\": 1, \"files\": N, \"errors\": N, \"warnings\": N,\n");
             printf("          \"diagnostics\": [ { \"file\", \"line\", \"column\", \"end_column\",\n");
             printf("            \"severity\": \"error\"|\"warning\",\n");
-            printf("            \"pass\": \"parse\"|\"lint\"|\"types\"|\"borrow\", \"message\" } ] }\n");
+            printf("            \"pass\": \"parse\"|\"names\"|\"lint\"|\"types\"|\"borrow\",\n");
+            printf("            \"message\" } ] }\n");
             printf("    Lines and columns are 1-based; column 0 means unknown.\n");
             free(files);
             return 0;
@@ -1768,6 +1848,7 @@ static int run_check(int argc, char **argv) {
     int exit_code = io_error ? 2 : (failing ? 1 : 0);
 
     for (int i = 0; i < list.count; i++) {
+        free(list.items[i].file);
         free(list.items[i].message);
     }
     free(list.items);
@@ -1824,6 +1905,7 @@ int main(int argc, char **argv) {
     int info_mode = 0;
     int stack_depth = 0;  // 0 = use default (DEFAULT_MAX_STACK_DEPTH)
     int sandbox_flags = 0;  // 0 = no sandbox, otherwise HML_SANDBOX_RESTRICT_* flags
+    int name_check = 1;     // resolve every name before running (--no-name-check)
     const char *sandbox_root = NULL;  // Optional directory to restrict file access to
     const char *file_to_info = NULL;
     const char *file_to_run = NULL;
@@ -1961,6 +2043,11 @@ int main(int argc, char **argv) {
                     i++;  // Skip the directory argument
                 }
             }
+        } else if (strcmp(argv[i], "--no-name-check") == 0) {
+            // Skip the startup name-resolution pass. Only useful to shave the
+            // extra parse off process startup, or to run a program whose
+            // unreachable code names something that does not exist.
+            name_check = 0;
         } else if (argv[i][0] == '-') {
             // Unknown flag
             fprintf(stderr, "Error: Unknown option '%s'\n", argv[i]);
@@ -2080,7 +2167,8 @@ int main(int argc, char **argv) {
         if (is_compiled_extension(file_to_run) || is_compiled_file(file_to_run)) {
             run_compiled_file(file_to_run, script_argc, script_argv, stack_depth, sandbox_flags, sandbox_root);
         } else {
-            run_file(file_to_run, script_argc, script_argv, stack_depth, sandbox_flags, sandbox_root);
+            run_file(file_to_run, script_argc, script_argv, stack_depth,
+                     sandbox_flags, sandbox_root, name_check);
         }
 
         if (interactive_mode) {

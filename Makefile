@@ -204,6 +204,7 @@ FRONTEND_SRCS = $(wildcard $(SRC_DIR)/frontend/lexer/*.c) \
 FRONTEND_COMPILER_SRCS = $(SRC_DIR)/frontend/lexer/lexer.c \
                          $(SRC_DIR)/frontend/optimizer/optimizer.c \
                          $(SRC_DIR)/frontend/resolver/resolver.c \
+                         $(SRC_DIR)/frontend/resolver/name_resolve.c \
                          $(filter-out $(SRC_DIR)/frontend/parser/module.c, $(wildcard $(SRC_DIR)/frontend/parser/*.c)) \
                          $(MODULES_SRCS)
 
@@ -346,6 +347,22 @@ test-sandbox: $(TARGET) compiler stdlib
 .PHONY: test-check
 test-check: $(TARGET)
 	@bash tests/check/run_check_tests.sh
+
+# Name-resolution diagnostics: hemlockc and the interpreter must report an
+# undefined name with identical text (`hemlock check` is covered by test-check)
+.PHONY: test-names
+test-names: $(TARGET) compiler stdlib
+	@bash tests/names/run_name_tests.sh
+
+# An exception escaping a spawned task nobody joins must reach stderr
+.PHONY: test-task-errors
+test-task-errors: $(TARGET) compiler runtime stdlib
+	@bash tests/task_errors/run_task_error_tests.sh
+
+# include/builtin_globals.h must stay in step with the interpreter's registration
+.PHONY: test-builtin-sync
+test-builtin-sync:
+	@bash tests/unit/test_builtin_globals_sync.sh
 
 # Regenerate the stdlib API index (docs/reference/stdlib-api-index.md)
 .PHONY: stdlib-api
@@ -1030,7 +1047,7 @@ test-memory: compiler
 
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler test-borrow test-lint parity test-contracts test-bundler test-lsp test-memory test-chan-core test-formatter test-cli test-sandbox test-check docs-check
+test-all: test test-compiler test-borrow test-lint test-names test-task-errors test-builtin-sync parity test-contracts test-bundler test-lsp test-memory test-chan-core test-formatter test-cli test-sandbox test-check docs-check
 
 # ========== RELEASE BUILD ==========
 

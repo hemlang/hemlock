@@ -1,0 +1,13 @@
+// @expect-compile-fail undefined name (helper for names_in_imported_module.hml)
+// Helper module (no .expected): imported by names_in_imported_module.hml.
+// The undefined name is on line 7 of THIS file, and that is the file and line
+// the diagnostic has to name. Before name resolution, hemlockc turned this
+// into a call to an undeclared C function (_modNN_fn_sleep) and the failure
+// surfaced as "error: invalid initializer" in generated C, pointing at
+// nothing in the Hemlock source.
+import { time_ms } from "@stdlib/time";
+
+export fn start_server(port: i32) {
+    sleep(0.2);
+    print("listening on " + port + " since " + time_ms());
+}
