@@ -155,6 +155,11 @@ typedef struct UnboxableVar {
     int is_loop_counter;           // Whether this is a for-loop counter
     int is_accumulator;            // Whether this is used as an accumulator
     int is_typed_var;              // Whether this has a type annotation
+    int decl_count;                // Declarations of the name marked unboxable
+    int decl_conflict;             // Two such declarations disagree on native_type
+    int force_boxed;               // Never unbox this name in the current function
+                                   // (later marks are ignored); see
+                                   // type_check_analyze_function_for_unboxing
     struct UnboxableVar *next;
 } UnboxableVar;
 
@@ -428,6 +433,11 @@ void type_check_analyze_typed_let(TypeCheckContext *ctx, Stmt *stmt,
 
 // Analyze all statements in a block for unboxable variables
 void type_check_analyze_block_for_unboxing(TypeCheckContext *ctx, Stmt *block);
+// Analyze a whole function body (clears the previous function's marks
+// first). Unboxing is keyed by name, so a name declared more than once in
+// the function (sibling or nested blocks, parameters) stays unboxed only if
+// every declaration unboxes to the same native type.
+void type_check_analyze_function_for_unboxing(TypeCheckContext *ctx, Expr *func);
 
 // Check if a typed variable can be unboxed based on its type annotation
 // Returns the native type if unboxable, CHECKED_UNKNOWN otherwise
