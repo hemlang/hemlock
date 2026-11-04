@@ -676,7 +676,7 @@ void env_define_borrowed(Environment *env, const char *name, Value value, int is
 // This is safe because we know params are unique (enforced by parser) and env is freshly created
 // Note: This is typically called on newly created environments that aren't shared yet,
 // but we still lock for consistency if the env happens to be shared.
-void env_define_param(Environment *env, const char *name, uint32_t hash, Value value) {
+void env_define_param(Environment *env, const char *name, uint32_t hash, Value value, int is_const) {
     // Lock environment for thread-safe access
     pthread_mutex_t *mutex = env_lock_of(env);
     if (mutex) pthread_mutex_lock(mutex);
@@ -693,13 +693,20 @@ void env_define_param(Environment *env, const char *name, uint32_t hash, Value v
     }
     VALUE_RETAIN(value);
     env->values[index] = value;
-    env->is_const[index] = 0;  // Params are never const
+    env->is_const[index] = is_const;  // `const` parameters cannot be reassigned
     env->count++;
 
     // Insert with pre-computed hash
     env_hash_insert_with_hash(env, hash, index);
 
     if (mutex) pthread_mutex_unlock(mutex);
+}
+
+void env_bind_fn_param(Environment *env, Function *fn, int i, Value value) {
+    const char *name = fn->param_names[i];
+    uint32_t hash = fn->param_hashes ? fn->param_hashes[i] : hash_string(name);
+    int is_const = fn->param_is_const ? fn->param_is_const[i] : 0;
+    env_define_param(env, name, hash, value, is_const);
 }
 
 // Install a live-binding alias from the importing scope to a name in another

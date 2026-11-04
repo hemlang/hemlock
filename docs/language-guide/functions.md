@@ -817,13 +817,13 @@ fn filter_with(arr: array, pred: Predicate): array {
 
 ## Const Parameters
 
-The `const` modifier prevents a parameter from being mutated within the function:
-
-### Basic Const Parameters
+The `const` modifier makes a parameter binding read-only inside the function,
+the same way `const` works for a variable:
 
 ```hemlock
 fn print_all(const items: array) {
-    // items.push(4);  // ERROR: cannot mutate const parameter
+    // items = [];   // ERROR: cannot reassign const variable 'items'
+    // items++;      // ERROR: ++, --, and compound assignment are rejected too
     for (item in items) {
         print(item);   // OK: reading is allowed
     }
@@ -833,26 +833,22 @@ let nums = [1, 2, 3];
 print_all(nums);
 ```
 
-### Deep Immutability
+`hemlockc` and `hemlock check` reject the reassignment at compile time; the
+interpreter throws `Cannot assign to constant 'items'` when it runs. Closures
+created inside the function see the parameter as const as well.
 
-Const parameters enforce deep immutability - no mutation through any path:
+### Const Is Shallow
+
+Like a `const` variable, a `const` parameter fixes the binding, not the value
+it refers to. The contents of an array, object or buffer passed as a `const`
+parameter can still be changed:
 
 ```hemlock
-fn describe(const person: object) {
-    print(person.name);       // OK: reading is allowed
-    // person.name = "Bob";   // ERROR: cannot mutate
-    // person.address.city = "NYC";  // ERROR: deep const
+fn tag(const person: object) {
+    person.seen = true;     // OK: mutates the object, not the binding
+    // person = {};         // ERROR: reassigns the binding
 }
 ```
-
-### What Const Prevents
-
-| Type | Blocked by Const | Allowed |
-|------|-----------------|---------|
-| array | push, pop, shift, unshift, insert, remove, clear, reverse | slice, concat, map, filter, find, contains |
-| object | field assignment | field read |
-| buffer | index assignment | index read |
-| string | index assignment | all methods (return new strings) |
 
 ## Named Arguments
 

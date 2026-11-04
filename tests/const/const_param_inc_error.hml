@@ -1,0 +1,7 @@
+// @expect-compile-fail incrementing a const parameter is a compile error
+// ++ on a const parameter is an error (#658)
+fn f(const n: i32) {
+    n++;
+    print(n);
+}
+f(1);

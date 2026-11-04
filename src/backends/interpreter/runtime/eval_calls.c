@@ -1129,7 +1129,9 @@ Value eval_call_expr(Expr *expr, Environment *env, ExecutionContext *ctx) {
                     }
 
                     // Use fast param binding with pre-computed hash (skips redundant checks)
-                    env_define_param(call_env, fn->param_names[i], fn->param_hashes[i], arg_value);
+                    int is_const_param = fn->param_is_const && fn->param_is_const[i];
+                    env_define_param(call_env, fn->param_names[i], fn->param_hashes[i], arg_value,
+                                     is_const_param);
 
                     // arg_value is always owned here (retained arg, default, ref,
                     // or the result of convert_to_type); env_define_param retained it.

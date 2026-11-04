@@ -1,26 +1,30 @@
-// Test const parameters
+// const parameters: readable, contents mutable, binding fixed (#658).
+// Reassignment is rejected statically by hemlockc and at runtime by the
+// interpreter; see tests/const/const_param_*_error.hml and tests/check.
 
-// Function with const array parameter
-fn print_all(const items: array) {
-    for (item in items) {
-        print(item);
-    }
+fn total(const items: array): i32 {
+    let sum = 0;
+    for (item in items) { sum += item; }
+    items.push(sum);          // const is shallow, like a const let
+    return sum;
 }
+let nums = [1, 2, 3];
+print(total(nums));
+print(nums);
 
-print_all([1, 2, 3]);
-
-// Function with const object parameter
-fn describe(const person: object) {
-    print(person.name);
-    print(person.age);
+fn greet(const name: string, const greeting?: "Hello") {
+    return greeting + ", " + name;
 }
+print(greet("Ada"));
+print(greet("Bob", "Hi"));
 
-describe({ name: "Bob", age: 25 });
+// const params through callbacks, spawn and apply
+let doubled = [1, 2].map(fn(const v) { return v * 2; });
+print(doubled);
+async fn square(const n: i32): i32 { return n * n; }
+print(join(spawn(square, 7)));
+print(apply(fn(const a, b) { return a + b; }, [2, 3]));
 
-// Nested const - can read deeply
-fn get_city(const user: object) {
-    return user.address.city;
-}
-
-let city = get_city({ address: { city: "NYC" } });
-print(city);
+// a mutable parameter beside a const one
+fn shift(a, const b) { a = a + b; return a; }
+print(shift(10, 5));

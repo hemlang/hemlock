@@ -71,7 +71,7 @@ static Value call_function_value(Value func, Value *args, int num_args, Executio
             }
         }
 
-        env_set(call_env, fn->param_names[i], arg_value, ctx);  // retains
+        env_bind_fn_param(call_env, fn, i, arg_value);  // retains
         VALUE_RELEASE(arg_value);
         if (ctx->exception_state.is_throwing) {
             env_release(call_env);

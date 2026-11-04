@@ -1,0 +1,7 @@
+// @expect-compile-fail reassigning a const parameter is a compile error
+// Reassigning a const parameter is an error (#658)
+fn f(const x) {
+    x = 5;
+    print("assigned: " + x);
+}
+f(1);

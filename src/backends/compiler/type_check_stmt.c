@@ -71,7 +71,10 @@ void type_check_function_body(TypeCheckContext *ctx, Expr *func, const char *nam
         } else {
             param_type = checked_type_primitive(CHECKED_ANY);
         }
-        type_check_bind(ctx, func->as.function.param_names[i], param_type, 0, 1, func->line);  // is_param=1
+        int param_const = func->as.function.param_is_const
+            ? func->as.function.param_is_const[i] : 0;
+        type_check_bind(ctx, func->as.function.param_names[i], param_type,
+                        param_const, 1, func->line);  // is_param=1
     }
 
     // Bind rest parameter if present
