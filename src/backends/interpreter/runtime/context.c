@@ -479,6 +479,10 @@ void defer_stack_execute(DeferStack *stack, ExecutionContext *ctx) {
         if (!ctx->exception_state.is_throwing) {
             ctx->exception_state.is_throwing = was_throwing;
             ctx->exception_state.exception_value = saved_exception;
+        } else if (was_throwing) {
+            // The deferred call threw and its exception replaces the one
+            // the body threw: release the replaced value (it leaked).
+            VALUE_RELEASE(saved_exception);
         }
 
         // Clean up the deferred expression and release environment

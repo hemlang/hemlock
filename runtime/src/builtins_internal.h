@@ -111,6 +111,7 @@ extern __thread HmlExceptionContext *g_exception_stack;
 typedef struct DeferEntry {
     HmlDeferFn fn;
     void *arg;
+    HmlDeferFn cleanup;   // releases arg after fn ran or threw; NULL if fn owns it
     struct DeferEntry *next;
 } DeferEntry;
 

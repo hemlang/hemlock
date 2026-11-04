@@ -1,0 +1,41 @@
+// Test: exceptions rethrown or replaced from a catch block are released (#660)
+// Leak pattern: when a catch body threw, the catch parameter (the caught
+// exception) was never released.
+
+fn rethrow_same() {
+    try {
+        throw "inner";
+    } catch (e) {
+        throw e;
+    }
+}
+
+fn wrap() {
+    try {
+        rethrow_same();
+    } catch (e) {
+        throw "wrapped: " + e;
+    }
+}
+
+fn reassign_then_throw() {
+    try {
+        throw "first";
+    } catch (e) {
+        e = "second";
+        throw e;
+    }
+}
+
+fn run() {
+    let i = 0;
+    let caught = 0;
+    while (i < 100000) {
+        try { wrap(); } catch (e) { caught = caught + 1; }
+        try { reassign_then_throw(); } catch (e) { caught = caught + 1; }
+        i = i + 1;
+    }
+    return caught;
+}
+
+print("caught " + run());
