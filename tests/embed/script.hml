@@ -1,4 +1,4 @@
-// Embedding test script: run once per instance
+// @expect-compile-fail embedding fixture: owner and host_add are defined by the host (tests/embed/test_embed.c)
 import { sqrt } from "@stdlib/math";
 import { twice, LABEL } from "./helper.hml";
 
