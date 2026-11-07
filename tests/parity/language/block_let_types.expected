@@ -1,0 +1,25 @@
+sibling float: 0.5 f64
+               1 i32
+sibling string: 1 i32
+                hi string
+nested inner: 0.5 f64
+nested outer: 1 i32
+sibling array: 2 i32
+               [7] array
+while i32: 0 i32
+while i32: 2 i32
+while str: w0 string
+after loop: 2.5 f64
+total: 3
+let item: 10 i32
+for-in item: a string
+for-in item: b string
+let e: 3 i32
+catch e: boom string
+let z: 1 i32
+case z: 0.25 f64
+inner p: 1.5 f64
+param p: str string
+same types: 7 i32
+top float: 0.5 f64
+top string: s string

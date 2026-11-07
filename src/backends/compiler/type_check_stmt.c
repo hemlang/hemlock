@@ -71,7 +71,10 @@ void type_check_function_body(TypeCheckContext *ctx, Expr *func, const char *nam
         } else {
             param_type = checked_type_primitive(CHECKED_ANY);
         }
-        type_check_bind(ctx, func->as.function.param_names[i], param_type, 0, 1, func->line);  // is_param=1
+        int param_const = func->as.function.param_is_const
+            ? func->as.function.param_is_const[i] : 0;
+        type_check_bind(ctx, func->as.function.param_names[i], param_type,
+                        param_const, 1, func->line);  // is_param=1
     }
 
     // Bind rest parameter if present
@@ -342,6 +345,15 @@ void type_check_stmt(TypeCheckContext *ctx, Stmt *stmt) {
                 }
             } else if (stmt->as.let.value) {
                 declared_type = type_check_infer_expr(ctx, stmt->as.let.value);
+                // `let x = null;` without an annotation declares a variable
+                // that is "not set yet": its later assignments decide what
+                // it holds, so it is dynamically typed rather than fixed to
+                // null (#678). Otherwise `x = g(); x + 1` is rejected as
+                // adding null.
+                if (declared_type && declared_type->kind == CHECKED_NULL) {
+                    checked_type_free(declared_type);
+                    declared_type = checked_type_primitive(CHECKED_ANY);
+                }
             } else {
                 declared_type = checked_type_primitive(CHECKED_ANY);
             }

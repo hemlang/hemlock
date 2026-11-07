@@ -1,0 +1,26 @@
+// A callback parameter that shares a name with an outer variable binds a
+// new local; it must not overwrite the outer variable. Covers the
+// interpreter's callback paths (array methods, apply, spawn, ?.()).
+let x = 5;
+let r = [1, 2].map(fn(x) { return x * 10; });
+print(x);
+print(r);
+
+fn outer() {
+    let y = 7;
+    let kept = [3, 4].filter(fn(y) { return y > 3; });
+    print(y);
+    print(kept);
+    print(apply(fn(y) { return y + 1; }, [40]));
+    print(y);
+}
+outer();
+
+let n = 100;
+async fn work(n: i32): i32 { return n + 1; }
+print(join(spawn(work, 1)));
+print(n);
+
+let maybe = fn(x) { return x * 3; };
+print(maybe?.(4));
+print(x);

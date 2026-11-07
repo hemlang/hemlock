@@ -17,6 +17,7 @@ HmlExceptionContext* hml_exception_push(void) {
     HmlExceptionContext *ctx = hml_xmalloc(sizeof(HmlExceptionContext));
     ctx->is_active = 1;
     ctx->exception_value = hml_val_null();
+    ctx->call_depth = hml_g_call_depth;
     ctx->prev = g_exception_stack;
     g_exception_stack = ctx;
     return ctx;
@@ -47,7 +48,16 @@ void hml_throw(HmlValue exception_value) {
         exit(1);
     }
 
+    // The context owns the value it holds. It is null unless the context
+    // already holds a pending exception (a finally block's guard context
+    // keeps the exception being unwound): the new throw replaces it.
+    hml_release(&g_exception_stack->exception_value);
     g_exception_stack->exception_value = exception_value;
+    // longjmp skips the HML_CALL_EXIT of every frame it unwinds: put the
+    // call depth back to the handler's, or each caught exception thrown from
+    // a nested call leaked depth until an unrelated call failed with
+    // "Maximum call stack depth exceeded".
+    hml_g_call_depth = g_exception_stack->call_depth;
     longjmp(g_exception_stack->exception_buf, 1);
 }
 
@@ -234,19 +244,30 @@ HmlValue hml_builtin_task_debug_info(HmlClosureEnv *env, HmlValue task) {
 
 // ========== DEFER SUPPORT ==========
 
-void hml_defer_push(HmlDeferFn fn, void *arg) {
+static void defer_push_entry(HmlDeferFn fn, void *arg, HmlDeferFn cleanup) {
     DeferEntry *entry = hml_xmalloc(sizeof(DeferEntry));
     entry->fn = fn;
     entry->arg = arg;
+    entry->cleanup = cleanup;
     entry->next = g_defer_stack;
     g_defer_stack = entry;
 }
 
+void hml_defer_push(HmlDeferFn fn, void *arg) {
+    defer_push_entry(fn, arg, NULL);
+}
+
+// Unlink the top entry, run it, then release it. If fn throws, the entry is
+// already off the stack (so it can't run again later from another frame)
+// but its arg and the entry itself are not released: the frame runners
+// below guard each call and release them; outside a frame runner (program
+// exit) a throwing defer ends the program anyway.
 void hml_defer_pop_and_execute(void) {
     if (g_defer_stack) {
         DeferEntry *entry = g_defer_stack;
         g_defer_stack = entry->next;
         entry->fn(entry->arg);
+        if (entry->cleanup) entry->cleanup(entry->arg);
         free(entry);
     }
 }
@@ -264,10 +285,56 @@ void* hml_defer_frame_begin(void) {
     return g_defer_stack;
 }
 
-void hml_defer_execute_frame(void *mark) {
-    while (g_defer_stack && g_defer_stack != (DeferEntry *)mark) {
-        hml_defer_pop_and_execute();
+// Run every defer above `mark` under a guard exception context that owns
+// the pending exception (null if none). A defer that throws replaces the
+// pending exception (hml_throw releases the old one), its entry is
+// released, and the remaining defers still run. Returns 1 and stores the
+// pending exception in *out if one is left, else returns 0.
+static int defer_run_frame(void *mark, HmlValue pending, int has_pending, HmlValue *out) {
+    HmlExceptionContext *guard = hml_exception_push();
+    guard->exception_value = pending;
+    volatile int threw = has_pending;
+    DeferEntry *volatile running = NULL;
+
+    if (setjmp(guard->exception_buf) != 0) {
+        // A deferred call threw; its exception is now guard's pending value.
+        threw = 1;
+        DeferEntry *e = running;
+        running = NULL;
+        if (e) {
+            if (e->cleanup) e->cleanup(e->arg);
+            free(e);
+        }
     }
+
+    while (g_defer_stack && g_defer_stack != (DeferEntry *)mark) {
+        DeferEntry *e = g_defer_stack;
+        g_defer_stack = e->next;
+        running = e;
+        e->fn(e->arg);
+        running = NULL;
+        if (e->cleanup) e->cleanup(e->arg);
+        free(e);
+    }
+
+    *out = guard->exception_value;
+    guard->exception_value = hml_val_null();
+    hml_exception_pop();
+    return threw;
+}
+
+void hml_defer_execute_frame(void *mark) {
+    if (g_defer_stack == (DeferEntry *)mark) return;  // nothing deferred
+    HmlValue ex;
+    if (defer_run_frame(mark, hml_val_null(), 0, &ex)) {
+        hml_throw(ex);
+    }
+}
+
+void hml_defer_unwind_frame(void *mark, HmlValue exception) {
+    HmlValue ex;
+    defer_run_frame(mark, exception, 1, &ex);
+    hml_throw(ex);
 }
 
 // Helper for deferring HmlValue function calls
@@ -275,6 +342,10 @@ static void hml_defer_call_wrapper(void *arg) {
     HmlValue *fn_ptr = (HmlValue *)arg;
     HmlValue result = hml_call_function(*fn_ptr, NULL, 0);
     hml_release(&result);
+}
+
+static void hml_defer_call_cleanup(void *arg) {
+    HmlValue *fn_ptr = (HmlValue *)arg;
     hml_release(fn_ptr);
     free(fn_ptr);
 }
@@ -283,7 +354,7 @@ void hml_defer_push_call(HmlValue fn) {
     HmlValue *fn_copy = hml_xmalloc(sizeof(HmlValue));
     *fn_copy = fn;
     hml_retain(fn_copy);
-    hml_defer_push(hml_defer_call_wrapper, fn_copy);
+    defer_push_entry(hml_defer_call_wrapper, fn_copy, hml_defer_call_cleanup);
 }
 
 // Structure to hold a deferred call with arguments
@@ -298,6 +369,10 @@ static void hml_defer_call_with_args_wrapper(void *arg) {
     HmlDeferCallWithArgs *call = (HmlDeferCallWithArgs *)arg;
     HmlValue result = hml_call_function(call->fn, call->args, call->num_args);
     hml_release(&result);
+}
+
+static void hml_defer_call_with_args_cleanup(void *arg) {
+    HmlDeferCallWithArgs *call = (HmlDeferCallWithArgs *)arg;
     // Release all args
     for (int i = 0; i < call->num_args; i++) {
         hml_release(&call->args[i]);
@@ -317,7 +392,8 @@ void hml_defer_push_call_with_args(HmlValue fn, HmlValue *args, int num_args) {
         call->args[i] = args[i];
         hml_retain(&call->args[i]);
     }
-    hml_defer_push(hml_defer_call_with_args_wrapper, call);
+    defer_push_entry(hml_defer_call_with_args_wrapper, call,
+                     hml_defer_call_with_args_cleanup);
 }
 
 // ========== FUNCTION CALLS ==========

@@ -1,0 +1,85 @@
+// Same-named `let`s in different blocks of one function are different
+// variables and keep their own types (#679).
+
+fn sibling_float() {
+    if (true) { let x = 0.5; print("sibling float: " + x + " " + typeof(x)); }
+    if (true) { let x = 1;   print("               " + x + " " + typeof(x)); }
+}
+
+fn sibling_string() {
+    if (true) { let s = 1;    print("sibling string: " + s + " " + typeof(s)); }
+    if (true) { let s = "hi"; print("                " + s + " " + typeof(s)); }
+}
+
+fn nested_float() {
+    let y = 1;
+    if (true) { let y = 0.5; print("nested inner: " + y + " " + typeof(y)); }
+    print("nested outer: " + y + " " + typeof(y));
+}
+
+fn sibling_array() {
+    if (true) { let v = 2; print("sibling array: " + v + " " + typeof(v)); }
+    if (true) { let v = []; v.push(7); print("               [" + v[0] + "] " + typeof(v)); }
+}
+
+fn while_blocks() {
+    let n = 0;
+    while (n < 2) { let d = n * 2; print("while i32: " + d + " " + typeof(d)); n++; }
+    let m = 0;
+    while (m < 1) { let d = "w" + m; print("while str: " + d + " " + typeof(d)); m++; }
+}
+
+fn loop_counter_vs_let() {
+    let total = 0;
+    for (let i = 0; i < 3; i++) { total += i; }
+    if (true) { let i = 2.5; print("after loop: " + i + " " + typeof(i)); }
+    print("total: " + total);
+}
+
+fn for_in_and_catch(items) {
+    if (true) { let item = 10; print("let item: " + item + " " + typeof(item)); }
+    for (item in items) { print("for-in item: " + item + " " + typeof(item)); }
+    if (true) { let e = 3; print("let e: " + e + " " + typeof(e)); }
+    try { throw "boom"; } catch (e) { print("catch e: " + e + " " + typeof(e)); }
+}
+
+fn switch_case(k) {
+    if (true) { let z = 1; print("let z: " + z + " " + typeof(z)); }
+    switch (k) {
+        case 1:
+            let z = 0.25;
+            print("case z: " + z + " " + typeof(z));
+            break;
+        default:
+            break;
+    }
+}
+
+fn param_and_let(p) {
+    if (true) { let p = 1.5; print("inner p: " + p + " " + typeof(p)); }
+    print("param p: " + p + " " + typeof(p));
+}
+
+fn same_types() {
+    let acc = 0;
+    if (true) { let t = 2; acc += t; }
+    if (true) { let t = 3; acc += t; }
+    for (let i = 0; i < 2; i++) { acc += i; }
+    for (let i = 0; i < 2; i++) { acc += i; }
+    print("same types: " + acc + " " + typeof(acc));
+}
+
+sibling_float();
+sibling_string();
+nested_float();
+sibling_array();
+while_blocks();
+loop_counter_vs_let();
+for_in_and_catch(["a", "b"]);
+switch_case(1);
+param_and_let("str");
+same_types();
+
+// Top level, too
+if (true) { let top = 0.5; print("top float: " + top + " " + typeof(top)); }
+if (true) { let top = "s"; print("top string: " + top + " " + typeof(top)); }

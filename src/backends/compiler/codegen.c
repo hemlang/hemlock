@@ -2016,8 +2016,9 @@ void codegen_emit_defer_prologue(CodegenContext *ctx, Stmt *body) {
     codegen_indent_inc(ctx);
     codegen_writeln(ctx, "HmlValue _defer_ex = hml_exception_get_value();");
     codegen_writeln(ctx, "hml_exception_pop();");
-    codegen_writeln(ctx, "hml_defer_execute_frame(_defer_frame);");
-    codegen_writeln(ctx, "hml_throw(_defer_ex);");
+    // Runs the defers with _defer_ex pending (a throwing defer replaces and
+    // releases it) and rethrows; it used to leak on that path (#660).
+    codegen_writeln(ctx, "hml_defer_unwind_frame(_defer_frame, _defer_ex);");
     codegen_indent_dec(ctx);
     codegen_writeln(ctx, "}");
     codegen_indent_dec(ctx);
@@ -2421,9 +2422,9 @@ void funcgen_generate_body(CodegenContext *ctx, Expr *func) {
     // OPTIMIZATION: Analyze function body for unboxable typed variables
     // This identifies variables like "let x: i32 = 0" that can use native C types
     if (ctx->optimize && ctx->type_ctx) {
-        // Clear previous function's unboxable variables to avoid scope contamination
-        type_check_clear_all_unboxable(ctx->type_ctx);
-        type_check_analyze_block_for_unboxing(ctx->type_ctx, func->as.function.body);
+        // Clears the previous function's unboxable variables first, to avoid
+        // scope contamination
+        type_check_analyze_function_for_unboxing(ctx->type_ctx, func);
     }
 
     if (func->as.function.body->type == STMT_BLOCK) {

@@ -1,0 +1,16 @@
+// A top-level function in the entry file shadows a builtin only in the
+// entry file; other modules still get the builtin (#677).
+import {
+    uses_builtin_join, uses_builtin_typeof,
+    uses_builtin_print_value, uses_own_sleep
+} from "./builtin_shadow_helper.hml";
+
+fn join(a, b) { return a + b; }
+fn typeof(x) { return "entry typeof"; }
+
+print(uses_builtin_join());
+print(uses_builtin_typeof());
+print(uses_builtin_print_value());
+print(uses_own_sleep());
+print(join(1, 2));
+print(typeof(1));

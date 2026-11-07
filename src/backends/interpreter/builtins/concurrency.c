@@ -79,7 +79,7 @@ static void *task_thread_main(void *arg) {
         if (fn->param_types[i]) {
             param = convert_to_type(param, fn->param_types[i], func_env, ctx);
         }
-        env_define(func_env, fn->param_names[i], param, 0, ctx);
+        env_bind_fn_param(func_env, fn, i, param);
         VALUE_RELEASE(param);
         if (ctx->exception_state.is_throwing) {
             break;
@@ -297,8 +297,11 @@ Value builtin_join(Value *args, int num_args, ExecutionContext *ctx) {
     // The worker has exited: its state is now ours to read without the lock.
     if (task->ctx->exception_state.is_throwing) {
         // Re-throw in the joining context. The exception value's single
-        // reference moves to the caller (exec_context_free does not release it).
+        // reference moves to the caller; null out the task's copy so it no
+        // longer refers to a value it doesn't own (is_throwing stays set:
+        // task_debug_info still reports that the task threw).
         ctx->exception_state = task->ctx->exception_state;
+        task->ctx->exception_state.exception_value = val_null();
         return val_null();
     }
     Value result = task->result;

@@ -212,8 +212,12 @@ char* codegen_expr_call(CodegenContext *ctx, Expr *expr, char *result) {
         // this check, so e.g. a local `let to_string = fn(x) {...}` was
         // silently ignored and the builtin ran instead.
         {
+            // Entry-file top-level functions only shadow builtins inside
+            // the entry file; another module calling join() still means the
+            // builtin there (#677).
             int user_shadows_builtin = codegen_is_local(ctx, fn_name) ||
-                                       codegen_is_main_func(ctx, fn_name);
+                                       (!ctx->current_module &&
+                                        codegen_is_main_func(ctx, fn_name));
             if (!user_shadows_builtin) {
                 if (ctx->current_module) {
                     user_shadows_builtin =

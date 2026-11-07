@@ -1303,7 +1303,7 @@ static void ffi_callback_handler(ffi_cif *cif, void *ret, void **args, void *use
     // Convert C arguments to Hemlock values and bind parameters
     for (int i = 0; i < cb->num_params && i < fn->num_params; i++) {
         Value arg = c_ptr_to_hemlock_value(args[i], cb->hemlock_params[i]);
-        env_define(func_env, fn->param_names[i], arg, 0, ctx);
+        env_bind_fn_param(func_env, fn, i, arg);
     }
 
     // Execute the Hemlock function body

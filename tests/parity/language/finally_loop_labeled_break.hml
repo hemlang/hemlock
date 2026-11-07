@@ -1,0 +1,58 @@
+// A loop inside `finally` handling its own break/continue must not drop a
+// pending labeled break/continue from the try block (#657).
+
+let iters = 0;
+outer: for (let i = 0; i < 3; i++) {
+    iters++;
+    for (let j = 0; j < 3; j++) {
+        try {
+            if (j == 1) { break outer; }
+        } finally {
+            for (let k = 0; k < 3; k++) { if (k == 0) { break; } }
+        }
+    }
+}
+print("outer iters: " + iters);
+
+let n = 0;
+o2: for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 100; j++) {
+        try {
+            continue o2;
+        } finally {
+            for (let k = 0; k < 3; k++) { continue; }
+        }
+        n++;
+    }
+    n += 100;
+}
+print("n: " + n);
+
+// while loops and labeled continue that reaches the next outer iteration
+let log = [];
+w: while (log.length < 6) {
+    log.push("o");
+    let m = 0;
+    while (true) {
+        m++;
+        try {
+            if (m == 2) { continue w; }
+        } finally {
+            let q = 0;
+            while (q < 2) { q++; if (q == 1) { continue; } break; }
+        }
+        log.push("i");
+    }
+}
+print(log.join(""));
+
+// finally with its own labeled loop and a break that targets it
+let hits = 0;
+a: for (let i = 0; i < 4; i++) {
+    try {
+        if (i == 1) { break a; }
+    } finally {
+        b: for (let k = 0; k < 2; k++) { hits++; break b; }
+    }
+}
+print("hits: " + hits);

@@ -142,6 +142,16 @@ void codegen_match_unbox_restore(CodegenContext *ctx, int mark) {
             type_check_mark_unboxable(ctx->type_ctx, u->name, u->native_type,
                                       u->is_loop_counter, u->is_accumulator,
                                       u->is_typed_var);
+            // Restore the whole mark, including the function-level
+            // "keep boxed" decision (type_check_analyze_function_for_unboxing).
+            for (UnboxableVar *r = ctx->type_ctx->unboxable_vars; r; r = r->next) {
+                if (strcmp(r->name, u->name) == 0) {
+                    r->decl_count = u->decl_count;
+                    r->decl_conflict = u->decl_conflict;
+                    r->force_boxed = u->force_boxed;
+                    break;
+                }
+            }
         }
         free(u->name);
         free(u);

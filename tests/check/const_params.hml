@@ -1,0 +1,13 @@
+// @expect-compile-fail
+// const parameters cannot be reassigned (#658), by =, compound assignment,
+// ++/--, or from a closure. Their contents stay mutable, like a const let.
+fn assign(const x) { x = 5; }
+fn compound(const n: i32) { n += 1; }
+fn inc(const n: i32) { n++; --n; }
+fn closure(const items: array) {
+    let g = fn() { items = []; };
+    items.push(1);
+}
+fn fine(a, const b) { a = b; }
+const k = 1;
+k++;

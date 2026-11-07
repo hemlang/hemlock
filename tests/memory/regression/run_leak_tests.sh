@@ -86,6 +86,9 @@ echo "▶ Phase 1: Exception Safety"
 run_test "$HEMLOCK_DIR/tests/memory/exception_in_array.hml"
 run_test "$HEMLOCK_DIR/tests/memory/exception_in_object.hml"
 run_test "$HEMLOCK_DIR/tests/memory/exception_in_call_args.hml"
+run_test "$HEMLOCK_DIR/tests/memory/exception_override_cleanup.hml"
+run_test "$HEMLOCK_DIR/tests/compiler/memory/exception_finally_override.hml" 60
+run_test "$HEMLOCK_DIR/tests/compiler/memory/exception_rethrow.hml" 60
 echo ""
 
 # Phase 1 Regression Tests: Task/Channel Cleanup
