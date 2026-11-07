@@ -1,0 +1,3 @@
+// Imported by the embedding test script (relative import)
+export fn twice(x) { return x * 2; }
+export let LABEL = "helper";

@@ -178,7 +178,20 @@ static int path_is_within_base(const char *resolved_path, const char *base_path)
 
 // ========== PATH RESOLUTION HELPERS ==========
 
+// Embedders (src/embed) whose executable is not next to a stdlib directory
+// name one explicitly; it wins over every search below.
+static char *g_stdlib_override = NULL;
+
+void module_set_stdlib_override(const char *path) {
+    free(g_stdlib_override);
+    g_stdlib_override = path ? hml_xstrdup(path) : NULL;
+}
+
 static char* find_stdlib_path(void) {
+    if (g_stdlib_override) {
+        return hml_xstrdup(g_stdlib_override);
+    }
+
     char exe_path[PATH_MAX];
     char resolved[PATH_MAX];
     int found_exe = 0;

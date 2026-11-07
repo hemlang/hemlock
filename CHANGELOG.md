@@ -5,6 +5,16 @@ All notable changes to Hemlock will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Embedding API** (`include/hemlock_embed.h`, `make embed` → `build/libhemlock_embed.a`): run Hemlock inside a host program. An `HmlVM` holds the globals and a module cache; `hml_script_compile()` parses, name-checks and loads imports without running anything; `hml_instance_new()` runs a script's top level in a fresh environment, so each instance has its own state; `hml_instance_call/get/set` drive it. Values cross as host-owned `HmlEmbedValue` trees (no interpreter pointers or refcounts on the host side), host objects as opaque `u64` handles that a prelude function wraps. Natives defined with `hml_vm_define_native()` raise catchable exceptions on failure. Errors carry file, line and column, and leave the VM usable. Static introspection (functions, parameters, variables, annotations, literal defaults, lines) serves editors. `make test-embed` covers it, and passes under ASan/UBSan. See `docs/advanced/embedding.md`. It powers the Godot `modules/hemlock` integration.
+
+### Fixed
+
+- **Call-stack frames could point at a freed file name.** A frame records the current source file, which `set_current_source_file()` freed and replaced on every module switch, so a stack preserved for an uncaught exception read freed memory once execution had moved to another module. File names are now interned for the life of the process.
+
 ## [2.14.0] - 2026-11-03
 
 ### Added

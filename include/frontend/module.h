@@ -42,6 +42,9 @@ typedef struct ModuleCache {
     // to the virtual path's directory (the working directory).
     char *entry_virtual_path;    // owned; NULL when no override
     const char *entry_source;    // borrowed; NULL when no override
+    // Embedding (src/embed): an uncaught exception in a module body is left
+    // pending in the ExecutionContext for the host instead of exit(1)
+    int no_exit_on_error;
 } ModuleCache;
 
 // Public interface
@@ -53,9 +56,17 @@ void module_cache_free(ModuleCache *cache);
 // Module loading and resolution
 Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContext *ctx);
 Module* get_cached_module(ModuleCache *cache, const char *absolute_path);
+// Load every module `module` imports/re-exports. Returns 0 on success.
+int module_load_dependencies(ModuleCache *cache, Module *module, ExecutionContext *ctx);
 
 // Module execution
 void execute_module(Module *module, ModuleCache *cache, Environment *global_env, ExecutionContext *ctx);
+// Run `module`'s body into `target_env` (a fresh instance: exports are not
+// recorded and module->exports_env is untouched). Dependencies are executed
+// first, once. Returns nonzero if an exception is left pending in ctx (only
+// with cache->no_exit_on_error).
+int execute_module_into(Module *module, ModuleCache *cache, Environment *global_env,
+                        Environment *target_env, ExecutionContext *ctx);
 
 // High-level API
 int execute_file_with_modules(const char *file_path, Environment *global_env, int argc, char **argv, ExecutionContext *ctx);

@@ -71,6 +71,14 @@ void name_resolve_result_free(NameResolveResult *result);
  */
 int name_resolve_is_builtin(const char *name);
 
+/*
+ * Embedding hosts (include/hemlock_embed.h) define globals of their own;
+ * registering them here keeps the pass from reporting them as undefined.
+ * Process-wide, like the builtin list.
+ */
+void name_resolve_add_host_global(const char *name);
+void name_resolve_clear_host_globals(void);
+
 /* "file:line: error: <message>". Caller frees. */
 char *name_diag_format(const NameDiag *diag);
 

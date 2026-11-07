@@ -25,6 +25,7 @@
 #include "frontend/name_resolve.h"
 #include "frontend/parser.h"
 #include "builtin_globals.h"
+#include "hemlock_alloc.h"
 #include "hemlock_compat.h"   /* realpath on Windows */
 #include "modules.h"
 #include "shared/file_io.h"
@@ -96,10 +97,31 @@ static const char *nr_builtin_names[] = {
 #undef NR_BUILTIN_NAME_FN
 #undef NR_BUILTIN_NAME_1
 
+/* Globals an embedding host defines (src/embed) on top of the builtins. */
+static char **nr_host_names = NULL;
+static int nr_host_count = 0;
+
+void name_resolve_add_host_global(const char *name) {
+    if (!name || name_resolve_is_builtin(name)) return;
+    nr_host_names = hml_xrealloc((void *)nr_host_names,
+                                 sizeof(char *) * (size_t)(nr_host_count + 1));
+    nr_host_names[nr_host_count++] = hml_xstrdup(name);
+}
+
+void name_resolve_clear_host_globals(void) {
+    for (int i = 0; i < nr_host_count; i++) free(nr_host_names[i]);
+    free((void *)nr_host_names);
+    nr_host_names = NULL;
+    nr_host_count = 0;
+}
+
 int name_resolve_is_builtin(const char *name) {
     if (!name) return 0;
     for (int i = 0; nr_builtin_names[i]; i++) {
         if (strcmp(nr_builtin_names[i], name) == 0) return 1;
+    }
+    for (int i = 0; i < nr_host_count; i++) {
+        if (strcmp(nr_host_names[i], name) == 0) return 1;
     }
     return 0;
 }
