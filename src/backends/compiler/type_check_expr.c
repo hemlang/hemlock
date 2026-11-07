@@ -782,13 +782,21 @@ void type_check_expr(TypeCheckContext *ctx, Expr *expr) {
 
         case EXPR_PREFIX_INC:
         case EXPR_PREFIX_DEC:
-            type_check_expr(ctx, expr->as.prefix_inc.operand);
-            break;
-
         case EXPR_POSTFIX_INC:
-        case EXPR_POSTFIX_DEC:
-            type_check_expr(ctx, expr->as.postfix_inc.operand);
+        case EXPR_POSTFIX_DEC: {
+            Expr *operand = (expr->type == EXPR_PREFIX_INC || expr->type == EXPR_PREFIX_DEC)
+                ? expr->as.prefix_inc.operand
+                : expr->as.postfix_inc.operand;
+            type_check_expr(ctx, operand);
+            // ++/-- reassign their operand, so they are rejected on const
+            // bindings (const lets and const parameters) like `=` is.
+            if (operand && operand->type == EXPR_IDENT &&
+                type_check_is_const(ctx, operand->as.ident.name)) {
+                type_error(ctx, expr->line ? expr->line : operand->line,
+                    "cannot reassign const variable '%s'", operand->as.ident.name);
+            }
             break;
+        }
 
         default:
             break;

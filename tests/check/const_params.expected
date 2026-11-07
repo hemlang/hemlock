@@ -1,0 +1,7 @@
+const_params.hml:4: error: cannot reassign const variable 'x' [types]
+const_params.hml:5: error: cannot reassign const variable 'n' [types]
+const_params.hml:6: error: cannot reassign const variable 'n' [types]
+const_params.hml:6: error: cannot reassign const variable 'n' [types]
+const_params.hml:8: error: cannot reassign const variable 'items' [types]
+const_params.hml:13: error: cannot reassign const variable 'k' [types]
+6 errors, 0 warnings (1 file checked)

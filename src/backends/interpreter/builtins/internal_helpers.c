@@ -279,8 +279,8 @@ Value builtin_apply(Value *args, int num_args, ExecutionContext *ctx) {
                 }
             }
 
-            env_set(call_env, fn->param_names[i], arg_value, ctx);
-            // env_set retained its own reference; drop ours for values we
+            env_bind_fn_param(call_env, fn, i, arg_value);
+            // env_bind_fn_param retained its own reference; drop ours for values we
             // created here (default expressions), which used to leak once
             // per apply() call that filled in a heap-typed default.
             if (arg_owned) {

@@ -79,7 +79,7 @@ static void *task_thread_main(void *arg) {
         if (fn->param_types[i]) {
             param = convert_to_type(param, fn->param_types[i], func_env, ctx);
         }
-        env_define(func_env, fn->param_names[i], param, 0, ctx);
+        env_bind_fn_param(func_env, fn, i, param);
         VALUE_RELEASE(param);
         if (ctx->exception_state.is_throwing) {
             break;
