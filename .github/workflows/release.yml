@@ -230,7 +230,7 @@ jobs:
         path: hemlock-macos-x86_64.tar.gz
 
   build-macos-arm:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
     - uses: actions/checkout@v4
 
