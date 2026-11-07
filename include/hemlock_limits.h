@@ -260,6 +260,21 @@
 // Maximum number of concurrent persistent WASM contexts
 #define HML_MAX_WASM_CONTEXTS 64
 
+// ========== EMBEDDING API (include/hemlock_embed.h) ==========
+
+// VMs alive at once in one process
+#define HML_EMBED_MAX_VMS 16
+
+// Arguments to one host -> Hemlock call (hml_instance_call)
+#define HML_EMBED_MAX_CALL_ARGS 16
+
+// Bytes of an error message (last error, native-function errors)
+#define HML_EMBED_ERROR_SIZE 1024
+
+// Nesting depth converted between host and Hemlock values; deeper (or
+// cyclic) structure becomes HML_EMBED_OPAQUE / null
+#define HML_EMBED_MAX_VALUE_DEPTH 64
+
 // Maximum number of cached (pre-compiled) WASM scripts
 #define HML_MAX_WASM_SCRIPTS 256
 

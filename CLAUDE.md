@@ -397,6 +397,7 @@ hemlock/
 │   ├── backends/
 │   │   ├── interpreter/  # hemlock: tree-walking interpreter
 │   │   └── compiler/     # hemlockc: C code generator
+│   ├── embed/            # Embedding API (libhemlock_embed.a, docs/advanced/embedding.md)
 │   ├── modules/          # Native module implementations
 │   ├── runtime/          # Runtime-related C code
 │   ├── shared/           # Shared utilities (type promotion, etc.)
@@ -451,6 +452,7 @@ make test-names        # Undefined-name diagnostics (hemlockc == interpreter)
 make test-check        # `hemlock check` diagnostics
 make test-task-errors  # Uncaught exceptions in spawned tasks reach stderr
 make test-stdin-exit   # read_line() must not deadlock exit() (glibc >= 2.39)
+make test-embed        # C embedding API (include/hemlock_embed.h, libhemlock_embed.a)
 make test-all          # Run all test suites
 ```
 

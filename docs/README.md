@@ -36,6 +36,7 @@ Welcome to the Hemlock programming language documentation!
 - [Atomic Operations](advanced/atomics.md) - Lock-free concurrent programming
 - [Bundling & Packaging](advanced/bundling-packaging.md) - Create bundles and standalone executables
 - [Foreign Function Interface](advanced/ffi.md) - Call C functions from shared libraries
+- [Embedding](advanced/embedding.md) - Run Hemlock inside a host program (`libhemlock_embed.a`, `include/hemlock_embed.h`)
 - [File I/O](advanced/file-io.md) - File operations and resource management
 - [Memory Ownership](advanced/memory-ownership.md) - Memory ownership semantics and lifetime management
 - [Borrow Checker](advanced/borrow-checker.md) - Rust-like ownership analysis (use-after-free, double-free, leaks)

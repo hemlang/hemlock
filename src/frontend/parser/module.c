@@ -44,6 +44,7 @@ ModuleCache* module_cache_new(const char *initial_dir) {
     module_cache_map_init(&cache->cache_map);
     cache->entry_virtual_path = NULL;
     cache->entry_source = NULL;
+    cache->no_exit_on_error = 0;
 
     if (!cache->resolver->stdlib_path) {
         fprintf(stderr, "warning: could not locate stdlib directory. @stdlib imports will not work.\n");
@@ -116,6 +117,43 @@ static Stmt** parse_entry_source(const char *source, int *stmt_count) {
 
 Module* get_cached_module(ModuleCache *cache, const char *absolute_path) {
     return (Module *)module_cache_map_get(&cache->cache_map, absolute_path);
+}
+
+// Load (parse) every module `module` imports or re-exports, recursively.
+// Returns 0 on success, nonzero if one failed to load (already reported).
+int module_load_dependencies(ModuleCache *cache, Module *module, ExecutionContext *ctx) {
+    for (int i = 0; i < module->num_statements; i++) {
+        Stmt *stmt = module->statements[i];
+        if (stmt->type == STMT_IMPORT) {
+            char *import_path = stmt->as.import_stmt.module_path;
+            char *resolved = resolve_module_path(cache->resolver, module->absolute_path, import_path);
+
+            // Recursively load the imported module
+            Module *imported = load_module(cache, resolved, ctx);
+            free(resolved);
+
+            if (!imported) {
+                fprintf(stderr, "error: failed to load imported module '%s' from '%s'\n",
+                        import_path, module->absolute_path);
+                return 1;
+            }
+        } else if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_reexport) {
+            // Re-export: also need to load that module
+            char *reexport_path = stmt->as.export_stmt.module_path;
+            char *resolved = resolve_module_path(cache->resolver, module->absolute_path, reexport_path);
+
+            Module *reexported = load_module(cache, resolved, ctx);
+            free(resolved);
+
+            if (!reexported) {
+                fprintf(stderr, "error: failed to load re-exported module '%s' from '%s'\n",
+                        reexport_path, module->absolute_path);
+                return 1;
+            }
+        }
+    }
+
+    return 0;
 }
 
 // Recursively load a module and its dependencies
@@ -198,35 +236,8 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
     }
 
     // Recursively load imported modules
-    for (int i = 0; i < module->num_statements; i++) {
-        Stmt *stmt = module->statements[i];
-        if (stmt->type == STMT_IMPORT) {
-            char *import_path = stmt->as.import_stmt.module_path;
-            char *resolved = resolve_module_path(cache->resolver, absolute_path, import_path);
-
-            // Recursively load the imported module
-            Module *imported = load_module(cache, resolved, ctx);
-            free(resolved);
-
-            if (!imported) {
-                fprintf(stderr, "error: failed to load imported module '%s' from '%s'\n",
-                        import_path, absolute_path);
-                return NULL;
-            }
-        } else if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_reexport) {
-            // Re-export: also need to load that module
-            char *reexport_path = stmt->as.export_stmt.module_path;
-            char *resolved = resolve_module_path(cache->resolver, absolute_path, reexport_path);
-
-            Module *reexported = load_module(cache, resolved, ctx);
-            free(resolved);
-
-            if (!reexported) {
-                fprintf(stderr, "error: failed to load re-exported module '%s' from '%s'\n",
-                        reexport_path, absolute_path);
-                return NULL;
-            }
-        }
+    if (module_load_dependencies(cache, module, ctx) != 0) {
+        return NULL;
     }
 
     module->state = MODULE_LOADED;
@@ -236,44 +247,43 @@ Module* load_module(ModuleCache *cache, const char *module_path, ExecutionContex
 // ========== MODULE EXECUTION ==========
 
 // Execute a module in topological order (dependencies first)
-void execute_module(Module *module, ModuleCache *cache, Environment *global_env, ExecutionContext *ctx) {
-    if (module->exports_env) {
-        // Already executed
-        return;
-    }
-
-    // Set current source file for stack traces
-    const char *previous_file = get_current_source_file();
-    char *saved_file = previous_file ? strdup(previous_file) : NULL;
-    set_current_source_file(module->absolute_path);
-
-    // First, execute all imported modules
+// Execute the modules `module` imports or re-exports (dependencies first).
+// Returns 0 on success, nonzero when a dependency raised (only possible when
+// cache->no_exit_on_error is set; otherwise the process has already exited).
+static int execute_module_dependencies(Module *module, ModuleCache *cache, Environment *global_env, ExecutionContext *ctx) {
     for (int i = 0; i < module->num_statements; i++) {
         Stmt *stmt = module->statements[i];
+        const char *dep_path = NULL;
         if (stmt->type == STMT_IMPORT) {
-            char *import_path = stmt->as.import_stmt.module_path;
-            char *resolved = resolve_module_path(cache->resolver, module->absolute_path, import_path);
-            Module *imported = get_cached_module(cache, resolved);
-            free(resolved);
-
-            if (imported) {
-                execute_module(imported, cache, global_env, ctx);
-            }
+            dep_path = stmt->as.import_stmt.module_path;
         } else if (stmt->type == STMT_EXPORT && stmt->as.export_stmt.is_reexport) {
-            char *reexport_path = stmt->as.export_stmt.module_path;
-            char *resolved = resolve_module_path(cache->resolver, module->absolute_path, reexport_path);
-            Module *reexported = get_cached_module(cache, resolved);
-            free(resolved);
+            dep_path = stmt->as.export_stmt.module_path;
+        }
+        if (!dep_path) {
+            continue;
+        }
+        char *resolved = resolve_module_path(cache->resolver, module->absolute_path, dep_path);
+        Module *dep = get_cached_module(cache, resolved);
+        free(resolved);
 
-            if (reexported) {
-                execute_module(reexported, cache, global_env, ctx);
+        if (dep) {
+            execute_module(dep, cache, global_env, ctx);
+            if (ctx->exception_state.is_throwing) {
+                return 1;
             }
         }
     }
+    return 0;
+}
 
-    // Create module's execution environment (with global_env as parent for builtins)
-    Environment *module_env = env_new(global_env);
-
+// Run a module's statements in `module_env`, binding its imports there.
+// With record_exports, exported names are appended to module->export_names
+// (done once, when the module itself is executed); without it the body runs
+// as a fresh instance (the embedding API runs one script body per instance).
+// Returns 0 on success, nonzero when a statement raised and
+// cache->no_exit_on_error is set (the exception is left pending in ctx).
+static int run_module_body(Module *module, ModuleCache *cache, Environment *module_env,
+                           ExecutionContext *ctx, int record_exports) {
     // Execute module's statements (except import/export)
     for (int i = 0; i < module->num_statements; i++) {
         Stmt *stmt = module->statements[i];
@@ -344,7 +354,9 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
                 eval_stmt(decl, module_env, ctx);
 
                 // Extract the name and mark as exported
-                if (decl->type == STMT_LET) {
+                if (!record_exports) {
+                    // Instance run: the names were recorded when the module was compiled
+                } else if (decl->type == STMT_LET) {
                     ensure_export_capacity(module);
                     module->export_names[module->num_exports] = strdup(decl->as.let.name);
                     module->num_exports++;
@@ -381,8 +393,10 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
                     Value val = env_get(reexported->exports_env, export_name, ctx);
                     env_define(module_env, final_name, val, 1, ctx);
                     value_release(val);  // Release temp reference from env_get (env_define already retained)
-                    ensure_export_capacity(module);
-                    module->export_names[module->num_exports++] = strdup(final_name);
+                    if (record_exports) {
+                        ensure_export_capacity(module);
+                        module->export_names[module->num_exports++] = strdup(final_name);
+                    }
                 }
             } else {
                 // Export list: mark existing names as exported
@@ -391,8 +405,10 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
                     char *alias = stmt->as.export_stmt.export_aliases[j];
                     char *final_name = alias ? alias : export_name;
 
-                    ensure_export_capacity(module);
-                    module->export_names[module->num_exports++] = strdup(final_name);
+                    if (record_exports) {
+                        ensure_export_capacity(module);
+                        module->export_names[module->num_exports++] = strdup(final_name);
+                    }
                 }
             }
         } else {
@@ -402,29 +418,78 @@ void execute_module(Module *module, ModuleCache *cache, Environment *global_env,
 
         // Check for uncaught exception after each statement
         if (ctx->exception_state.is_throwing) {
+            if (cache->no_exit_on_error) {
+                // Embedded: leave the exception pending for the host
+                return 1;
+            }
             // Convert exception value to string for stderr output
             char *error_msg = value_to_string(ctx->exception_state.exception_value);
             fprintf(stderr, "Uncaught exception: %s\n", error_msg);
             free(error_msg);
             // Release exception value before exiting
             VALUE_RELEASE(ctx->exception_state.exception_value);
-            // Restore previous source file before exit
-            set_current_source_file(saved_file);
-            if (saved_file) {
-                free(saved_file);
-            }
             exit(1);
         }
     }
 
-    // Save the module's environment as exports
-    module->exports_env = module_env;
+    return 0;
+}
+
+void execute_module(Module *module, ModuleCache *cache, Environment *global_env, ExecutionContext *ctx) {
+    if (module->exports_env || module->state == MODULE_UNLOADED) {
+        // Already executed (or failed to: an embedder saw that error already)
+        return;
+    }
+
+    // Set current source file for stack traces
+    const char *previous_file = get_current_source_file();
+    char *saved_file = previous_file ? strdup(previous_file) : NULL;
+    set_current_source_file(module->absolute_path);
+
+    // First, execute all imported modules, then the module itself in an
+    // environment whose parent holds the builtins
+    Environment *module_env = NULL;
+    int failed = execute_module_dependencies(module, cache, global_env, ctx);
+    if (!failed) {
+        module_env = env_new(global_env);
+        failed = run_module_body(module, cache, module_env, ctx, 1);
+    }
+
+    if (failed) {
+        // Only reachable with cache->no_exit_on_error
+        module->state = MODULE_UNLOADED;
+        if (module_env) {
+            env_break_cycles(module_env);
+            env_release(module_env);
+        }
+    } else {
+        // Save the module's environment as exports
+        module->exports_env = module_env;
+    }
 
     // Restore previous source file
     set_current_source_file(saved_file);
     if (saved_file) {
         free(saved_file);
     }
+}
+
+int execute_module_into(Module *module, ModuleCache *cache, Environment *global_env,
+                        Environment *target_env, ExecutionContext *ctx) {
+    const char *previous_file = get_current_source_file();
+    char *saved_file = previous_file ? strdup(previous_file) : NULL;
+    set_current_source_file(module->absolute_path);
+
+    int failed = execute_module_dependencies(module, cache, global_env, ctx);
+    if (!failed) {
+        failed = run_module_body(module, cache, target_env, ctx, 0);
+    }
+
+    set_current_source_file(saved_file);
+    if (saved_file) {
+        free(saved_file);
+    }
+    return failed;
 }
 
 // ========== HIGH-LEVEL API ==========

@@ -36,6 +36,8 @@ typedef struct ModuleResolution {
 ModuleResolution* module_resolution_new(const char *current_dir, const char *main_file_path);
 void module_resolution_free(ModuleResolution *resolver);
 void module_resolution_set_dependency_hook(ModuleResolution *resolver, ModuleDependencyHook hook, void *data);
+// Override where @stdlib/ resolves (NULL restores the default search).
+void module_set_stdlib_override(const char *path);
 char* resolve_module_path(ModuleResolution *resolver, const char *importer_path, const char *import_path);
 
 // ========== MODULE DEPENDENCY GRAPH (BUNDLER HOOK) ==========

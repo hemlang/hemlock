@@ -1,0 +1,33 @@
+// @expect-compile-fail embedding fixture: owner and host_add are defined by the host (tests/embed/test_embed.c)
+import { sqrt } from "@stdlib/math";
+import { twice, LABEL } from "./helper.hml";
+
+export let speed: f64 = 2.5;
+let hits = 0;
+let label = LABEL;
+
+fn hit(n?: 1) {
+    hits = hits + n;
+    return hits;
+}
+
+fn sum(...xs) {
+    let t = 0;
+    for (x in xs) { t = t + x; }
+    return t;
+}
+
+fn info() {
+    return { name: owner.name, root: sqrt(16.0), doubled: twice(21), tags: ["a", "b"], ok: true };
+}
+
+fn add_via_host(a, b) { return host_add(a, b); }
+
+fn echo(v) { return v; }
+
+fn boom() {
+    let x = 1;
+    throw "kaboom";
+}
+
+fn handle_id(h) { return h.id(); }
