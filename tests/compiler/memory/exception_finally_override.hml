@@ -1,0 +1,33 @@
+// Test: an exception replaced by one thrown from `finally` is released (#660)
+// Leak pattern: the try body's exception, held for re-throw after the
+// finally block, was never released when the finally block threw instead.
+
+fn run_once(i) {
+    try {
+        throw "try exception " + i;
+    } finally {
+        throw "finally replacement " + i;
+    }
+}
+
+fn catch_then_finally(i) {
+    try {
+        throw "first " + i;
+    } catch (e) {
+        throw "from catch " + i;
+    } finally {
+        throw "from finally " + i;
+    }
+}
+
+fn run() {
+    let i = 0;
+    while (i < 100000) {
+        try { run_once(i); } catch (e) { }
+        try { catch_then_finally(i); } catch (e) { }
+        i = i + 1;
+    }
+}
+
+run();
+print("ok");

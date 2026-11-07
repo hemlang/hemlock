@@ -321,6 +321,7 @@ HmlValue hml_get_args(void) {
     for (int i = 0; i < g_argc; i++) {
         HmlValue str = hml_val_string(g_argv[i]);
         hml_array_push(arr, str);
+        hml_release(&str);  // hml_array_push retained its own reference
     }
 
     return arr;

@@ -1,0 +1,61 @@
+// When a deferred call throws, the function's remaining defers still run,
+// in order, before the exception leaves the function; a defer's exception
+// replaces one the body threw (#660).
+fn thrower(msg) { throw msg; }
+
+fn inner() {
+    defer print("inner d1");
+    defer thrower("from defer");
+    print("inner body");
+}
+
+fn outer() {
+    defer print("outer defer");
+    try { inner(); } catch (e) { print("caught " + e); }
+    print("end outer");
+}
+outer();
+
+fn inner2() {
+    defer print("inner2 d1");
+    defer thrower("defer replaces");
+    throw "body";
+}
+try { inner2(); } catch (e) { print("caught " + e); }
+
+fn two_throwing_defers() {
+    defer thrower("first registered");
+    defer thrower("second registered");
+    return 1;
+}
+try { two_throwing_defers(); } catch (e) { print("caught " + e); }
+
+// try/catch/finally replacement chains
+fn chain(i) {
+    try {
+        throw "try " + i;
+    } catch (e) {
+        throw "catch saw " + e;
+    } finally {
+        if (i % 2 == 0) { throw "finally " + i; }
+    }
+}
+try { chain(1); } catch (e) { print("caught " + e); }
+try { chain(2); } catch (e) { print("caught " + e); }
+
+// Many caught exceptions thrown from nested calls must not use up the
+// call-depth limit (compiled code lost depth on every unwind).
+fn deep(n) {
+    if (n == 0) { throw "bottom"; }
+    return 1 + deep(n - 1);
+}
+let bottoms = 0;
+let others = 0;
+for (let i = 0; i < 2000; i++) {
+    try { deep(20); } catch (e) {
+        if (e == "bottom") { bottoms++; } else { others++; }
+    }
+}
+print("bottom " + bottoms + ", other errors " + others);
+fn after() { return "calls still work"; }
+print(after());

@@ -1,0 +1,12 @@
+inner body
+inner d1
+caught from defer
+end outer
+outer defer
+inner2 d1
+caught defer replaces
+caught first registered
+caught catch saw try 1
+caught finally 2
+bottom 2000, other errors 0
+calls still work

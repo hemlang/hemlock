@@ -594,6 +594,7 @@ typedef struct HmlExceptionContext {
     jmp_buf exception_buf;
     HmlValue exception_value;
     int is_active;
+    int call_depth;     // hml_g_call_depth when pushed; restored by hml_throw
     struct HmlExceptionContext *prev;
 } HmlExceptionContext;
 
@@ -638,6 +639,11 @@ void hml_defer_execute_all(void);
 // run the caller's defers.
 void* hml_defer_frame_begin(void);
 void hml_defer_execute_frame(void *mark);
+// Exception unwinding past a function with defers: run the frame's defers
+// with `exception` (consumed) pending, then rethrow it. A defer that throws
+// replaces the pending exception (the replaced one is released) and the
+// remaining defers still run, as in the interpreter.
+__attribute__((noreturn)) void hml_defer_unwind_frame(void *mark, HmlValue exception);
 
 // ========== ASYNC/CONCURRENCY ==========
 
