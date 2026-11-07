@@ -9,14 +9,15 @@
 #define HEMLOCK_VERSION_H
 
 #define HEMLOCK_VERSION_MAJOR 2
-#define HEMLOCK_VERSION_MINOR 14
+#define HEMLOCK_VERSION_MINOR 15
 #define HEMLOCK_VERSION_PATCH 0
 
-#define HEMLOCK_VERSION "2.14.0"
+#define HEMLOCK_VERSION "2.15.0"
 #define HEMLOCK_VERSION_STRING "Hemlock v" HEMLOCK_VERSION
 
 /*
  * Version history:
+ *   2.15.0 - Bugfix release: a labeled break/continue inside a finally with its own loop was lost; const parameters are enforced in both backends; digit separators are accepted in leading-dot float literals; throw/catch/defer paths release the exception value; hemlockc keeps differently typed same-named lets apart, treats `let x = null;` as dynamically typed, and shadows builtins with entry-file functions only in the entry file.
  *   2.14.0 - Undefined names are a hard error in every tool: a shared frontend name-resolution pass (src/frontend/resolver/name_resolve.c) walks the entry file and every module it imports, so hemlockc refuses to emit C for an unresolved name, `hemlock check` reports it (pass "names"), and the interpreter fails at startup instead of when control happens to reach the line (--no-name-check opts out). include/builtin_globals.h is now the single source of truth for global names, replacing a drifted second copy. An uncaught exception in a spawned task nobody joins is reported on stderr in both backends rather than discarded with the task. Codegen fixes behind the first compiling builds of two real game servers: anonymous functions in a module's top-level initializer (hml_fn_anon_N undeclared) and `import * as` namespaces used from a module's own top-level code ('ns' undeclared). A source-module `import` below module top level is now a parse error where it used to bind nothing silently. read_line() no longer holds stdin's stdio lock while blocked, which deadlocked exit() and any fatal error on glibc >= 2.39.
  *   2.13.0 - GPU compute via @stdlib/gpu: gpu fn kernels compile to OpenCL C and launch with ctx.launch, with barrier() and work-group local memory (gpu_local<T>); @stdlib/gpu_emu runs the same kernels on the CPU via frontend lowering so GPU code runs and tests without a device. Formal verification of the runtime core (CBMC + TLA+) proves the arithmetic/overflow/UTF-8 core (305/305) and fixed real runtime bugs it found. Sandbox hardening: spawned tasks inherit the spawner's sandbox (bypass fix) and raw pointers are gated in sandbox mode. Out-of-range integer strings are rejected instead of clamped, seed() is validated, and checked allocation wrappers replace unchecked internal sites. UBSan audit of both backends and verification fixes (incl. interpreter u16*u16); websocket server-side connections are reference-counted; the interpreter checks the C stack beside the call-depth count. Linux/ARM64 (aarch64) is now a first-class target: CI sanity job + hemlock-linux-arm64 release artifact. Perf: interpreter fast paths for variable access, scopes and calls, inlined refcount gating.
  *   2.12.0 - @stdlib/json_schema adds pure-Hemlock JSON Schema Draft 7 validation. Channels share one queueing core across both backends, select() is blocking instead of polling, and there is one spawn path per backend. Type annotations channel/task/file now work on both backends. hemlockc converts typed parameters to their declared type, and multiple failing parameter conversions throw instead of crashing.
