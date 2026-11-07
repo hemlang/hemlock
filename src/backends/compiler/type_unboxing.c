@@ -8,6 +8,7 @@
 
 #include "type_check_internal.h"
 #include "type_promotion.h"
+#include "hemlock_alloc.h"
 
 // ========== CHECKED <-> SHARED TYPE MAPPING ==========
 
@@ -65,6 +66,9 @@ void type_check_mark_unboxable(TypeCheckContext *ctx, const char *name,
     // Check if already marked
     for (UnboxableVar *u = ctx->unboxable_vars; u; u = u->next) {
         if (strcmp(u->name, name) == 0) {
+            // The function-level analysis decided this name stays boxed;
+            // codegen-time re-analysis (e.g. of a for loop) must not undo it.
+            if (u->force_boxed) return;
             // Update if more specific
             if (native_type != CHECKED_UNKNOWN) {
                 u->native_type = native_type;
@@ -82,8 +86,38 @@ void type_check_mark_unboxable(TypeCheckContext *ctx, const char *name,
     u->is_loop_counter = is_loop_counter;
     u->is_accumulator = is_accumulator;
     u->is_typed_var = is_typed_var;
+    u->decl_count = 0;
+    u->decl_conflict = 0;
+    u->force_boxed = 0;
     u->next = ctx->unboxable_vars;
     ctx->unboxable_vars = u;
+}
+
+// Mark a *declaration* (let / const / for-loop counter) as unboxable and
+// record it, so type_check_analyze_function_for_unboxing() can tell whether
+// every declaration of the name agreed.
+static void mark_declaration_unboxable(TypeCheckContext *ctx, const char *name,
+                                       CheckedTypeKind native_type, int is_loop_counter,
+                                       int is_typed_var) {
+    CheckedTypeKind previous = CHECKED_UNKNOWN;
+    int had_decl = 0;
+    for (UnboxableVar *u = ctx->unboxable_vars; u; u = u->next) {
+        if (strcmp(u->name, name) == 0) {
+            previous = u->native_type;
+            had_decl = u->decl_count > 0;
+            break;
+        }
+    }
+    type_check_mark_unboxable(ctx, name, native_type, is_loop_counter, 0, is_typed_var);
+    for (UnboxableVar *u = ctx->unboxable_vars; u; u = u->next) {
+        if (strcmp(u->name, name) == 0) {
+            if (had_decl && previous != native_type) {
+                u->decl_conflict = 1;
+            }
+            u->decl_count++;
+            break;
+        }
+    }
 }
 
 CheckedTypeKind type_check_get_unboxable(TypeCheckContext *ctx, const char *name) {
@@ -301,7 +335,7 @@ void type_check_analyze_for_loop(TypeCheckContext *ctx, Stmt *stmt) {
         native_type = CHECKED_I64;
     }
 
-    type_check_mark_unboxable(ctx, var_name, native_type, 1, 0, 0);
+    mark_declaration_unboxable(ctx, var_name, native_type, 1, 0);
 }
 
 // Helper: Check if a statement modifies a variable as an accumulator
@@ -636,7 +670,7 @@ void type_check_analyze_typed_let(TypeCheckContext *ctx, Stmt *stmt,
     }
 
     // Variable can be unboxed!
-    type_check_mark_unboxable(ctx, var_name, native_type, 0, 0, 1);
+    mark_declaration_unboxable(ctx, var_name, native_type, 0, 1);
 }
 
 // Analyze an untyped let statement for inferred type unboxing
@@ -683,7 +717,7 @@ static void type_check_analyze_inferred_let(TypeCheckContext *ctx, Stmt *stmt,
 
     // Variable can be unboxed with inferred type!
     // Mark as typed_var since it behaves like a typed variable for codegen purposes
-    type_check_mark_unboxable(ctx, var_name, native_type, 0, 0, 1);
+    mark_declaration_unboxable(ctx, var_name, native_type, 0, 1);
 }
 
 void type_check_analyze_block_for_unboxing(TypeCheckContext *ctx, Stmt *block) {
@@ -744,4 +778,173 @@ void type_check_analyze_block_for_unboxing(TypeCheckContext *ctx, Stmt *block) {
             type_check_analyze_inferred_let(ctx, block, NULL, 0);
         }
     }
+}
+
+// Count the declarations of `name` in a function body: let/const, for-loop
+// initializers, for-in variables and catch parameters, in every nested
+// block. Nested function bodies are separate (analyzed on their own) and
+// are not entered.
+static int count_declarations(Stmt *stmt, const char *name) {
+    if (!stmt) return 0;
+    int n = 0;
+    switch (stmt->type) {
+        case STMT_LET:
+            return strcmp(stmt->as.let.name, name) == 0;
+        case STMT_CONST:
+            return strcmp(stmt->as.const_stmt.name, name) == 0;
+        case STMT_BLOCK:
+            for (int i = 0; i < stmt->as.block.count; i++) {
+                n += count_declarations(stmt->as.block.statements[i], name);
+            }
+            return n;
+        case STMT_IF:
+            return count_declarations(stmt->as.if_stmt.then_branch, name) +
+                   count_declarations(stmt->as.if_stmt.else_branch, name);
+        case STMT_WHILE:
+            return count_declarations(stmt->as.while_stmt.body, name);
+        case STMT_LOOP:
+            return count_declarations(stmt->as.loop_stmt.body, name);
+        case STMT_FOR:
+            return count_declarations(stmt->as.for_loop.initializer, name) +
+                   count_declarations(stmt->as.for_loop.body, name);
+        case STMT_FOR_IN:
+            if (stmt->as.for_in.key_var && strcmp(stmt->as.for_in.key_var, name) == 0) n++;
+            if (stmt->as.for_in.value_var && strcmp(stmt->as.for_in.value_var, name) == 0) n++;
+            return n + count_declarations(stmt->as.for_in.body, name);
+        case STMT_TRY:
+            if (stmt->as.try_stmt.catch_param &&
+                strcmp(stmt->as.try_stmt.catch_param, name) == 0) n++;
+            return n + count_declarations(stmt->as.try_stmt.try_block, name) +
+                   count_declarations(stmt->as.try_stmt.catch_block, name) +
+                   count_declarations(stmt->as.try_stmt.finally_block, name);
+        case STMT_SWITCH:
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                n += count_declarations(stmt->as.switch_stmt.case_bodies[i], name);
+            }
+            return n;
+        default:
+            return 0;
+    }
+}
+
+// Collect every name declared in a function body (same statements as
+// count_declarations), without duplicates.
+typedef struct {
+    const char **names;
+    int count;
+    int capacity;
+} DeclNames;
+
+static void decl_names_add(DeclNames *d, const char *name) {
+    if (!name) return;
+    for (int i = 0; i < d->count; i++) {
+        if (strcmp(d->names[i], name) == 0) return;
+    }
+    if (d->count == d->capacity) {
+        d->capacity = d->capacity ? d->capacity * 2 : 16;
+        d->names = hml_xrealloc(d->names, sizeof(char *) * d->capacity);
+    }
+    d->names[d->count++] = name;
+}
+
+static void collect_declarations(Stmt *stmt, DeclNames *d) {
+    if (!stmt) return;
+    switch (stmt->type) {
+        case STMT_LET:
+            decl_names_add(d, stmt->as.let.name);
+            break;
+        case STMT_CONST:
+            decl_names_add(d, stmt->as.const_stmt.name);
+            break;
+        case STMT_BLOCK:
+            for (int i = 0; i < stmt->as.block.count; i++) {
+                collect_declarations(stmt->as.block.statements[i], d);
+            }
+            break;
+        case STMT_IF:
+            collect_declarations(stmt->as.if_stmt.then_branch, d);
+            collect_declarations(stmt->as.if_stmt.else_branch, d);
+            break;
+        case STMT_WHILE:
+            collect_declarations(stmt->as.while_stmt.body, d);
+            break;
+        case STMT_LOOP:
+            collect_declarations(stmt->as.loop_stmt.body, d);
+            break;
+        case STMT_FOR:
+            collect_declarations(stmt->as.for_loop.initializer, d);
+            collect_declarations(stmt->as.for_loop.body, d);
+            break;
+        case STMT_FOR_IN:
+            decl_names_add(d, stmt->as.for_in.key_var);
+            decl_names_add(d, stmt->as.for_in.value_var);
+            collect_declarations(stmt->as.for_in.body, d);
+            break;
+        case STMT_TRY:
+            decl_names_add(d, stmt->as.try_stmt.catch_param);
+            collect_declarations(stmt->as.try_stmt.try_block, d);
+            collect_declarations(stmt->as.try_stmt.catch_block, d);
+            collect_declarations(stmt->as.try_stmt.finally_block, d);
+            break;
+        case STMT_SWITCH:
+            for (int i = 0; i < stmt->as.switch_stmt.num_cases; i++) {
+                collect_declarations(stmt->as.switch_stmt.case_bodies[i], d);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+void type_check_analyze_function_for_unboxing(TypeCheckContext *ctx, Expr *func) {
+    if (!ctx || !func || func->type != EXPR_FUNCTION) return;
+    Stmt *body = func->as.function.body;
+
+    type_check_clear_all_unboxable(ctx);
+    type_check_analyze_block_for_unboxing(ctx, body);
+
+    // The marks are per name, but codegen applies them to every use of the
+    // name in the function. When a name is declared more than once (e.g.
+    // `let x = 0.5;` and `let x = 1;` in sibling blocks, a nested shadow, or
+    // a parameter and a let), one native type is only right if every
+    // declaration was unboxed with that type; otherwise the name stays boxed
+    // everywhere in the function (#679).
+    DeclNames decls = {0};
+    for (int i = 0; i < func->as.function.num_params; i++) {
+        decl_names_add(&decls, func->as.function.param_names[i]);
+    }
+    decl_names_add(&decls, func->as.function.rest_param);
+    collect_declarations(body, &decls);
+
+    for (int n = 0; n < decls.count; n++) {
+        const char *name = decls.names[n];
+        int total = count_declarations(body, name);
+        for (int i = 0; i < func->as.function.num_params; i++) {
+            if (strcmp(func->as.function.param_names[i], name) == 0) total++;
+        }
+        if (func->as.function.rest_param &&
+            strcmp(func->as.function.rest_param, name) == 0) {
+            total++;
+        }
+
+        UnboxableVar *u = NULL;
+        for (UnboxableVar *it = ctx->unboxable_vars; it; it = it->next) {
+            if (strcmp(it->name, name) == 0) { u = it; break; }
+        }
+        if (total <= 1 && !(u && u->decl_conflict)) continue;
+        if (u && !u->decl_conflict && u->decl_count >= total) continue;
+
+        if (!u) {
+            // Not unboxed now; make sure codegen-time analysis (for loops)
+            // cannot unbox it later either.
+            type_check_mark_unboxable(ctx, name, CHECKED_UNKNOWN, 0, 0, 0);
+            u = ctx->unboxable_vars;
+        }
+        u->force_boxed = 1;
+        u->native_type = CHECKED_UNKNOWN;
+        u->is_loop_counter = 0;
+        u->is_accumulator = 0;
+        u->is_typed_var = 0;
+    }
+    free(decls.names);
 }
