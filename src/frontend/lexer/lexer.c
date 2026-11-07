@@ -1066,8 +1066,8 @@ Token lexer_next(Lexer *lex) {
             }
             // Check for float literal without leading zero (e.g., .5)
             if (isdigit(peek(lex))) {
-                // Consume the fractional digits
-                while (isdigit(peek(lex))) {
+                // Consume the fractional digits (allow underscores as separators)
+                while (isdigit(peek(lex)) || peek(lex) == '_') {
                     advance(lex);
                 }
 
@@ -1089,7 +1089,7 @@ Token lexer_next(Lexer *lex) {
                         if (peek(lex) == '+' || peek(lex) == '-') {
                             advance(lex);  // consume sign
                         }
-                        while (isdigit(peek(lex))) {
+                        while (isdigit(peek(lex)) || peek(lex) == '_') {
                             advance(lex);
                         }
                     }
@@ -1097,7 +1097,12 @@ Token lexer_next(Lexer *lex) {
 
                 Token token = make_token(lex, TOK_NUMBER);
                 token.is_float = 1;
-                token.float_value = strtod(lex->start, NULL);
+                char *clean = strip_underscores(lex->start, (int)(lex->current - lex->start));
+                if (!clean) {
+                    return error_token(lex, "Failed to allocate number buffer");
+                }
+                token.float_value = strtod(clean, NULL);
+                free(clean);
                 return token;
             }
             return make_token(lex, TOK_DOT);
