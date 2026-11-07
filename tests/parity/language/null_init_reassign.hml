@@ -1,0 +1,39 @@
+// A variable declared `let x = null;` takes whatever later assignments put
+// in it; hemlockc's type check must not keep treating it as null (#678).
+fn g() { return 3; }
+
+let s = null;
+s = g();
+print(0 + s);
+
+fn run() {
+    let slot = null;
+    while (slot == null) { slot = g(); }
+    let r = { total: 0 };
+    r.total = r.total + slot + 1;
+    print(r.total);
+}
+run();
+
+let name = null;
+name = "hem";
+print(name + "lock");
+print(name.length);
+
+let items = null;
+items = [1, 2];
+items.push(3);
+print(items);
+
+let f = null;
+f = 1.5;
+print(f * 2);
+
+let cfg = null;
+cfg ??= { timeout: 30 };
+print(cfg.timeout + 1);
+
+let reset = 5;
+let maybe = null;
+if (reset > 3) { maybe = reset * 2; }
+print(maybe ?? 0);
