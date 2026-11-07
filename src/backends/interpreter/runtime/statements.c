@@ -798,12 +798,17 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                 Value saved_exception = ctx->exception_state.exception_value;
                 int was_breaking = ctx->loop_state.is_breaking;
                 int was_continuing = ctx->loop_state.is_continuing;
+                // A loop inside the finally block overwrites target_label
+                // when it handles its own break/continue, so save it too
+                // or a pending labeled break/continue loses its label.
+                char *saved_target_label = ctx->loop_state.target_label;
 
                 // Clear states before finally
                 ctx->return_state.is_returning = 0;
                 ctx->exception_state.is_throwing = 0;
                 ctx->loop_state.is_breaking = 0;
                 ctx->loop_state.is_continuing = 0;
+                ctx->loop_state.target_label = NULL;
 
                 // Execute finally block
                 eval_stmt(stmt->as.try_stmt.finally_block, env, ctx);
@@ -817,6 +822,7 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     ctx->exception_state.exception_value = saved_exception;
                     ctx->loop_state.is_breaking = was_breaking;
                     ctx->loop_state.is_continuing = was_continuing;
+                    ctx->loop_state.target_label = saved_target_label;
                 } else {
                     // Finally overrode the saved state (e.g. threw its own
                     // exception) - release the discarded values it owned
@@ -825,6 +831,10 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     }
                     if (was_returning) {
                         VALUE_RELEASE(saved_return);
+                    }
+                    if (saved_target_label &&
+                        saved_target_label != ctx->loop_state.target_label) {
+                        free(saved_target_label);
                     }
                 }
             }
