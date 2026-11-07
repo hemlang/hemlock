@@ -572,6 +572,7 @@ let sci = 1.5e-10;       // Scientific notation
 let sci2 = 2.5E+3;       // Uppercase E also works
 let no_lead = .5;        // No leading zero (0.5)
 let sep = 3.14_159_265;  // Numeric separators
+let sep2 = .000_001;     // Separators work without a leading zero too
 ```
 
 ### String Literals

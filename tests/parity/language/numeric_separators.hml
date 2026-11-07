@@ -32,4 +32,10 @@ let a = 1_000;
 let b = 2_000;
 print(a + b);
 
+// Leading-dot floats accept separators too (#659)
+let c = .1_5;
+print(c);
+print(.5_0e1_0);
+print(.2_5e-1);
+
 print("done");

@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Call-stack frames could point at a freed file name.** A frame records the current source file, which `set_current_source_file()` freed and replaced on every module switch, so a stack preserved for an uncaught exception read freed memory once execution had moved to another module. File names are now interned for the life of the process.
 
+## [2.15.0] - 2026-11-07
+
+### Fixed
+
+- A labeled `break`/`continue` inside a `finally` with its own loop was lost when the `finally` exited.
+- `const` parameters are now enforced in both backends.
+- Digit separators are accepted in leading-dot float literals (`.5_0`).
+- `throw`, `catch` and `defer` paths release the exception value, fixing a leak.
+- `hemlockc` keeps differently typed same-named `let`s apart.
+- `hemlockc` type check: `let x = null;` is dynamically typed, not null.
+- `hemlockc`: entry-file functions shadow builtins only in the entry file.
+
 ## [2.14.0] - 2026-11-03
 
 ### Added

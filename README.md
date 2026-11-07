@@ -8,7 +8,7 @@ Hemlock is a systems scripting language that combines the power of C with the er
 
 ## Documentation
 
-The checked-in documentation starts at **[docs/README.md](docs/README.md)**. Standard library module references live in **[stdlib/docs/](stdlib/docs/)**, and the release history is in **[CHANGELOG.md](CHANGELOG.md)**. Hemlock v2.14.0 is the current release.
+The checked-in documentation starts at **[docs/README.md](docs/README.md)**. Standard library module references live in **[stdlib/docs/](stdlib/docs/)**, and the release history is in **[CHANGELOG.md](CHANGELOG.md)**. Hemlock v2.15.0 is the current release.
 
 ## Design Philosophy
 
@@ -199,8 +199,9 @@ See [Bundling & Packaging](docs/advanced/bundling-packaging.md) for details.
 
 ## Project Status
 
-Hemlock v2.14.0 is the current checked-in release. Highlights include:
+Hemlock v2.15.0 is the current checked-in release. Highlights include:
 
+- **v2.15.0 Bugfix release** - a labeled break/continue inside a finally with its own loop was lost; const parameters are enforced in both backends; digit separators are accepted in leading-dot float literals; throw/catch/defer paths release the exception value; hemlockc keeps differently typed same-named lets apart, treats `let x = null;` as dynamically typed, and shadows builtins with entry-file functions only in the entry file.
 - **v2.14.0 Undefined names are a hard error everywhere** - a shared name-resolution pass over the entry file and every module it imports gates `hemlockc`, backs `hemlock check`, and runs at interpreter startup, so a name that would fail at runtime fails before anything runs (`--no-name-check` opts out). An uncaught exception in a spawned task nobody joins now reaches stderr instead of vanishing with the task, and two codegen bugs around module top-level initializers are fixed.
 - **v2.13.0 GPU compute + formal verification + Linux/ARM64** - `@stdlib/gpu` runs `gpu fn` kernels on the GPU via OpenCL (and on the CPU via `@stdlib/gpu_emu`); the runtime core is formally verified (CBMC + TLA+); the sandbox is hardened (spawned tasks inherit it, raw pointers gated); and Linux/ARM64 (aarch64) is now tested in CI and shipped as a release artifact.
 - **v2.12.0 JSON Schema + channel core consolidation** - `@stdlib/json_schema` adds pure-Hemlock JSON Schema Draft 7 validation. Channels share one queueing core across both backends, `select()` is blocking instead of polling, and there is one spawn path per backend. Type annotations `channel`/`task`/`file` now work on both backends, and `hemlockc` converts typed parameters to their declared type.
