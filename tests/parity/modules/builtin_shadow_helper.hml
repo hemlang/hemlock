@@ -1,0 +1,22 @@
+// Helper for builtin_shadow_per_module.hml: this module calls the builtins
+// that the entry file shadows with its own top-level functions.
+export fn uses_builtin_join() {
+    let t = spawn(async fn() { return 41; });
+    return join(t) + 1;
+}
+
+export fn uses_builtin_typeof() {
+    return typeof(1);
+}
+
+export fn uses_builtin_print_value() {
+    let p = print;
+    p("print from the helper module");
+    return "called";
+}
+
+// A module-private function shadows the builtin inside this module only.
+fn sleep(a, b) { return a * b; }
+export fn uses_own_sleep() {
+    return sleep(3, 4);
+}
