@@ -5,17 +5,35 @@
 
 // ========== CURRENT SOURCE FILE TRACKING ==========
 
-static char *current_source_file = NULL;
+static const char *current_source_file = NULL;
 static char *current_source_code = NULL;
 
+// File names are interned: call frames (CallFrame.source_file) and
+// ctx->current_source_file keep the pointer returned by
+// get_current_source_file(), and a stack preserved for an uncaught exception
+// outlives the module that was current when it was pushed. The table holds
+// one copy per distinct file for the life of the process.
+static char **interned_files = NULL;
+static int interned_count = 0;
+static pthread_mutex_t interned_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static const char *intern_source_file(const char *file) {
+    pthread_mutex_lock(&interned_lock);
+    for (int i = 0; i < interned_count; i++) {
+        if (strcmp(interned_files[i], file) == 0) {
+            pthread_mutex_unlock(&interned_lock);
+            return interned_files[i];
+        }
+    }
+    interned_files = hml_xrealloc((void *)interned_files, sizeof(char *) * (size_t)(interned_count + 1));
+    interned_files[interned_count] = hml_xstrdup(file);
+    const char *out = interned_files[interned_count++];
+    pthread_mutex_unlock(&interned_lock);
+    return out;
+}
+
 void set_current_source_file(const char *file) {
-    if (current_source_file) {
-        free(current_source_file);
-        current_source_file = NULL;
-    }
-    if (file) {
-        current_source_file = hml_xstrdup(file);
-    }
+    current_source_file = file ? intern_source_file(file) : NULL;
 }
 
 const char* get_current_source_file(void) {

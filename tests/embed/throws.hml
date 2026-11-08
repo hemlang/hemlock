@@ -1,0 +1,3 @@
+// Imported by test_embed.c: its top level throws
+export let v = 1;
+throw "module init failed";

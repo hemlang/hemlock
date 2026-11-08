@@ -259,7 +259,8 @@ BUILD_DIRS = $(BUILD_DIR) \
              $(BUILD_DIR)/tools/lsp \
              $(BUILD_DIR)/tools/bundler \
              $(BUILD_DIR)/tools/formatter \
-             $(BUILD_DIR)/modules
+             $(BUILD_DIR)/modules \
+             $(BUILD_DIR)/embed
 
 all: $(BUILD_DIRS) $(TARGET) compiler
 
@@ -315,6 +316,35 @@ test-wasm-context: $(INTERP_OBJS) $(LIBTOOLS) $(LIBCOMMON)
 		-o $(TEST_WASM_CTX_BIN) $(LDFLAGS)
 	@echo "Running persistent context API test..."
 	@$(HML_TIMEOUT) 30 $(TEST_WASM_CTX_BIN)
+
+# ========== EMBEDDING LIBRARY (include/hemlock_embed.h) ==========
+# libhemlock_embed.a: the interpreter without its main(), plus the embedding
+# API. Hosts link it with $(make -s embed-ldflags). Objects are built the
+# same way as the interpreter's; on toolchains that do not default to PIE,
+# add EXTRA_CFLAGS=-fPIC to link the archive into a shared object.
+EMBED_SRCS = $(SRC_DIR)/embed/embed.c
+EMBED_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(EMBED_SRCS))
+EMBED_LIB = $(BUILD_DIR)/libhemlock_embed.a
+EMBED_ARCHIVE_OBJS = $(EMBED_OBJS) $(TEST_WASM_CTX_OBJS) $(TOOL_OBJS) $(COMMON_OBJS)
+
+.PHONY: embed embed-ldflags test-embed
+embed: $(EMBED_LIB)
+
+$(EMBED_LIB): $(EMBED_ARCHIVE_OBJS)
+	@rm -f $@
+	ar rcs $@ $^
+
+embed-ldflags:
+	@echo $(LDFLAGS)
+
+TEST_EMBED_SRC = tests/embed/test_embed.c
+TEST_EMBED_BIN = $(BUILD_DIR)/test_embed
+
+test-embed: $(EMBED_LIB)
+	@echo "Building embedding API test..."
+	@$(CC) $(CFLAGS) $(TEST_EMBED_SRC) $(EMBED_LIB) -o $(TEST_EMBED_BIN) $(LDFLAGS)
+	@echo "Running embedding API test..."
+	@cd tests/embed && $(abspath $(HML_TIMEOUT)) 60 $(abspath $(TEST_EMBED_BIN))
 
 # Stress test for the shared channel core (producers/consumers/select under
 # load, leak and double-release accounting). TSAN=1 builds it under
@@ -1052,7 +1082,7 @@ test-memory: compiler
 
 # Run all test suites
 .PHONY: test-all
-test-all: test test-compiler test-borrow test-lint test-names test-task-errors test-stdin-exit test-builtin-sync parity test-contracts test-bundler test-lsp test-memory test-chan-core test-formatter test-cli test-sandbox test-check docs-check
+test-all: test test-compiler test-embed test-borrow test-lint test-names test-task-errors test-stdin-exit test-builtin-sync parity test-contracts test-bundler test-lsp test-memory test-chan-core test-formatter test-cli test-sandbox test-check docs-check
 
 # ========== RELEASE BUILD ==========
 
