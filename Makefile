@@ -1153,6 +1153,9 @@ ifeq ($(shell uname),Darwin)
     ifeq ($(HAS_LIBWEBSOCKETS),1)
         ifneq ($(BREW_LIBWEBSOCKETS),)
             STATIC_LDFLAGS += $(BREW_LIBWEBSOCKETS)/lib/libwebsockets.a
+            # libwebsockets >= 5.1 resolves DNS servers through SystemConfiguration
+            # (apple-resolv.c); a dylib brings these in itself, a static archive can't
+            STATIC_LDFLAGS += -framework CoreFoundation -framework SystemConfiguration
         else
             STATIC_LDFLAGS += -lwebsockets
         endif
