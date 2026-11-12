@@ -12,8 +12,8 @@ make -C runtime -j4
 # hemlockc --runtime expects the archive at the runtime directory root.
 ln -sf build/libhemlock_runtime.a runtime/libhemlock_runtime.a
 ./hemlockc --runtime "$PWD/runtime" \
-  tests/stdlib_websocket/native_websocket_churn.hml -o /tmp/ws-churn
-python3 tests/stdlib_websocket/run_native_websocket_churn.py \
+  tests/websocket_churn/native_websocket_churn.hml -o /tmp/ws-churn
+python3 tests/websocket_churn/run_native_websocket_churn.py \
   --server-exe /tmp/ws-churn --output /tmp/ws-churn-results \
   --rounds 30 --hold-seconds 2
 ```

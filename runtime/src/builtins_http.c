@@ -1776,6 +1776,7 @@ typedef struct hml_ws_connection {
     int owns_memory;
     struct hml_ws_connection *server_next;
     _Atomic int close_requested; /* server side: close() called, lws not told yet */
+    int close_timer_set;         /* service thread only: the flush-then-close deadline is armed */
 } hml_ws_connection_t;
 
 /* All writes belong to the lws service thread. Producers only copy into
@@ -1820,6 +1821,16 @@ static int hml_ws_enqueue(hml_ws_connection_t *conn, const void *data,
     lws_cancel_service(conn->context);
     pthread_mutex_unlock(&hml_ws_send_mutex);
     return 0;
+}
+
+#define HML_WS_CLOSE_FLUSH_S 5      /* server: seconds close() waits for queued sends */
+#define HML_WS_CLIENT_DRAIN_MS 1000 /* client: ms close() waits for queued sends */
+
+static int hml_ws_send_empty(hml_ws_connection_t *conn) {
+    pthread_mutex_lock(&hml_ws_send_mutex);
+    int empty = conn->send_head == NULL;
+    pthread_mutex_unlock(&hml_ws_send_mutex);
+    return empty;
 }
 
 /* Called only from *_WRITEABLE; one write per callback. lws owns any
@@ -2039,12 +2050,19 @@ static int hml_ws_server_callback(struct lws *wsi, enum lws_callback_reasons rea
             break;
 
         case LWS_CALLBACK_SERVER_WRITEABLE:
-            if (conn && conn->close_requested) {
+            if (!conn) break;
+            if (conn->close_requested && !conn->close_timer_set) {
+                /* What was sent before close() still goes out first, within a deadline. */
+                conn->close_timer_set = 1;
+                lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, HML_WS_CLOSE_FLUSH_S);
+            }
+            if (hml_ws_flush_one(conn, wsi) < 0) return -1;
+            if (conn->close_requested && hml_ws_send_empty(conn)) {
                 conn->close_requested = 0;
                 lws_close_reason(wsi, LWS_CLOSE_STATUS_NORMAL, NULL, 0);
                 return -1; /* lws sends the close frame and drops the connection */
             }
-            if (conn && hml_ws_flush_one(conn, wsi) < 0) return -1;
+            if (conn->close_requested) lws_callback_on_writable(wsi);
             break;
 
         case LWS_CALLBACK_CLOSED:
@@ -2279,8 +2297,10 @@ HmlValue hml_lws_ws_recv(HmlValue conn_val, HmlValue timeout_val) {
         }
         pthread_mutex_unlock(&hml_ws_send_mutex);
 
-        usleep(10000);  // 10ms sleep
+        /* Closed only once the queue is empty: a message and the close frame
+         * can both arrive during one sleep, and the message still counts. */
         if (conn->closed) return hml_val_null();
+        usleep(10000);  // 10ms sleep
         if (iterations > 0) iterations--;
     }
 
@@ -2374,10 +2394,19 @@ HmlValue hml_lws_ws_close(HmlValue conn_val) {
          * wake-up arrives as LWS_CALLBACK_EVENT_WAIT_CANCELLED, which requests
          * a writeable callback, and returning -1 from that sends the close
          * frame. */
-        if (!conn->has_own_thread && !conn->closed) {
+        int server_side = !conn->has_own_thread;
+        if (server_side && !conn->closed) {
             conn->close_requested = 1;
             if (conn->context) {
                 lws_cancel_service(conn->context);
+            }
+        }
+        /* A client's queued sends go out before its thread stops: what was sent
+         * before close() is delivered, as it was when sends wrote directly. */
+        if (!server_side && conn->established && !conn->closed && !conn->failed) {
+            for (int waited = 0; waited < HML_WS_CLIENT_DRAIN_MS && !conn->closed && !hml_ws_send_empty(conn); waited++) {
+                lws_cancel_service(conn->context);
+                usleep(1000);
             }
         }
 
@@ -2410,7 +2439,8 @@ HmlValue hml_lws_ws_close(HmlValue conn_val) {
         conn->recv_bytes = 0;
         pthread_mutex_unlock(&hml_ws_send_mutex);
 
-        hml_ws_send_clear(conn);
+        /* A server connection's queue is its service thread's to flush and free. */
+        if (!server_side) hml_ws_send_clear(conn);
 
         if (conn->has_own_thread && conn->context) {
             lws_context_destroy(conn->context);
