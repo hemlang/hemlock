@@ -324,6 +324,7 @@ Side-effect imports (no bindings, module top-level runs): `import "./suite.hml";
 | `iter` | Iterator utilities |
 | `jinja` | Jinja2-compatible template rendering |
 | `json` | parse, stringify, pretty, get, set |
+| `json_schema` | JSON Schema Draft 7 subset: validate, is_valid, schema builders |
 | `logging` | Logger with levels |
 | `math` | sin, cos, sqrt, pow, rand, PI, E |
 | `matrix` | Dense matrix operations (add, multiply, transpose, determinant, inverse) |
@@ -410,7 +411,7 @@ hemlock/
 │   └── docs/             # Module documentation
 ├── include/              # C header files (hemlock_limits.h, etc.)
 ├── docs/                 # Full documentation
-├── tests/                # 978+ tests
+├── tests/                # Test suites (see Testing)
 ├── examples/             # Example programs
 ├── benchmark/            # Benchmarks
 ├── editors/              # Editor integrations
