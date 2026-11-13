@@ -131,7 +131,9 @@ echo ""
 #                       and asserts exit codes; one fixture exits 2 by design)
 #   embed             - make test-embed (fixtures for the C embedding API; one
 #                       throws at module init by design)
-TEST_FILES=$(find "$TEST_DIR" -name "*.hml" -not -path "*/compiler/*" -not -path "*/parity/*" -not -path "*/contracts/*" -not -path "*/formatter/*" -not -path "*/lint/*" -not -path "*/check/*" -not -path "*/sandbox/*" -not -path "*/names/*" -not -path "*/task_errors/*" -not -path "*/stdin_exit/*" -not -path "*/embed/*" | sort)
+#   websocket_churn   - run_native_websocket_churn.py (a compiled server fixture
+#                       that serves until its runner stops it)
+TEST_FILES=$(find "$TEST_DIR" -name "*.hml" -not -path "*/compiler/*" -not -path "*/parity/*" -not -path "*/contracts/*" -not -path "*/formatter/*" -not -path "*/lint/*" -not -path "*/check/*" -not -path "*/sandbox/*" -not -path "*/names/*" -not -path "*/task_errors/*" -not -path "*/stdin_exit/*" -not -path "*/embed/*" -not -path "*/websocket_churn/*" | sort)
 
 CURRENT_CATEGORY=""
 for test_file in $TEST_FILES; do

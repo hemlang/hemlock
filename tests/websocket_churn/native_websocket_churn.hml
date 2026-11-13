@@ -1,0 +1,34 @@
+// Compile this fixture and drive it with run_native_websocket_churn.py.
+// Uses only stdlib: no game protocol, compression, credentials or packages.
+import { WebSocketServer } from "@stdlib/websocket";
+import { getenv } from "@stdlib/env";
+import { sleep } from "@stdlib/time";
+
+async fn stream(conn) {
+    let tick = 0;
+    while (!conn.closed) {
+        conn.recv(1);
+        if (conn.closed) { break; }
+        tick = tick + 1;
+        let payload = buffer(36979);
+        for (let i = 0; i < 4; i++) {
+            payload.write_u8(i, (tick >> (i * 8)) & 255);
+        }
+        for (let i = 4; i < payload.length; i++) {
+            payload.write_u8(i, (i - 4) % 255);
+        }
+        if (!conn.send_binary(payload)) { break; }
+        sleep(0.1);
+    }
+    conn.close();
+}
+
+let port = 40428;
+let override = getenv("HEMLOCK_WS_TEST_PORT");
+if (override != null && override != "") { port = integer(number(override)); }
+let server = WebSocketServer("127.0.0.1", port);
+print("native_websocket_churn READY");
+while (true) {
+    let conn = server.accept(100);
+    if (conn != null) { spawn(stream, conn); }
+}

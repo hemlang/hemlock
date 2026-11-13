@@ -23,6 +23,7 @@
 #ifdef HML_HAVE_LIBWEBSOCKETS
 
 #include <libwebsockets.h>
+#include <stdatomic.h>
 #include <unistd.h>
 
 
@@ -1757,23 +1758,102 @@ typedef struct hml_ws_message {
 } hml_ws_message_t;
 
 // WebSocket connection structure
-typedef struct {
+typedef struct hml_ws_connection {
     struct lws_context *context;
     struct lws *wsi;
     hml_ws_message_t *msg_queue_head;
     hml_ws_message_t *msg_queue_tail;
-    int closed;
-    int failed;
-    int established;
-    char *send_buffer;
-    size_t send_len;
-    int send_pending;
+    size_t recv_bytes;
+    _Atomic int closed;
+    _Atomic int failed;
+    _Atomic int established;
+    hml_ws_message_t *send_head;
+    hml_ws_message_t *send_tail;
+    size_t send_bytes;
     pthread_t service_thread;
-    volatile int shutdown;
+    _Atomic int shutdown;
     int has_own_thread;
     int owns_memory;
-    volatile int close_requested; /* server side: close() called, lws not told yet */
+    struct hml_ws_connection *server_next;
+    _Atomic int close_requested; /* server side: close() called, lws not told yet */
+    int close_timer_set;         /* service thread only: the flush-then-close deadline is armed */
 } hml_ws_connection_t;
+
+/* All writes belong to the lws service thread. Producers only copy into
+ * a bounded FIFO and use the documented cross-thread wakeup operation. */
+static pthread_mutex_t hml_ws_send_mutex = PTHREAD_MUTEX_INITIALIZER;
+#define HML_WS_SEND_LIMIT (8u * 1024u * 1024u)
+
+static void hml_ws_send_clear(hml_ws_connection_t *conn) {
+    pthread_mutex_lock(&hml_ws_send_mutex);
+    hml_ws_message_t *msg = conn->send_head;
+    conn->send_head = conn->send_tail = NULL;
+    conn->send_bytes = 0;
+    while (msg) {
+        hml_ws_message_t *next = msg->next;
+        free(msg->data);
+        free(msg);
+        msg = next;
+    }
+    pthread_mutex_unlock(&hml_ws_send_mutex);
+}
+
+static int hml_ws_enqueue(hml_ws_connection_t *conn, const void *data,
+                          size_t len, int binary) {
+    if (!conn || len > HML_WS_SEND_LIMIT - (sizeof(hml_ws_message_t) + LWS_PRE + 1)) return -1;
+    hml_ws_message_t *msg = calloc(1, sizeof(*msg));
+    if (!msg) return -1;
+    msg->data = malloc(LWS_PRE + len + 1);
+    if (!msg->data) { free(msg); return -1; }
+    memcpy(msg->data + LWS_PRE, data, len);
+    msg->len = len;
+    msg->is_binary = binary;
+    pthread_mutex_lock(&hml_ws_send_mutex);
+    if (conn->closed || conn->close_requested ||
+        conn->send_bytes > HML_WS_SEND_LIMIT - len - (sizeof(hml_ws_message_t) + LWS_PRE + 1)) {
+        pthread_mutex_unlock(&hml_ws_send_mutex);
+        free(msg->data); free(msg); return -1;
+    }
+    if (conn->send_tail) conn->send_tail->next = msg;
+    else conn->send_head = msg;
+    conn->send_tail = msg;
+    conn->send_bytes += len + sizeof(*msg) + LWS_PRE + 1;
+    lws_cancel_service(conn->context);
+    pthread_mutex_unlock(&hml_ws_send_mutex);
+    return 0;
+}
+
+#define HML_WS_CLOSE_FLUSH_S 5      /* server: seconds close() waits for queued sends */
+#define HML_WS_CLIENT_DRAIN_MS 1000 /* client: ms close() waits for queued sends */
+
+static int hml_ws_send_empty(hml_ws_connection_t *conn) {
+    pthread_mutex_lock(&hml_ws_send_mutex);
+    int empty = conn->send_head == NULL;
+    pthread_mutex_unlock(&hml_ws_send_mutex);
+    return empty;
+}
+
+/* Called only from *_WRITEABLE; one write per callback. lws owns any
+ * partial network buffering after a successful write. */
+static int hml_ws_flush_one(hml_ws_connection_t *conn, struct lws *wsi) {
+    pthread_mutex_lock(&hml_ws_send_mutex);
+    hml_ws_message_t *msg = conn->send_head;
+    if (msg) {
+        conn->send_head = msg->next;
+        if (!conn->send_head) conn->send_tail = NULL;
+        conn->send_bytes -= msg->len + sizeof(*msg) + LWS_PRE + 1;
+    }
+    int more = conn->send_head != NULL;
+    pthread_mutex_unlock(&hml_ws_send_mutex);
+    if (!msg) return 0;
+    int written = lws_write(wsi, msg->data + LWS_PRE, msg->len,
+                           msg->is_binary ? LWS_WRITE_BINARY : LWS_WRITE_TEXT);
+    int failed = written < 0 || (size_t)written < msg->len;
+    free(msg->data); free(msg);
+    if (failed) return -1;
+    if (more) lws_callback_on_writable(wsi);
+    return 0;
+}
 
 // WebSocket server structure
 typedef struct {
@@ -1781,10 +1861,12 @@ typedef struct {
     struct lws *pending_wsi;
     hml_ws_connection_t *pending_conn;
     int port;
-    int closed;
+    _Atomic int closed;
     pthread_t service_thread;
-    volatile int shutdown;
+    _Atomic int shutdown;
     pthread_mutex_t pending_mutex;
+    hml_ws_connection_t *connections;
+    size_t connection_count;
 } hml_ws_server_t;
 
 // Forward declarations for callbacks
@@ -1817,6 +1899,9 @@ static int hml_ws_callback(struct lws *wsi, enum lws_callback_reasons reason,
     hml_ws_connection_t *conn = (hml_ws_connection_t *)user;
 
     switch (reason) {
+        case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
+            lws_callback_on_writable_all_protocol(lws_get_context(wsi), lws_get_protocol(wsi));
+            break;
         case LWS_CALLBACK_CLIENT_ESTABLISHED:
             if (conn) {
                 conn->wsi = wsi;
@@ -1840,36 +1925,46 @@ static int hml_ws_callback(struct lws *wsi, enum lws_callback_reasons reason,
                 msg->is_binary = lws_frame_is_binary(wsi);
                 msg->next = NULL;
 
+                pthread_mutex_lock(&hml_ws_send_mutex);
+                if (conn->closed || len > HML_WS_SEND_LIMIT - sizeof(*msg) - 1 ||
+                    conn->recv_bytes > HML_WS_SEND_LIMIT - len - sizeof(*msg) - 1) {
+                    pthread_mutex_unlock(&hml_ws_send_mutex);
+                    free(msg->data); free(msg); return -1;
+                }
                 if (conn->msg_queue_tail) {
                     conn->msg_queue_tail->next = msg;
                 } else {
                     conn->msg_queue_head = msg;
                 }
                 conn->msg_queue_tail = msg;
+                conn->recv_bytes += len + sizeof(*msg) + 1;
+                pthread_mutex_unlock(&hml_ws_send_mutex);
             }
             break;
 
         case LWS_CALLBACK_CLIENT_WRITEABLE:
-            if (conn && conn->send_pending && conn->send_buffer) {
-                lws_write(wsi, (unsigned char *)conn->send_buffer + LWS_PRE,
-                         conn->send_len, LWS_WRITE_TEXT);
-                free(conn->send_buffer);
-                conn->send_buffer = NULL;
-                conn->send_pending = 0;
-            }
+            if (conn && hml_ws_flush_one(conn, wsi) < 0) return -1;
             break;
 
         case LWS_CALLBACK_CLIENT_CLOSED: /* how lws reports a client connection closing */
         case LWS_CALLBACK_CLOSED:
             if (conn) {
+                pthread_mutex_lock(&hml_ws_send_mutex);
                 conn->closed = 1;
+                conn->wsi = NULL;
+                pthread_mutex_unlock(&hml_ws_send_mutex);
+                hml_ws_send_clear(conn);
             }
             break;
 
         case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
             if (conn) {
+                pthread_mutex_lock(&hml_ws_send_mutex);
                 conn->failed = 1;
                 conn->closed = 1;
+                conn->wsi = NULL;
+                pthread_mutex_unlock(&hml_ws_send_mutex);
+                hml_ws_send_clear(conn);
             }
             break;
 
@@ -1884,7 +1979,8 @@ static int hml_ws_callback(struct lws *wsi, enum lws_callback_reasons reason,
 static int hml_ws_server_callback(struct lws *wsi, enum lws_callback_reasons reason,
                                   void *user, void *in, size_t len) {
     hml_ws_server_t *server = (hml_ws_server_t *)lws_context_user(lws_get_context(wsi));
-    hml_ws_connection_t *conn = (hml_ws_connection_t *)user;
+    hml_ws_connection_t **slot = (hml_ws_connection_t **)user;
+    hml_ws_connection_t *conn = slot ? *slot : NULL;
 
     switch (reason) {
         case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
@@ -1894,6 +1990,15 @@ static int hml_ws_server_callback(struct lws *wsi, enum lws_callback_reasons rea
             break;
 
         case LWS_CALLBACK_ESTABLISHED:
+            /* Bounded stable handles avoid use-after-free in async consumers
+             * when lws destroys its per-session userdata on remote close. */
+            if (!server || !slot || server->connection_count >= 4096) return -1;
+            conn = calloc(1, sizeof(*conn));
+            if (!conn) return -1;
+            *slot = conn;
+            conn->server_next = server->connections;
+            server->connections = conn;
+            server->connection_count++;
             if (conn) {
                 conn->wsi = wsi;
                 conn->context = lws_get_context(wsi);
@@ -1927,33 +2032,53 @@ static int hml_ws_server_callback(struct lws *wsi, enum lws_callback_reasons rea
                 msg->is_binary = lws_frame_is_binary(wsi);
                 msg->next = NULL;
 
+                pthread_mutex_lock(&hml_ws_send_mutex);
+                if (conn->closed || len > HML_WS_SEND_LIMIT - sizeof(*msg) - 1 ||
+                    conn->recv_bytes > HML_WS_SEND_LIMIT - len - sizeof(*msg) - 1) {
+                    pthread_mutex_unlock(&hml_ws_send_mutex);
+                    free(msg->data); free(msg); return -1;
+                }
                 if (conn->msg_queue_tail) {
                     conn->msg_queue_tail->next = msg;
                 } else {
                     conn->msg_queue_head = msg;
                 }
                 conn->msg_queue_tail = msg;
+                conn->recv_bytes += len + sizeof(*msg) + 1;
+                pthread_mutex_unlock(&hml_ws_send_mutex);
             }
             break;
 
         case LWS_CALLBACK_SERVER_WRITEABLE:
-            if (conn && conn->close_requested) {
+            if (!conn) break;
+            if (conn->close_requested && !conn->close_timer_set) {
+                /* What was sent before close() still goes out first, within a deadline. */
+                conn->close_timer_set = 1;
+                lws_set_timeout(wsi, PENDING_TIMEOUT_CLOSE_SEND, HML_WS_CLOSE_FLUSH_S);
+            }
+            if (hml_ws_flush_one(conn, wsi) < 0) return -1;
+            if (conn->close_requested && hml_ws_send_empty(conn)) {
                 conn->close_requested = 0;
                 lws_close_reason(wsi, LWS_CLOSE_STATUS_NORMAL, NULL, 0);
                 return -1; /* lws sends the close frame and drops the connection */
             }
-            if (conn && conn->send_pending && conn->send_buffer) {
-                lws_write(wsi, (unsigned char *)conn->send_buffer + LWS_PRE,
-                         conn->send_len, LWS_WRITE_TEXT);
-                free(conn->send_buffer);
-                conn->send_buffer = NULL;
-                conn->send_pending = 0;
-            }
+            if (conn->close_requested) lws_callback_on_writable(wsi);
             break;
 
         case LWS_CALLBACK_CLOSED:
             if (conn) {
+                pthread_mutex_lock(&hml_ws_send_mutex);
                 conn->closed = 1;
+                conn->wsi = NULL;
+                hml_ws_message_t *msg = conn->msg_queue_head;
+                conn->msg_queue_head = conn->msg_queue_tail = NULL;
+                conn->recv_bytes = 0;
+                while (msg) {
+                    hml_ws_message_t *next = msg->next;
+                    free(msg->data); free(msg); msg = next;
+                }
+                pthread_mutex_unlock(&hml_ws_send_mutex);
+                hml_ws_send_clear(conn);
             }
             break;
 
@@ -2128,68 +2253,18 @@ HmlValue hml_lws_ws_connect(HmlValue url_val) {
 
 // __lws_ws_send_text(conn: ptr, text: string): i32
 HmlValue hml_lws_ws_send_text(HmlValue conn_val, HmlValue text_val) {
-    if (conn_val.type != HML_VAL_PTR || text_val.type != HML_VAL_STRING) {
+    if (conn_val.type != HML_VAL_PTR || text_val.type != HML_VAL_STRING)
         return hml_val_i32(-1);
-    }
-
-    hml_ws_connection_t *conn = (hml_ws_connection_t *)conn_val.as.as_ptr;
-    if (!conn || conn->closed) {
-        return hml_val_i32(-1);
-    }
-
     const char *text = text_val.as.as_string->data;
-    size_t len = strlen(text);
-
-    unsigned char *buf = malloc(LWS_PRE + len);
-    if (!buf) {
-        return hml_val_i32(-1);
-    }
-
-    memcpy(buf + LWS_PRE, text, len);
-    int written = lws_write(conn->wsi, buf + LWS_PRE, len, LWS_WRITE_TEXT);
-    free(buf);
-
-    if (written < 0) {
-        return hml_val_i32(-1);
-    }
-
-    lws_cancel_service(conn->context);
-    return hml_val_i32(0);
+    return hml_val_i32(hml_ws_enqueue(conn_val.as.as_ptr, text, strlen(text), 0));
 }
 
 // __lws_ws_send_binary(conn: ptr, buffer: buffer): i32
 HmlValue hml_lws_ws_send_binary(HmlValue conn_val, HmlValue buffer_val) {
-    if (conn_val.type != HML_VAL_PTR) {
+    if (conn_val.type != HML_VAL_PTR || buffer_val.type != HML_VAL_BUFFER)
         return hml_val_i32(-1);
-    }
-
-    hml_ws_connection_t *conn = (hml_ws_connection_t *)conn_val.as.as_ptr;
-    if (!conn || conn->closed) {
-        return hml_val_i32(-1);
-    }
-
-    if (buffer_val.type != HML_VAL_BUFFER) {
-        return hml_val_i32(-1);
-    }
-
-    HmlBuffer *hbuf = buffer_val.as.as_buffer;
-    size_t len = hbuf->length;
-
-    unsigned char *buf = malloc(LWS_PRE + len);
-    if (!buf) {
-        return hml_val_i32(-1);
-    }
-
-    memcpy(buf + LWS_PRE, hbuf->data, len);
-    int written = lws_write(conn->wsi, buf + LWS_PRE, len, LWS_WRITE_BINARY);
-    free(buf);
-
-    if (written < 0) {
-        return hml_val_i32(-1);
-    }
-
-    lws_cancel_service(conn->context);
-    return hml_val_i32(0);
+    HmlBuffer *buf = buffer_val.as.as_buffer;
+    return hml_val_i32(hml_ws_enqueue(conn_val.as.as_ptr, buf->data, buf->length, 1));
 }
 
 // __lws_ws_recv(conn: ptr, timeout_ms: i32): ptr
@@ -2200,7 +2275,7 @@ HmlValue hml_lws_ws_recv(HmlValue conn_val, HmlValue timeout_val) {
 
     hml_ws_connection_t *conn = (hml_ws_connection_t *)conn_val.as.as_ptr;
     /* a closed connection still delivers what it received first */
-    if (!conn || (conn->closed && !conn->msg_queue_head)) {
+    if (!conn) {
         return hml_val_null();
     }
 
@@ -2208,18 +2283,24 @@ HmlValue hml_lws_ws_recv(HmlValue conn_val, HmlValue timeout_val) {
     int iterations = timeout_ms > 0 ? (timeout_ms / 10) : -1;
 
     while (iterations != 0) {
+        pthread_mutex_lock(&hml_ws_send_mutex);
         if (conn->msg_queue_head) {
             hml_ws_message_t *msg = conn->msg_queue_head;
             conn->msg_queue_head = msg->next;
+            conn->recv_bytes -= msg->len + sizeof(*msg) + 1;
             if (!conn->msg_queue_head) {
                 conn->msg_queue_tail = NULL;
             }
             msg->next = NULL;
+            pthread_mutex_unlock(&hml_ws_send_mutex);
             return hml_val_ptr(msg);
         }
+        pthread_mutex_unlock(&hml_ws_send_mutex);
 
+        /* Closed only once the queue is empty: a message and the close frame
+         * can both arrive during one sleep, and the message still counts. */
+        if (conn->closed) return hml_val_null();
         usleep(10000);  // 10ms sleep
-        if (conn->closed && !conn->msg_queue_head) return hml_val_null();
         if (iterations > 0) iterations--;
     }
 
@@ -2313,10 +2394,19 @@ HmlValue hml_lws_ws_close(HmlValue conn_val) {
          * wake-up arrives as LWS_CALLBACK_EVENT_WAIT_CANCELLED, which requests
          * a writeable callback, and returning -1 from that sends the close
          * frame. */
-        if (!conn->has_own_thread && conn->wsi && !conn->closed) {
+        int server_side = !conn->has_own_thread;
+        if (server_side && !conn->closed) {
             conn->close_requested = 1;
             if (conn->context) {
                 lws_cancel_service(conn->context);
+            }
+        }
+        /* A client's queued sends go out before its thread stops: what was sent
+         * before close() is delivered, as it was when sends wrote directly. */
+        if (!server_side && conn->established && !conn->closed && !conn->failed) {
+            for (int waited = 0; waited < HML_WS_CLIENT_DRAIN_MS && !conn->closed && !hml_ws_send_empty(conn); waited++) {
+                lws_cancel_service(conn->context);
+                usleep(1000);
             }
         }
 
@@ -2336,6 +2426,7 @@ HmlValue hml_lws_ws_close(HmlValue conn_val) {
             pthread_join(conn->service_thread, NULL);
         }
 
+        pthread_mutex_lock(&hml_ws_send_mutex);
         hml_ws_message_t *msg = conn->msg_queue_head;
         while (msg) {
             hml_ws_message_t *next = msg->next;
@@ -2345,10 +2436,11 @@ HmlValue hml_lws_ws_close(HmlValue conn_val) {
         }
         conn->msg_queue_head = NULL; /* recv may still look at the queue */
         conn->msg_queue_tail = NULL;
+        conn->recv_bytes = 0;
+        pthread_mutex_unlock(&hml_ws_send_mutex);
 
-        if (conn->send_buffer) {
-            free(conn->send_buffer);
-        }
+        /* A server connection's queue is its service thread's to flush and free. */
+        if (!server_side) hml_ws_send_clear(conn);
 
         if (conn->has_own_thread && conn->context) {
             lws_context_destroy(conn->context);
@@ -2398,7 +2490,7 @@ HmlValue hml_lws_ws_server_create(HmlValue host_val, HmlValue port_val) {
     info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT | LWS_SERVER_OPTION_ALLOW_LISTEN_SHARE;
 
     static const struct lws_protocols server_protocols[] = {
-        { "ws", hml_ws_server_callback, sizeof(hml_ws_connection_t), 4096, 0, NULL, 0 },
+        { "ws", hml_ws_server_callback, sizeof(hml_ws_connection_t *), 4096, 0, NULL, 0 },
         { NULL, NULL, 0, 0, 0, NULL, 0 }
     };
     info.protocols = server_protocols;
@@ -2487,6 +2579,18 @@ HmlValue hml_lws_ws_server_close(HmlValue server_val) {
         pthread_mutex_destroy(&server->pending_mutex);
         if (server->context) {
             lws_context_destroy(server->context);
+        }
+        hml_ws_connection_t *conn = server->connections;
+        while (conn) {
+            hml_ws_connection_t *next = conn->server_next;
+            hml_ws_send_clear(conn);
+            hml_ws_message_t *msg = conn->msg_queue_head;
+            while (msg) {
+                hml_ws_message_t *next_msg = msg->next;
+                free(msg->data); free(msg); msg = next_msg;
+            }
+            free(conn);
+            conn = next;
         }
         free(server);
     }
