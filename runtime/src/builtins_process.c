@@ -971,13 +971,16 @@ HmlValue hml_unsetenv(HmlValue name) {
 #ifdef _WIN32
 // kill(pid, sig): sig 0 probes existence; other signals terminate via
 // TerminateProcess with exit code 128+sig (Windows cannot deliver
-// signals). Mirrors the POSIX impl below: returns 0 / -1.
+// signals). Mirrors the POSIX impl below: null on success, throws the
+// failure message, matching the interpreter.
 HmlValue hml_kill(HmlValue pid, HmlValue sig) {
     int p = hml_to_i32(pid);
     int s = hml_to_i32(sig);
     char errmsg[256];
-    int rc = hml_win32_kill(p, s, errmsg, sizeof(errmsg));
-    return hml_val_i32(rc == 0 ? 0 : -1);
+    if (hml_win32_kill(p, s, errmsg, sizeof(errmsg)) != 0) {
+        hml_runtime_error("kill(%d, %d) failed: %s", p, s, errmsg);
+    }
+    return hml_val_null();
 }
 
 HML_WIN32_PROCESS_STUB_0(fork, "fork()")
@@ -1004,11 +1007,17 @@ HmlValue hml_waitpid(HmlValue pid, HmlValue options) {
     return obj;
 }
 #else
+// kill(pid, sig): returns null on success and throws
+// "kill(<pid>, <sig>) failed: <errno message>" when kill(2) fails, the same
+// as the interpreter — a failed signal is an exception in both backends, not
+// a -1 the caller has to test for.
 HmlValue hml_kill(HmlValue pid, HmlValue sig) {
     int p = hml_to_i32(pid);
     int s = hml_to_i32(sig);
-    int result = kill(p, s);
-    return hml_val_i32(result);
+    if (kill(p, s) != 0) {
+        hml_runtime_error("kill(%d, %d) failed: %s", p, s, strerror(errno));
+    }
+    return hml_val_null();
 }
 
 HmlValue hml_fork(void) {
