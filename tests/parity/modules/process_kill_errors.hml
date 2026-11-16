@@ -1,0 +1,23 @@
+// kill() must behave the same in both backends when kill(2) fails: throw
+// "kill(<pid>, <sig>) failed: <errno message>" and return null on success.
+// The compiler used to return -1 instead of throwing, so a
+// `try { kill(pid, 0) } catch` liveness check reported every pid as alive
+// (issue #692).
+//
+// An invalid signal number is used for the failure case because it fails
+// deterministically; a dead pid would depend on the host's pid space and on
+// the kernel not having recycled the pid.
+import { kill, get_pid } from "@stdlib/process";
+
+// Success: no throw, and the call evaluates to null in both backends.
+let r = kill(get_pid(), 0);
+print(typeof(r));
+
+// Failure: throws. The message carries this process's pid, so match on the
+// stable part rather than printing it.
+try {
+    kill(get_pid(), 64738);
+    print("invalid signal: did not throw");
+} catch (e) {
+    print(e.contains("failed: Invalid argument"));
+}

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Compiled `kill()` returned `-1` on failure instead of throwing** (#692). When `kill(2)` failed, a `hemlockc`-built binary returned `-1` and carried on while the interpreter threw `kill(<pid>, <sig>) failed: <errno message>`, so a `try { kill(pid, 0) } catch` liveness check reported every pid as alive once compiled. Both backends now throw on failure and return `null` on success, as `stdlib/docs/process.md` documents.
 - **Call-stack frames could point at a freed file name.** A frame records the current source file, which `set_current_source_file()` freed and replaced on every module switch, so a stack preserved for an uncaught exception read freed memory once execution had moved to another module. File names are now interned for the life of the process.
 
 ## [2.15.0] - 2026-11-07
