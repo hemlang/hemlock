@@ -309,8 +309,18 @@ int values_equal(Value a, Value b) {
         case VAL_PTR: return a.as.as_ptr == b.as.as_ptr;
         case VAL_OBJECT: return a.as.as_object == b.as.as_object;
         case VAL_ARRAY: return a.as.as_array == b.as.as_array;
+        // Remaining heap values compare by reference, matching ==
+        case VAL_BUFFER: return a.as.as_buffer == b.as.as_buffer;
+        case VAL_FUNCTION: return a.as.as_function == b.as.as_function;
+        case VAL_BUILTIN_FN: return a.as.as_builtin_fn == b.as.as_builtin_fn;
+        case VAL_FFI_FUNCTION: return a.as.as_ffi_function == b.as.as_ffi_function;
+        case VAL_TASK: return a.as.as_task == b.as.as_task;
+        case VAL_CHANNEL: return a.as.as_channel == b.as.as_channel;
+        case VAL_FILE: return a.as.as_file == b.as.as_file;
+        case VAL_SOCKET: return a.as.as_socket == b.as.as_socket;
+        case VAL_WEBSOCKET: return a.as.as_websocket == b.as.as_websocket;
         case VAL_NULL: return 1;
-        default: return 0;  // Functions and other types never compare equal
+        default: return 0;
     }
 }
 
