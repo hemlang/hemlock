@@ -212,6 +212,7 @@ ExecutionContext* exec_context_new(void) {
     ctx->return_state.return_value = val_null();
     ctx->loop_state.is_breaking = 0;
     ctx->loop_state.is_continuing = 0;
+    ctx->loop_state.target_label = NULL;
     ctx->exception_state.is_throwing = 0;
     ctx->exception_state.exception_value = val_null();
     ctx->max_stack_depth = DEFAULT_MAX_STACK_DEPTH;
