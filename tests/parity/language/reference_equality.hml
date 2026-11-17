@@ -1,0 +1,60 @@
+// == and != on heap values of the same type compare by reference (identity).
+// Previously anything other than objects threw "Binary operation requires
+// numeric operands" (interpreter) / "Cannot perform numeric operation"
+// (compiler), which also broke @stdlib/testing's to_equal on objects with
+// method or closure fields.
+
+// Arrays
+let a = [1, 2, 3];
+let a2 = a;
+print(a == a);
+print(a == a2);
+print(a == [1, 2, 3]);
+print(a != [1, 2, 3]);
+print(a != a2);
+
+// Functions and closures
+fn named() { return 1; }
+let f = fn() { return 2; };
+let g = fn() { return 2; };
+let f2 = f;
+print(f == f);
+print(f == f2);
+print(f == g);
+print(f != g);
+print(named == named);
+
+// Objects with method fields: same object, method field compared to itself
+let counter = {
+    count: 0,
+    fn inc() { self.count = self.count + 1; },
+};
+print(counter == counter);
+let m = counter.inc;
+print(m == m);
+
+// Buffers
+let b = buffer(4);
+let b2 = b;
+print(b == b2);
+print(b == buffer(4));
+free(b);
+
+// Channels
+let ch = channel(1);
+let ch2 = channel(1);
+print(ch == ch);
+print(ch == ch2);
+print(ch != ch2);
+
+// Tasks
+async fn work(n: i32): i32 { return n; }
+let t = spawn(work, 1);
+let t2 = t;
+print(t == t2);
+join(t);
+
+// Containers still compare their elements with ==
+let arrs = [a, f, ch];
+print(arrs.contains(a));
+print(arrs.indexOf(ch));

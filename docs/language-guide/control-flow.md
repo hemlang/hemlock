@@ -796,6 +796,17 @@ true == false       // false
 null == null        // true
 ```
 
+Numbers, bools, strings, runes and `ptr` compare by value. Heap values
+(objects, arrays, buffers, functions, tasks, channels, files, sockets)
+compare by reference: `==` is true only for the same instance.
+```hemlock
+let a = [1, 2];
+a == a              // true
+a == [1, 2]         // false (different array)
+let f = fn() {};
+f == f              // true
+```
+
 ### Relational
 
 ```hemlock

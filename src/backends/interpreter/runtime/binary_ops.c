@@ -525,13 +525,29 @@ Value eval_binary_values(BinaryOp op, int line, Value left, Value right, Executi
         }
     }
 
-    // Object comparisons (reference equality)
-    if (left.type == VAL_OBJECT && right.type == VAL_OBJECT) {
-        if (op == OP_EQUAL) {
-            binary_result = val_bool(left.as.as_object == right.as.as_object);
-            goto binary_cleanup;
-        } else if (op == OP_NOT_EQUAL) {
-            binary_result = val_bool(left.as.as_object != right.as.as_object);
+    // Heap values of the same type compare by reference (identity): objects,
+    // arrays, buffers, functions, tasks, channels, files and sockets. Two
+    // distinct arrays with the same elements are not ==; use a deep-equality
+    // helper for structural comparison.
+    if ((op == OP_EQUAL || op == OP_NOT_EQUAL) && left.type == right.type) {
+        int handled = 1;
+        int equal = 0;
+        switch (left.type) {
+            case VAL_OBJECT:       equal = left.as.as_object == right.as.as_object; break;
+            case VAL_ARRAY:        equal = left.as.as_array == right.as.as_array; break;
+            case VAL_BUFFER:       equal = left.as.as_buffer == right.as.as_buffer; break;
+            case VAL_FUNCTION:     equal = left.as.as_function == right.as.as_function; break;
+            case VAL_BUILTIN_FN:   equal = left.as.as_builtin_fn == right.as.as_builtin_fn; break;
+            case VAL_FFI_FUNCTION: equal = left.as.as_ffi_function == right.as.as_ffi_function; break;
+            case VAL_TASK:         equal = left.as.as_task == right.as.as_task; break;
+            case VAL_CHANNEL:      equal = left.as.as_channel == right.as.as_channel; break;
+            case VAL_FILE:         equal = left.as.as_file == right.as.as_file; break;
+            case VAL_SOCKET:       equal = left.as.as_socket == right.as.as_socket; break;
+            case VAL_WEBSOCKET:    equal = left.as.as_websocket == right.as.as_websocket; break;
+            default:               handled = 0; break;
+        }
+        if (handled) {
+            binary_result = val_bool(op == OP_EQUAL ? equal : !equal);
             goto binary_cleanup;
         }
     }
