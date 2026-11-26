@@ -1,0 +1,63 @@
+// Regression test for #694: concurrent TcpStream connects / dns_resolve calls
+// from spawned tasks. The compiled runtime resolved hosts with gethostbyname()
+// (and formatted with inet_ntoa()), both of which return process-wide static
+// storage, so parallel connects clobbered each other's hostent and segfaulted.
+// Uses a local listener only - no external network.
+import { TcpListener, TcpStream, dns_resolve } from "@stdlib/net";
+import { get_pid } from "@stdlib/env";
+
+let THREADS = 8;
+let N = 100;
+let port = 20000 + (get_pid() % 20000);
+
+async fn acceptor(l, expected) {
+    let n = 0;
+    while (n < expected) {
+        let c = l.accept();
+        c.close();
+        n = n + 1;
+    }
+    return n;
+}
+
+async fn connector(id) {
+    let i = 0;
+    while (i < N) {
+        let s = TcpStream("127.0.0.1", port);
+        s.close();
+        i = i + 1;
+    }
+    return id;
+}
+
+async fn resolver(id) {
+    let bad = 0;
+    let i = 0;
+    while (i < N) {
+        if (dns_resolve("localhost") != "127.0.0.1") { bad = bad + 1; }
+        i = i + 1;
+    }
+    return bad;
+}
+
+let l = TcpListener("127.0.0.1", port);
+let a = spawn(acceptor, l, THREADS * N);
+
+let ts = [];
+let rs = [];
+let t = 0;
+while (t < THREADS) {
+    ts.push(spawn(connector, t));
+    rs.push(spawn(resolver, t));
+    t = t + 1;
+}
+
+for (x in ts) { join(x); }
+let bad = 0;
+for (r in rs) { bad = bad + join(r); }
+let accepted = join(a);
+l.close();
+
+print("accepted: " + accepted);
+print("bad resolves: " + bad);
+

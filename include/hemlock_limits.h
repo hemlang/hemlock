@@ -96,6 +96,9 @@
 // Maximum hostname length for network connections
 #define HML_MAX_HOSTNAME_LENGTH 256
 
+// Decimal port string passed to getaddrinfo() (any int fits, sign included)
+#define HML_PORT_STR_BUFFER_SIZE 16
+
 // WebSocket and HTTP buffer sizes
 #define HML_WS_HEADER_BUFFER_SIZE 8192
 #define HML_WS_BODY_BUFFER_SIZE 4096

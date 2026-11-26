@@ -269,24 +269,32 @@ void hml_socket_connect(HmlValue socket_val, HmlValue address, HmlValue port) {
                     addr_str, hml_sock_strerror(hml_sock_errno()));
         }
     } else {
-        struct hostent *host = gethostbyname(addr_str);
-        if (!host) {
-            hml_runtime_error("Failed to resolve hostname '%s'", addr_str);
+        // getaddrinfo, not gethostbyname: gethostbyname returns process-wide
+        // static storage, so concurrent connects from spawned tasks clobber
+        // each other's hostent and crash (issue #694). Mirrors the
+        // interpreter's socket_method_connect (same hints, same messages).
+        struct addrinfo hints, *result = NULL;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = sock->domain;  // AF_INET or AF_INET6
+        hints.ai_socktype = sock->type;
+
+        char port_str[HML_PORT_STR_BUFFER_SIZE];
+        snprintf(port_str, sizeof(port_str), "%d", p);
+
+        int gai_err = getaddrinfo(addr_str, port_str, &hints, &result);
+        if (gai_err != 0 || !result) {
+            if (result) freeaddrinfo(result);
+            hml_runtime_error("Failed to resolve '%s': %s", addr_str,
+                    gai_err != 0 ? gai_strerror(gai_err) : "no addresses");
         }
 
-        if (sock->domain != AF_INET) {
-            hml_runtime_error("Only AF_INET sockets supported currently");
-        }
+        int connect_result = connect(sock->fd, result->ai_addr, (socklen_t)result->ai_addrlen);
+        int connect_errno = hml_sock_errno();
+        freeaddrinfo(result);
 
-        struct sockaddr_in server_addr;
-        memset(&server_addr, 0, sizeof(server_addr));
-        server_addr.sin_family = AF_INET;
-        server_addr.sin_port = htons(p);
-        memcpy(&server_addr.sin_addr.s_addr, host->h_addr_list[0], host->h_length);
-
-        if (connect(sock->fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        if (connect_result < 0) {
             hml_runtime_error("Failed to connect to %s:%d: %s",
-                    addr_str, p, hml_sock_strerror(hml_sock_errno()));
+                    addr_str, p, hml_sock_strerror(connect_errno));
         }
     }
 
@@ -672,25 +680,34 @@ HmlValue hml_dns_resolve(HmlValue hostname_val) {
         hml_runtime_error("dns_resolve() requires a string hostname");
     }
 
-    HmlString *str = hostname_val.as.as_string;
-    // Create null-terminated string
-    char *hostname = malloc(str->length + 1);
-    if (!hostname) {
-        hml_runtime_error("dns_resolve() memory allocation failed");
-    }
-    memcpy(hostname, str->data, str->length);
-    hostname[str->length] = '\0';
+    const char *hostname = hml_to_string_ptr(hostname_val);
 
     hml_platform_init();  // WSAStartup on Windows; no-op elsewhere
-    struct hostent *host = gethostbyname(hostname);
-    free(hostname);
 
-    if (!host) {
-        hml_runtime_error("Failed to resolve hostname");
+    // getaddrinfo + inet_ntop into a local buffer (both thread-safe), not
+    // gethostbyname + inet_ntoa, which share process-wide static storage
+    // (issue #694). Mirrors the interpreter's builtin_dns_resolve: first
+    // IPv4 address, same error messages.
+    struct addrinfo hints, *result = NULL;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    int gai_err = getaddrinfo(hostname, NULL, &hints, &result);
+    if (gai_err != 0 || !result) {
+        if (result) freeaddrinfo(result);
+        hml_runtime_error("Failed to resolve hostname '%s': %s",
+                hostname, gai_err != 0 ? gai_strerror(gai_err) : "no addresses");
     }
 
-    // Return first IPv4 address
-    char *ip = inet_ntoa(*(struct in_addr *)host->h_addr_list[0]);
+    char ip[INET_ADDRSTRLEN];
+    struct sockaddr_in *addr = (struct sockaddr_in *)result->ai_addr;
+    if (!inet_ntop(AF_INET, &addr->sin_addr, ip, sizeof(ip))) {
+        freeaddrinfo(result);
+        hml_runtime_error("Failed to resolve hostname '%s'", hostname);
+    }
+    freeaddrinfo(result);
+
     return hml_val_string(ip);
 }
 
