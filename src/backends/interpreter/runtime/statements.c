@@ -832,7 +832,9 @@ void eval_stmt(Stmt *stmt, Environment *env, ExecutionContext *ctx) {
                     if (was_returning) {
                         VALUE_RELEASE(saved_return);
                     }
-                    if (saved_target_label &&
+                    // The saved label is only owned when a break/continue
+                    // was pending; otherwise it is not ours to free.
+                    if ((was_breaking || was_continuing) && saved_target_label &&
                         saved_target_label != ctx->loop_state.target_label) {
                         free(saved_target_label);
                     }
