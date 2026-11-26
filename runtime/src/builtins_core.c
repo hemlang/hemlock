@@ -548,8 +548,16 @@ int hml_values_equal(HmlValue left, HmlValue right) {
         case HML_VAL_PTR:    return left.as.as_ptr == right.as.as_ptr;
         case HML_VAL_OBJECT: return left.as.as_object == right.as.as_object;
         case HML_VAL_ARRAY:  return left.as.as_array == right.as.as_array;
+        // Remaining heap values compare by reference, matching ==
+        case HML_VAL_BUFFER:     return left.as.as_buffer == right.as.as_buffer;
+        case HML_VAL_FUNCTION:   return left.as.as_function == right.as.as_function;
+        case HML_VAL_BUILTIN_FN: return left.as.as_builtin_fn == right.as.as_builtin_fn;
+        case HML_VAL_TASK:       return left.as.as_task == right.as.as_task;
+        case HML_VAL_CHANNEL:    return left.as.as_channel == right.as.as_channel;
+        case HML_VAL_FILE:       return left.as.as_file == right.as.as_file;
+        case HML_VAL_SOCKET:     return left.as.as_socket == right.as.as_socket;
         case HML_VAL_NULL:   return 1;
-        default:             return 0;  // Functions and other types never compare equal
+        default:             return 0;
     }
 }
 

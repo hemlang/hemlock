@@ -287,9 +287,25 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             int equal = (left.as.as_rune == right.as.as_rune);
             return hml_val_bool(op == HML_OP_EQUAL ? equal : !equal);
         }
-        if (left.type == HML_VAL_OBJECT && right.type == HML_VAL_OBJECT) {
-            int equal = (left.as.as_object == right.as.as_object);
-            return hml_val_bool(op == HML_OP_EQUAL ? equal : !equal);
+        // Heap values of the same type compare by reference (identity).
+        if (left.type == right.type) {
+            int handled = 1;
+            int equal = 0;
+            switch (left.type) {
+                case HML_VAL_OBJECT:     equal = left.as.as_object == right.as.as_object; break;
+                case HML_VAL_ARRAY:      equal = left.as.as_array == right.as.as_array; break;
+                case HML_VAL_BUFFER:     equal = left.as.as_buffer == right.as.as_buffer; break;
+                case HML_VAL_FUNCTION:   equal = left.as.as_function == right.as.as_function; break;
+                case HML_VAL_BUILTIN_FN: equal = left.as.as_builtin_fn == right.as.as_builtin_fn; break;
+                case HML_VAL_TASK:       equal = left.as.as_task == right.as.as_task; break;
+                case HML_VAL_CHANNEL:    equal = left.as.as_channel == right.as.as_channel; break;
+                case HML_VAL_FILE:       equal = left.as.as_file == right.as.as_file; break;
+                case HML_VAL_SOCKET:     equal = left.as.as_socket == right.as.as_socket; break;
+                default:                 handled = 0; break;
+            }
+            if (handled) {
+                return hml_val_bool(op == HML_OP_EQUAL ? equal : !equal);
+            }
         }
         if (left_numeric != right_numeric) {
             // One side numeric, the other not: never equal
@@ -300,9 +316,6 @@ HmlValue hml_binary_op(HmlBinaryOp op, HmlValue left, HmlValue right) {
             return hml_val_bool(op == HML_OP_NOT_EQUAL);
         }
         // Both numeric: fall through to the promoted numeric comparison below.
-        // Both non-numeric of the same type (e.g. array == array): fall
-        // through to the numeric check below, which raises an error - this
-        // matches the interpreter.
     }
 
     // Rune comparison operations (ordering)
